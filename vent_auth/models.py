@@ -7,15 +7,35 @@ import django
 
 class Users(AbstractUser):
     user_id = models.AutoField(primary_key=True, null=False)
-    first_name = models.CharField(max_length=148, null=False)
-    last_name = models.CharField(max_length=148, null=False)
+    full_name = models.CharField(max_length=148, null=False)
     user_email = models.EmailField(unique=True, null=False)
     user_password = models.CharField(max_length=256, null=False)
+
+
+class UserCommunity(models.Model):
+    user_id = models.ForeignKey(Users, on_delete=models.CASCADE, null=False)
+    is_gamer = models.BooleanField(default=False)
+    is_anime_enth = models.BooleanField(default=False)
+
+
+class Genres(models.Model):
+    genre_id = models.AutoField(primary_key=True, null=False)
+    genre_name = models.CharField(max_length=40, null=False)
 
 
 class Games(models.Model):
     game_id = models.AutoField(primary_key=True, null=False)
     game_name = models.CharField(max_length=40, unique=True, null=False)
+
+
+class UserGenre(models.Model):
+    user_id = models.ForiegnKey(Users, on_delete=models.CASCADE, null=False)
+    genre_id = models.ForeignKey(Genres, on_delete=models.CASCADE, null=False)
+
+
+class UserGames(models.Model):
+    user_id = models.ForeignKey(Users, on_delete=models.CASCADE, null=False)
+    game_id = models.ForeignKet(Games, on_delete=models.CASCADE, null=False)
 
 
 class Teams(models.Model):
