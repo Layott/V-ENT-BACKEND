@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="tournaments",
             name="tournament_creation_date",
-            field=models.DateField(default="22222"),
+            field=models.DateField(default="2222-09-12"),
             preserve_default=False,
         ),
     ]
