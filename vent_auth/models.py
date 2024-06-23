@@ -1,29 +1,27 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
-import datetime
-import django
 from django.utils import timezone
-# Create your models here.
-
+import datetime
 
 class Users(AbstractUser):
-    user_id = models.AutoField(primary_key=True, null=False)
-    full_name = models.CharField(max_length=148, null=False)
-    username = models.CharField(max_length=128, unique=True, null=False)
-    email = models.EmailField(unique=True, null=False)
-    password = models.CharField(max_length=256, null=False)
+    user_id = models.AutoField(primary_key=True)
+    full_name = models.CharField(max_length=148)
+    username = models.CharField(max_length=128, unique=True)
+    email = models.EmailField(unique=True)
+    password = models.CharField(max_length=256)
 
     USERNAME_FIELD = 'email'  # Use email for authentication
     REQUIRED_FIELDS = ['username', 'full_name']  # Required fields for creating a superuser
 
     def __str__(self):
         return self.email
-    
+
 
 class UserProfile(models.Model):
-    profile_id = models.AutoField(primary_key=True, null=False)
-    user_id = models.ForeignKey(Users, on_delete=models.CASCADE, null=False)
+    profile_id = models.AutoField(primary_key=True)
+    user = models.ForeignKey(Users, on_delete=models.CASCADE)
     profile_picture = models.ImageField(upload_to='profile_pictures/', null=True, blank=True)
+    date_of_birth = models.DateField(null=True)
 
 
 class VerificationToken(models.Model):
@@ -37,47 +35,82 @@ class VerificationToken(models.Model):
 
 
 class UserCommunity(models.Model):
-    user_id = models.ForeignKey(Users, on_delete=models.CASCADE, null=False)
+    user = models.ForeignKey(Users, on_delete=models.CASCADE)
     is_gamer = models.BooleanField(default=False)
     is_anime_enth = models.BooleanField(default=False)
 
 
 class Genres(models.Model):
-    genre_id = models.AutoField(primary_key=True, null=False)
-    genre_name = models.CharField(max_length=40, null=False)
+    genre_id = models.AutoField(primary_key=True)
+    genre_name = models.CharField(max_length=40)
 
 
 class Games(models.Model):
-    game_id = models.AutoField(primary_key=True, null=False)
-    game_name = models.CharField(max_length=40, unique=True, null=False)
+    game_id = models.AutoField(primary_key=True)
+    game_name = models.CharField(max_length=40, unique=True)
 
 
 class UserGenre(models.Model):
-    user_id = models.ForeignKey(Users, on_delete=models.CASCADE, null=False)
-    genre_id = models.ForeignKey(Genres, on_delete=models.CASCADE, null=False)
+    user = models.ForeignKey(Users, on_delete=models.CASCADE)
+    genre = models.ForeignKey(Genres, on_delete=models.CASCADE)
 
 
 class UserGames(models.Model):
-    user_id = models.ForeignKey(Users, on_delete=models.CASCADE, null=False)
-    game_id = models.ForeignKey(Games, on_delete=models.CASCADE, null=False)
+    user = models.ForeignKey(Users, on_delete=models.CASCADE)
+    game = models.ForeignKey(Games, on_delete=models.CASCADE)
 
 
 class Teams(models.Model):
     team_id = models.AutoField(primary_key=True)
-    team_name = models.CharField(unique=True, max_length=60, null=False)
-    creation_date = models.DateField(default=django.utils.timezone.now, null=False)
-    team_owner_id = models.ForeignKey(Users, on_delete=models.CASCADE, null=False)
-    game_id = models.ForeignKey(Games, on_delete=models.CASCADE, null=False)
-    team_privacy = models.CharField(max_length=7, default="public", null=False)
-    matches = models.IntegerField(default=0, null=False)
+    team_name = models.CharField(unique=True, max_length=60)
+    creation_date = models.DateField(default=timezone.now)
+    team_owner = models.ForeignKey(Users, on_delete=models.CASCADE)
+    game = models.ForeignKey(Games, on_delete=models.CASCADE)
+    team_privacy = models.CharField(max_length=7, default="public")
+    matches = models.IntegerField(default=0)
 
 
 class TeamMembers(models.Model):
     team_member_id = models.AutoField(primary_key=True)
-    team_id = models.ForeignKey(Teams, on_delete=models.CASCADE)
-    user_id = models.ForeignKey(Users, on_delete=models.CASCADE)
+    team = models.ForeignKey(Teams, on_delete=models.CASCADE)
+    user = models.ForeignKey(Users, on_delete=models.CASCADE)
     is_captain = models.BooleanField(default=False)
-    join_date = models.DateField(default=django.utils.timezone.now)
+    join_date = models.DateField(default=timezone.now)
 
 
-    
+class GameAccount(models.Model):
+    game_account_id = models.AutoField(primary_key=True)
+    user = models.ForeignKey(Users, on_delete=models.CASCADE)
+    game = models.ForeignKey(Games, on_delete=models.CASCADE)
+    game_username = models.CharField(max_length=20)
+
+
+class Organization(models.Model):
+    org_id = models.AutoField(primary_key=True)
+    org_name = models.CharField(max_length=148, unique=True)
+    org_creator = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='created_organizations')
+    org_owner = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='owned_organizations')
+
+
+class UserWallet(models.Model):
+    user_wallet_id = models.AutoField(primary_key=True)
+    user = models.OneToOneField(Users, on_delete=models.CASCADE, related_name='wallet')
+    wallet_balance = models.IntegerField(default=0)
+    user_wallet_pin = models.IntegerField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.user.username}'s Wallet"
+
+
+class TeamWallet(models.Model):
+    team_wallet_id = models.AutoField(primary_key=True)
+    team = models.OneToOneField(Teams, on_delete=models.CASCADE, related_name='wallet')
+    wallet_balance = models.IntegerField(default=0)
+    team_wallet_pin = models.IntegerField(null=True, blank=True)
+
+
+class OrgWallet(models.Model):
+    org_wallet_id = models.AutoField(primary_key=True)
+    org = models.OneToOneField(Organization, on_delete=models.CASCADE, related_name='wallet')
+    wallet_balance = models.IntegerField(default=0)
+    org_wallet_pin = models.IntegerField(null=True, blank=True)

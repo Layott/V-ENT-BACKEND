@@ -1,7 +1,8 @@
+import datetime
 from django.shortcuts import render
 from rest_framework.decorators import api_view
 from .serializers import UserSerializer
-from .models import Users, UserCommunity, VerificationToken, UserProfile
+from .models import Users, Games, UserCommunity, VerificationToken, UserProfile, GameAccount, UserWallet
 from rest_framework.response import Response
 from django.contrib.auth.hashers import make_password, check_password
 from rest_framework import status
@@ -18,18 +19,24 @@ import io
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from dj_rest_auth.registration.views import SocialLoginView
 from django.contrib.auth import authenticate
+import logging
+from django.db import transaction
+
 
 # Create your views here.
 
+logger = logging.getLogger(__name__)
 
 class GoogleLogin(SocialLoginView):
     adapter_class = GoogleOAuth2Adapter
 
 
-
 @api_view(['POST'])
 def signup(request):
     email = request.data.get('email')
+    
+    if not email:
+        return Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
     
     # Generate a random 6-digit token
     token = ''.join(random.choices('0123456789', k=6))
@@ -41,18 +48,9 @@ def signup(request):
     )
     
     # Send email with the token
-    # send_mail(
-    #     'Your Verification Token',
-    #     f'Your verification token is {token}. Please use it to verify your account.',
-    #     'habeebmuftau05@gmail.com',  # Replace with your actual "from" email address
-    #     [email],
-    #     fail_silently=False,
-    # )
-
-
     sender_email = 'habeebmuftau05@gmail.com'
     receiver_email = email
-    password = 'jvbe whjo lnwe pwxu'
+    password = 'jvbe whjo lnwe pwxu'  # Use environment variables for sensitive information
     subject = 'Verify Email'
     message = f'''Hi,
 
@@ -60,25 +58,38 @@ def signup(request):
     
     Please use it to verify your account'''
 
-    msg = MIMEMultipart()
-    msg['From'] = sender_email
-    msg['To'] = receiver_email
-    msg['Subject'] = subject
-    msg.attach(MIMEText(message, 'plain'))
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = receiver_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(message, 'plain'))
 
-    server = smtplib.SMTP('smtp.gmail.com', 587)
-    server.starttls()
-    server.login(sender_email, password)
-
-    server.sendmail(sender_email, receiver_email, msg.as_string())
-
-    server.quit()
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(sender_email, password)
+        server.sendmail(sender_email, receiver_email, msg.as_string())
+        server.quit()
+    except Exception as e:
+        logger.error(f"Failed to send email to {email}: {str(e)}")
+        return Response({"error": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
     return Response({"message": "Verification token sent to email"}, status=status.HTTP_200_OK)
+
+
+def create_user_wallet(user):
+    user_wallet = UserWallet.objects.create(user=user)
+    user_wallet.save()
+    return "Wallet created successfully"
+
 
 @api_view(['POST'])
 def verify_token(request):
     email = request.data.get('email')
     token = request.data.get('token')
+    
+    if not email or not token:
+        return Response({"error": "Email and token are required"}, status=status.HTTP_400_BAD_REQUEST)
     
     try:
         verification_token = VerificationToken.objects.get(user_email=email)
@@ -95,7 +106,10 @@ def verify_token(request):
                 user = serializer.save()
                 
                 profile_picture = request.FILES.get('profile_picture')
-                UserProfile.objects.create(user_id=user, profile_picture=profile_picture)
+                UserProfile.objects.create(user=user, profile_picture=profile_picture)
+
+                # Create user wallet
+                create_user_wallet(user=user)
                 
                 # Delete the used token
                 verification_token.delete()
@@ -108,6 +122,10 @@ def verify_token(request):
     
     except VerificationToken.DoesNotExist:
         return Response({"error": "Token does not exist"}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.error(f"Error during token verification for {email}: {str(e)}")
+        return Response({"error": "An error occurred during verification"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
 
 @api_view(['POST'])
 def login(request):
@@ -123,6 +141,211 @@ def login(request):
     else:
         # Authentication failed, return error response
         return Response({'message': 'Invalid username/email or password'}, status=status.HTTP_401_UNAUTHORIZED)
+
+
+@api_view(['POST'])
+def change_fullname(request):
+    user_id = request.data.get('user_id')
+    new_fullname = request.data.get('new_fullname')
+
+    if not user_id or not new_fullname:
+        return Response({'error': 'User ID and new full name are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        with transaction.atomic():
+            user = Users.objects.select_for_update().get(user_id=user_id)
+            user.full_name = new_fullname
+            user.save()
+        return Response({'message': 'Full name changed successfully'}, status=status.HTTP_200_OK)
+    except Users.DoesNotExist:
+        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+def change_username(request):
+    user_id = request.data.get('user_id')
+    new_username = request.data.get('new_username')
+
+    if not user_id or not new_username:
+        return Response({"error": "User ID and new username are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        # Check if the new username is already in use
+        if Users.objects.filter(username=new_username).exists():
+            return Response({"error": "Username already in use"}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            user = Users.objects.select_for_update().get(user_id=user_id)
+            user.username = new_username
+            user.save()
+
+        return Response({'message': 'Username changed successfully'}, status=status.HTTP_200_OK)
+    except Users.DoesNotExist:
+        return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+def change_email(request):
+    user_id = request.data.get('user_id')
+    new_email = request.data.get('new_email')
+
+    if not user_id or not new_email:
+        return Response({"error": "User ID and new email are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    if Users.objects.filter(email=new_email).exists():
+        return Response({"error": "Email already in use"}, status=status.HTTP_400_BAD_REQUEST)
+
+    token = ''.join(random.choices('0123456789', k=6))
+
+    verification_token, created = VerificationToken.objects.update_or_create(
+        user_email=new_email,
+        defaults={'token': token, 'created_at': timezone.now()}
+    )
+
+    sender_email = 'habeebmuftau05@gmail.com'
+    receiver_email = new_email
+    password = 'jvbe whjo lnwe pwxu'
+    subject = 'Verify Email'
+    message = f'''Hi,
+
+Your Verification Token Is: {token}
+
+Please use it to verify your account'''
+
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = receiver_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(message, 'plain'))
+
+    server = smtplib.SMTP('smtp.gmail.com', 587)
+    server.starttls()
+    server.login(sender_email, password)
+    server.sendmail(sender_email, receiver_email, msg.as_string())
+    server.quit()
+
+    return Response({"message": "Verification token sent to email"}, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+def verify_new_email(request):
+    user_id = request.data.get('user_id')
+    new_email = request.data.get('new_email')
+    token = request.data.get('token')
+
+    if not user_id or not new_email or not token:
+        return Response({"error": "User ID, new email, and token are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        verification_token = VerificationToken.objects.get(user_email=new_email)
+        
+        if verification_token.token == token and verification_token.is_valid():
+            with transaction.atomic():
+                user = Users.objects.select_for_update().get(user_id=user_id)
+                user.email = new_email
+                user.save()
+                verification_token.delete()
+
+            return Response({"message": "Email changed successfully"}, status=status.HTTP_200_OK)
+        else:
+            return Response({"error": "Invalid or expired token"}, status=status.HTTP_400_BAD_REQUEST)
+    except VerificationToken.DoesNotExist:
+        return Response({"error": "Token does not exist"}, status=status.HTTP_400_BAD_REQUEST)
+    except Users.DoesNotExist:
+        return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+def add_date_of_birth(request):
+    user_id = request.data.get('user_id')
+    date_of_birth = request.data.get('date_of_birth')
+
+    if not user_id or not date_of_birth:
+        return Response({"error": "User ID and date of birth are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        # Validate date format
+        date_of_birth = datetime.datetime.strptime(date_of_birth, '%Y-%m-%d').date()
+
+        with transaction.atomic():
+            user_profile = UserProfile.objects.select_for_update().get(user_id=user_id)
+            user_profile.date_of_birth = date_of_birth
+            user_profile.save()
+
+        return Response({"message": "Date Of Birth Added Successfully"}, status=status.HTTP_200_OK)
+
+    except UserProfile.DoesNotExist:
+        return Response({"error": "User profile not found"}, status=status.HTTP_404_NOT_FOUND)
+    except ValueError:
+        return Response({"error": "Invalid date format. Use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+def add_game_account(request):
+    user_id = request.data.get('user_id')
+    game_id = request.data.get('game_id')
+    game_username = request.data.get('game_username')
+
+    if not user_id or not game_id or not game_username:
+        return Response({"error": "User ID, game ID, and game username are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        with transaction.atomic():
+            # Ensure the user and game exist
+            user = Users.objects.get(user_id=user_id)
+            game = Games.objects.get(game_id=game_id)
+
+            # Check if the game account already exists
+            if GameAccount.objects.filter(user_id=user_id, game_id=game_id).exists():
+                return Response({"error": "Game account already exists"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Create the game account
+            game_account = GameAccount.objects.create(user_id=user, game_id=game, game_username=game_username)
+            game_account.save()
+
+        return Response({"success": "Game account created successfully"}, status=status.HTTP_201_CREATED)
+
+    except Users.DoesNotExist:
+        return Response({"error": "User does not exist"}, status=status.HTTP_404_NOT_FOUND)
+    except Games.DoesNotExist:
+        return Response({"error": "Game does not exist"}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+def edit_game_account_username(request):
+    user_id = request.data.get('user_id')
+    game_id = request.data.get('game_id')
+    new_game_username = request.data.get('new_game_username')
+
+    if not user_id or not game_id or not new_game_username:
+        return Response({"error": "User ID, game ID, and new game username are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        with transaction.atomic():
+            # Select the game account for update
+            game_account = GameAccount.objects.select_for_update().get(user_id=user_id, game_id=game_id)
+            game_account.game_username = new_game_username
+            game_account.save()
+
+        return Response({"message": "Game account username changed successfully"}, status=status.HTTP_200_OK)
+
+    except GameAccount.DoesNotExist:
+        return Response({"error": "Game account does not exist"}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
 
 
 
