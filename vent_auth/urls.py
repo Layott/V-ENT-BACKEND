@@ -13,5 +13,9 @@ urlpatterns = [
     path('dj-rest-auth/registration/', include('dj_rest_auth.registration.urls')),
     path('accounts/', include('allauth.urls')),
     path('dj-rest-auth/google/', GoogleLogin.as_view(), name='google_login'),
+    path('change-fullname/', change_fullname, name='change_fullname'),
+    path('change-username/', change_username, name='change_username'),
+    path('change-email/', change_email, name='change_email'),
+    path('verify-new-email/', verify_new_email, name='verify_new_email'),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -64,10 +64,23 @@ class Teams(models.Model):
     team_id = models.AutoField(primary_key=True)
     team_name = models.CharField(unique=True, max_length=60)
     creation_date = models.DateField(default=timezone.now)
-    team_owner = models.ForeignKey(Users, on_delete=models.CASCADE)
+    team_creator = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='created_teams')
+    team_owner = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='owned_teams')
     game = models.ForeignKey(Games, on_delete=models.CASCADE)
     team_privacy = models.CharField(max_length=7, default="public")
+
+    def __str__(self):
+        return self.team_name
+
+
+class TeamProfile(models.Model):
+    team_profile_id = models.AutoField(primary_key=True)
+    team = models.OneToOneField(Teams, on_delete=models.CASCADE)
     matches = models.IntegerField(default=0)
+    tournament_played = models.IntegerField(default=0)
+
+    def __str__(self):
+        return f"Profile of {self.team.team_name}"
 
 
 class TeamMembers(models.Model):

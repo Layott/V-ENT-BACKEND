@@ -2,7 +2,7 @@ import datetime
 from django.shortcuts import render
 from rest_framework.decorators import api_view
 from .serializers import UserSerializer
-from .models import Users, Games, UserCommunity, VerificationToken, UserProfile, GameAccount, UserWallet
+from .models import Users, Games, UserCommunity, VerificationToken, UserProfile, GameAccount, UserWallet, Teams, TeamProfile
 from rest_framework.response import Response
 from django.contrib.auth.hashers import make_password, check_password
 from rest_framework import status
@@ -105,8 +105,8 @@ def verify_token(request):
             if serializer.is_valid():
                 user = serializer.save()
                 
-                profile_picture = request.FILES.get('profile_picture')
-                UserProfile.objects.create(user=user, profile_picture=profile_picture)
+                # profile_picture = request.FILES.get('profile_picture')
+                # UserProfile.objects.create(user=user, profile_picture=profile_picture)
 
                 # Create user wallet
                 create_user_wallet(user=user)
@@ -122,9 +122,9 @@ def verify_token(request):
     
     except VerificationToken.DoesNotExist:
         return Response({"error": "Token does not exist"}, status=status.HTTP_400_BAD_REQUEST)
-    except Exception as e:
-        logger.error(f"Error during token verification for {email}: {str(e)}")
-        return Response({"error": "An error occurred during verification"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    # except Exception as e:
+    #     logger.error(f"Error during token verification for {email}: {str(e)}")
+    #     return Response({"error": "An error occurred during verification"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
 
 @api_view(['POST'])
@@ -345,8 +345,40 @@ def edit_game_account_username(request):
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+@api_view(['POST'])
+def create_team(request):
+    user_id = request.data.get('user_id')
+    team_name = request.data.get('team_name')
+    creation_date = request.data.get('creation_date', timezone.now().date())
+    team_privacy = request.data.get('team_privacy', 'public')
+    game_id = request.data.get('game_id')
 
+    # Check if the team name already exists
+    if Teams.objects.filter(team_name=team_name).exists():
+        return Response({"error": "Team name already exists"}, status=status.HTTP_400_BAD_REQUEST)
 
+    try:
+        user = Users.objects.get(user_id=user_id)
+        game = Games.objects.get(game_id=game_id)
+    except Users.DoesNotExist:
+        return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+    except Games.DoesNotExist:
+        return Response({"error": "Game not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    # Create the team
+    team = Teams.objects.create(
+        team_name=team_name,
+        creation_date=creation_date,
+        team_creator=user,
+        team_owner=user,
+        game=game,
+        team_privacy=team_privacy
+    )
+
+    # Create the team profile
+    TeamProfile.objects.create(team=team)
+
+    return Response({"success": "Team created successfully"}, status=status.HTTP_201_CREATED) 
 
 
 @api_view(['POST'])
