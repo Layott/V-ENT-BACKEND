@@ -58,11 +58,13 @@ INSTALLED_APPS = [
     'dj_rest_auth',
     'dj_rest_auth.registration',
     'rest_framework.authtoken',
+    'corsheaders',
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -70,6 +72,10 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     'allauth.account.middleware.AccountMiddleware',
 ]
+
+CORS_ORIGIN_ALLOW_ALL = True
+CORS_ALLOW_CREDENTIALS = True
+
 
 SITE_ID = 1
 
@@ -89,6 +95,14 @@ TEMPLATES = [
             ],
         },
     },
+]
+
+CORS_ALLOWED_ORIGINS = [
+    "*",
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "*",
 ]
 
 WSGI_APPLICATION = "vent.wsgi.application"
