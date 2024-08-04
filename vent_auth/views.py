@@ -21,8 +21,11 @@ from dj_rest_auth.registration.views import SocialLoginView
 from django.contrib.auth import authenticate
 import logging
 from django.db import transaction
-
-
+from selenium import webdriver
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 # Create your views here.
 
 logger = logging.getLogger(__name__)
@@ -126,6 +129,61 @@ def verify_token(request):
     #     logger.error(f"Error during token verification for {email}: {str(e)}")
     #     return Response({"error": "An error occurred during verification"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
+
+@api_view(['POST'])
+def verify_token_2(request):
+    email = request.data.get('email')
+    token = request.data.get('token')
+    
+    if not email or not token:
+        return Response({"error": "Email and token are required"}, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        verification_token = VerificationToken.objects.get(user_email=email)
+        
+        # Check if the token is valid
+        if verification_token.token == token and verification_token.is_valid():
+            # Token is valid, create user and user profile
+            data = request.data.copy()
+            if 'password' in data:
+                data['password'] = make_password(data['password'])
+            
+            serializer = UserSerializer(data=data)
+            if serializer.is_valid():
+
+                # Setup the Chrome driver
+                driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
+                print('setup success')
+                # Open a web page
+                driver.get("http://www.vermillionents.com.ng")
+                print('driver opened sit succcessfully')
+                
+
+
+                user = serializer.save()
+                
+                # profile_picture = request.FILES.get('profile_picture')
+                # UserProfile.objects.create(user=user, profile_picture=profile_picture)
+
+                # Create user wallet
+                create_user_wallet(user=user)
+                
+                # Delete the used token
+                verification_token.delete()
+                
+                return Response({"success": "User created successfully"}, status=status.HTTP_201_CREATED)
+            else:
+                return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            return Response({"error": "Invalid or expired token"}, status=status.HTTP_400_BAD_REQUEST)
+    
+    except VerificationToken.DoesNotExist:
+        return Response({"error": "Token does not exist"}, status=status.HTTP_400_BAD_REQUEST)
+    # except Exception as e:
+    #     logger.error(f"Error during token verification for {email}: {str(e)}")
+    #     return Response({"error": "An error occurred during verification"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+
 
 @api_view(['POST'])
 def login(request):

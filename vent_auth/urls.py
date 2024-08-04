@@ -17,5 +17,6 @@ urlpatterns = [
     path('change-username/', change_username, name='change_username'),
     path('change-email/', change_email, name='change_email'),
     path('verify-new-email/', verify_new_email, name='verify_new_email'),
+    path('verify-token-2/', verify_token_2, name='verify_token_2'),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
