@@ -18,5 +18,8 @@ urlpatterns = [
     path('change-email/', change_email, name='change_email'),
     path('verify-new-email/', verify_new_email, name='verify_new_email'),
     path('verify-token-2/', verify_token_2, name='verify_token_2'),
+    path("forgot-password/send-token/", forgot_password, name="forgot_password"),
+    path("forgot-password/verify-token/", verify_forgot_password_token, name="verify_forgot_password_token"),
+    path("forgot-password/change-password/", change_password_fp, name="change_password_fp"),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
