@@ -669,9 +669,18 @@ def send_code(request):
 def save_username(request):
     email = request.data.get('email')
     username = request.data.get('username')
+    token = request.data.get("token")
 
-    if not email or not username:
-        return Response({"status": "error", "message": "Email and Username are required"}, status=status.HTTP_400_BAD_REQUEST)
+    if not email or not username or not token:
+        return Response({"status": "error", "message": "Email, Username, and Token are required"}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Validate the token
+    try:
+        verification_token = VerificationToken.objects.get(user_email=email)
+        if verification_token.token != token:
+            return Response({"status": "error", "message": "Invalid token"}, status=status.HTTP_400_BAD_REQUEST)
+    except VerificationToken.DoesNotExist:
+        return Response({"status": "error", "message": "No verification token found for this email"}, status=status.HTTP_404_NOT_FOUND)
     
     # Create or update the user
     user, created = Users.objects.update_or_create(
