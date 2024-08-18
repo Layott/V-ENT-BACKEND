@@ -2,9 +2,10 @@ import datetime
 from django.shortcuts import render
 from rest_framework.decorators import api_view
 from .serializers import UserSerializer
-from .models import Users, Games, UserCommunity, VerificationToken, UserProfile, GameAccount, UserWallet, Teams, TeamProfile
+from .models import Users, Games, UserCommunity, VerificationToken, UserProfile, GameAccount, UserWallet, Teams, TeamProfile, TeamWallet, OrgWallet
 from rest_framework.response import Response
 from django.contrib.auth.hashers import make_password, check_password
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import status
 from django.core.mail import send_mail
 from .models import VerificationToken
@@ -268,7 +269,8 @@ def change_email(request):
     receiver_email = new_email
     password = 'jvbe whjo lnwe pwxu'
     subject = 'Verify Email'
-    message = f'''Hi,
+    message = f'''
+Hi,
 
 Your Verification Token Is: {token}
 
@@ -563,3 +565,118 @@ def change_password_fp(request):
     except Exception as e:
         logger.error(f"Failed to change password for {email}: {str(e)}")
         return Response({"status":"error", "message": "An error occurred while changing the password"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(["POST"])
+def send_funds(request):
+    # Extract data from the request
+    sender_id = request.data.get('sender_id')
+    receiver_id = request.data.get('receiver_id')
+    recipient_type = request.data.get('recipient_type')  # 'user', 'team', or 'org'
+    wallet_pin = request.data.get('wallet_pin')
+    amount = request.data.get('amount')
+    
+    # Basic validation
+    if not all([sender_id, receiver_id, recipient_type, wallet_pin, amount]):
+        return Response({'error': 'All fields are required'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        # Fetch sender wallet
+        sender_wallet = UserWallet.objects.get(user_id=sender_id)
+        
+        # Determine the recipient and fetch their wallet
+        if recipient_type == 'user':
+            recipient_wallet = UserWallet.objects.get(user_wallet_id=receiver_id)
+        elif recipient_type == 'team':
+            recipient_wallet = TeamWallet.objects.get(team_wallet_id=receiver_id)
+        elif recipient_type == 'org':
+            recipient_wallet = OrgWallet.objects.get(org_wallet_id=receiver_id)
+        else:
+            return Response({'error': 'Invalid recipient type'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Verify wallet pin
+        if (recipient_type == 'user' and sender_wallet.user_wallet_pin != wallet_pin) or \
+           (recipient_type in ['team', 'org'] and sender_wallet.wallet_pin != wallet_pin):
+            return Response({'error': 'Invalid wallet pin'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if sender has enough balance
+        if sender_wallet.wallet_balance < amount:
+            return Response({'error': 'Insufficient funds'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Perform the transfer
+        sender_wallet.wallet_balance -= amount
+        recipient_wallet.wallet_balance += amount
+        
+        # Save updated wallet balances
+        sender_wallet.save()
+        recipient_wallet.save()
+        
+        return Response({'success': 'Transfer successful'}, status=status.HTTP_200_OK)
+
+    except ObjectDoesNotExist:
+        return Response({'error': 'Sender or recipient wallet not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(["POST"])
+def send_code(request):
+    email = request.data.get('email')
+
+    if not email:
+        return Response({"status": "error", "message": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Generate a random 6-digit token
+    token = ''.join(random.choices('0123456789', k=6))
+    
+    # Create or update the verification token for the user
+    verification_token, created = VerificationToken.objects.update_or_create(
+        user_email=email,
+        defaults={'token': token, 'created_at': timezone.now()}
+    )
+    
+    # Send email with the token
+    sender_email = os.getenv('SENDER_EMAIL')
+    password = os.getenv('EMAIL_PASSWORD')  # Use environment variables for sensitive information
+    receiver_email = email
+    subject = 'Verify Email'
+    message = f'''Hi,
+
+    Your Verification Token Is: {token}
+    
+    Please use it to verify your account'''
+
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = receiver_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(message, 'plain'))
+
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(sender_email, password)
+        server.sendmail(sender_email, receiver_email, msg.as_string())
+        server.quit()
+    except Exception as e:
+        logger.error(f"Failed to send email to {email}: {str(e)}")
+        return Response({"status": "error", "message": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    return Response({"status": "success", "message": "Verification token sent to email"}, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+def save_username(request):
+    email = request.data.get('email')
+    username = request.data.get('username')
+
+    if not email or not username:
+        return Response({"status": "error", "message": "Email and Username are required"}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Create or update the user
+    user, created = Users.objects.update_or_create(
+        email=email,
+        defaults={'username': username}
+    )
+
+    return Response({"status": "success", "message": "Username saved successfully"}, status=status.HTTP_200_OK)

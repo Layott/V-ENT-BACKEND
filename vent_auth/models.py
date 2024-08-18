@@ -5,10 +5,10 @@ import datetime
 
 class Users(AbstractUser):
     user_id = models.AutoField(primary_key=True)
-    full_name = models.CharField(max_length=148)
+    full_name = models.CharField(max_length=148, null=True)
     username = models.CharField(max_length=128, unique=True)
     email = models.EmailField(unique=True)
-    password = models.CharField(max_length=256)
+    password = models.CharField(max_length=256, null=True)
 
     USERNAME_FIELD = 'email'  # Use email for authentication
     REQUIRED_FIELDS = ['username', 'full_name']  # Required fields for creating a superuser
@@ -106,7 +106,7 @@ class Organization(models.Model):
 
 
 class UserWallet(models.Model):
-    user_wallet_id = models.AutoField(primary_key=True)
+    user_wallet_id = models.CharField(primary_key=True, max_length=10)
     user = models.OneToOneField(Users, on_delete=models.CASCADE, related_name='wallet')
     wallet_balance = models.IntegerField(default=0)
     user_wallet_pin = models.IntegerField(null=True, blank=True)
@@ -116,14 +116,14 @@ class UserWallet(models.Model):
 
 
 class TeamWallet(models.Model):
-    team_wallet_id = models.AutoField(primary_key=True)
+    team_wallet_id = models.CharField(primary_key=True, max_length=10)
     team = models.OneToOneField(Teams, on_delete=models.CASCADE, related_name='wallet')
     wallet_balance = models.IntegerField(default=0)
     team_wallet_pin = models.IntegerField(null=True, blank=True)
 
 
 class OrgWallet(models.Model):
-    org_wallet_id = models.AutoField(primary_key=True)
+    org_wallet_id = models.CharField(primary_key=True, max_length=10)
     org = models.OneToOneField(Organization, on_delete=models.CASCADE, related_name='wallet')
     wallet_balance = models.IntegerField(default=0)
     org_wallet_pin = models.IntegerField(null=True, blank=True)
