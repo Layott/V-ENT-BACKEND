@@ -636,8 +636,8 @@ def send_code(request):
     )
     
     # Send email with the token
-    sender_email = os.getenv('SENDER_EMAIL')
-    password = os.getenv('EMAIL_PASSWORD')  # Use environment variables for sensitive information
+    sender_email = 'habeebmuftau05@gmail.com'
+    password = 'jvbe whjo lnwe pwxu'  # Use environment variables for sensitive information
     receiver_email = email
     subject = 'Verify Email'
     message = f'''Hi,
