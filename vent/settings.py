@@ -98,12 +98,13 @@ TEMPLATES = [
 ]
 
 CORS_ALLOWED_ORIGINS = [
-    "*",
+    "https://www.vermillionent.com",
 ]
 
 CSRF_TRUSTED_ORIGINS = [
-    "*",
+    "https://www.vermillionent.com",
 ]
+
 
 WSGI_APPLICATION = "vent.wsgi.application"
 
