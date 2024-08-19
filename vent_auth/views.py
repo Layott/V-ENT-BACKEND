@@ -626,6 +626,10 @@ def send_code(request):
     if not email:
         return Response({"status": "error", "message": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
     
+    # Check if the email is already registered
+    if Users.objects.filter(email=email).exists():
+        return Response({"status": "error", "message": "Account already exists with this email"}, status=status.HTTP_400_BAD_REQUEST)
+    
     # Generate a random 6-digit token
     token = ''.join(random.choices('0123456789', k=6))
     
