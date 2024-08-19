@@ -641,7 +641,7 @@ def send_code(request):
     
     # Send email with the token in HTML format
     sender_email = 'info@vermillionent.com'
-    password = 'JTf7hQPShfMh'  # Use environment variables for sensitive information
+    password = 'jTf7hQPShfMh'  # Use environment variables for sensitive information
     receiver_email = email
     subject = 'Verify Your Email'
     message = f'''
