@@ -686,8 +686,12 @@ def save_username(request):
     except VerificationToken.DoesNotExist:
         return Response({"status": "error", "message": "No verification token found for this email"}, status=status.HTTP_404_NOT_FOUND)
     
-    # Create or update the user
-    user = Users.objects.create(email=email, username=username)
+    # Check if the username is already in use
+    if Users.objects.filter(username=username).exists():
+        return Response({"status": "error", "message": "Username already taken"}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Create User
+    user = Users.object.create(email=email, username=username)
     user.save()
 
     return Response({"status": "success", "message": "Username saved successfully"}, status=status.HTTP_200_OK)
