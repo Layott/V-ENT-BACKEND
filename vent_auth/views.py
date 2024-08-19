@@ -697,5 +697,53 @@ def save_username(request):
     # Create User
     user = Users.objects.create(email=email, username=username)
     user.save()
+    # Send email with the token in HTML format
+    sender_email = 'info@vermillionent.com'
+    password = 'JTf7 hQPS hfMh'  # Use environment variables for sensitive information
+    receiver_email = email
+    subject = 'Welcome to Vermillion City🎉'
+    message = f'''
+    <html>
+    <body>
+        <p>Hi <strong>{username}</strong>,</p>
+        <p>Welcome to the Vermillion Enterprise community! 🎉 We're thrilled to have you on board.</p>
+
+        <p>We are building a platform for people in the anime and gaming industry. We share the passions as you, in anime, games, graphics design, game development, video editing, esports and so much more.</p>
+
+        <p>What to do:</p>
+        <p>- Explore: Check out our features we plan to release, if you haven't seen it.</p>
+        <p>- Earn: our referral program will start soon! And if you're up for earning some small items/change, keep an eye out for our mail🤝</p>
+
+        <p>Stay Connected:</p>
+        <p>- Follow us on Instagram and TikTok for updates and sneak peeks.</p>
+        <p>- Join discussions on Whatsapp or Discord and share your thoughts with fellow fans.</p>
+
+        <p>Be engaged:</p>
+        <p>- We'll release updates regularly and we'll have programs for you, so prepare for the big launch😉</p>
+        <p>- Keep an eye on your inbox for exclusive updates and opportunities.</p>
+
+        <p>Thank you for joining us on this exciting journey. If you have any questions, feel free to reach out!</p>
+        <p>You can get us at support@vermillionent.com</p>
+
+        <p>Best,</p>
+        <p>The V-ENT Team</p>
+    </body>
+    </html>
+    '''
+
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = receiver_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(message, 'html'))  # Set the MIME type to 'html'
+
+        server = smtplib.SMTP('smtp.zoho.com', 587)
+        server.starttls()
+        server.login(sender_email, password)
+        server.sendmail(sender_email, receiver_email, msg.as_string())
+        server.quit()
+    except Exception as e:
+        logger.error(f"Failed to send email to {email}: {str(e)}")
 
     return Response({"status": "success", "message": "Username saved successfully"}, status=status.HTTP_200_OK)
