@@ -687,9 +687,7 @@ def save_username(request):
         return Response({"status": "error", "message": "No verification token found for this email"}, status=status.HTTP_404_NOT_FOUND)
     
     # Create or update the user
-    user, created = Users.objects.update_or_create(
-        email=email,
-        defaults={'username': username}
-    )
+    user = Users.objects.create(email=email, username=username)
+    user.save()
 
     return Response({"status": "success", "message": "Username saved successfully"}, status=status.HTTP_200_OK)
