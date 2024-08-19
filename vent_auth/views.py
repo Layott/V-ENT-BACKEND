@@ -699,7 +699,7 @@ def save_username(request):
     user.save()
     # Send email with the token in HTML format
     sender_email = 'info@vermillionent.com'
-    password = 'JTf7hQPShfMh'  # Use environment variables for sensitive information
+    password = 'information@vent2024'  # Use environment variables for sensitive information JTf7hQPShfMh
     receiver_email = email
     subject = 'Welcome to Vermillion City🎉'
     message = f'''
