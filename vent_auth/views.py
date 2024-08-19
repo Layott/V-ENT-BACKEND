@@ -639,25 +639,29 @@ def send_code(request):
         defaults={'token': token, 'created_at': timezone.now()}
     )
     
-    # Send email with the token
-    sender_email = 'habeebmuftau05@gmail.com'
-    password = 'jvbe whjo lnwe pwxu'  # Use environment variables for sensitive information
+    # Send email with the token in HTML format
+    sender_email = 'info@vermillionent.com'
+    password = 'JTf7 hQPS hfMh'  # Use environment variables for sensitive information
     receiver_email = email
-    subject = 'Verify Email'
-    message = f'''Hi,
-
-    Your Verification Token Is: {token}
-    
-    Please use it to verify your account'''
+    subject = 'Verify Your Email'
+    message = f'''
+    <html>
+    <body>
+        <p>Hi,</p>
+        <p>Your Verification Token Is: <strong>{token}</strong></p>
+        <p>Please use it to verify your account.</p>
+    </body>
+    </html>
+    '''
 
     try:
         msg = MIMEMultipart()
         msg['From'] = sender_email
         msg['To'] = receiver_email
         msg['Subject'] = subject
-        msg.attach(MIMEText(message, 'plain'))
+        msg.attach(MIMEText(message, 'html'))  # Set the MIME type to 'html'
 
-        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server = smtplib.SMTP('smtp.zoho.com', 587)
         server.starttls()
         server.login(sender_email, password)
         server.sendmail(sender_email, receiver_email, msg.as_string())
@@ -691,7 +695,7 @@ def save_username(request):
         return Response({"status": "error", "message": "Username already taken"}, status=status.HTTP_400_BAD_REQUEST)
     
     # Create User
-    user = Users.object.create(email=email, username=username)
+    user = Users.objects.create(email=email, username=username)
     user.save()
 
     return Response({"status": "success", "message": "Username saved successfully"}, status=status.HTTP_200_OK)
