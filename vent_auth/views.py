@@ -640,8 +640,8 @@ def send_code(request):
     )
     
     # Send email with the token in HTML format
-    sender_email = 'info@vermillionent.com'
-    password = 'vvS7dpbtucyk'  # Use environment variables for sensitive information
+    sender_email = 'habeebmuftau05@gmail.com'
+    password = 'hplz dawd pakh poks'  # Use environment variables for sensitive information
     receiver_email = email
     subject = 'Verify Your Email'
     message = f'''
@@ -698,8 +698,8 @@ def save_username(request):
     user = Users.objects.create(email=email, username=username)
     user.save()
     # Send email with the token in HTML format
-    sender_email = 'info@vermillionent.com'
-    password = 'information@vent2024'  # Use environment variables for sensitive information JTf7hQPShfMh
+    sender_email = 'habeebmuftau05@gmail.com'
+    password = 'hplz dawd pakh poks'  # Use environment variables for sensitive information JTf7hQPShfMh
     receiver_email = email
     subject = 'Welcome to Vermillion City🎉'
     message = f'''
