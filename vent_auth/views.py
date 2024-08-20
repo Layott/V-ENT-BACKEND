@@ -661,7 +661,7 @@ def send_code(request):
         msg['Subject'] = subject
         msg.attach(MIMEText(message, 'html'))  # Set the MIME type to 'html'
 
-        server = smtplib.SMTP('smtp.zoho.com', 587)
+        server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(sender_email, password)
         server.sendmail(sender_email, receiver_email, msg.as_string())
@@ -738,7 +738,7 @@ def save_username(request):
         msg['Subject'] = subject
         msg.attach(MIMEText(message, 'html'))  # Set the MIME type to 'html'
 
-        server = smtplib.SMTP('smtp.zoho.com', 587)
+        server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(sender_email, password)
         server.sendmail(sender_email, receiver_email, msg.as_string())
