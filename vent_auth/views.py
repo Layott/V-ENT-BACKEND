@@ -627,7 +627,7 @@ def send_code(request):
         return Response({"status": "error", "message": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
     
     # Check if the email is already registered
-    if Users.objects.filter(email=email).exists():
+    if Users.objects.filter(email=email.strip().lower()).exists():
         return Response({"status": "error", "message": "Account already exists with this email"}, status=status.HTTP_400_BAD_REQUEST)
     
     # Generate a random 6-digit token
@@ -642,7 +642,7 @@ def send_code(request):
     # Send email with the token in HTML format
     sender_email = 'vermillioninformation@gmail.com'
     password = 'dqia izls zrqw ffol'  # Use environment variables for sensitive information
-    receiver_email = email
+    receiver_email = email.strip().lower()
     subject = 'Verify Your Email'
     message = f'''
     <html>
@@ -684,23 +684,23 @@ def save_username(request):
     
     # Validate the token
     try:
-        verification_token = VerificationToken.objects.get(user_email=email)
+        verification_token = VerificationToken.objects.get(user_email=email.strip().lower())
         if verification_token.token != token:
             return Response({"status": "error", "message": "Invalid token"}, status=status.HTTP_400_BAD_REQUEST)
     except VerificationToken.DoesNotExist:
         return Response({"status": "error", "message": "No verification token found for this email"}, status=status.HTTP_404_NOT_FOUND)
     
     # Check if the username is already in use
-    if Users.objects.filter(username=username).exists():
+    if Users.objects.filter(username=username.strip().lower()).exists():
         return Response({"status": "error", "message": "Username already taken"}, status=status.HTTP_400_BAD_REQUEST)
     
     # Create User
-    user = Users.objects.create(email=email, username=username)
+    user = Users.objects.create(email=email, username=username.strip().lower())
     user.save()
     # Send email with the token in HTML format
     sender_email = 'vermillioninformation@gmail.com'
     password = 'dqia izls zrqw ffol'  # Use environment variables for sensitive information JTf7hQPShfMh
-    receiver_email = email
+    receiver_email = email.strip().lower()
     subject = 'Welcome to Vermillion City🎉'
     message = f'''
     <html>
