@@ -700,7 +700,7 @@ def save_username(request):
 
     # Prepare and send the welcome email
     sender_email = 'vermillioninformation@gmail.com'
-    password = 'your_email_password'  # Replace this with an environment variable for security
+    password = 'dqia izls zrqw ffol'  # Replace this with an environment variable for security
     receiver_email = email.strip().lower()
     subject = 'Welcome to Vermillion City🎉'
     message = f'''
