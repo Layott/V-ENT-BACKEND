@@ -728,7 +728,7 @@ def save_username(request):
 
         <p><strong>Shop:</strong></p>
         <ul>
-            <li>We have some merchandise and gaming products for you in <a href="https://vermillionents.com.ng/"><em>Vermillion City (our shop)</em></a>.</li>
+            <li>We have some merchandise and gaming products for you in <a href="https://vermillionents.com.ng/"><em>Vermillion City</em> (our shop)</a>.</li>
             <li>You can simply browse to see what you like or join our community and request from us.</li>
         </ul>
 
