@@ -695,38 +695,50 @@ def save_username(request):
         return Response({"status": "error", "message": "Username already taken"}, status=status.HTTP_400_BAD_REQUEST)
     
     # Create User
-    user = Users.objects.create(email=email, username=username.strip().lower())
+    user = Users.objects.create(email=email.strip().lower(), username=username.strip().lower())
     user.save()
-    # Send email with the token in HTML format
+
+    # Prepare and send the welcome email
     sender_email = 'vermillioninformation@gmail.com'
-    password = 'dqia izls zrqw ffol'  # Use environment variables for sensitive information JTf7hQPShfMh
+    password = 'your_email_password'  # Replace this with an environment variable for security
     receiver_email = email.strip().lower()
     subject = 'Welcome to Vermillion City🎉'
     message = f'''
     <html>
     <body>
         <p>Hi <strong>{username}</strong>,</p>
+
         <p>Welcome to the Vermillion Enterprise community! 🎉 We're thrilled to have you on board.</p>
 
         <p>We are building a platform for people in the anime and gaming industry. We share the passions as you, in anime, games, graphics design, game development, video editing, esports and so much more.</p>
 
         <p><strong>What to do:</strong></p>
-        <p>- Explore: Check out our features we plan to release, if you haven't seen it.</p>
-        <p>- Earn: our referral program will start soon! And if you're up for earning some small items/change, keep an eye out for our mail🤝</p>
+        <ul>
+            <li>Explore: Check out our <a href="https://www.vermillionent.com/Features"><em>features</em></a> we plan to release, if you haven't seen it.</li>
+            <li>Earn: Our referral program will start soon! And if you're up for earning some small items/change, keep an eye out for our mail🤝</li>
+        </ul>
 
         <p><strong>Stay Connected:</strong></p>
-        <p>- Follow us on Instagram and TikTok for updates and sneak peeks.</p>
-        <p>- Join discussions on Whatsapp or Discord and share your thoughts with fellow fans.</p>
+        <ul>
+            <li>Follow us on <a href="https://www.instagram.com/vermillionent/"><em>Instagram</em></a> and <a href="https://www.tiktok.com/@vermillionent"><em>TikTok</em></a> for updates and sneak peeks.</li>
+            <li>Join discussions on <a href="https://chat.whatsapp.com/Ff5r5TeEEnz3O2TSxk8bh1"><em>WhatsApp</em></a> or <a href="https://discord.com/invite/mxevc5aQG3"><em>Discord</em></a> and share your thoughts with fellow fans.</li>
+            <li>We'll release updates regularly and we'll have programs for you, so prepare for the big launch😉</li>
+            <li>Keep an eye on your inbox for exclusive updates and opportunities.</li>
+        </ul>
 
-        <p><strong>Be engaged:</strong></p>
-        <p>- We'll release updates regularly and we'll have programs for you, so prepare for the big launch😉</p>
-        <p>- Keep an eye on your inbox for exclusive updates and opportunities.</p>
+        <p><strong>Shop:</strong></p>
+        <ul>
+            <li>We have some merchandise and gaming products for you in <a href="https://vermillionents.com.ng/"><em>Vermillion City (our shop)</em></a>.</li>
+            <li>You can simply browse to see what you like or join our community and request from us.</li>
+        </ul>
 
-        <p>Thank you for joining us on this exciting journey. If you have any questions, feel free to reach out!</p>
-        <p>You can get us at support@vermillionent.com</p>
+        <p>Fun fact: "Vermillion City" was inspired by the anime "Pokémon". A place where you can find whatever it is you want.</p>
 
-        <p>Best,</p>
-        <p>The V-ENT Team</p>
+        <p>Thank you for joining us on this exciting journey. If you have any questions, feel free to reach out!<br>
+        You can reach us at <a href="mailto:support@vermillionent.com"><em>support@vermillionent.com</em></a>.</p>
+
+        <p>Thank you,<br>
+        The V-ENT Team.</p>
     </body>
     </html>
     '''
@@ -736,7 +748,7 @@ def save_username(request):
         msg['From'] = sender_email
         msg['To'] = receiver_email
         msg['Subject'] = subject
-        msg.attach(MIMEText(message, 'html'))  # Set the MIME type to 'html'
+        msg.attach(MIMEText(message, 'html'))  # Set the MIME type to 'html' for rich content
 
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
