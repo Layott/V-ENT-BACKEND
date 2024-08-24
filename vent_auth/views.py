@@ -706,6 +706,7 @@ def save_username(request):
     message = f'''
     <html>
     <body>
+        <img src="https://vermillionent.pythonanywhere.com/media/images/top.jpg" alt="Top Image"/>
         <p>Hi <strong>{username}</strong>,</p>
 
         <p>Welcome to the Vermillion Enterprise community! 🎉 We're thrilled to have you on board.</p>
@@ -739,6 +740,9 @@ def save_username(request):
 
         <p>Thank you,<br>
         The V-ENT Team.</p>
+
+        <img src="https://vermillionent.pythonanywhere.com/media/images/bottom.jpg" alt="Bottom Image"/>
+
     </body>
     </html>
     '''
