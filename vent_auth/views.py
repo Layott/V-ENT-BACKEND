@@ -772,3 +772,33 @@ def admin_login(request):
         return Response({"status": "success", "message": "Admin Login Successful"}, status=status.HTTP_200_OK)
     else:
         return Response({"status": "error", "message": "Invalid password"}, status=status.HTTP_401_UNAUTHORIZED)
+    
+
+@api_view(["GET"])
+def get_all_username_and_email(request):
+    users = Users.objects.all().values("username", "email")  # Fetch only username and email fields
+
+    return Response({"status": "success", "data": list(users)}, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+def get_number_of_all_users(request):
+    user_count = Users.objects.count()  # Get the total number of users
+
+    return Response({"status": "success", "total_users": user_count}, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+def check_username_availability(request):
+    username = request.data.get("username")
+    
+    if not username:
+        return Response({"status": "error", "message": "Username is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Check if the username exists
+    exists = Users.objects.filter(username=username).exists()
+
+    if exists:
+        return Response({"status": "success", "message": "Username exists"}, status=status.HTTP_200_OK)
+    else:
+        return Response({"status": "error", "message": "Username does not exist"}, status=status.HTTP_404_NOT_FOUND)

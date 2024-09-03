@@ -24,5 +24,8 @@ urlpatterns = [
     path("send-code/", send_code, name="send_code"),
     path("save-username/", save_username, name="save_username"),
     path("admin/login/", admin_login, name="admin_login"),
+    path("admin/get-all-username-and-email/", get_all_username_and_email, name="get_all_username_and_email"),
+    path("admin/user-count/", get_number_of_all_users, name="get_number_of_all_users"),
+    path("admin/check-username-availability/", check_username_availability, name="check_username_availability"),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
