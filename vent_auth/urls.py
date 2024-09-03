@@ -23,5 +23,6 @@ urlpatterns = [
     path("forgot-password/change-password/", change_password_fp, name="change_password_fp"),
     path("send-code/", send_code, name="send_code"),
     path("save-username/", save_username, name="save_username"),
+    path("admin/login/", admin_login, name="admin_login"),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

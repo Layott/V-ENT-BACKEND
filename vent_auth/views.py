@@ -2,7 +2,7 @@ import datetime
 from django.shortcuts import render
 from rest_framework.decorators import api_view
 from .serializers import UserSerializer
-from .models import Users, Games, UserCommunity, VerificationToken, UserProfile, GameAccount, UserWallet, Teams, TeamProfile, TeamWallet, OrgWallet
+from .models import Users, Games, UserCommunity, VerificationToken, UserProfile, GameAccount, UserWallet, Teams, TeamProfile, TeamWallet, OrgWallet, VerificationTokenMain
 from rest_framework.response import Response
 from django.contrib.auth.hashers import make_password, check_password
 from django.core.exceptions import ObjectDoesNotExist
@@ -27,6 +27,12 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+import requests
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils.encoding import force_bytes, force_str
+from django.urls import reverse
+from django.contrib.auth.tokens import default_token_generator
+from django.core.mail import send_mail
 # Create your views here.
 
 logger = logging.getLogger(__name__)
@@ -34,6 +40,10 @@ logger = logging.getLogger(__name__)
 class GoogleLogin(SocialLoginView):
     adapter_class = GoogleOAuth2Adapter
 
+def create_user_wallet(user):
+    user_wallet = UserWallet.objects.create(user=user)
+    user_wallet.save()
+    return "Wallet created successfully"
 
 @api_view(['POST'])
 def signup(request):
@@ -42,94 +52,59 @@ def signup(request):
     if not email:
         return Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
     
-    # Generate a random 6-digit token
-    token = ''.join(random.choices('0123456789', k=6))
+    user, created = Users.objects.get_or_create(email=email)
     
-    # Create or update the verification token for the user
-    verification_token, created = VerificationToken.objects.update_or_create(
-        user_email=email,
-        defaults={'token': token, 'created_at': timezone.now()}
+    # Generate a token
+    token = default_token_generator.make_token(user)
+    
+    # Generate the verification link
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    verification_link = request.build_absolute_uri(
+        reverse('verify_token', kwargs={'uidb64': uid, 'token': token})
     )
     
-    # Send email with the token
-    sender_email = 'habeebmuftau05@gmail.com'
-    receiver_email = email
-    password = 'jvbe whjo lnwe pwxu'  # Use environment variables for sensitive information
-    subject = 'Verify Email'
+    # Send the verification link via email
+    subject = 'Verify Your Email'
     message = f'''Hi,
 
-    Your Verification Token Is: {token}
-    
-    Please use it to verify your account'''
+Please click the link below to verify your email:
+
+{verification_link}
+
+If you did not create an account, please ignore this email.
+'''
 
     try:
-        msg = MIMEMultipart()
-        msg['From'] = sender_email
-        msg['To'] = receiver_email
-        msg['Subject'] = subject
-        msg.attach(MIMEText(message, 'plain'))
-
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(sender_email, password)
-        server.sendmail(sender_email, receiver_email, msg.as_string())
-        server.quit()
+        send_mail(subject, message, 'habeebmuftau05@gmail.com', [email])
     except Exception as e:
         logger.error(f"Failed to send email to {email}: {str(e)}")
         return Response({"error": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    return Response({"message": "Verification token sent to email"}, status=status.HTTP_200_OK)
+    return Response({"message": "Verification link sent to email"}, status=status.HTTP_200_OK)
 
 
-def create_user_wallet(user):
-    user_wallet = UserWallet.objects.create(user=user)
-    user_wallet.save()
-    return "Wallet created successfully"
-
-
-@api_view(['POST'])
-def verify_token(request):
-    email = request.data.get('email')
-    token = request.data.get('token')
-    
-    if not email or not token:
-        return Response({"error": "Email and token are required"}, status=status.HTTP_400_BAD_REQUEST)
-    
+@api_view(['GET'])
+def verify_token(request, uidb64, token):
     try:
-        verification_token = VerificationToken.objects.get(user_email=email)
+        uid = force_str(urlsafe_base64_decode(uidb64))
+        user = Users.objects.get(pk=uid)
         
-        # Check if the token is valid
-        if verification_token.token == token and verification_token.is_valid():
-            # Token is valid, create user and user profile
-            data = request.data.copy()
-            if 'password' in data:
-                data['password'] = make_password(data['password'])
-            
-            serializer = UserSerializer(data=data)
-            if serializer.is_valid():
-                user = serializer.save()
-                
-                # profile_picture = request.FILES.get('profile_picture')
-                # UserProfile.objects.create(user=user, profile_picture=profile_picture)
+        if default_token_generator.check_token(user, token):
+            # Token is valid, activate the user
+            user.is_active = True
+            user.save()
 
-                # Create user wallet
-                create_user_wallet(user=user)
-                
-                # Delete the used token
-                verification_token.delete()
-                
-                return Response({"success": "User created successfully"}, status=status.HTTP_201_CREATED)
-            else:
-                return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+            # Create user profile and wallet
+            # UserProfile.objects.create(user=user)
+            create_user_wallet(user=user)
+            
+            return Response({"success": "User verified and account activated successfully"}, status=status.HTTP_200_OK)
         else:
             return Response({"error": "Invalid or expired token"}, status=status.HTTP_400_BAD_REQUEST)
     
-    except VerificationToken.DoesNotExist:
-        return Response({"error": "Token does not exist"}, status=status.HTTP_400_BAD_REQUEST)
-    # except Exception as e:
-    #     logger.error(f"Error during token verification for {email}: {str(e)}")
-    #     return Response({"error": "An error occurred during verification"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+    except (TypeError, ValueError, OverflowError, Users.DoesNotExist) as e:
+        return Response({"error": "Invalid verification link"}, status=status.HTTP_400_BAD_REQUEST)
+
 
 @api_view(['POST'])
 def verify_token_2(request):
@@ -619,30 +594,83 @@ def send_funds(request):
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+ZOHO_ACCESS_TOKEN = "1000.70622cf416226b15d0780725173c5374.70db909fa94928c77fc4901b891a7553"
+ZOHO_ACCOUNT_ID = "6378693000000008002"
+CLIENT_ID = "1000.HXKB69X855U3R1OJ17FS35X1PHJ06G"
+CLIENT_SECRET = "3556a22929c0ba8ee509428ad3c1ced705591601be"
+REFRESH_TOKEN = "1000.584f1f10cc49eca17cb751b8f838e28b.d2f5874af7d73b767c21912eaa917daa"
+TOKEN_URL = "https://accounts.zoho.com/oauth/v2/token"
+
+def refresh_zoho_access_token():
+    data = {
+        "refresh_token": REFRESH_TOKEN,
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "grant_type": "refresh_token"
+    }
+
+    response = requests.post(TOKEN_URL, data=data)
+
+    if response.status_code == 200:
+        new_token_info = response.json()
+        new_access_token = new_token_info['access_token']
+        
+        # Update the stored access token globally
+        global ZOHO_ACCESS_TOKEN
+        ZOHO_ACCESS_TOKEN = new_access_token
+        
+        return new_access_token
+    else:
+        logger.error(f"Failed to refresh Zoho access token: {response.status_code} - {response.json()}")
+        return None
+
+def send_zoho_email(receiver_email, subject, html_content):
+    url = f"https://mail.zoho.com/api/accounts/{ZOHO_ACCOUNT_ID}/messages"
+
+    headers = {
+        "Authorization": f"Zoho-oauthtoken {ZOHO_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "fromAddress": "info@vermillionent.com",  # Replace with your sender email
+        "toAddress": receiver_email,
+        "subject": subject,
+        "content": html_content
+    }
+
+    response = requests.post(url, json=data, headers=headers)
+
+    if response.status_code == 401:  # Unauthorized, token might have expired
+        new_token = refresh_zoho_access_token()
+        if new_token:
+            headers["Authorization"] = f"Zoho-oauthtoken {new_token}"
+            response = requests.post(url, json=data, headers=headers)
+
+    if response.status_code == 200:
+        return True
+    else:
+        logger.error(f"Failed to send email to {receiver_email}: {response.status_code} - {response.json()}")
+        return False
+
+
 @api_view(["POST"])
 def send_code(request):
     email = request.data.get('email')
 
     if not email:
         return Response({"status": "error", "message": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
-    
-    # Check if the email is already registered
+
     if Users.objects.filter(email=email.strip().lower()).exists():
         return Response({"status": "error", "message": "Account already exists with this email"}, status=status.HTTP_400_BAD_REQUEST)
-    
-    # Generate a random 6-digit token
+
     token = ''.join(random.choices('0123456789', k=6))
-    
-    # Create or update the verification token for the user
+
     verification_token, created = VerificationToken.objects.update_or_create(
         user_email=email,
         defaults={'token': token, 'created_at': timezone.now()}
     )
-    
-    # Send email with the token in HTML format
-    sender_email = 'vermillioninformation@gmail.com'
-    password = 'dqia izls zrqw ffol'  # Use environment variables for sensitive information
-    receiver_email = email.strip().lower()
+
     subject = 'Verify Your Email'
     message = f'''
     <html>
@@ -654,23 +682,10 @@ def send_code(request):
     </html>
     '''
 
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = sender_email
-        msg['To'] = receiver_email
-        msg['Subject'] = subject
-        msg.attach(MIMEText(message, 'html'))  # Set the MIME type to 'html'
-
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(sender_email, password)
-        server.sendmail(sender_email, receiver_email, msg.as_string())
-        server.quit()
-    except Exception as e:
-        logger.error(f"Failed to send email to {email}: {str(e)}")
+    if send_zoho_email(email.strip().lower(), subject, message):
+        return Response({"status": "success", "message": "Verification token sent to email"}, status=status.HTTP_200_OK)
+    else:
         return Response({"status": "error", "message": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-    return Response({"status": "success", "message": "Verification token sent to email"}, status=status.HTTP_200_OK)
 
 
 @api_view(["POST"])
@@ -681,27 +696,20 @@ def save_username(request):
 
     if not email or not username or not token:
         return Response({"status": "error", "message": "Email, Username, and Token are required"}, status=status.HTTP_400_BAD_REQUEST)
-    
-    # Validate the token
+
     try:
         verification_token = VerificationToken.objects.get(user_email=email.strip().lower())
         if verification_token.token != token:
             return Response({"status": "error", "message": "Invalid token"}, status=status.HTTP_400_BAD_REQUEST)
     except VerificationToken.DoesNotExist:
         return Response({"status": "error", "message": "No verification token found for this email"}, status=status.HTTP_404_NOT_FOUND)
-    
-    # Check if the username is already in use
+
     if Users.objects.filter(username=username.strip().lower()).exists():
         return Response({"status": "error", "message": "Username already taken"}, status=status.HTTP_400_BAD_REQUEST)
-    
-    # Create User
+
     user = Users.objects.create(email=email.strip().lower(), username=username.strip().lower())
     user.save()
 
-    # Prepare and send the welcome email
-    sender_email = 'vermillioninformation@gmail.com'
-    password = 'dqia izls zrqw ffol'  # Replace this with an environment variable for security
-    receiver_email = email.strip().lower()
     subject = 'Welcome to Vermillion City🎉'
     message = f'''
     <html>
@@ -747,19 +755,20 @@ def save_username(request):
     </html>
     '''
 
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = sender_email
-        msg['To'] = receiver_email
-        msg['Subject'] = subject
-        msg.attach(MIMEText(message, 'html'))  # Set the MIME type to 'html' for rich content
+    if send_zoho_email(email.strip().lower(), subject, message):
+        return Response({"status": "success", "message": "Username saved successfully"}, status=status.HTTP_200_OK)
+    else:
+        return Response({"status": "error", "message": "Failed to send welcome email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
 
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(sender_email, password)
-        server.sendmail(sender_email, receiver_email, msg.as_string())
-        server.quit()
-    except Exception as e:
-        logger.error(f"Failed to send email to {email}: {str(e)}")
+@api_view(["POST"])
+def admin_login(request):
+    password = request.data.get("password")
 
-    return Response({"status": "success", "message": "Username saved successfully"}, status=status.HTTP_200_OK)
+    if not password:
+        return Response({"status": "error", "message": "Password is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    if password == "ventontop1234":
+        return Response({"status": "success", "message": "Admin Login Successful"}, status=status.HTTP_200_OK)
+    else:
+        return Response({"status": "error", "message": "Invalid password"}, status=status.HTTP_401_UNAUTHORIZED)

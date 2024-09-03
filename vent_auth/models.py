@@ -34,6 +34,15 @@ class VerificationToken(models.Model):
         return now - self.created_at < datetime.timedelta(minutes=10)
 
 
+class VerificationTokenMain(models.Model):
+    user = models.ForeignKey(Users, on_delete=models.CASCADE)
+    token = models.CharField(max_length=64)  # Increased length to accommodate URL-safe tokens
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def is_valid(self):
+        now = timezone.now()
+        return now - self.created_at < datetime.timedelta(minutes=10)
+
 class UserCommunity(models.Model):
     user = models.ForeignKey(Users, on_delete=models.CASCADE)
     is_gamer = models.BooleanField(default=False)
