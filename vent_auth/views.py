@@ -789,7 +789,7 @@ def save_username(request):
     </html>
     '''
 
-    if send_zoho_email(email.strip().lower(), subject, message):
+    if send_email(email.strip().lower(), subject, message):
         return Response({"status": "success", "message": "Username saved successfully"}, status=status.HTTP_200_OK)
     else:
         return Response({"status": "error", "message": "Failed to send welcome email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
