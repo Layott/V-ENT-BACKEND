@@ -682,9 +682,9 @@ def send_email(to_address, subject, html_body):
         server.sendmail(from_address, to_address, msg.as_string())
         server.quit()
 
-        print(f'Email successfully sent to {to_address}')
+        return True
     except Exception as e:
-        print(f'Error: {str(e)}')
+        return False
 
 
 
