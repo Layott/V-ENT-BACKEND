@@ -33,6 +33,10 @@ from django.utils.encoding import force_bytes, force_str
 from django.urls import reverse
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
+import time
+from urllib.parse import urlparse, parse_qs
+from django.shortcuts import redirect
+
 # Create your views here.
 
 logger = logging.getLogger(__name__)
@@ -594,64 +598,94 @@ def send_funds(request):
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-ZOHO_ACCESS_TOKEN = "1000.70622cf416226b15d0780725173c5374.70db909fa94928c77fc4901b891a7553"
-ZOHO_ACCOUNT_ID = "6378693000000008002"
-CLIENT_ID = "1000.HXKB69X855U3R1OJ17FS35X1PHJ06G"
-CLIENT_SECRET = "3556a22929c0ba8ee509428ad3c1ced705591601be"
-REFRESH_TOKEN = "1000.584f1f10cc49eca17cb751b8f838e28b.d2f5874af7d73b767c21912eaa917daa"
-TOKEN_URL = "https://accounts.zoho.com/oauth/v2/token"
+# ZOHO_ACCOUNT_ID = "6378693000000008002"
+# CLIENT_ID = "1000.HXKB69X855U3R1OJ17FS35X1PHJ06G"
+# CLIENT_SECRET = "3556a22929c0ba8ee509428ad3c1ced705591601be"
+# REFRESH_TOKEN = "1000.584f1f10cc49eca17cb751b8f838e28b.d2f5874af7d73b767c21912eaa917daa"
+# TOKEN_URL = "https://accounts.zoho.com/oauth/v2/token"
+# redirect_uri = "http://vermillionent.pythonanywhere.com/"
+# SCOPE = "ZohoMail.messages.ALL"
+# auth_url = f"https://accounts.zoho.com/oauth/v2/auth?response_type=code&client_id={CLIENT_ID}&scope={SCOPE}&redirect_uri={redirect_uri}&access_type=offline"
 
-def refresh_zoho_access_token():
-    data = {
-        "refresh_token": REFRESH_TOKEN,
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-        "grant_type": "refresh_token"
-    }
 
-    response = requests.post(TOKEN_URL, data=data)
+# def get_access_token_from_refresh_token():
+#     data = {
+#         "refresh_token": REFRESH_TOKEN,  # Your stored refresh token
+#         "client_id": CLIENT_ID,
+#         "client_secret": CLIENT_SECRET,
+#         "redirect_uri": redirect_uri,
+#         "grant_type": "refresh_token"
+#     }
+#     response = requests.post(TOKEN_URL, data=data)
+#     print(response.json())
+#     if response.status_code == 200:
+#         return response.json().get("access_token")
+#     else:
+#         logger.error(f"Failed to refresh access token: {response.status_code} - {response.json()}")
+#         return None
 
-    if response.status_code == 200:
-        new_token_info = response.json()
-        new_access_token = new_token_info['access_token']
+
+# def send_zoho_email(receiver_email, subject, html_content):
+#     # Obtain the access token using the refresh token
+#     access_token = get_access_token_from_refresh_token()
+
+#     if not access_token:
+#         logger.error("Failed to retrieve access token.")
+#         return False
+
+#     # Send the email using the Zoho Mail API
+#     url = f"https://mail.zoho.com/api/accounts/{ZOHO_ACCOUNT_ID}/messages"
+
+#     headers = {
+#         "Authorization": f"Zoho-oauthtoken {access_token}",
+#         "Content-Type": "application/json"
+#     }
+
+#     data = {
+#         "fromAddress": "info@vermillionent.com",  # Replace with your sender email
+#         "toAddress": receiver_email,
+#         "subject": subject,
+#         "content": html_content
+#     }
+
+#     response = requests.post(url, json=data, headers=headers)
+
+#     if response.status_code == 200:
+#         return True
+#     else:
+#         logger.error(f"Failed to send email to {receiver_email}: {response.status_code} - {response.json()}")
+#         return False
+
+
+def send_email(to_address, subject, html_body):
+    # Gmail SMTP server credentials
+    smtp_server = 'smtp.gmail.com'
+    smtp_port = 465  # or 587 for TLS
+    from_address = 'vermillioninformation@gmail.com'
+    password = 'rglb ssfs xhip psma'  # Or your actual Gmail password (if less secure apps are enabled)
+
+    try:
+        # Create a MIMEMultipart email object
+        msg = MIMEMultipart()
+        msg['From'] = from_address
+        msg['To'] = to_address
+        msg['Subject'] = subject
+
+        # Attach the HTML body to the MIME message
+        msg.attach(MIMEText(html_body, 'html'))
+
+        # Set up the SMTP connection using SSL
+        server = smtplib.SMTP_SSL(smtp_server, smtp_port)
+        server.login(from_address, password)
         
-        # Update the stored access token globally
-        global ZOHO_ACCESS_TOKEN
-        ZOHO_ACCESS_TOKEN = new_access_token
-        
-        return new_access_token
-    else:
-        logger.error(f"Failed to refresh Zoho access token: {response.status_code} - {response.json()}")
-        return None
+        # Send the email
+        server.sendmail(from_address, to_address, msg.as_string())
+        server.quit()
 
-def send_zoho_email(receiver_email, subject, html_content):
-    url = f"https://mail.zoho.com/api/accounts/{ZOHO_ACCOUNT_ID}/messages"
+        print(f'Email successfully sent to {to_address}')
+    except Exception as e:
+        print(f'Error: {str(e)}')
 
-    headers = {
-        "Authorization": f"Zoho-oauthtoken {ZOHO_ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-
-    data = {
-        "fromAddress": "info@vermillionent.com",  # Replace with your sender email
-        "toAddress": receiver_email,
-        "subject": subject,
-        "content": html_content
-    }
-
-    response = requests.post(url, json=data, headers=headers)
-
-    if response.status_code == 401:  # Unauthorized, token might have expired
-        new_token = refresh_zoho_access_token()
-        if new_token:
-            headers["Authorization"] = f"Zoho-oauthtoken {new_token}"
-            response = requests.post(url, json=data, headers=headers)
-
-    if response.status_code == 200:
-        return True
-    else:
-        logger.error(f"Failed to send email to {receiver_email}: {response.status_code} - {response.json()}")
-        return False
 
 
 @api_view(["POST"])
@@ -682,7 +716,7 @@ def send_code(request):
     </html>
     '''
 
-    if send_zoho_email(email.strip().lower(), subject, message):
+    if send_email(email.strip().lower(), subject, message):
         return Response({"status": "success", "message": "Verification token sent to email"}, status=status.HTTP_200_OK)
     else:
         return Response({"status": "error", "message": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
