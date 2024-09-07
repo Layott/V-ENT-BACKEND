@@ -9,6 +9,7 @@ class Users(AbstractUser):
     username = models.CharField(max_length=128, unique=True)
     email = models.EmailField(unique=True)
     password = models.CharField(max_length=256, null=True)
+    country = models.CharField(max_length=256, null=True)
 
     USERNAME_FIELD = 'email'  # Use email for authentication
     REQUIRED_FIELDS = ['username', 'full_name']  # Required fields for creating a superuser
@@ -26,22 +27,13 @@ class UserProfile(models.Model):
 
 class VerificationToken(models.Model):
     user_email = models.EmailField(unique=True)
-    token = models.CharField(max_length=6)
+    token = models.CharField(max_length=64)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def is_valid(self):
         now = timezone.now()
         return now - self.created_at < datetime.timedelta(minutes=10)
 
-
-class VerificationTokenMain(models.Model):
-    user = models.ForeignKey(Users, on_delete=models.CASCADE)
-    token = models.CharField(max_length=64)  # Increased length to accommodate URL-safe tokens
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def is_valid(self):
-        now = timezone.now()
-        return now - self.created_at < datetime.timedelta(minutes=10)
 
 class UserCommunity(models.Model):
     user = models.ForeignKey(Users, on_delete=models.CASCADE)

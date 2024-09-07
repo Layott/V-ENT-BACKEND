@@ -2,12 +2,11 @@ import datetime
 from django.shortcuts import render
 from rest_framework.decorators import api_view
 from .serializers import UserSerializer
-from .models import Users, Games, UserCommunity, VerificationToken, UserProfile, GameAccount, UserWallet, Teams, TeamProfile, TeamWallet, OrgWallet, VerificationTokenMain
+from .models import Users, Games, UserCommunity, VerificationToken, UserProfile, GameAccount, UserWallet, Teams, TeamProfile, TeamWallet, OrgWallet
 from rest_framework.response import Response
 from django.contrib.auth.hashers import make_password, check_password
 from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import status
-from django.core.mail import send_mail
 from .models import VerificationToken
 import random
 from django.utils import timezone
@@ -32,10 +31,6 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
 from django.urls import reverse
 from django.contrib.auth.tokens import default_token_generator
-from django.core.mail import send_mail
-import time
-from urllib.parse import urlparse, parse_qs
-from django.shortcuts import redirect
 
 # Create your views here.
 
@@ -49,25 +44,62 @@ def create_user_wallet(user):
     user_wallet.save()
     return "Wallet created successfully"
 
+def send_email(to_address, subject, html_body):
+    # Gmail SMTP server credentials
+    smtp_server = 'smtp.gmail.com'
+    smtp_port = 465  # or 587 for TLS
+    from_address = 'vermillioninformation@gmail.com'
+    password = 'rglb ssfs xhip psma'  # Or your actual Gmail password (if less secure apps are enabled)
+
+    try:
+        # Create a MIMEMultipart email object
+        msg = MIMEMultipart()
+        msg['From'] = from_address
+        msg['To'] = to_address
+        msg['Subject'] = subject
+
+        # Attach the HTML body to the MIME message
+        msg.attach(MIMEText(html_body, 'html'))
+
+        # Set up the SMTP connection using SSL
+        server = smtplib.SMTP_SSL(smtp_server, smtp_port)
+        server.login(from_address, password)
+        
+        # Send the email
+        server.sendmail(from_address, to_address, msg.as_string())
+        server.quit()
+
+        return True
+    except Exception as e:
+        return False
+
+
+
 @api_view(['POST'])
 def signup(request):
+    fullname = request.data.get('full_name')
     email = request.data.get('email')
+    username = request.data.get('username')
+    country = request.data.get('country')
+    password = request.data.get('password')
+
+    if not all([fullname, email, username, password, country]):
+        return Response({"status": "error", "message": "All fields are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    user, created = Users.objects.get_or_create(email=email, defaults={
+        'full_name': fullname,
+        'username': username,
+        'password': make_password(password),
+        'country': country
+    })
+
+    if not created:
+        return Response({"status": "error", "message": "User with this email already exists"}, status=status.HTTP_400_BAD_REQUEST)
     
-    if not email:
-        return Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
-    
-    user, created = Users.objects.get_or_create(email=email)
-    
-    # Generate a token
     token = default_token_generator.make_token(user)
-    
-    # Generate the verification link
     uid = urlsafe_base64_encode(force_bytes(user.pk))
-    verification_link = request.build_absolute_uri(
-        reverse('verify_token', kwargs={'uidb64': uid, 'token': token})
-    )
-    
-    # Send the verification link via email
+    verification_link = request.build_absolute_uri(reverse('verify_token', kwargs={'uidb64': uid, 'token': token}))
+
     subject = 'Verify Your Email'
     message = f'''Hi,
 
@@ -79,12 +111,11 @@ If you did not create an account, please ignore this email.
 '''
 
     try:
-        send_mail(subject, message, 'habeebmuftau05@gmail.com', [email])
+        send_email(email, subject, message)
+        return Response({"status": "success", "message": "Verification link sent to email"}, status=status.HTTP_200_OK)
     except Exception as e:
         logger.error(f"Failed to send email to {email}: {str(e)}")
-        return Response({"error": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-    return Response({"message": "Verification link sent to email"}, status=status.HTTP_200_OK)
+        return Response({"status": "error", "message": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['GET'])
@@ -94,20 +125,19 @@ def verify_token(request, uidb64, token):
         user = Users.objects.get(pk=uid)
         
         if default_token_generator.check_token(user, token):
-            # Token is valid, activate the user
             user.is_active = True
             user.save()
 
             # Create user profile and wallet
-            # UserProfile.objects.create(user=user)
+            UserProfile.objects.create(user=user)
             create_user_wallet(user=user)
             
-            return Response({"success": "User verified and account activated successfully"}, status=status.HTTP_200_OK)
+            return Response({"status": "success", "message": "User verified and account activated successfully"}, status=status.HTTP_200_OK)
         else:
-            return Response({"error": "Invalid or expired token"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"status": "error", "message": "Invalid or expired token"}, status=status.HTTP_400_BAD_REQUEST)
     
-    except (TypeError, ValueError, OverflowError, Users.DoesNotExist) as e:
-        return Response({"error": "Invalid verification link"}, status=status.HTTP_400_BAD_REQUEST)
+    except (TypeError, ValueError, OverflowError, Users.DoesNotExist):
+        return Response({"status": "error", "message": "Invalid verification link"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @api_view(['POST'])
@@ -657,34 +687,6 @@ def send_funds(request):
 #         return False
 
 
-def send_email(to_address, subject, html_body):
-    # Gmail SMTP server credentials
-    smtp_server = 'smtp.gmail.com'
-    smtp_port = 465  # or 587 for TLS
-    from_address = 'vermillioninformation@gmail.com'
-    password = 'rglb ssfs xhip psma'  # Or your actual Gmail password (if less secure apps are enabled)
-
-    try:
-        # Create a MIMEMultipart email object
-        msg = MIMEMultipart()
-        msg['From'] = from_address
-        msg['To'] = to_address
-        msg['Subject'] = subject
-
-        # Attach the HTML body to the MIME message
-        msg.attach(MIMEText(html_body, 'html'))
-
-        # Set up the SMTP connection using SSL
-        server = smtplib.SMTP_SSL(smtp_server, smtp_port)
-        server.login(from_address, password)
-        
-        # Send the email
-        server.sendmail(from_address, to_address, msg.as_string())
-        server.quit()
-
-        return True
-    except Exception as e:
-        return False
 
 
 
