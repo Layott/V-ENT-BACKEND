@@ -27,5 +27,6 @@ urlpatterns = [
     path("admin/get-all-username-and-email/", get_all_username_and_email, name="get_all_username_and_email"),
     path("admin/user-count/", get_number_of_all_users, name="get_number_of_all_users"),
     path("admin/check-username-availability/", check_username_availability, name="check_username_availability"),
+    path("get-username-with-email/", get_username_with_email, name="get_username_with_email"),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

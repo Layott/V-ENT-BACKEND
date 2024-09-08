@@ -1,5 +1,5 @@
 import datetime
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from rest_framework.decorators import api_view
 from .serializers import UserSerializer
 from .models import Users, Games, UserCommunity, VerificationToken, UserProfile, GameAccount, UserWallet, Teams, TeamProfile, TeamWallet, OrgWallet
@@ -85,17 +85,27 @@ def signup(request):
 
     if not all([fullname, email, username, password, country]):
         return Response({"status": "error", "message": "All fields are required"}, status=status.HTTP_400_BAD_REQUEST)
-
-    user, created = Users.objects.get_or_create(email=email, defaults={
-        'full_name': fullname,
-        'username': username,
-        'password': make_password(password),
-        'country': country
-    })
-
-    if not created:
-        return Response({"status": "error", "message": "User with this email already exists"}, status=status.HTTP_400_BAD_REQUEST)
     
+
+    try:
+        user = Users.objects.get(email=email)
+        # Update the existing user with new details
+        user.full_name = fullname
+        user.username = username
+        user.country = country
+        user.password = make_password(password)
+        user.save()
+    except Users.DoesNotExist:
+        # Create a new user if it doesn't exist
+        user = Users.objects.create(
+            full_name=fullname,
+            email=email,
+            username=username,
+            password=make_password(password),
+            country=country
+        )
+
+
     token = default_token_generator.make_token(user)
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     verification_link = request.build_absolute_uri(reverse('verify_token', kwargs={'uidb64': uid, 'token': token}))
@@ -125,19 +135,37 @@ def verify_token(request, uidb64, token):
         user = Users.objects.get(pk=uid)
         
         if default_token_generator.check_token(user, token):
-            user.is_active = True
-            user.save()
+            if user.is_active:
+                # If user is already verified
+                return render(request, 'account_verified.html', {"message": "Your account is already verified."})
+            else:
+                # Activate user and create the necessary profiles
+                user.is_active = True
+                user.save()
 
-            # Create user profile and wallet
-            UserProfile.objects.create(user=user)
-            create_user_wallet(user=user)
-            
-            return Response({"status": "success", "message": "User verified and account activated successfully"}, status=status.HTTP_200_OK)
+                UserProfile.objects.create(user=user)
+                create_user_wallet(user=user)
+
+                return render(request, 'verification_success.html', {"message": "Verification successful! Your account is now activated."})
         else:
-            return Response({"status": "error", "message": "Invalid or expired token"}, status=status.HTTP_400_BAD_REQUEST)
-    
+            return render(request, 'invalid_token.html', {"message": "Invalid or expired token."})
+
     except (TypeError, ValueError, OverflowError, Users.DoesNotExist):
-        return Response({"status": "error", "message": "Invalid verification link"}, status=status.HTTP_400_BAD_REQUEST)
+        return render(request, 'invalid_token.html', {"message": "Invalid verification link."})
+
+
+@api_view(['POST'])
+def get_username_with_email(request):
+    email = request.data.get('email')
+
+    if not email:
+        return Response({"status": "error", "message": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        user = Users.objects.get(email=email)
+        return Response({"status": "success", "username": user.username}, status=status.HTTP_200_OK)
+    except Users.DoesNotExist:
+        return Response({"status": "error", "message": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
 @api_view(['POST'])
