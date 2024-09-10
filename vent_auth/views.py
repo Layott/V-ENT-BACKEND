@@ -166,7 +166,7 @@ def get_username_with_email(request):
         return Response({"status": "success", "username": user.username}, status=status.HTTP_200_OK)
     except Users.DoesNotExist:
         return Response({"status": "error", "message": "User not found"}, status=status.HTTP_404_NOT_FOUND)
-
+ 
 
 @api_view(['POST'])
 def verify_token_2(request):
@@ -866,3 +866,5 @@ def check_username_availability(request):
         return Response({"status": "success", "message": "Username exists"}, status=status.HTTP_200_OK)
     else:
         return Response({"status": "error", "message": "Username does not exist"}, status=status.HTTP_404_NOT_FOUND)
+    
+

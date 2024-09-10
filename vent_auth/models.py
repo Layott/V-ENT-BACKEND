@@ -23,6 +23,29 @@ class UserProfile(models.Model):
     user = models.ForeignKey(Users, on_delete=models.CASCADE)
     profile_picture = models.ImageField(upload_to='profile_pictures/', null=True, blank=True)
     date_of_birth = models.DateField(null=True)
+    banner = models.ImageField(upload_to='banner/', null=True)
+    description = models.CharField(max_length=256, null=True)
+    penalty_point = models.IntegerField(default=0)
+    facebook_link = models.URLField(max_length=200, null=True)
+    instagram_link = models.URLField(max_length=200, null=True)
+    x_link = models.URLField(max_length=200, null=True)
+    youtube_link = models.URLField(max_length=200, null=True)
+
+
+
+
+
+class Interests(models.Model):
+    interest_id = models.AutoField(primary_key=True)
+    interest_name = models.CharField(max_length=36)
+
+
+class UserInterests(models.Model):
+    user = models.ForeignKey(Users, on_delete=models.CASCADE)
+    interests = models.ForeignKey(Interests, on_delete=models.CASCADE)
+
+
+
 
 
 class VerificationToken(models.Model):
@@ -128,3 +151,5 @@ class OrgWallet(models.Model):
     org = models.OneToOneField(Organization, on_delete=models.CASCADE, related_name='wallet')
     wallet_balance = models.IntegerField(default=0)
     org_wallet_pin = models.IntegerField(null=True, blank=True)
+
+
