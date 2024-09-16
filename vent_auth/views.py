@@ -1,8 +1,8 @@
 import datetime
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from rest_framework.decorators import api_view
 from .serializers import UserSerializer
-from .models import Users, Games, UserCommunity, VerificationToken, UserProfile, GameAccount, UserWallet, Teams, TeamProfile, TeamWallet, OrgWallet
+from .models import Users, Games, UserCommunity, VerificationToken, UserProfile, GameAccount, UserWallet, Teams, TeamProfile, TeamWallet, OrgWallet, FavoriteGames, UserGameStats, UserInterests, Interests, SocialLink
 from rest_framework.response import Response
 from django.contrib.auth.hashers import make_password, check_password
 from django.core.exceptions import ObjectDoesNotExist
@@ -16,6 +16,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 import io
+import string
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from dj_rest_auth.registration.views import SocialLoginView
 from django.contrib.auth import authenticate
@@ -73,6 +74,11 @@ def send_email(to_address, subject, html_body):
     except Exception as e:
         return False
 
+
+def generate_session_token(length=16):
+    """Generate a random 16-character token"""
+    characters = string.ascii_letters + string.digits
+    return ''.join(random.choice(characters) for _ in range(length))
 
 
 @api_view(['POST'])
@@ -222,7 +228,6 @@ def verify_token_2(request):
     #     return Response({"error": "An error occurred during verification"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
 
-
 @api_view(['POST'])
 def login(request):
     username_or_email = request.data.get('username_or_email')
@@ -232,11 +237,42 @@ def login(request):
     user = authenticate(request, username=username_or_email, password=password)
     
     if user is not None:
-        # User is authenticated, return success response
-        return Response({'message': 'Login successful'}, status=status.HTTP_200_OK)
+        # Generate a session token
+        session_token = generate_session_token()
+        
+        # Save session token to the user model
+        user.login_session_token = session_token
+        user.save()
+
+        # Return success response with the session token
+        return Response({
+            'message': 'Login successful', 
+            'session_token': session_token
+        }, status=status.HTTP_200_OK)
     else:
         # Authentication failed, return error response
-        return Response({'message': 'Invalid username/email or password'}, status=status.HTTP_401_UNAUTHORIZED)
+        return Response({
+            'message': 'Invalid username/email or password'
+        }, status=status.HTTP_401_UNAUTHORIZED)
+    
+
+@api_view(["POST"])
+def logout(request):
+    session_token = request.data.get('login_session_token')
+
+    if not session_token:
+        return Response({'status': 'error', 'message': 'Session token is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        user = Users.objects.get(login_session_token=session_token)
+        # Clear the session token on logout
+        user.login_session_token = None
+        user.save()
+
+        return Response({'status': 'success', 'message': 'Logout successful'}, status=status.HTTP_200_OK)
+
+    except Users.DoesNotExist:
+        return Response({'status': 'error', 'message': 'Invalid session token'}, status=status.HTTP_404_NOT_FOUND)
 
 
 @api_view(['POST'])
@@ -868,3 +904,189 @@ def check_username_availability(request):
         return Response({"status": "error", "message": "Username does not exist"}, status=status.HTTP_404_NOT_FOUND)
     
 
+@api_view(['POST'])
+def get_user_informations(request):
+    try:
+        user_id = request.data.get('user_id')
+        
+        if not user_id:
+            return Response(
+                {'status': 'error', 'message': 'user_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Fetch user object
+        user = get_object_or_404(Users, user_id=user_id)
+
+        # Get user profile
+        profile = UserProfile.objects.filter(user=user).first()
+
+        # Get user interests
+        interests = UserInterests.objects.filter(user=user).values_list('interests__interest_name', flat=True)
+
+        # Get wallet balance
+        wallet = UserWallet.objects.filter(user=user).first()
+
+        # Get user's favorite games
+        user_games = FavoriteGames.objects.filter(user=user).values_list('game__game_title', flat=True)
+
+        # Get user achievements
+        achievements = user.achievements.values('name', 'description', 'logo')
+
+        # Get user social links
+        social_links = SocialLink.objects.filter(user=user).values('title', 'url')
+
+        # Construct response data
+        data = {
+            'full_name': user.full_name,
+            'username': user.username,
+            'email': user.email,
+            'country': user.country,
+            'profile_picture': profile.profile_picture.url if profile and profile.profile_picture else None,
+            'banner': profile.banner.url if profile and profile.banner else None,
+            'description': profile.description if profile else None,
+            'penalty_point': profile.penalty_point if profile else 0,
+            'social_links': list(social_links),
+            'wallet_balance': wallet.wallet_balance if wallet else 0,
+            'interests': list(interests),
+            'favorite_games': list(user_games),
+            'achievements': list(achievements),
+        }
+
+        return Response(
+            {'status': 'success', 'message': 'User information retrieved successfully', 'data': data},
+            status=status.HTTP_200_OK
+        )
+
+    except Users.DoesNotExist:
+        return Response(
+            {'status': 'error', 'message': 'User not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {'status': 'error', 'message': f'An unexpected error occurred: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+@api_view(['POST'])
+def add_game_account(request):
+    # Get data from the request
+    user_id = request.data.get('user_id')
+    game_id = request.data.get('game_id')
+    game_username = request.data.get('game_username')
+
+    # Validate inputs
+    if not user_id or not game_id or not game_username:
+        return Response(
+            {'status': 'error', 'message': 'user_id, game_id, and game_username are required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Fetch the user and game objects
+    try:
+        user = get_object_or_404(Users, user_id=user_id)
+        game = get_object_or_404(Games, game_id=game_id)
+    except Users.DoesNotExist:
+        return Response(
+            {'status': 'error', 'message': 'User not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Games.DoesNotExist:
+        return Response(
+            {'status': 'error', 'message': 'Game not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    # Check if the game account already exists for the user
+    if GameAccount.objects.filter(user=user, game=game).exists():
+        return Response(
+            {'status': 'error', 'message': 'Game account already exists for this user'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Create the game account
+    try:
+        game_account = GameAccount.objects.create(
+            user=user,
+            game=game,
+            game_username=game_username
+        )
+        return Response(
+            {'status': 'success', 'message': 'Game account added successfully'},
+            status=status.HTTP_201_CREATED
+        )
+    except Exception as e:
+        return Response(
+            {'status': 'error', 'message': f'An unexpected error occurred: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    
+
+@api_view(['POST'])
+def edit_profile_info(request):
+    try:
+        user_id = request.data.get('user_id')
+        profile_pic = request.FILES.get("profile_pic")  # Expecting an image file
+        banner = request.FILES.get("banner")  # Expecting an image file
+        username = request.data.get('username')
+        fullname = request.data.get('fullname')
+        description = request.data.get('bio')
+        country = request.data.get('country')
+        interest_ids = request.data.get('interests')  # This is expected to be a list of interest IDs
+
+        # Fetch the user
+        user = get_object_or_404(Users, user_id=user_id)
+        profile, created = UserProfile.objects.get_or_create(user=user)
+
+        # Update profile picture and banner if provided
+        if profile_pic:
+            profile.profile_picture = profile_pic
+        if banner:
+            profile.banner = banner
+
+        # Update basic information
+        if username:
+            user.username = username
+        if fullname:
+            user.full_name = fullname
+        if description:
+            profile.description = description
+        if country:
+            user.country = country
+
+        # Save user and profile
+        user.save()
+        profile.save()
+
+        # Update interests if provided
+        if interest_ids:
+            # Convert IDs to integers
+            interest_ids = [int(id) for id in interest_ids]
+            # Get existing interests from IDs
+            interests = Interests.objects.filter(id__in=interest_ids)
+            # Clear old interests and set new ones
+            UserInterests.objects.filter(user=user).delete()
+            for interest in interests:
+                UserInterests.objects.create(user=user, interests=interest)
+
+        return Response(
+            {'status': 'success', 'message': 'Profile updated successfully'},
+            status=status.HTTP_200_OK
+        )
+
+    except Users.DoesNotExist:
+        return Response(
+            {'status': 'error', 'message': 'User not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Interests.DoesNotExist:
+        return Response(
+            {'status': 'error', 'message': 'One or more interests not found'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    except Exception as e:
+        return Response(
+            {'status': 'error', 'message': f'An unexpected error occurred: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

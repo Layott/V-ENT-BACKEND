@@ -10,6 +10,7 @@ class Users(AbstractUser):
     email = models.EmailField(unique=True)
     password = models.CharField(max_length=256, null=True)
     country = models.CharField(max_length=256, null=True)
+    login_session_token = models.CharField(max_length=16, null=True)
 
     USERNAME_FIELD = 'email'  # Use email for authentication
     REQUIRED_FIELDS = ['username', 'full_name']  # Required fields for creating a superuser
@@ -23,16 +24,8 @@ class UserProfile(models.Model):
     user = models.ForeignKey(Users, on_delete=models.CASCADE)
     profile_picture = models.ImageField(upload_to='profile_pictures/', null=True, blank=True)
     date_of_birth = models.DateField(null=True)
-    banner = models.ImageField(upload_to='banner/', null=True)
-    description = models.CharField(max_length=256, null=True)
-    penalty_point = models.IntegerField(default=0)
-    facebook_link = models.URLField(max_length=200, null=True)
-    instagram_link = models.URLField(max_length=200, null=True)
-    x_link = models.URLField(max_length=200, null=True)
-    youtube_link = models.URLField(max_length=200, null=True)
-
-
-
+    banner = models.ImageField(upload_to='banners/', null=True)
+    description = models.CharField(max_length=140, null=True)
 
 
 class Interests(models.Model):
@@ -43,9 +36,6 @@ class Interests(models.Model):
 class UserInterests(models.Model):
     user = models.ForeignKey(Users, on_delete=models.CASCADE)
     interests = models.ForeignKey(Interests, on_delete=models.CASCADE)
-
-
-
 
 
 class VerificationToken(models.Model):
@@ -71,7 +61,45 @@ class Genres(models.Model):
 
 class Games(models.Model):
     game_id = models.AutoField(primary_key=True)
-    game_name = models.CharField(max_length=40, unique=True)
+    game_title = models.CharField(max_length=40, unique=True)
+    description = models.TextField()
+    logo = models.ImageField(upload_to='game_logos/', null=True, blank=True)  # Add the logo field
+
+    def __str__(self):
+        return self.game_title
+
+
+class Achievement(models.Model):
+    name = models.CharField(max_length=100)
+    description = models.TextField()
+    logo = models.ImageField(upload_to='achievements/', blank=True, null=True)  # Updated folder name
+    awarded_to = models.ManyToManyField(Users, related_name="achievements", blank=True)
+
+    def __str__(self):
+        return self.name
+
+
+class UserGameStats(models.Model):
+    user = models.ForeignKey(Users, on_delete=models.CASCADE)  # Changed to custom Users model
+    game = models.ForeignKey(Games, on_delete=models.CASCADE)  # Fixed Games reference
+    kills = models.IntegerField(default=0)
+
+    def __str__(self):
+        return f"{self.user.username} - {self.game.game_title} ({self.kills} kills)"
+
+    def add_kills(self, kill_count):
+        self.kills += kill_count
+        self.save()
+        self.check_for_achievement()  # Renamed method
+
+    def check_for_achievement(self):
+        if self.kills >= 100:
+            achievement, created = Achievement.objects.get_or_create(
+                name="100 Kills", 
+                description="Achieved 100 kills in total",
+                defaults={'logo': 'path/to/logo.png'}
+            )
+            self.user.achievements.add(achievement)
 
 
 class UserGenre(models.Model):
@@ -79,7 +107,7 @@ class UserGenre(models.Model):
     genre = models.ForeignKey(Genres, on_delete=models.CASCADE)
 
 
-class UserGames(models.Model):
+class FavoriteGames(models.Model):
     user = models.ForeignKey(Users, on_delete=models.CASCADE)
     game = models.ForeignKey(Games, on_delete=models.CASCADE)
 
@@ -153,3 +181,10 @@ class OrgWallet(models.Model):
     org_wallet_pin = models.IntegerField(null=True, blank=True)
 
 
+class SocialLink(models.Model):
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='social_links')
+    title = models.CharField(max_length=100)  # e.g., "Facebook", "Instagram"
+    url = models.URLField(max_length=200)
+
+    def __str__(self):
+        return f"{self.title}: {self.url}"
