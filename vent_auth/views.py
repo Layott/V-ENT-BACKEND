@@ -100,6 +100,7 @@ def signup(request):
         user.username = username
         user.country = country
         user.password = make_password(password)
+        user.is_active = False
         user.save()
     except Users.DoesNotExist:
         # Create a new user if it doesn't exist
@@ -108,7 +109,8 @@ def signup(request):
             email=email,
             username=username,
             password=make_password(password),
-            country=country
+            country=country,
+            is_active=False
         )
 
 
@@ -235,8 +237,14 @@ def login(request):
 
     # Authenticate user with either username or email
     user = authenticate(request, username=username_or_email, password=password)
-    
+
     if user is not None:
+        # Check if the user's account is active
+        if not user.is_active:
+            return Response({
+                'message': 'Your account is not confirmed. Please verify your email address.'
+            }, status=status.HTTP_403_FORBIDDEN)
+
         # Generate a session token
         session_token = generate_session_token()
         
@@ -254,7 +262,7 @@ def login(request):
         return Response({
             'message': 'Invalid username/email or password'
         }, status=status.HTTP_401_UNAUTHORIZED)
-    
+
 
 @api_view(["POST"])
 def logout(request):
@@ -917,6 +925,8 @@ def get_user_informations(request):
 
         # Fetch user object
         user = get_object_or_404(Users, user_id=user_id)
+
+        returned_obj = []
 
         # Get user profile
         profile = UserProfile.objects.filter(user=user).first()
