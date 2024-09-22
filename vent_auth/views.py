@@ -255,7 +255,8 @@ def login(request):
         # Return success response with the session token
         return Response({
             'message': 'Login successful', 
-            'session_token': session_token
+            'session_token': session_token,
+            'user_id': user.user_id
         }, status=status.HTTP_200_OK)
     else:
         # Authentication failed, return error response
