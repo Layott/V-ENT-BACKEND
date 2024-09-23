@@ -42,6 +42,3 @@ class SocialLink(models.Model):
     def __str__(self):
         return f"{self.platform} - {self.url}"
 
-
-class Attendees(models.Model):
-    

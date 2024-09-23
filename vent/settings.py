@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'dj_rest_auth.registration',
     'rest_framework.authtoken',
     'corsheaders',
+    'vent_event',
 ]
 
 MIDDLEWARE = [
