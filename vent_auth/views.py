@@ -1108,9 +1108,9 @@ def edit_profile_info(request):
         )
 
 
-@api_view(['POST'])
+@api_view(['GET'])
 def get_user_status(request):
-    email = request.data.get('email')
+    email = request.query_params.get('email')
 
     if not email:
         return Response({'status': 'error', 'message': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -1125,7 +1125,7 @@ def get_user_status(request):
             'is_active': user.is_active,
             'message': 'User status retrieved successfully'
         }, status=status.HTTP_200_OK)
-    
+
     except Users.DoesNotExist:
         return Response({'status': 'error', 'message': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
