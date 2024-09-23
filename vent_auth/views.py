@@ -151,8 +151,12 @@ def verify_token(request, uidb64, token):
                 user.is_active = True
                 user.save()
 
-                UserProfile.objects.create(user=user)
-                create_user_wallet(user=user)
+                # Create the user profile if it doesn't exist
+                UserProfile.objects.get_or_create(user=user)
+
+                # Check if wallet exists before creating
+                if not UserWallet.objects.filter(user=user).exists():
+                    create_user_wallet(user=user)
 
                 return render(request, 'verification_success.html', {"message": "Verification successful! Your account is now activated."})
         else:

@@ -7,10 +7,17 @@ class Tournament(models.Model):
     tournament_desc = models.TextField()
     tournament_creator = models.ForeignKey(Users, on_delete=models.CASCADE, null=False, related_name='created_tournaments')
     tournament_creation_date = models.DateField()
-    tournament_game_type = models.ForeignKey(Games, on_delete=models.CASCADE, null=False, related_name='tournaments')
-    tournament_type = models.CharField(max_length=5, null=False)
-    tournament_registration_date = models.DateField()
-    tournament_registration_end_date = models.DateField()
+    tournament_game = models.ForeignKey(Games, on_delete=models.CASCADE, null=False, related_name='tournaments')
+    tournament_registration_date = models.DateTimeField()
+    tournament_registration_end_date = models.DateTimeField()
+    tournament_start_date = models.DateField()
+    tournament_end_date = models.DateField()
+    tournament_status = models.CharField(max_length=15)
+    tournament_format = models.CharField(max_length=20)
+    tournament_location = models.CharField(max_length=145)
+    tournament_entry_fee = models.CharField(max_length=10)
+    tournament_last_updated = models.DateField(max_length=40)
+    tournament_prize = models.CharField(max_length=10)
 
     def __str__(self):
         return self.tournament_name
