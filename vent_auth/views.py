@@ -916,16 +916,16 @@ def check_username_availability(request):
 @api_view(['POST'])
 def get_user_informations(request):
     try:
-        user_id = request.data.get('user_id')
+        login_session_token = request.data.get('login_session_token')
         
-        if not user_id:
+        if not login_session_token:
             return Response(
-                {'status': 'error', 'message': 'user_id is required'},
+                {'status': 'error', 'message': 'login_session_token is required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Fetch user object
-        user = get_object_or_404(Users, user_id=user_id)
+        # Fetch user object based on the session token
+        user = get_object_or_404(Users, login_session_token=login_session_token)
 
         returned_obj = []
 
@@ -979,6 +979,7 @@ def get_user_informations(request):
             {'status': 'error', 'message': f'An unexpected error occurred: {str(e)}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
 
 @api_view(['POST'])
 def add_game_account(request):
