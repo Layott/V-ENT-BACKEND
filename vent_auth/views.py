@@ -1106,3 +1106,27 @@ def edit_profile_info(request):
             {'status': 'error', 'message': f'An unexpected error occurred: {str(e)}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+@api_view(['POST'])
+def get_user_status(request):
+    email = request.data.get('email')
+
+    if not email:
+        return Response({'status': 'error', 'message': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        # Fetch user using the email
+        user = Users.objects.get(email=email)
+
+        # Return the is_active status
+        return Response({
+            'status': 'success',
+            'is_active': user.is_active,
+            'message': 'User status retrieved successfully'
+        }, status=status.HTTP_200_OK)
+    
+    except Users.DoesNotExist:
+        return Response({'status': 'error', 'message': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'status': 'error', 'message': f'An error occurred: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
