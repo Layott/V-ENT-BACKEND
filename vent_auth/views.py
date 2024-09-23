@@ -1037,7 +1037,7 @@ def add_game_account(request):
 @api_view(['POST'])
 def edit_profile_info(request):
     try:
-        user_id = request.data.get('user_id')
+        login_session_token = request.data.get('login_session_token')
         profile_pic = request.FILES.get("profile_pic")  # Expecting an image file
         banner = request.FILES.get("banner")  # Expecting an image file
         username = request.data.get('username')
@@ -1046,8 +1046,8 @@ def edit_profile_info(request):
         country = request.data.get('country')
         interest_ids = request.data.get('interests')  # This is expected to be a list of interest IDs
 
-        # Fetch the user
-        user = get_object_or_404(Users, user_id=user_id)
+        # Fetch the user by session token
+        user = get_object_or_404(Users, login_session_token=login_session_token)
         profile, created = UserProfile.objects.get_or_create(user=user)
 
         # Update profile picture and banner if provided
