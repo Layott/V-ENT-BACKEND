@@ -1,30 +1,84 @@
 from django.db import models
-from vent_auth.models import Users, Games, Teams  # Ensure you import relevant models
+from vent_auth.models import Users, Games, Teams
 
 class Tournament(models.Model):
-    tournament_id = models.AutoField(primary_key=True, null=False)
-    tournament_name = models.CharField(max_length=148, null=False)
-    tournament_desc = models.TextField()
-    tournament_creator = models.ForeignKey(Users, on_delete=models.CASCADE, null=False, related_name='created_tournaments')
-    tournament_creation_date = models.DateField()
-    tournament_game = models.ForeignKey(Games, on_delete=models.CASCADE, null=False, related_name='tournaments')
-    tournament_registration_date = models.DateTimeField()
-    tournament_registration_end_date = models.DateTimeField()
-    tournament_start_date = models.DateField()
-    tournament_end_date = models.DateField()
-    tournament_status = models.CharField(max_length=15)
-    tournament_format = models.CharField(max_length=20)
-    tournament_location = models.CharField(max_length=145)
-    tournament_entry_fee = models.CharField(max_length=10)
-    tournament_last_updated = models.DateField(max_length=40)
-    tournament_prize = models.CharField(max_length=10)
+    TOURNAMENT_VISIBILITY_CHOICES = [
+        ('public', 'Public'),
+        ('private', 'Private'),
+        ('protected', 'Protected'),
+    ]
+
+    TOURNAMENT_ACCESS_CHOICES = [
+        ('team', 'Team'),
+        ('individual', 'Individual'),
+        ('team_and_individual', 'Team and Individual'),
+    ]
+
+    TOURNAMENT_TYPE_CHOICES = [
+        ('online', 'Online'),
+        ('physical', 'Physical'),
+        ('hybrid', 'Hybrid'),
+    ]
+
+    ENTRY_FEE_CHOICES = [
+        ('Paid', 'Paid'),
+        ('Free', 'Free'),
+    ]
+
+    tournament_id = models.AutoField(primary_key=True)
+    tournament_title = models.CharField(max_length=148, null=False)
+    tournament_logo = models.ImageField(upload_to='tournament_logos/', null=True, blank=True)
+    tournament_banner = models.ImageField(upload_to='tournament_banners/', null=True, blank=True)
+    
+    tournament_description = models.TextField(null=True)
+    tournament_rules = models.TextField(null=True, blank=True)
+    
+    bracket_type = models.CharField(max_length=50)  # Single elimination, double elimination, etc.
+    start_date_and_time = models.DateTimeField()
+    end_date_and_time = models.DateTimeField()
+    tournament_visibility = models.CharField(max_length=9, choices=TOURNAMENT_VISIBILITY_CHOICES)
+    tournament_type = models.CharField(max_length=8, choices=TOURNAMENT_TYPE_CHOICES)
+    tournament_location = models.CharField(max_length=255, null=True, blank=True)  # Required for physical or hybrid
+    player_size = models.IntegerField(null=True, blank=True)
+    max_number_of_teams = models.IntegerField(null=True, blank=True)
+    min_number_of_teams = models.IntegerField(null=True, blank=True)
+    tournament_access = models.CharField(max_length=20, choices=TOURNAMENT_ACCESS_CHOICES)
+    entry_fee = models.CharField(max_length=5, choices=ENTRY_FEE_CHOICES)
+    entry_fee_price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+
+    # Links
+    facebook_link = models.URLField(null=True, blank=True)
+    twitter_link = models.URLField(null=True, blank=True)
+    instagram_link = models.URLField(null=True, blank=True)
+    youtube_link = models.URLField(null=True, blank=True)
+    twitch_link = models.URLField(null=True, blank=True)
+    kick_link = models.URLField(null=True, blank=True)
+
+    # Sponsors as Many-to-Many relationship
+    sponsors = models.ManyToManyField('Sponsor', blank=True)
 
     def __str__(self):
-        return self.tournament_name
+        return self.tournament_title
 
-    class Meta:
-        verbose_name = "Tournament"
-        verbose_name_plural = "Tournaments"
+
+class TournamentPrizeDistribution(models.Model):
+    id = models.AutoField(primary_key=True)
+    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='prize_distributions')
+    position = models.IntegerField(null=False)
+    prize = models.DecimalField(max_digits=10, decimal_places=2, null=False)
+    extras = models.CharField(max_length=40, blank=True)  # Optional field for additional prize details
+
+    def __str__(self):
+        return f"{self.tournament.tournament_title} - Position {self.position}"
+
+
+class Sponsor(models.Model):
+    name = models.CharField(max_length=255)
+    logo = models.ImageField(upload_to='sponsor_logos/', null=True, blank=True)
+    website = models.URLField(null=True, blank=True)
+
+    def __str__(self):
+        return self.name
 
 class RegisteredTeams(models.Model):
     tournament_id = models.ForeignKey(Tournament, on_delete=models.CASCADE)

@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'allauth.account',
     'allauth.socialaccount',
     'allauth.socialaccount.providers.google',
+    'allauth.socialaccount.providers.facebook',
     'rest_framework',
     'dj_rest_auth',
     'dj_rest_auth.registration',
@@ -185,13 +186,18 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 SOCIALACCOUNT_PROVIDERS = {
     'google': {
         'APP': {
-            'client_id': '782091340215-6h5gh63vgmud9brvgriugh35klugr9kp.apps.googleusercontent.com',  # Replace with your client_id
-            'secret': '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',  # Replace with your client_secret
+            'client_id': '107316124610-92l5cshqkfcsvhbdklvga49qdqo59r6j.apps.googleusercontent.com',  # Replace with your client_id
+            'secret': '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',  # Replace with your client_secret
             'key': ''
         }
     }
 }
-
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'SCOPE': ['profile', 'email'],
+        'AUTH_PARAMS': {'access_type': 'offline'},
+    }
+}
 
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'

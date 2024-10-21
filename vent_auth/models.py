@@ -26,11 +26,12 @@ class UserProfile(models.Model):
     date_of_birth = models.DateField(null=True)
     banner = models.ImageField(upload_to='banners/', null=True)
     description = models.CharField(max_length=140, null=True)
+    penalty_point = models.IntegerField(default=0, null=False)
 
 
 class Interests(models.Model):
     interest_id = models.AutoField(primary_key=True)
-    interest_name = models.CharField(max_length=36)
+    interest_name = models.CharField(max_length=36, null=True)
 
 
 class UserInterests(models.Model):
@@ -62,7 +63,7 @@ class Genres(models.Model):
 class Games(models.Model):
     game_id = models.AutoField(primary_key=True)
     game_title = models.CharField(max_length=40, unique=True)
-    description = models.TextField()
+    description = models.TextField(null=True)
     logo = models.ImageField(upload_to='game_logos/', null=True, blank=True)  # Add the logo field
 
     def __str__(self):
@@ -71,9 +72,9 @@ class Games(models.Model):
 
 class Achievement(models.Model):
     name = models.CharField(max_length=100)
-    description = models.TextField()
+    description = models.TextField(null=True)
     logo = models.ImageField(upload_to='achievements/', blank=True, null=True)  # Updated folder name
-    awarded_to = models.ManyToManyField(Users, related_name="achievements", blank=True)
+    awarded_to = models.ManyToManyField(Users, related_name="achievements", blank=True, null=True)
 
     def __str__(self):
         return self.name
