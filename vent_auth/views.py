@@ -1127,6 +1127,9 @@ def get_user_status(request):
         }, status=status.HTTP_200_OK)
 
     except Users.DoesNotExist:
-        return Response({'status': 'error', 'message': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({
+            'status': 'error', 
+            'message': 'User not found'}, 
+            status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'status': 'error', 'message': f'An error occurred: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
