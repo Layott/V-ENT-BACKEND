@@ -26,7 +26,7 @@ class UserProfile(models.Model):
     date_of_birth = models.DateField(null=True)
     banner = models.ImageField(upload_to='banners/', null=True)
     description = models.CharField(max_length=140, null=True)
-    penalty_point = models.IntegerField(default=0, null=False)
+    penalty_point = models.IntegerField(default=0, null=False, blank=False)
 
 
 class Interests(models.Model):
