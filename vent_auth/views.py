@@ -32,6 +32,10 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
 from django.urls import reverse
 from django.contrib.auth.tokens import default_token_generator
+from PIL import Image, ImageDraw, ImageFont
+from io import BytesIO
+import os
+from django.core.files import File
 
 # Create your views here.
 
@@ -79,6 +83,81 @@ def generate_session_token(length=16):
     """Generate a random 16-character token"""
     characters = string.ascii_letters + string.digits
     return ''.join(random.choice(characters) for _ in range(length))
+
+
+# def create_default_profile_picture(full_name):
+#     # Create an image with the specified background color
+#     image = Image.new('RGB', (100, 100), color='#46484F')  # Background color #46484F
+#     draw = ImageDraw.Draw(image)
+
+#     # Load custom font
+#     font_path = "C:\\Users\\habee\\Downloads\\despair_time\\Despair Time Straight.otf"
+#     try:
+#         font = ImageFont.truetype(font_path, size=40)  # Adjust size as needed
+#     except IOError:
+#         print(f"Custom font not found at {font_path}. Using default font.")
+#         font = ImageFont.load_default()  # Fallback to default font if custom font is not found
+
+#     # Extract first letters
+#     names = full_name.split()
+#     initials = ''.join(name[0].upper() for name in names[:2])  # First two names' initials
+
+#     # Calculate text size and position
+#     text_bbox = draw.textbbox((0, 0), initials, font=font)
+#     text_width = text_bbox[2] - text_bbox[0]
+#     text_height = text_bbox[3] - text_bbox[1]
+    
+#     # Get image size and calculate position
+#     width, height = image.size
+#     x = (width - text_width) / 2
+#     y = (height - text_height) / 2
+
+#     # Draw text on the image with red color (#ED1C24)
+#     draw.text((x, y), initials, fill='#ED1C24', font=font)  # Red text
+
+#     # Save the image as a PNG file on the disk
+#     image.save('default_profile_picture.png', format='PNG')
+#     print("Image saved as 'default_profile_picture.png'.")
+
+# # Test the function
+# # create_default_profile_picture("Nabeeb Dufutau")
+
+def create_default_profile_picture(full_name):
+    # Create an image with the specified background color
+    image = Image.new('RGB', (100, 100), color='#46484F')  # Background color #46484F
+    draw = ImageDraw.Draw(image)
+
+    # Load custom font
+    font_path = "C:\\Users\\habee\\Downloads\\despair_time\\Despair Time Straight.otf"
+    try:
+        font = ImageFont.truetype(font_path, size=40)  # Adjust size as needed
+    except IOError:
+        print(f"Custom font not found at {font_path}. Using default font.")
+        font = ImageFont.load_default()  # Fallback to default font if custom font is not found
+
+    # Extract first letters
+    names = full_name.split()
+    initials = ''.join(name[0].upper() for name in names[:2])  # First two names' initials
+
+    # Calculate text size and position
+    text_bbox = draw.textbbox((0, 0), initials, font=font)
+    text_width = text_bbox[2] - text_bbox[0]
+    text_height = text_bbox[3] - text_bbox[1]
+
+    # Get image size and calculate position
+    width, height = image.size
+    x = (width - text_width) / 2
+    y = (height - text_height) / 2
+
+    # Draw text on the image with red color (#ED1C24)
+    draw.text((x, y), initials, fill='#ED1C24', font=font)  # Red text
+
+    # Save the image to an in-memory file
+    temp_image = BytesIO()
+    image.save(temp_image, format='PNG')
+    temp_image.seek(0)
+
+    return temp_image
 
 
 @api_view(['POST'])
@@ -151,8 +230,13 @@ def verify_token(request, uidb64, token):
                 user.is_active = True
                 user.save()
 
-                # Create the user profile if it doesn't exist
-                UserProfile.objects.get_or_create(user=user)
+                # Inside verify_token
+                user_prof, created = UserProfile.objects.get_or_create(user=user)
+
+                # Use the in-memory image file
+                profile_pic_file = create_default_profile_picture(user.full_name)
+                user_prof.profile_picture.save(f"{user.username}_profile.png", File(profile_pic_file))
+                user_prof.save()
 
                 # Check if wallet exists before creating
                 if not UserWallet.objects.filter(user=user).exists():
