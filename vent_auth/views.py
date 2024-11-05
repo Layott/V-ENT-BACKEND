@@ -2,7 +2,7 @@ import datetime
 from django.shortcuts import render, redirect, get_object_or_404
 from rest_framework.decorators import api_view
 from .serializers import UserSerializer
-from .models import Users, Games, UserCommunity, VerificationToken, UserProfile, GameAccount, UserWallet, Teams, TeamProfile, TeamWallet, OrgWallet, FavoriteGames, UserGameStats, UserInterests, Interests, SocialLink
+from .models import Users, Games, UserCommunity, VerificationToken, UserProfile, GameAccount, UserWallet, Teams, TeamProfile, TeamWallet, OrgWallet, FavoriteGames, UserGameStats, UserInterests, Interests, SocialLink, Waitlist
 from rest_framework.response import Response
 from django.contrib.auth.hashers import make_password, check_password
 from django.core.exceptions import ObjectDoesNotExist
@@ -1217,3 +1217,19 @@ def get_user_status(request):
             status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'status': 'error', 'message': f'An error occurred: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+def add_email_to_waitlist(request):
+    email = request.data.get("email")
+    
+    if not email:
+        return Response({"status": "error", "message": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Check if email already exists
+    if Waitlist.objects.filter(email=email).exists():
+        return Response({"status": "error", "message": "This email is already on the waitlist."}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Add email to waitlist
+    waitlist_entry = Waitlist.objects.create(email=email)
+    return Response({"status": "success", "message": "Email added to waitlist successfully."}, status=status.HTTP_201_CREATED)

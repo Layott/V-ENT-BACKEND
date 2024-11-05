@@ -30,6 +30,7 @@ urlpatterns = [
     path("get-username-with-email/", get_username_with_email, name="get_username_with_email"),
     path("edit-profile-info/", edit_profile_info, name="edit_profile_info"),
     path("get-user-informations/", get_user_informations, name="get_user_informations"),
-    path("get-user-status/", get_user_status, name="get_user_status")
+    path("get-user-status/", get_user_status, name="get_user_status"),
+    path("add-email-to-waitlist/", add_email_to_waitlist, name="add_email_to_waitlist")
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

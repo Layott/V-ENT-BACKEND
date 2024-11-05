@@ -189,3 +189,12 @@ class SocialLink(models.Model):
 
     def __str__(self):
         return f"{self.title}: {self.url}"
+    
+
+class Waitlist(models.Model):
+    email = models.EmailField(unique=True)
+    is_notified = models.BooleanField(default=False)
+    join_date = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.email
