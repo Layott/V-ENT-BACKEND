@@ -139,6 +139,7 @@ def search_tournament(request):
         return Response({'status': 'error', 'message': f'Error searching for tournaments: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
 
 
+@api_view(['POST'])
 def create_tournament_1(request):
     try:
         with transaction.atomic():
@@ -152,10 +153,14 @@ def create_tournament_1(request):
             end_date_and_time = request.data.get('end_date_and_time')
             tournament_location = request.data.get('tournament_location')
             virtual_link = request.data.get('virtual_link')
+            hide_location = request.data.get('hide_location') # true or false
+            is_linked_to_an_event = request.data.get('is_linked_to_an_event') # true or false
             event_id = request.data.get('event_id')
-            tournament_visibility = request.data.get('tournament_visibility')  # public, private, protected
+            tournament_start_datetime = request.data.get('tournament_start_datetime')
+            tournament_end_datetime = request.data.get('tournament_end_datetime')
             reg_start_date_and_time = request.data.get('reg_start_date_and_time')
             reg_end_date_and_time = request.data.get('reg_end_date_and_time')
+            tournament_visibility = request.data.get('tournament_visibility')  # public, private, protected
             entry_type = request.data.get('entry_type')  # Paid or Free
             entry_fee = request.data.get('entry_fee', 0.00 if entry_type == 'Free' else request.data.get('entry_fee'))
             tournament_logo = request.FILES.get('tournament_logo')

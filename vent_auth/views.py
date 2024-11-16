@@ -1041,7 +1041,7 @@ def get_user_informations(request):
             'username': user.username,
             'email': user.email,
             'country': user.country,
-            'profile_picture': profile.profile_picture.url if profile and profile.profile_picture else None,
+            'profile_picture': "https://vermillionent.pythonanywhere.com/"+profile.profile_picture.url if profile and profile.profile_picture else None,
             'banner': profile.banner.url if profile and profile.banner else None,
             'description': profile.description if profile else None,
             'penalty_point': profile.penalty_point if profile else 0,
