@@ -1133,7 +1133,7 @@ def edit_profile_info(request):
         fullname = request.data.get('fullname')
         description = request.data.get('bio')
         country = request.data.get('country')
-        interest_ids = request.data.get('interests')  # This is expected to be a list of interest IDs
+        interests = request.data.get('interests')  # This is expected to be a list of interests
 
         # Fetch the user by session token
         user = get_object_or_404(Users, login_session_token=login_session_token)
@@ -1160,11 +1160,7 @@ def edit_profile_info(request):
         profile.save()
 
         # Update interests if provided
-        if interest_ids:
-            # Convert IDs to integers
-            interest_ids = [int(id) for id in interest_ids]
-            # Get existing interests from IDs
-            interests = Interests.objects.filter(id__in=interest_ids)
+        if interests:
             # Clear old interests and set new ones
             UserInterests.objects.filter(user=user).delete()
             for interest in interests:

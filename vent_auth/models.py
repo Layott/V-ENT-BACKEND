@@ -29,14 +29,9 @@ class UserProfile(models.Model):
     penalty_point = models.IntegerField(default=0, null=True)
 
 
-class Interests(models.Model):
-    interest_id = models.AutoField(primary_key=True)
-    interest_name = models.CharField(max_length=36, null=True)
-
-
 class UserInterests(models.Model):
     user = models.ForeignKey(Users, on_delete=models.CASCADE)
-    interests = models.ForeignKey(Interests, on_delete=models.CASCADE)
+    interests = models.CharField(max_length=30)
 
 
 class VerificationToken(models.Model):
