@@ -180,6 +180,7 @@ def create_tournament_1(request):
             # Sponsors
             sponsors = request.data.getlist('sponsor')  # List of sponsors
             
+            
             # Social links
             facebook_link = request.data.get('facebook_link')
             twitter_link = request.data.get('twitter_link')

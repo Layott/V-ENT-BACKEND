@@ -2,7 +2,7 @@ import datetime
 from django.shortcuts import render, redirect, get_object_or_404
 from rest_framework.decorators import api_view
 from .serializers import UserSerializer
-from .models import Users, Games, UserCommunity, VerificationToken, UserProfile, GameAccount, UserWallet, Teams, TeamProfile, TeamWallet, OrgWallet, FavoriteGames, UserGameStats, UserInterests, Interests, SocialLink, Waitlist
+from .models import Users, Games, UserCommunity, VerificationToken, UserProfile, GameAccount, UserWallet, Teams, TeamProfile, TeamWallet, OrgWallet, FavoriteGames, UserGameStats, UserInterests, SocialLink, Waitlist
 from rest_framework.response import Response
 from django.contrib.auth.hashers import make_password, check_password
 from django.core.exceptions import ObjectDoesNotExist
@@ -1175,11 +1175,6 @@ def edit_profile_info(request):
         return Response(
             {'status': 'error', 'message': 'User not found'},
             status=status.HTTP_404_NOT_FOUND
-        )
-    except Interests.DoesNotExist:
-        return Response(
-            {'status': 'error', 'message': 'One or more interests not found'},
-            status=status.HTTP_400_BAD_REQUEST
         )
     except Exception as e:
         return Response(
