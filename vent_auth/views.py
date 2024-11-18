@@ -1299,10 +1299,5 @@ def add_email_to_waitlist(request):
 </html>
 """
 
-
-
-
-
-
     send_email(email, subject, email_content)
     return Response({"status": "success", "message": "Email added to waitlist successfully."}, status=status.HTTP_201_CREATED)
