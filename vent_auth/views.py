@@ -1221,6 +1221,9 @@ def add_email_to_waitlist(request):
     if Waitlist.objects.filter(email=email).exists():
         return Response({"status": "error", "message": "This email is already on the waitlist."}, status=status.HTTP_400_BAD_REQUEST)
     
+    if Users.objects.filter(email=email).exists():
+        return Response({"status": "error", "message": "This email is already on the waitlist."}, status=status.HTTP_400_BAD_REQUEST)
+    
     # Add email to waitlist
     waitlist_entry = Waitlist.objects.create(email=email)
 
