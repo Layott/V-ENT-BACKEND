@@ -1021,7 +1021,7 @@ def get_user_informations(request):
         profile = UserProfile.objects.filter(user=user).first()
 
         # Get user interests
-        interests = UserInterests.objects.filter(user=user).values_list('interests__interest_name', flat=True)
+        interests = UserInterests.objects.filter(user=user)
 
         # Get wallet balance
         wallet = UserWallet.objects.filter(user=user).first()
@@ -1042,7 +1042,7 @@ def get_user_informations(request):
             'email': user.email,
             'country': user.country,
             'profile_picture': "https://vermillionent.pythonanywhere.com/"+profile.profile_picture.url if profile and profile.profile_picture else None,
-            'banner': profile.banner.url if profile and profile.banner else None,
+            'banner': "https://vermillionent.pythonanywhere.com/"+profile.banner.url if profile and profile.banner else None,
             'description': profile.description if profile else None,
             'penalty_point': profile.penalty_point if profile else 0,
             'social_links': list(social_links),
