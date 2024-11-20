@@ -8,7 +8,7 @@ from vent_auth.models import Users
 def create_event(request):
     try:
         name = request.data.get('name')
-        creator_id = request.data.get('creator_id')
+        session_token = request.data.get('session_token')
         event_type = request.data.get('event_type')
         desc = request.data.get('desc')
         entry_fee = request.data.get('entry_fee')
@@ -21,7 +21,7 @@ def create_event(request):
         banner = request.FILES.get('banner')  # Event banner
 
         # Validate required fields
-        if not all([name, creator_id, event_type, desc, entry_fee, event_date, start_time, end_time]):
+        if not all([name, session_token, event_type, desc, entry_fee, event_date, start_time, end_time]):
             return Response({'status': 'error', 'message': 'All fields are required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Check for event type (physical, virtual, hybrid) and get location or event_link accordingly
@@ -40,7 +40,7 @@ def create_event(request):
         social_urls = request.data.getlist('social_urls')  # Corresponding URLs
 
         # Get the event creator
-        creator = get_object_or_404(Users, user_id=creator_id)
+        creator = get_object_or_404(Users, session_token=session_token)
 
         # Create the event
         event = Event.objects.create(
