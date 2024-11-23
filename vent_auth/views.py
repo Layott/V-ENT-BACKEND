@@ -1127,26 +1127,33 @@ def add_game_account(request):
 def edit_profile_info(request):
     try:
         login_session_token = request.data.get('login_session_token')
-        profile_pic = request.FILES.get("profile_pic")  # Expecting an image file
-        banner = request.FILES.get("banner")  # Expecting an image file
+        profile_pic = request.FILES.get("profile_pic")
+        banner = request.FILES.get("banner")
         username = request.data.get('username')
         fullname = request.data.get('fullname')
         description = request.data.get('bio')
         country = request.data.get('country')
-        interests = request.data.get('interests')  # This is expected to be a list of interests
+        interests = request.data.get('interests')
 
-        # Fetch the user by session token
+        # Fetch user
         user = get_object_or_404(Users, login_session_token=login_session_token)
-        profile, created = UserProfile.objects.get_or_create(user=user)
 
-        # Update profile picture and banner if provided
-        if profile_pic:
-            profile.profile_picture = profile_pic
-        if banner:
-            profile.banner = banner
+        # Fetch user profile
+        try:
+            profile = UserProfile.objects.get(user=user)
+        except UserProfile.DoesNotExist:
+            return Response(
+                {'status': 'error', 'message': 'User profile does not exist'},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
-        # Update basic information
-        if username:
+        # Update user and profile fields
+        if username and username != user.username:
+            if Users.objects.filter(username=username).exists():
+                return Response(
+                    {'status': 'error', 'message': 'Username already taken'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
             user.username = username
         if fullname:
             user.full_name = fullname
@@ -1154,33 +1161,57 @@ def edit_profile_info(request):
             profile.description = description
         if country:
             user.country = country
+        if profile_pic:
+            if not profile_pic.content_type.startswith("image/"):
+                return Response(
+                    {'status': 'error', 'message': 'Invalid profile picture format'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            profile.profile_picture = profile_pic
+        if banner:
+            if not banner.content_type.startswith("image/"):
+                return Response(
+                    {'status': 'error', 'message': 'Invalid banner format'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            profile.banner = banner
 
         # Save user and profile
         user.save()
         profile.save()
 
-        # Update interests if provided
-        if interests:
-            # Clear old interests and set new ones
+        # Update interests
+        if interests and isinstance(interests, list):
             UserInterests.objects.filter(user=user).delete()
-            for interest in interests:
-                UserInterests.objects.create(user=user, interests=interest)
+            interests_objects = [UserInterests(user=user, interests=interest) for interest in interests]
+            UserInterests.objects.bulk_create(interests_objects)
 
+        # Return updated data
         return Response(
-            {'status': 'success', 'message': 'Profile updated successfully'},
-            status=status.HTTP_200_OK
+            {
+                'status': 'success',
+                'message': 'Profile updated successfully',
+                'data': {
+                    'username': user.username,
+                    'fullname': user.full_name,
+                    'profile_pic': profile.profile_picture.url if profile.profile_picture else None,
+                    'banner': profile.banner.url if profile.banner else None,
+                    'description': profile.description,
+                    'country': user.country,
+                    'interests': interests,
+                },
+            },
+            status=status.HTTP_200_OK,
         )
 
-    except Users.DoesNotExist:
-        return Response(
-            {'status': 'error', 'message': 'User not found'},
-            status=status.HTTP_404_NOT_FOUND
-        )
     except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.error(f"Unexpected error: {str(e)}")
         return Response(
-            {'status': 'error', 'message': f'An unexpected error occurred: {str(e)}'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            {'status': 'error', 'message': 'An unexpected error occurred. Please try again later.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
 
 
 @api_view(['GET'])
