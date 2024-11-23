@@ -1005,7 +1005,7 @@ def check_username_availability(request):
 def get_user_informations(request):
     try:
         login_session_token = request.data.get('login_session_token')
-        
+
         if not login_session_token:
             return Response(
                 {'status': 'error', 'message': 'login_session_token is required'},
@@ -1015,13 +1015,15 @@ def get_user_informations(request):
         # Fetch user object based on the session token
         user = get_object_or_404(Users, login_session_token=login_session_token)
 
-        returned_obj = []
-
         # Get user profile
-        profile = UserProfile.objects.filter(user=user).first()
+        try:
+            profile = UserProfile.objects.get(user=user)
+        except UserProfile.DoesNotExist:
+            profile = None
 
         # Get user interests
-        interests = UserInterests.objects.filter(user=user)
+        interests = UserInterests.objects.filter(user=user).values_list('interests', flat=True)
+        interests = list(interests)
 
         # Get wallet balance
         wallet = UserWallet.objects.filter(user=user).first()
@@ -1041,8 +1043,8 @@ def get_user_informations(request):
             'username': user.username,
             'email': user.email,
             'country': user.country,
-            'profile_picture': "https://vermillionent.pythonanywhere.com/"+profile.profile_picture.url if profile and profile.profile_picture else None,
-            'banner': "https://vermillionent.pythonanywhere.com/"+profile.banner.url if profile and profile.banner else None,
+            'profile_picture': request.build_absolute_uri(profile.profile_picture.url) if profile and profile.profile_picture else None,
+            'banner': request.build_absolute_uri(profile.banner.url) if profile and profile.banner else None,
             'description': profile.description if profile else None,
             'penalty_point': profile.penalty_point if profile else 0,
             'social_links': list(social_links),
@@ -1063,10 +1065,13 @@ def get_user_informations(request):
             status=status.HTTP_404_NOT_FOUND
         )
     except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.error(f"Unexpected error: {str(e)}")
         return Response(
-            {'status': 'error', 'message': f'An unexpected error occurred: {str(e)}'},
+            {'status': 'error', 'message': 'An unexpected error occurred. Please try again later.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
 
 
 @api_view(['POST'])
