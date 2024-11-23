@@ -1131,7 +1131,7 @@ def edit_profile_info(request):
         banner = request.FILES.get("banner")
         username = request.data.get('username')
         fullname = request.data.get('fullname')
-        description = request.data.get('bio')
+        description = request.data.get('description')
         country = request.data.get('country')
         interests = request.data.get('interests')
 
