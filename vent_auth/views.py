@@ -1047,7 +1047,7 @@ def get_user_informations(request):
             'penalty_point': profile.penalty_point if profile else 0,
             'social_links': list(social_links),
             'wallet_balance': wallet.wallet_balance if wallet else 0,
-            'interests': list(interests),
+            'interests': interests,
             'favorite_games': list(user_games),
             'achievements': list(achievements),
         }
