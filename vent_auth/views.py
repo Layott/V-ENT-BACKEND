@@ -355,10 +355,17 @@ def login(request):
 
 @api_view(["POST"])
 def logout(request):
-    session_token = request.data.get('login_session_token')
+    session_token = request.headers.get('Authorization')
 
     if not session_token:
-        return Response({'status': 'error', 'message': 'Session token is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Ensure the token is in the correct format (e.g., 'Bearer <token>')
+    if not session_token.startswith("Bearer "):
+        return Response({'status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Extract the actual token
+    session_token = session_token.split(" ")[1]
 
     try:
         user = Users.objects.get(login_session_token=session_token)
@@ -1004,16 +1011,20 @@ def check_username_availability(request):
 @api_view(['POST'])
 def get_user_informations(request):
     try:
-        login_session_token = request.data.get('login_session_token')
+        session_token = request.headers.get('Authorization')
 
-        if not login_session_token:
-            return Response(
-                {'status': 'error', 'message': 'login_session_token is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        if not session_token:
+            return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Ensure the token is in the correct format (e.g., 'Bearer <token>')
+        if not session_token.startswith("Bearer "):
+            return Response({'status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Extract the actual token
+        session_token = session_token.split(" ")[1]
 
         # Fetch user object based on the session token
-        user = get_object_or_404(Users, login_session_token=login_session_token)
+        user = get_object_or_404(Users, login_session_token=session_token)
 
         # Get user profile
         try:
@@ -1131,7 +1142,17 @@ def add_game_account(request):
 @api_view(['POST'])
 def edit_profile_info(request):
     try:
-        login_session_token = request.data.get('login_session_token')
+        session_token = request.headers.get('Authorization')
+
+        if not session_token:
+            return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Ensure the token is in the correct format (e.g., 'Bearer <token>')
+        if not session_token.startswith("Bearer "):
+            return Response({'status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Extract the actual token
+        login_session_token = session_token.split(" ")[1]
         profile_pic = request.FILES.get("profile_pic")
         banner = request.FILES.get("banner")
         username = request.data.get('username')
