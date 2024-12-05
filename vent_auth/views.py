@@ -1361,3 +1361,54 @@ def add_email_to_waitlist(request):
 
     send_email(email, subject, email_content)
     return Response({"status": "success", "message": "Email added to waitlist successfully."}, status=status.HTTP_201_CREATED)
+
+
+@api_view(["POST"])
+def update_web_and_social_links(request):
+    session_token = request.headers.get('Authorization')
+
+    if not session_token:
+        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Ensure the token is in the correct format (e.g., 'Bearer <token>')
+    if not session_token.startswith("Bearer "):
+        return Response({'status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Extract the actual token
+    login_session_token = session_token.split(" ")[1]
+
+    try:
+        # Get the user based on the session token
+        user = Users.objects.get(login_session_token=login_session_token)
+
+        # Get the links from the request data
+        links = request.data.get("links")
+        if not isinstance(links, dict):
+            return Response({'status': 'error', 'message': 'Links should be a dictionary'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Fetch existing titles for the user
+        existing_titles = set(user.social_links.values_list('title', flat=True))
+
+        # Validate and update links
+        for title, url in links.items():
+            # Ensure title and url are valid
+            if not title or not url:
+                continue
+
+            # Check if a duplicate title is being added
+            if title in existing_titles:
+                return Response({'status': 'error', 'message': f"Duplicate title found: {title}"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Update if exists, otherwise create a new record
+            social_link, created = SocialLink.objects.update_or_create(
+                user=user,
+                title=title,
+                defaults={'url': url}
+            )
+            # Add the title to existing_titles to prevent further duplicates
+            existing_titles.add(title)
+
+        return Response({'status': 'success', 'message': 'Social links updated successfully'}, status=status.HTTP_200_OK)
+
+    except Users.DoesNotExist:
+        return Response({'status': 'error', 'message': 'Invalid session token'}, status=status.HTTP_404_NOT_FOUND)
