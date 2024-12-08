@@ -2,6 +2,7 @@ from django.shortcuts import render
 from imports import api_view,get_object_or_404, Response, status, transaction
 from .models import Tournament, Users, Games, Teams, TournamentPrizeDistribution
 from django.db.models import Q
+from .models import Tournament, Sponsor, TournamentPrizeDistribution, Match, RegisteredTeams
 
 # Create your views here.
 
@@ -254,3 +255,89 @@ def create_tournament_1(request):
             {"status": "error", "message": str(e)}, 
             status=status.HTTP_400_BAD_REQUEST
         )
+    
+
+def get_all_tournaments(request):
+    tournaments = Tournament.objects.all()
+    data = []
+
+    for tournament in tournaments:
+        # Sponsors
+        sponsors = tournament.sponsors.all()
+        sponsors_list = [
+            {
+                "id": sponsor.id,
+                "name": sponsor.name,
+                "logo": sponsor.logo.url if sponsor.logo else None,
+                "website": sponsor.website
+            } 
+            for sponsor in sponsors
+        ]
+
+        # Prize Distributions
+        prize_distributions = TournamentPrizeDistribution.objects.filter(tournament=tournament)
+        prize_list = [
+            {
+                "id": prize.id,
+                "position": prize.position,
+                "prize": str(prize.prize),
+                "extras": prize.extras
+            }
+            for prize in prize_distributions
+        ]
+
+        # Matches
+        matches = Match.objects.filter(tournament=tournament)
+        match_list = [
+            {
+                "match_id": match.match_id,
+                "match_check_in_time": str(match.match_check_in_time),
+                "match_check_in_date": str(match.match_check_in_date),
+                "match_check_in_started": match.match_check_in_started,
+                "match_check_in_ended": match.match_check_in_ended
+            }
+            for match in matches
+        ]
+
+        # Registered Teams
+        registered_teams = RegisteredTeams.objects.filter(tournament_id=tournament)
+        teams_list = [
+            {
+                "team_id": team.team_id.team_id
+            }
+            for team in registered_teams
+        ]
+
+        # Tournament Data
+        data.append({
+            "tournament_id": tournament.tournament_id,
+            "tournament_title": tournament.tournament_title,
+            "tournament_logo": tournament.tournament_logo.url if tournament.tournament_logo else None,
+            "tournament_banner": tournament.tournament_banner.url if tournament.tournament_banner else None,
+            "tournament_description": tournament.tournament_description,
+            "tournament_rules": tournament.tournament_rules,
+            "bracket_type": tournament.bracket_type,
+            "start_date_and_time": tournament.start_date_and_time,
+            "end_date_and_time": tournament.end_date_and_time,
+            "tournament_visibility": tournament.tournament_visibility,
+            "tournament_type": tournament.tournament_type,
+            "tournament_location": tournament.tournament_location,
+            "player_size": tournament.player_size,
+            "max_number_of_teams": tournament.max_number_of_teams,
+            "min_number_of_teams": tournament.min_number_of_teams,
+            "tournament_access": tournament.tournament_access,
+            "entry_fee": tournament.entry_fee,
+            "entry_fee_price": str(tournament.entry_fee_price),
+            "facebook_link": tournament.facebook_link,
+            "twitter_link": tournament.twitter_link,
+            "instagram_link": tournament.instagram_link,
+            "youtube_link": tournament.youtube_link,
+            "twitch_link": tournament.twitch_link,
+            "kick_link": tournament.kick_link,
+            "sponsors": sponsors_list,
+            "prize_distributions": prize_list,
+            "matches": match_list,
+            "registered_teams": teams_list,
+        })
+
+    return Response({"status": "success", "data": data}, status=status.HTTP_200_OK)
