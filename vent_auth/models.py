@@ -8,7 +8,7 @@ class Users(AbstractUser):
     user_id = models.AutoField(primary_key=True)
     full_name = models.CharField(max_length=148, null=True)
     username = models.CharField(max_length=128, unique=True)
-    email = models.EmailField(unique=True)
+    email = models.EmailField()
     password = models.CharField(max_length=256, null=True)
     country = models.CharField(max_length=256, null=True)
     login_session_token = models.CharField(max_length=16, null=True)
