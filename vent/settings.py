@@ -153,8 +153,8 @@ AUTH_PASSWORD_VALIDATORS = [
 AUTH_USER_MODEL = 'vent_auth.Users'
 
 AUTHENTICATION_BACKENDS = (
-    'django.contrib.auth.backends.ModelBackend',
     'vent_auth.backends.EmailOrUsernameModelBackend',
+    'django.contrib.auth.backends.ModelBackend',
     'allauth.account.auth_backends.AuthenticationBackend',
 )
 
