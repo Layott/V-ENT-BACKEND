@@ -11,8 +11,8 @@ class Users(AbstractUser):
     password = models.CharField(max_length=256, null=True)
     country = models.CharField(max_length=256, null=True)
     login_session_token = models.CharField(max_length=16, null=True)
-    # signup_type = models.CharField(max_length=32, default='normal', null=True)  # normal, google, facebook
-    # provider_id = models.CharField(max_length=256, null=True, blank=True)  # Social provider ID
+    signup_type = models.CharField(max_length=32, default='normal', null=True)  # normal, google, facebook
+    provider_id = models.CharField(max_length=256, null=True, blank=True)  # Social provider ID
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['username', 'full_name']
