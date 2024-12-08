@@ -16,8 +16,8 @@ class Users(AbstractUser):
     provider_id = models.CharField(max_length=256, null=True, blank=True)  # Social provider ID
     tst = models.CharField(max_length=44, null=True)
 
-    USERNAME_FIELD = 'email'  # Use 'username' for authentication
-    REQUIRED_FIELDS = ['username', 'full_name']  # Exclude 'username'
+    USERNAME_FIELD = 'username'  # Use 'username' for authentication
+    REQUIRED_FIELDS = ['full_name']  # Exclude 'username'
 
     def __str__(self):
         return f"{self.username} ({self.signup_type})"
