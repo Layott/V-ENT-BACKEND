@@ -3,22 +3,23 @@ from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
 import datetime
 
+
 class Users(AbstractUser):
     user_id = models.AutoField(primary_key=True)
     full_name = models.CharField(max_length=148, null=True)
     username = models.CharField(max_length=128, unique=True)
-    email = models.EmailField(unique=True)
+    email = models.EmailField()
     password = models.CharField(max_length=256, null=True)
     country = models.CharField(max_length=256, null=True)
     login_session_token = models.CharField(max_length=16, null=True)
     signup_type = models.CharField(max_length=32, default='normal', null=True)  # normal, google, facebook
     provider_id = models.CharField(max_length=256, null=True, blank=True)  # Social provider ID
 
-    USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = ['username', 'full_name']
+    USERNAME_FIELD = 'username'  # Use 'username' for authentication
+    REQUIRED_FIELDS = ['full_name']  # Exclude 'username'
 
     def __str__(self):
-        return f"{self.email} ({self.signup_type})"
+        return f"{self.username} ({self.signup_type})"
 
 
 # class SocialAccount(models.Model):
