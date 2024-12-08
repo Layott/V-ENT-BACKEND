@@ -36,6 +36,10 @@ from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import os
 from django.core.files import File
+from django.contrib.auth import get_user_model
+import uuid
+
+User = get_user_model()
 
 # Create your views here.
 
@@ -160,6 +164,82 @@ def create_default_profile_picture(full_name):
     return temp_image
 
 
+def generate_unique_username(email):
+    base_username = email.split('@')[0]  # Use the part before @ in email
+    username = base_username
+    counter = 1
+
+    # Check for uniqueness and keep trying if a username already exists
+    while Users.objects.filter(username=username).exists():
+        suffix = ''.join(random.choices(string.digits, k=3))  # Add a 3-digit random number
+        username = f"{base_username}_{suffix}"
+        counter += 1
+
+    return username
+
+
+def download_image_from_url(url):
+    response = requests.get(url)
+    if response.status_code == 200:
+        return BytesIO(response.content)
+    raise Exception("Failed to download profile picture.")
+
+
+# @api_view(['POST'])
+# def signup(request):
+#     fullname = request.data.get('full_name')
+#     email = request.data.get('email')
+#     username = request.data.get('username')
+#     country = request.data.get('country')
+#     password = request.data.get('password')
+
+#     if not all([fullname, email, username, password, country]):
+#         return Response({"status": "error", "message": "All fields are required"}, status=status.HTTP_400_BAD_REQUEST)
+    
+
+#     try:
+#         user = Users.objects.get(email=email)
+#         # Update the existing user with new details
+#         user.full_name = fullname
+#         user.username = username
+#         user.country = country
+#         user.password = make_password(password)
+#         user.is_active = False
+#         user.save()
+#     except Users.DoesNotExist:
+#         # Create a new user if it doesn't exist
+#         user = Users.objects.create(
+#             full_name=fullname,
+#             email=email,
+#             username=username,
+#             password=make_password(password),
+#             country=country,
+#             is_active=False
+#         )
+
+
+#     token = default_token_generator.make_token(user)
+#     uid = urlsafe_base64_encode(force_bytes(user.pk))
+#     verification_link = request.build_absolute_uri(reverse('verify_token', kwargs={'uidb64': uid, 'token': token}))
+
+#     subject = 'Verify Your Email'
+#     message = f'''Hi,
+
+# Please click the link below to verify your email:
+
+# {verification_link}
+
+# If you did not create an account, please ignore this email.
+# '''
+
+#     try:
+#         send_email(email, subject, message)
+#         return Response({"status": "success", "message": "Verification link sent to email"}, status=status.HTTP_200_OK)
+#     except Exception as e:
+#         logger.error(f"Failed to send email to {email}: {str(e)}")
+#         return Response({"status": "error", "message": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 @api_view(['POST'])
 def signup(request):
     fullname = request.data.get('full_name')
@@ -170,49 +250,44 @@ def signup(request):
 
     if not all([fullname, email, username, password, country]):
         return Response({"status": "error", "message": "All fields are required"}, status=status.HTTP_400_BAD_REQUEST)
-    
+
+    # Check if email already exists for 'normal' signup
+    if Users.objects.filter(email=email, signup_type='normal').exists():
+        return Response({
+            "status": "error",
+            "message": "An account with this email already exists. Please log in."
+        }, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        user = Users.objects.get(email=email)
-        # Update the existing user with new details
-        user.full_name = fullname
-        user.username = username
-        user.country = country
-        user.password = make_password(password)
-        user.is_active = False
-        user.save()
-    except Users.DoesNotExist:
-        # Create a new user if it doesn't exist
+        # Create a new user for 'normal' signup
         user = Users.objects.create(
             full_name=fullname,
             email=email,
             username=username,
             password=make_password(password),
             country=country,
-            is_active=False
+            signup_type='normal',
+            is_active=False  # User account is inactive until email verification
         )
 
+        # Generate verification token
+        token = default_token_generator.make_token(user)
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        verification_link = request.build_absolute_uri(reverse('verify_token', kwargs={'uidb64': uid, 'token': token}))
 
-    token = default_token_generator.make_token(user)
-    uid = urlsafe_base64_encode(force_bytes(user.pk))
-    verification_link = request.build_absolute_uri(reverse('verify_token', kwargs={'uidb64': uid, 'token': token}))
-
-    subject = 'Verify Your Email'
-    message = f'''Hi,
-
-Please click the link below to verify your email:
-
-{verification_link}
-
-If you did not create an account, please ignore this email.
-'''
-
-    try:
+        # Send verification email
+        subject = 'Verify Your Email'
+        message = f"Hi {fullname},\n\nPlease verify your email by clicking the link below:\n\n{verification_link}"
         send_email(email, subject, message)
+
         return Response({"status": "success", "message": "Verification link sent to email"}, status=status.HTTP_200_OK)
+
     except Exception as e:
-        logger.error(f"Failed to send email to {email}: {str(e)}")
-        return Response({"status": "error", "message": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({
+            "status": "error",
+            "message": f"Failed to create account: {str(e)}"
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 @api_view(['GET'])
@@ -1412,3 +1487,98 @@ def update_web_and_social_links(request):
 
     except Users.DoesNotExist:
         return Response({'status': 'error', 'message': 'Invalid session token'}, status=status.HTTP_404_NOT_FOUND)
+    
+
+@api_view(['POST'])
+def social_signup(request):
+    provider = request.data.get('provider')  # google or facebook
+    provider_id = request.data.get('provider_id')  # unique ID from provider
+    email = request.data.get('email')
+    full_name = request.data.get('full_name')
+    country = request.data.get('country')
+    profile_picture_url = request.data.get('profile_picture_url')
+
+    if not all([provider, provider_id, email, full_name]):
+        return Response({
+            "status": "error",
+            "message": "Missing required fields."
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    # Check if a user already exists with this email and provider
+    if Users.objects.filter(email=email, signup_type=provider).exists():
+        return Response({
+            "status": "error",
+            "message": f"An account with this email already exists for {provider}."
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        # Generate a unique username
+        username = generate_unique_username(email)
+
+        # Create the user
+        user = Users.objects.create(
+            full_name=full_name,
+            email=email,
+            username=username,
+            country=country,
+            signup_type=provider,
+            provider_id=provider_id,  # Save the provider ID
+            is_active=True  # No email verification needed for social signups
+        )
+
+        # Create user profile and save profile picture if available
+        user_prof, created = UserProfile.objects.get_or_create(user=user)
+        if profile_picture_url:
+            profile_picture_file = download_image_from_url(profile_picture_url)
+            user_prof.profile_picture.save(f"{username}_profile.png", File(profile_picture_file))
+        user_prof.save()
+
+        return Response({
+            "status": "success",
+            "message": f"Account created successfully using {provider}.",
+            "data": {"email": email, "username": username}
+        }, status=status.HTTP_201_CREATED)
+
+    except Exception as e:
+        return Response({
+            "status": "error",
+            "message": f"Failed to create account: {str(e)}"
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+def social_login(request):
+    provider = request.data.get('provider')  # google or facebook
+    provider_id = request.data.get('provider_id')  # unique ID from provider
+    email = request.data.get('email')
+
+    if not all([provider, provider_id, email]):
+        return Response({
+            "status": "error",
+            "message": "Missing required fields."
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        # Check if user exists with the provider and provider_id
+        user = Users.objects.get(email=email, signup_type=provider, provider_id=provider_id)
+
+        # Generate a login session token
+        session_token = generate_session_token()
+        user.login_session_token = session_token
+        user.save()
+
+        return Response({
+            "status": "success",
+            "message": "Login successful.",
+            "data": {
+                "email": user.email,
+                "username": user.username,
+                "session_token": session_token
+            }
+        }, status=status.HTTP_200_OK)
+
+    except Users.DoesNotExist:
+        return Response({
+            "status": "error",
+            "message": f"No account found for {provider} with this email. Please sign up."
+        }, status=status.HTTP_404_NOT_FOUND)

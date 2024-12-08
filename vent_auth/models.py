@@ -7,16 +7,30 @@ class Users(AbstractUser):
     user_id = models.AutoField(primary_key=True)
     full_name = models.CharField(max_length=148, null=True)
     username = models.CharField(max_length=128, unique=True)
-    email = models.EmailField(unique=True)
+    email = models.EmailField()
     password = models.CharField(max_length=256, null=True)
     country = models.CharField(max_length=256, null=True)
     login_session_token = models.CharField(max_length=16, null=True)
+    signup_type = models.CharField(max_length=32, default='normal')  # normal, google, facebook
+    provider_id = models.CharField(max_length=256, null=True, blank=True)  # Social provider ID
 
-    USERNAME_FIELD = 'email'  # Use email for authentication
-    REQUIRED_FIELDS = ['username', 'full_name']  # Required fields for creating a superuser
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ['username', 'full_name']
 
     def __str__(self):
-        return self.email
+        return f"{self.email} ({self.signup_type})"
+
+
+# class SocialAccount(models.Model):
+#     user = models.ForeignKey(Users, related_name="social_accounts", on_delete=models.CASCADE)
+#     provider = models.CharField(max_length=32)  # google, facebook
+#     provider_id = models.CharField(max_length=256)
+
+#     class Meta:
+#         unique_together = ('provider', 'provider_id')  # Prevent duplicate provider entries
+
+#     def __str__(self):
+#         return f"{self.provider} - {self.user.email}"
 
 
 class UserProfile(models.Model):
