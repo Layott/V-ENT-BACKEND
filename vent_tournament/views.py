@@ -6,53 +6,53 @@ from .models import Tournament, Sponsor, TournamentPrizeDistribution, Match, Reg
 
 # Create your views here.
 
-@api_view(['POST'])
-def create_tournament(request):
-    try:
-        # Get data from request
-        tournament_name = request.data.get('tournament_name')
-        tournament_desc = request.data.get('tournament_desc')
-        creator_id = request.data.get('creator_id')  # You may want to use login session token here
-        tournament_game_id = request.data.get('tournament_game_id')
-        reg_start_date = request.data.get('reg_start_date')
-        reg_end_date = request.data.get('reg_end_date')
-        tournament_start_date = request.data.get('tournament_start_date')
-        tournament_end_date = request.data.get('tournament_end_date')
-        tournament_format = request.data.get('tournament_format')
-        tournament_status = request.data.get('tournament_status', 'upcoming')
-        tournament_location = request.data.get('tournament_location')
-        tournament_entry_fee = request.data.get('tournament_entry_fee')
-        tournament_prize = request.data.get('tournament_prize')
+# @api_view(['POST'])
+# def create_tournament(request):
+#     try:
+#         # Get data from request
+#         tournament_name = request.data.get('tournament_name')
+#         tournament_desc = request.data.get('tournament_desc')
+#         creator_id = request.data.get('creator_id')  # You may want to use login session token here
+#         tournament_game_id = request.data.get('tournament_game_id')
+#         reg_start_date = request.data.get('reg_start_date')
+#         reg_end_date = request.data.get('reg_end_date')
+#         tournament_start_date = request.data.get('tournament_start_date')
+#         tournament_end_date = request.data.get('tournament_end_date')
+#         tournament_format = request.data.get('tournament_format')
+#         tournament_status = request.data.get('tournament_status', 'upcoming')
+#         tournament_location = request.data.get('tournament_location')
+#         tournament_entry_fee = request.data.get('tournament_entry_fee')
+#         tournament_prize = request.data.get('tournament_prize')
 
-        # Validate required fields
-        if not all([tournament_name, tournament_desc, creator_id, tournament_game_id, reg_start_date, reg_end_date, tournament_start_date, tournament_end_date]):
-            return Response({'status': 'error', 'message': 'Missing required fields'}, status=status.HTTP_400_BAD_REQUEST)
+#         # Validate required fields
+#         if not all([tournament_name, tournament_desc, creator_id, tournament_game_id, reg_start_date, reg_end_date, tournament_start_date, tournament_end_date]):
+#             return Response({'status': 'error', 'message': 'Missing required fields'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Fetch the creator (user) and game object
-        creator = get_object_or_404(Users, user_id=creator_id)
-        tournament_game = get_object_or_404(Games, id=tournament_game_id)
+#         # Fetch the creator (user) and game object
+#         creator = get_object_or_404(Users, user_id=creator_id)
+#         tournament_game = get_object_or_404(Games, id=tournament_game_id)
 
-        # Create the Tournament instance
-        tournament = Tournament.objects.create(
-            tournament_name=tournament_name,
-            tournament_desc=tournament_desc,
-            tournament_creator=creator,
-            tournament_game=tournament_game,
-            tournament_registration_date=reg_start_date,
-            tournament_registration_end_date=reg_end_date,
-            tournament_start_date=tournament_start_date,
-            tournament_end_date=tournament_end_date,
-            tournament_format=tournament_format,
-            tournament_status=tournament_status,
-            tournament_location=tournament_location,
-            tournament_entry_fee=tournament_entry_fee,
-            tournament_prize=tournament_prize
-        )
+#         # Create the Tournament instance
+#         tournament = Tournament.objects.create(
+#             tournament_name=tournament_name,
+#             tournament_desc=tournament_desc,
+#             tournament_creator=creator,
+#             tournament_game=tournament_game,
+#             tournament_registration_date=reg_start_date,
+#             tournament_registration_end_date=reg_end_date,
+#             tournament_start_date=tournament_start_date,
+#             tournament_end_date=tournament_end_date,
+#             tournament_format=tournament_format,
+#             tournament_status=tournament_status,
+#             tournament_location=tournament_location,
+#             tournament_entry_fee=tournament_entry_fee,
+#             tournament_prize=tournament_prize
+#         )
 
-        return Response({'status': 'success', 'message': 'Tournament created successfully', 'tournament_id': tournament.tournament_id}, status=status.HTTP_201_CREATED)
+#         return Response({'status': 'success', 'message': 'Tournament created successfully', 'tournament_id': tournament.tournament_id}, status=status.HTTP_201_CREATED)
     
-    except Exception as e:
-        return Response({'status': 'error', 'message': f'Error creating tournament: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+#     except Exception as e:
+#         return Response({'status': 'error', 'message': f'Error creating tournament: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
     
 
 @api_view(['POST'])
@@ -141,48 +141,46 @@ def search_tournament(request):
 
 
 @api_view(['POST'])
-def create_tournament_1(request):
+def create_tournament(request):
     try:
         with transaction.atomic():
             # Get data from the request
             tournament_title = request.data.get('tournament_title')
-            game = request.data.get('game')
-            game_mode = request.data.get('game_mode')
+            game = request.data.get('game')  # Game Name
+            game_mode = request.data.get('game_mode')  # Game Mode
             tournament_description = request.data.get('tournament_description')
-            tournament_type = request.data.get('tournament_type')
+            tournament_type = request.data.get('tournament_type')  # online, physical, hybrid
             start_date_and_time = request.data.get('start_date_and_time')
             end_date_and_time = request.data.get('end_date_and_time')
             tournament_location = request.data.get('tournament_location')
-            virtual_link = request.data.get('virtual_link')
-            hide_location = request.data.get('hide_location') # true or false
-            is_linked_to_an_event = request.data.get('is_linked_to_an_event') # true or false
-            event_id = request.data.get('event_id')
-            tournament_start_datetime = request.data.get('tournament_start_datetime')
-            tournament_end_datetime = request.data.get('tournament_end_datetime')
-            reg_start_date_and_time = request.data.get('reg_start_date_and_time')
-            reg_end_date_and_time = request.data.get('reg_end_date_and_time')
+            virtual_link = request.data.get('virtual_link')  # Virtual link for online/hybrid tournaments
+            hide_location = request.data.get('hide_location', False)  # true or false
+            
             tournament_visibility = request.data.get('tournament_visibility')  # public, private, protected
             entry_type = request.data.get('entry_type')  # Paid or Free
-            entry_fee = request.data.get('entry_fee', 0.00 if entry_type == 'Free' else request.data.get('entry_fee'))
+            entry_fee_price = 0.00 if entry_type == 'Free' else request.data.get('entry_fee', 0.00)
+
             tournament_logo = request.FILES.get('tournament_logo')
             tournament_banner = request.FILES.get('tournament_banner')
-            tournament_format = request.data.get('tournament_format')
-            tournament_access = request.data.get('tournament_access')  # team, individual, team and individual
-            team_size = request.data.get('team_size')
-            min_number_of_participants = request.data.get('min_number_of_participants')
-            max_number_of_participants = request.data.get('max_number_of_participants')
+
+            tournament_access = request.data.get('tournament_access')  # team, individual, team_and_individual
+            team_size = request.data.get('team_size', 1)  # Default team size = 1 for individuals
+
+            min_number_of_participants = request.data.get('min_number_of_participants', 0)
+            max_number_of_participants = request.data.get('max_number_of_participants', 0)
+
+            bracket_type = request.data.get('bracket_type', 'Single Elimination')
             tournament_rules = request.data.get('tournament_rules')
-            
-            # Prize distribution logic
+
+            # Prize distribution
             prize_distribution_type = request.data.get('prize_distribution_type')  # distributed, winner_takes_all, no_prize
-            prize_distribution = request.data.getlist('prize_distribution')  # If it's distributed
-            prize = request.data.get('prize')  # If it's winner takes all
-            
+            prize_distribution = request.data.getlist('prize_distribution')  # List of prizes
+            winner_prize = request.data.get('prize')  # Prize for winner_takes_all
+
             # Sponsors
-            sponsors = request.data.getlist('sponsor')  # List of sponsors
-            
-            
-            # Social links
+            sponsor_ids = request.data.getlist('sponsor_ids', [])
+
+            # Social Links
             facebook_link = request.data.get('facebook_link')
             twitter_link = request.data.get('twitter_link')
             instagram_link = request.data.get('instagram_link')
@@ -190,9 +188,15 @@ def create_tournament_1(request):
             twitch_link = request.data.get('twitch_link')
             kick_link = request.data.get('kick_link')
 
-            # Create Tournament object
+            # Validate dates
+            if start_date_and_time >= end_date_and_time:
+                raise ValueError("Start date and time must be before end date and time.")
+
+            # Create Tournament
             tournament = Tournament.objects.create(
                 tournament_title=tournament_title,
+                game=game,
+                game_mode=game_mode,
                 tournament_logo=tournament_logo,
                 tournament_banner=tournament_banner,
                 tournament_description=tournament_description,
@@ -201,13 +205,16 @@ def create_tournament_1(request):
                 end_date_and_time=end_date_and_time,
                 tournament_visibility=tournament_visibility,
                 tournament_type=tournament_type,
-                tournament_location=tournament_location,
+                tournament_location=None if hide_location else tournament_location,
+                virtual_link=virtual_link,
+                team_size=team_size,
                 player_size=max_number_of_participants,
                 min_number_of_teams=min_number_of_participants,
                 max_number_of_teams=max_number_of_participants,
+                bracket_type=bracket_type,
                 tournament_access=tournament_access,
                 entry_fee=entry_type,
-                entry_fee_price=entry_fee,
+                entry_fee_price=entry_fee_price,
                 facebook_link=facebook_link,
                 twitter_link=twitter_link,
                 instagram_link=instagram_link,
@@ -216,13 +223,11 @@ def create_tournament_1(request):
                 kick_link=kick_link
             )
 
-            # Save sponsors
-            for sponsor in sponsors:
-                tournament.sponsors.add(sponsor)
+            # Add sponsors
+            tournament.sponsors.set(Sponsor.objects.filter(id__in=sponsor_ids))
 
-            # Prize distribution handling
+            # Prize distribution logic
             if prize_distribution_type == 'distributed':
-                # Save distributed prizes
                 for prize_info in prize_distribution:
                     position = prize_info.get('position')
                     prize_amount = prize_info.get('prize')
@@ -235,28 +240,34 @@ def create_tournament_1(request):
                         extras=extras
                     )
             elif prize_distribution_type == 'winner_takes_all':
-                # Save single winner prize
                 TournamentPrizeDistribution.objects.create(
                     tournament=tournament,
                     position=1,
-                    prize=prize,
+                    prize=winner_prize,
                     extras='Winner takes all'
                 )
-
-            # No prize distribution needed if 'no_prize'
+            # No action for 'no_prize'
 
             return Response(
-                {"status": "success", "message": "Tournament created successfully"}, 
+                {"status": "success", "message": "Tournament created successfully"},
                 status=status.HTTP_201_CREATED
             )
-        
-    except Exception as e:
+
+    except ValueError as e:
         return Response(
-            {"status": "error", "message": str(e)}, 
+            {"status": "error", "message": str(e)},
             status=status.HTTP_400_BAD_REQUEST
         )
+    except Exception as e:
+        return Response(
+            {"status": "error", "message": f"An error occurred: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
     
 
+@api_view(["GET"])
 def get_all_tournaments(request):
     tournaments = Tournament.objects.all()
     data = []
