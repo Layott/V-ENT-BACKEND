@@ -1490,7 +1490,7 @@ def update_web_and_social_links(request):
     
 
 @api_view(['POST'])
-def social_signup(request):
+def social_auth(request):
     provider = request.data.get('provider')  # google or facebook
     provider_id = request.data.get('provider_id')  # unique ID from provider
     email = request.data.get('email')
@@ -1498,20 +1498,40 @@ def social_signup(request):
     country = request.data.get('country')
     profile_picture_url = request.data.get('profile_picture_url')
 
-    if not all([provider, provider_id, email, full_name]):
+    # Validate required fields
+    if not all([provider, provider_id, email]):
         return Response({
             "status": "error",
             "message": "Missing required fields."
         }, status=status.HTTP_400_BAD_REQUEST)
 
-    # Check if a user already exists with this email and provider
-    if Users.objects.filter(email=email, signup_type=provider).exists():
-        return Response({
-            "status": "error",
-            "message": f"An account with this email already exists for {provider}."
-        }, status=status.HTTP_400_BAD_REQUEST)
-
     try:
+        # Check if user already exists
+        user = Users.objects.filter(email=email, signup_type=provider, provider_id=provider_id).first()
+
+        if user:
+            # Social Login
+            session_token = generate_session_token()
+            user.login_session_token = session_token
+            user.save()
+
+            return Response({
+                "status": "success",
+                "message": "Login successful.",
+                "data": {
+                    "email": user.email,
+                    "username": user.username,
+                    "session_token": session_token
+                }
+            }, status=status.HTTP_200_OK)
+
+        # If user doesn't exist, proceed to Social Signup
+        if not full_name:
+            return Response({
+                "status": "error",
+                "message": "Full name is required for new signups."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         # Generate a unique username
         username = generate_unique_username(email)
 
@@ -1522,63 +1542,33 @@ def social_signup(request):
             username=username,
             country=country,
             signup_type=provider,
-            provider_id=provider_id,  # Save the provider ID
-            is_active=True  # No email verification needed for social signups
+            provider_id=provider_id,
+            is_active=True  # No email verification for social signups
         )
 
-        # Create user profile and save profile picture if available
+        # Create user profile and save profile picture
         user_prof, created = UserProfile.objects.get_or_create(user=user)
         if profile_picture_url:
             profile_picture_file = download_image_from_url(profile_picture_url)
             user_prof.profile_picture.save(f"{username}_profile.png", File(profile_picture_file))
         user_prof.save()
 
-        return Response({
-            "status": "success",
-            "message": f"Account created successfully using {provider}.",
-            "data": {"email": email, "username": username}
-        }, status=status.HTTP_201_CREATED)
-
-    except Exception as e:
-        return Response({
-            "status": "error",
-            "message": f"Failed to create account: {str(e)}"
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-@api_view(['POST'])
-def social_login(request):
-    provider = request.data.get('provider')  # google or facebook
-    provider_id = request.data.get('provider_id')  # unique ID from provider
-    email = request.data.get('email')
-
-    if not all([provider, provider_id, email]):
-        return Response({
-            "status": "error",
-            "message": "Missing required fields."
-        }, status=status.HTTP_400_BAD_REQUEST)
-
-    try:
-        # Check if user exists with the provider and provider_id
-        user = Users.objects.get(email=email, signup_type=provider, provider_id=provider_id)
-
-        # Generate a login session token
         session_token = generate_session_token()
         user.login_session_token = session_token
         user.save()
 
         return Response({
             "status": "success",
-            "message": "Login successful.",
+            "message": f"Account created successfully using {provider}.",
             "data": {
-                "email": user.email,
-                "username": user.username,
+                "email": email,
+                "username": username,
                 "session_token": session_token
             }
-        }, status=status.HTTP_200_OK)
+        }, status=status.HTTP_201_CREATED)
 
-    except Users.DoesNotExist:
+    except Exception as e:
         return Response({
             "status": "error",
-            "message": f"No account found for {provider} with this email. Please sign up."
-        }, status=status.HTTP_404_NOT_FOUND)
+            "message": f"An error occurred: {str(e)}"
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

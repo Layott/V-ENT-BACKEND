@@ -33,7 +33,6 @@ urlpatterns = [
     path("get-user-status/", get_user_status, name="get_user_status"),
     path("add-email-to-waitlist/", add_email_to_waitlist, name="add_email_to_waitlist"),
     path("update-web-and-social-links/", update_web_and_social_links, name="update_web_and_social_links"),
-    path("social-signup/", social_signup, name="social_signup"),
-    path("social-login", social_login, name="social_login")
+    path("social-auth/", social_auth, name="social_auth")
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
