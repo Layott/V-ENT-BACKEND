@@ -185,61 +185,6 @@ def download_image_from_url(url):
     raise Exception("Failed to download profile picture.")
 
 
-# @api_view(['POST'])
-# def signup(request):
-#     fullname = request.data.get('full_name')
-#     email = request.data.get('email')
-#     username = request.data.get('username')
-#     country = request.data.get('country')
-#     password = request.data.get('password')
-
-#     if not all([fullname, email, username, password, country]):
-#         return Response({"status": "error", "message": "All fields are required"}, status=status.HTTP_400_BAD_REQUEST)
-    
-
-#     try:
-#         user = Users.objects.get(email=email)
-#         # Update the existing user with new details
-#         user.full_name = fullname
-#         user.username = username
-#         user.country = country
-#         user.password = make_password(password)
-#         user.is_active = False
-#         user.save()
-#     except Users.DoesNotExist:
-#         # Create a new user if it doesn't exist
-#         user = Users.objects.create(
-#             full_name=fullname,
-#             email=email,
-#             username=username,
-#             password=make_password(password),
-#             country=country,
-#             is_active=False
-#         )
-
-
-#     token = default_token_generator.make_token(user)
-#     uid = urlsafe_base64_encode(force_bytes(user.pk))
-#     verification_link = request.build_absolute_uri(reverse('verify_token', kwargs={'uidb64': uid, 'token': token}))
-
-#     subject = 'Verify Your Email'
-#     message = f'''Hi,
-
-# Please click the link below to verify your email:
-
-# {verification_link}
-
-# If you did not create an account, please ignore this email.
-# '''
-
-#     try:
-#         send_email(email, subject, message)
-#         return Response({"status": "success", "message": "Verification link sent to email"}, status=status.HTTP_200_OK)
-#     except Exception as e:
-#         logger.error(f"Failed to send email to {email}: {str(e)}")
-#         return Response({"status": "error", "message": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
 @api_view(['POST'])
 def signup(request):
     fullname = request.data.get('full_name')
@@ -250,43 +195,100 @@ def signup(request):
 
     if not all([fullname, email, username, password, country]):
         return Response({"status": "error", "message": "All fields are required"}, status=status.HTTP_400_BAD_REQUEST)
-
+    
     # Check if email already exists for 'normal' signup
-    if Users.objects.filter(email=email, signup_type='normal').exists():
+    user_acct = Users.objects.filter(email=email, signup_type='normal').exists()
+    if  user_acct and user_acct.is_active == True:
         return Response({
             "status": "error",
             "message": "An account with this email already exists. Please log in."
         }, status=status.HTTP_400_BAD_REQUEST)
+    
 
     try:
-        # Create a new user for 'normal' signup
+        user = Users.objects.get(email=email)
+        # Update the existing user with new details
+        user.full_name = fullname
+        user.username = username
+        user.country = country
+        user.password = make_password(password)
+        user.is_active = False
+        user.save()
+    except Users.DoesNotExist:
+        # Create a new user if it doesn't exist
         user = Users.objects.create(
             full_name=fullname,
             email=email,
             username=username,
             password=make_password(password),
             country=country,
-            signup_type='normal',
-            is_active=False  # User account is inactive until email verification
+            is_active=False
         )
 
-        # Generate verification token
-        token = default_token_generator.make_token(user)
-        uid = urlsafe_base64_encode(force_bytes(user.pk))
-        verification_link = request.build_absolute_uri(reverse('verify_token', kwargs={'uidb64': uid, 'token': token}))
 
-        # Send verification email
-        subject = 'Verify Your Email'
-        message = f"Hi {fullname},\n\nPlease verify your email by clicking the link below:\n\n{verification_link}"
+    token = default_token_generator.make_token(user)
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    verification_link = request.build_absolute_uri(reverse('verify_token', kwargs={'uidb64': uid, 'token': token}))
+
+    subject = 'Verify Your Email'
+    message = f'''Hi,
+
+Please click the link below to verify your email:
+
+{verification_link}
+
+If you did not create an account, please ignore this email.
+'''
+
+    try:
         send_email(email, subject, message)
-
         return Response({"status": "success", "message": "Verification link sent to email"}, status=status.HTTP_200_OK)
-
     except Exception as e:
-        return Response({
-            "status": "error",
-            "message": f"Failed to create account: {str(e)}"
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.error(f"Failed to send email to {email}: {str(e)}")
+        return Response({"status": "error", "message": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# @api_view(['POST'])
+# def signup(request):
+#     fullname = request.data.get('full_name')
+#     email = request.data.get('email')
+#     username = request.data.get('username')
+#     country = request.data.get('country')
+#     password = request.data.get('password')
+
+#     if not all([fullname, email, username, password, country]):
+#         return Response({"status": "error", "message": "All fields are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+#     try:
+#         # Create a new user for 'normal' signup
+#         user = Users.objects.create(
+#             full_name=fullname,
+#             email=email,
+#             username=username,
+#             password=make_password(password),
+#             country=country,
+#             signup_type='normal',
+#             is_active=False  # User account is inactive until email verification
+#         )
+
+#         # Generate verification token
+#         token = default_token_generator.make_token(user)
+#         uid = urlsafe_base64_encode(force_bytes(user.pk))
+#         verification_link = request.build_absolute_uri(reverse('verify_token', kwargs={'uidb64': uid, 'token': token}))
+
+#         # Send verification email
+#         subject = 'Verify Your Email'
+#         message = f"Hi {fullname},\n\nPlease verify your email by clicking the link below:\n\n{verification_link}"
+#         send_email(email, subject, message)
+
+#         return Response({"status": "success", "message": "Verification link sent to email"}, status=status.HTTP_200_OK)
+
+#     except Exception as e:
+#         return Response({
+#             "status": "error",
+#             "message": f"Failed to create account: {str(e)}"
+#         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 
