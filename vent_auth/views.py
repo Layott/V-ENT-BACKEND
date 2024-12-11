@@ -252,11 +252,11 @@ def signup(request):
         return Response({"status": "error", "message": "All fields are required"}, status=status.HTTP_400_BAD_REQUEST)
 
     # Check if email already exists for 'normal' signup
-    # if Users.objects.filter(email=email, signup_type='normal').exists():
-    #     return Response({
-    #         "status": "error",
-    #         "message": "An account with this email already exists. Please log in."
-    #     }, status=status.HTTP_400_BAD_REQUEST)
+    if Users.objects.filter(email=email, signup_type='normal').exists():
+        return Response({
+            "status": "error",
+            "message": "An account with this email already exists. Please log in."
+        }, status=status.HTTP_400_BAD_REQUEST)
 
     try:
         # Create a new user for 'normal' signup
