@@ -197,25 +197,24 @@ def signup(request):
         return Response({"status": "error", "message": "All fields are required"}, status=status.HTTP_400_BAD_REQUEST)
     
     # Check if email already exists for 'normal' signup
-    user_acct = Users.objects.filter(email=email, signup_type='normal').exists()
-    if  user_acct and user_acct.is_active == False:
-        return Response({
-            "status": "error",
-            "message": "An account with this email already exists. Please log in."
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
+    existing_user = Users.objects.filter(email=email, signup_type='normal').first()
 
-    try:
-        user = Users.objects.get(email=email)
-        # Update the existing user with new details
-        user.full_name = fullname
-        user.username = username
-        user.country = country
-        user.password = make_password(password)
-        user.is_active = False
-        user.save()
-    except Users.DoesNotExist:
-        # Create a new user if it doesn't exist
+    if existing_user:
+        if existing_user.is_active:
+            return Response({
+                "status": "error",
+                "message": "An active account with this email already exists. Please log in."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            # Update inactive user details
+            existing_user.full_name = fullname
+            existing_user.username = username
+            existing_user.country = country
+            existing_user.password = make_password(password)
+            existing_user.is_active = False
+            user = existing_user
+    else:
+        # Create a new user
         user = Users.objects.create(
             full_name=fullname,
             email=email,
@@ -224,14 +223,14 @@ def signup(request):
             country=country,
             is_active=False
         )
-
-
+    
+    # Generate verification link
     token = default_token_generator.make_token(user)
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     verification_link = request.build_absolute_uri(reverse('verify_token', kwargs={'uidb64': uid, 'token': token}))
 
     subject = 'Verify Your Email'
-    message = f'''Hi,
+    message = f'''Hi {fullname},
 
 Please click the link below to verify your email:
 
@@ -242,6 +241,7 @@ If you did not create an account, please ignore this email.
 
     try:
         send_email(email, subject, message)
+        user.save()
         return Response({"status": "success", "message": "Verification link sent to email"}, status=status.HTTP_200_OK)
     except Exception as e:
         logger.error(f"Failed to send email to {email}: {str(e)}")
