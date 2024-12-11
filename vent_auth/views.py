@@ -48,8 +48,20 @@ logger = logging.getLogger(__name__)
 class GoogleLogin(SocialLoginView):
     adapter_class = GoogleOAuth2Adapter
 
+def generate_wallet_id():
+    """Generate a unique 10-digit wallet ID."""
+    return str(random.randint(10**9, 10**10 - 1))
+
 def create_user_wallet(user):
-    user_wallet = UserWallet.objects.create(user=user)
+    while True:
+        wallet_id = generate_wallet_id()
+        if not UserWallet.objects.filter(user_wallet_id=wallet_id).exists():
+            break
+
+    user_wallet = UserWallet.objects.create(
+        user=user,
+        user_wallet_id=wallet_id
+    )
     user_wallet.save()
     return "Wallet created successfully"
 
