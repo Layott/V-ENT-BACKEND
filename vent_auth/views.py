@@ -198,7 +198,7 @@ def signup(request):
     
     # Check if email already exists for 'normal' signup
     user_acct = Users.objects.filter(email=email, signup_type='normal').exists()
-    if  user_acct and user_acct.is_active == True:
+    if  user_acct and user_acct.is_active == False:
         return Response({
             "status": "error",
             "message": "An account with this email already exists. Please log in."
