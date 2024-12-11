@@ -218,23 +218,36 @@ def signup(request):
                 "message": "An active account with this email already exists. Please log in."
             }, status=status.HTTP_400_BAD_REQUEST)
         else:
-            # Update inactive user details
-            existing_user.full_name = fullname
-            existing_user.username = username
-            existing_user.country = country
-            existing_user.password = make_password(password)
-            existing_user.is_active = False
-            user = existing_user
+            if existing_user.username == username:
+                # Update inactive user details
+                existing_user.full_name = fullname
+                existing_user.username = username
+                existing_user.country = country
+                existing_user.password = make_password(password)
+                existing_user.is_active = False
+                user = existing_user
+            else:
+                return Response({
+                "status": "error",
+                "message": "Signup with the username you saved on the waitlist"
+            }, status=status.HTTP_400_BAD_REQUEST)
     else:
+        username_is_available = Users.objects.filter(username=username).exists
+
+        if not username_is_available:
         # Create a new user
-        user = Users.objects.create(
-            full_name=fullname,
-            email=email,
-            username=username,
-            password=make_password(password),
-            country=country,
-            is_active=False
-        )
+            user = Users.objects.create(
+                full_name=fullname,
+                email=email,
+                username=username,
+                password=make_password(password),
+                country=country,
+                is_active=False
+            )
+        else:
+            return Response({
+                "status": "Username Already Taken"
+            }, status=status.HTTP_400_BAD_REQUEST)
     
     # Generate verification link
     token = default_token_generator.make_token(user)
