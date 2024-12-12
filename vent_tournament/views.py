@@ -174,11 +174,11 @@ def create_tournament(request):
 
             # Prize distribution
             prize_distribution_type = request.data.get('prize_distribution_type')  # distributed, winner_takes_all, no_prize
-            prize_distribution = request.data.getlist('prize_distribution')  # List of prizes
+            prize_distribution = request.data.get('prize_distribution', [])  # List of prizes
             winner_prize = request.data.get('prize')  # Prize for winner_takes_all
 
             # Sponsors
-            sponsor_ids = request.data.getlist('sponsor_ids', [])
+            sponsor_ids = request.data.get('sponsor_ids', [])
 
             # Social Links
             facebook_link = request.data.get('facebook_link')
