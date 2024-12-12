@@ -269,36 +269,33 @@ def create_tournament(request):
 def get_all_tournaments(request):
     # Featured Tournaments (most interacted)
     featured_tournaments = Tournament.objects.order_by('-interaction_count')[:5]
-
     # New Tournaments (recent ones)
     new_tournaments = Tournament.objects.order_by('-start_date_and_time')[:5]
-
-    # Separate by games
+    # All Tournaments grouped by game
     all_tournaments = Tournament.objects.all()
     tournaments_by_game = {}
     for tournament in all_tournaments:
-        game = tournament.game.name if hasattr(tournament, 'game') else "Unknown Game"
+        game = tournament.game if hasattr(tournament, 'game') else "Unknown Game"
         if game not in tournaments_by_game:
             tournaments_by_game[game] = []
         tournaments_by_game[game].append(tournament)
 
-    # Function to serialize tournaments
-    def serialize_tournament(tournament):
-        # Sponsors
-        sponsors = tournament.sponsors.all()
-        sponsors_list = [
+    # Sponsors Serializer
+    def get_sponsors_list(tournament):
+        return [
             {
                 "id": sponsor.id,
                 "name": sponsor.name,
                 "logo": sponsor.logo.url if sponsor.logo else None,
                 "website": sponsor.website
             }
-            for sponsor in sponsors
+            for sponsor in tournament.sponsors.all()
         ]
 
-        # Prize Distributions
+    # Prize Distributions Serializer
+    def get_prize_list(tournament):
         prize_distributions = TournamentPrizeDistribution.objects.filter(tournament=tournament)
-        prize_list = [
+        return [
             {
                 "id": prize.id,
                 "position": prize.position,
@@ -308,9 +305,10 @@ def get_all_tournaments(request):
             for prize in prize_distributions
         ]
 
-        # Matches
+    # Matches Serializer
+    def get_match_list(tournament):
         matches = Match.objects.filter(tournament=tournament)
-        match_list = [
+        return [
             {
                 "match_id": match.match_id,
                 "match_check_in_time": str(match.match_check_in_time),
@@ -321,16 +319,18 @@ def get_all_tournaments(request):
             for match in matches
         ]
 
-        # Registered Teams
+    # Registered Teams Serializer
+    def get_registered_teams_list(tournament):
         registered_teams = RegisteredTeams.objects.filter(tournament_id=tournament)
-        teams_list = [
+        return [
             {
                 "team_id": team.team_id.team_id
             }
             for team in registered_teams
         ]
 
-        # Tournament Data
+    # Serialize Tournaments
+    def serialize_tournaments(tournament):
         return {
             "tournament_id": tournament.tournament_id,
             "tournament_title": tournament.tournament_title,
@@ -356,17 +356,19 @@ def get_all_tournaments(request):
             "youtube_link": tournament.youtube_link,
             "twitch_link": tournament.twitch_link,
             "kick_link": tournament.kick_link,
-            "sponsors": sponsors_list,
-            "prize_distributions": prize_list,
-            "matches": match_list,
-            "registered_teams": teams_list,
+            "sponsors": get_sponsors_list(tournament),
+            "prize_distributions": get_prize_list(tournament),
+            "matches": get_match_list(tournament),
+            "registered_teams": get_registered_teams_list(tournament),
         }
 
-    # Serialize data
-    featured = [serialize_tournament(tournament) for tournament in featured_tournaments]
-    new = [serialize_tournament(tournament) for tournament in new_tournaments]
+    # Serialize Featured Tournaments
+    featured = [serialize_tournaments(tournament) for tournament in featured_tournaments]
+    # Serialize New Tournaments
+    new = [serialize_tournaments(tournament) for tournament in new_tournaments]
+    # Serialize Tournaments by Game
     games = {
-        game: [serialize_tournament(tournament) for tournament in tournaments]
+        game: [serialize_tournaments(tournament) for tournament in tournaments]
         for game, tournaments in tournaments_by_game.items()
     }
 
