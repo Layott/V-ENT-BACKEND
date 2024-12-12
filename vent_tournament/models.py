@@ -69,8 +69,6 @@ class Tournament(models.Model):
         return self.tournament_title
 
 
-
-
 class TournamentPrizeDistribution(models.Model):
     id = models.AutoField(primary_key=True)
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='prize_distributions')
