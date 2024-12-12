@@ -62,6 +62,9 @@ class Tournament(models.Model):
     # Sponsors
     sponsors = models.ManyToManyField('Sponsor', blank=True)
 
+    # Interaction Count
+    interaction_count = models.PositiveIntegerField(default=0)  # To track user interactions
+
     def __str__(self):
         return self.tournament_title
 

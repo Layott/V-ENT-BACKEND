@@ -265,14 +265,25 @@ def create_tournament(request):
         )
 
 
-    
-
 @api_view(["GET"])
 def get_all_tournaments(request):
-    tournaments = Tournament.objects.all()
-    data = []
+    # Featured Tournaments (most interacted)
+    featured_tournaments = Tournament.objects.order_by('-interaction_count')[:5]
 
-    for tournament in tournaments:
+    # New Tournaments (recent ones)
+    new_tournaments = Tournament.objects.order_by('-start_date_and_time')[:5]
+
+    # Separate by games
+    all_tournaments = Tournament.objects.all()
+    tournaments_by_game = {}
+    for tournament in all_tournaments:
+        game = tournament.game.name if hasattr(tournament, 'game') else "Unknown Game"
+        if game not in tournaments_by_game:
+            tournaments_by_game[game] = []
+        tournaments_by_game[game].append(tournament)
+
+    # Function to serialize tournaments
+    def serialize_tournament(tournament):
         # Sponsors
         sponsors = tournament.sponsors.all()
         sponsors_list = [
@@ -281,7 +292,7 @@ def get_all_tournaments(request):
                 "name": sponsor.name,
                 "logo": sponsor.logo.url if sponsor.logo else None,
                 "website": sponsor.website
-            } 
+            }
             for sponsor in sponsors
         ]
 
@@ -320,7 +331,7 @@ def get_all_tournaments(request):
         ]
 
         # Tournament Data
-        data.append({
+        return {
             "tournament_id": tournament.tournament_id,
             "tournament_title": tournament.tournament_title,
             "tournament_logo": tournament.tournament_logo.url if tournament.tournament_logo else None,
@@ -349,6 +360,116 @@ def get_all_tournaments(request):
             "prize_distributions": prize_list,
             "matches": match_list,
             "registered_teams": teams_list,
-        })
+        }
 
-    return Response({"status": "success", "data": data}, status=status.HTTP_200_OK)
+    # Serialize data
+    featured = [serialize_tournament(tournament) for tournament in featured_tournaments]
+    new = [serialize_tournament(tournament) for tournament in new_tournaments]
+    games = {
+        game: [serialize_tournament(tournament) for tournament in tournaments]
+        for game, tournaments in tournaments_by_game.items()
+    }
+
+    return Response({
+        "status": "success",
+        "data": {
+            "featured": featured,
+            "new": new,
+            "by_game": games
+        }
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+def view_tournament(request, tournament_id):
+    try:
+        # Fetch the tournament
+        tournament = Tournament.objects.get(tournament_id=tournament_id)
+        
+        # Increase interaction count
+        tournament.interaction_count += 1
+        tournament.save(update_fields=['interaction_count'])
+
+        # Sponsors
+        sponsors = tournament.sponsors.all()
+        sponsors_list = [
+            {
+                "id": sponsor.id,
+                "name": sponsor.name,
+                "logo": sponsor.logo.url if sponsor.logo else None,
+                "website": sponsor.website
+            }
+            for sponsor in sponsors
+        ]
+
+        # Prize Distributions
+        prize_distributions = TournamentPrizeDistribution.objects.filter(tournament=tournament)
+        prize_list = [
+            {
+                "id": prize.id,
+                "position": prize.position,
+                "prize": str(prize.prize),
+                "extras": prize.extras
+            }
+            for prize in prize_distributions
+        ]
+
+        # Matches
+        matches = Match.objects.filter(tournament=tournament)
+        match_list = [
+            {
+                "match_id": match.match_id,
+                "match_check_in_time": str(match.match_check_in_time),
+                "match_check_in_date": str(match.match_check_in_date),
+                "match_check_in_started": match.match_check_in_started,
+                "match_check_in_ended": match.match_check_in_ended
+            }
+            for match in matches
+        ]
+
+        # Registered Teams
+        registered_teams = RegisteredTeams.objects.filter(tournament_id=tournament)
+        teams_list = [
+            {
+                "team_id": team.team_id.team_id
+            }
+            for team in registered_teams
+        ]
+
+        # Build the response
+        data = {
+            "tournament_id": tournament.tournament_id,
+            "tournament_title": tournament.tournament_title,
+            "tournament_logo": tournament.tournament_logo.url if tournament.tournament_logo else None,
+            "tournament_banner": tournament.tournament_banner.url if tournament.tournament_banner else None,
+            "tournament_description": tournament.tournament_description,
+            "tournament_rules": tournament.tournament_rules,
+            "bracket_type": tournament.bracket_type,
+            "start_date_and_time": tournament.start_date_and_time,
+            "end_date_and_time": tournament.end_date_and_time,
+            "tournament_visibility": tournament.tournament_visibility,
+            "tournament_type": tournament.tournament_type,
+            "tournament_location": tournament.tournament_location,
+            "player_size": tournament.player_size,
+            "max_number_of_teams": tournament.max_number_of_teams,
+            "min_number_of_teams": tournament.min_number_of_teams,
+            "tournament_access": tournament.tournament_access,
+            "entry_fee": tournament.entry_fee,
+            "entry_fee_price": str(tournament.entry_fee_price),
+            "facebook_link": tournament.facebook_link,
+            "twitter_link": tournament.twitter_link,
+            "instagram_link": tournament.instagram_link,
+            "youtube_link": tournament.youtube_link,
+            "twitch_link": tournament.twitch_link,
+            "kick_link": tournament.kick_link,
+            "sponsors": sponsors_list,
+            "prize_distributions": prize_list,
+            "matches": match_list,
+            "registered_teams": teams_list,
+            "interaction_count": tournament.interaction_count  # Include updated interaction count
+        }
+
+        return Response({"status": "success", "data": data}, status=status.HTTP_200_OK)
+
+    except Tournament.DoesNotExist:
+        return Response({"status": "error", "message": "Tournament not found"}, status=status.HTTP_404_NOT_FOUND)
