@@ -27,7 +27,7 @@ class Tournament(models.Model):
 
     tournament_id = models.AutoField(primary_key=True)
     tournament_title = models.CharField(max_length=148, null=False)
-    game = models.CharField(max_length=100, null=False)  # Game Name
+    tournament_game = models.ForeignKey(Games, on_delete=models.CASCADE)
     game_mode = models.CharField(max_length=50, null=True, blank=True)  # Game Mode
     tournament_logo = models.ImageField(upload_to='tournament_logos/', null=True, blank=True)
     tournament_banner = models.ImageField(upload_to='tournament_banners/', null=True, blank=True)

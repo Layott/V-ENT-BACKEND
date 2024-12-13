@@ -191,6 +191,8 @@ def create_tournament(request):
             # Validate dates
             if start_date_and_time >= end_date_and_time:
                 raise ValueError("Start date and time must be before end date and time.")
+            
+            game = Games.objects.get(game_title=game.title())
 
             # Create Tournament
             tournament = Tournament.objects.create(
