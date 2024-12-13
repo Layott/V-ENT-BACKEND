@@ -226,7 +226,7 @@ def create_tournament(request):
             )
 
             # Add sponsors
-            tournament.sponsors.set(Sponsor.objects.filter(id__in=sponsor_ids))
+            tournament.sponsors.set(Sponsor.objects.filter(sponsor_id__in=sponsor_ids))
 
             # Prize distribution logic
             if prize_distribution_type == 'distributed':
