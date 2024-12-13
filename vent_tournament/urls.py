@@ -9,6 +9,6 @@ urlpatterns = [
     path("search-tournament/", search_tournament, name="search_tournament"),
     path("join-tournament/", join_tournament, name="join_tournament"),
     path("get-all-tournaments/", get_all_tournaments, name="get_all_tournaments"),
-    path("view-tournament/", view_tournament, name="view_tournament")
+    path("view-tournament/<int:tournament_id>/", view_tournament, name="view_tournament")
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

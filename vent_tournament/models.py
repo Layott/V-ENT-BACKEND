@@ -90,8 +90,9 @@ class Sponsors(models.Model):
         return self.name
 
 class RegisteredTeams(models.Model):
-    tournament_id = models.ForeignKey(Tournament, on_delete=models.CASCADE)
+    tournament_id = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='registered_teams')
     team_id = models.ForeignKey(Teams, on_delete=models.CASCADE)
+
 
 class Match(models.Model):
     match_id = models.AutoField(primary_key=True)
