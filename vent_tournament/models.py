@@ -60,7 +60,7 @@ class Tournament(models.Model):
     kick_link = models.URLField(null=True, blank=True)
 
     # Sponsors
-    sponsors = models.ManyToManyField('Sponsor', blank=True, to_field='sponsor_id')
+    sponsors = models.ManyToManyField('Sponsor', blank=True)
 
     # Interaction Count
     interaction_count = models.PositiveIntegerField(default=0)  # To track user interactions
