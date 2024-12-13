@@ -197,7 +197,7 @@ def create_tournament(request):
             # Create Tournament
             tournament = Tournament.objects.create(
                 tournament_title=tournament_title,
-                game=game,
+                tournament_game=game,
                 game_mode=game_mode,
                 tournament_logo=tournament_logo,
                 tournament_banner=tournament_banner,
