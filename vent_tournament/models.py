@@ -81,7 +81,7 @@ class TournamentPrizeDistribution(models.Model):
 
 
 class Sponsor(models.Model):
-    sponsor_id = models.AutoField(primary_key=True)
+    sponsor_id = models.AutoField(primary_key=True, null = True)
     name = models.CharField(max_length=255)
     logo = models.ImageField(upload_to='sponsor_logos/', null=True, blank=True)
     website = models.URLField(null=True, blank=True)
