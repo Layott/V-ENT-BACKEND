@@ -2,7 +2,7 @@ from django.shortcuts import render
 from imports import api_view,get_object_or_404, Response, status, transaction
 from .models import Tournament, Users, Games, Teams, TournamentPrizeDistribution
 from django.db.models import Q
-from .models import Tournament, Sponsor, TournamentPrizeDistribution, Match, RegisteredTeams
+from .models import Tournament, Sponsors, TournamentPrizeDistribution, Match, RegisteredTeams
 
 # Create your views here.
 
@@ -226,7 +226,7 @@ def create_tournament(request):
             )
 
             # Add sponsors
-            tournament.sponsors.set(Sponsor.objects.filter(sponsor_id__in=sponsor_ids))
+            tournament.sponsors.set(Sponsors.objects.filter(sponsor_id__in=sponsor_ids))
 
             # Prize distribution logic
             if prize_distribution_type == 'distributed':

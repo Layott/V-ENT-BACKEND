@@ -60,7 +60,7 @@ class Tournament(models.Model):
     kick_link = models.URLField(null=True, blank=True)
 
     # Sponsors
-    sponsors = models.ManyToManyField('Sponsor', blank=True)
+    sponsors = models.ManyToManyField('Sponsors', blank=True)
 
     # Interaction Count
     interaction_count = models.PositiveIntegerField(default=0)  # To track user interactions
@@ -80,7 +80,7 @@ class TournamentPrizeDistribution(models.Model):
         return f"{self.tournament.tournament_title} - Position {self.position}"
 
 
-class Sponsor(models.Model):
+class Sponsors(models.Model):
     sponsor_id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=255)
     logo = models.ImageField(upload_to='sponsor_logos/', null=True, blank=True)
