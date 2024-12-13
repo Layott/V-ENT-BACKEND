@@ -60,7 +60,7 @@ class Tournament(models.Model):
     kick_link = models.URLField(null=True, blank=True)
 
     # Sponsors
-    sponsors = models.ManyToManyField('Sponsor', blank=True)
+    sponsors = models.ManyToManyField('Sponsor', blank=True, to_field='sponsor_id')
 
     # Interaction Count
     interaction_count = models.PositiveIntegerField(default=0)  # To track user interactions
@@ -81,6 +81,7 @@ class TournamentPrizeDistribution(models.Model):
 
 
 class Sponsor(models.Model):
+    sponsor_id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=255)
     logo = models.ImageField(upload_to='sponsor_logos/', null=True, blank=True)
     website = models.URLField(null=True, blank=True)
@@ -90,7 +91,7 @@ class Sponsor(models.Model):
 
 class RegisteredTeams(models.Model):
     tournament_id = models.ForeignKey(Tournament, on_delete=models.CASCADE)
-    team_id = models.ForeignKey(Teams, on_delete=models.CASCADE)    
+    team_id = models.ForeignKey(Teams, on_delete=models.CASCADE)
 
 class Match(models.Model):
     match_id = models.AutoField(primary_key=True)
@@ -103,7 +104,7 @@ class Match(models.Model):
 
 class UnconfirmedTeams(models.Model):
     match_id = models.AutoField(primary_key=True)
-    team_id = models.ForeignKey(Teams, on_delete=models.CASCADE)    
+    team_id = models.ForeignKey(Teams, on_delete=models.CASCADE)
     
 
 
