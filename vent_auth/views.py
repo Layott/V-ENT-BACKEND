@@ -204,8 +204,9 @@ def signup(request):
     username = request.data.get('username')
     country = request.data.get('country')
     password = request.data.get('password')
+    state = request.data.get('state')
 
-    if not all([fullname, email, username, password, country]):
+    if not all([fullname, email, username, password, country, state]):
         return Response({"status": "error", "message": "All fields are required"}, status=status.HTTP_400_BAD_REQUEST)
     
     # Check if email already exists for 'normal' signup
@@ -223,6 +224,7 @@ def signup(request):
                 existing_user.full_name = fullname
                 existing_user.username = username
                 existing_user.country = country
+                existing_user.state = state
                 existing_user.password = make_password(password)
                 existing_user.is_active = False
                 user = existing_user
@@ -242,6 +244,7 @@ def signup(request):
                 username=username,
                 password=make_password(password),
                 country=country,
+                state=state,
                 is_active=False
             )
         else:

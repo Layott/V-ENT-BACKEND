@@ -101,10 +101,12 @@ TEMPLATES = [
 
 CORS_ALLOWED_ORIGINS = [
     "https://www.vermillionent.com",
+    "https://test.app.v-ent.co",
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     "https://www.vermillionent.com",
+    "https://test.app.v-ent.co",
 ]
 
 
