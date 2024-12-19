@@ -234,7 +234,7 @@ def signup(request):
                 "message": "Signup with the username you saved on the waitlist"
             }, status=status.HTTP_400_BAD_REQUEST)
     else:
-        username_is_available = Users.objects.filter(username=username).exists
+        username_is_available = Users.objects.filter(username=username).exists()
 
         if not username_is_available:
         # Create a new user
