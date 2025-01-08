@@ -3,6 +3,7 @@ from imports import api_view,get_object_or_404, Response, status, transaction
 from .models import Tournament, Users, Games, Teams, TournamentPrizeDistribution
 from django.db.models import Q
 from .models import Tournament, Sponsors, TournamentPrizeDistribution, Match, RegisteredTeams
+from vent_auth.models import Organization
 
 # Create your views here.
 
@@ -146,52 +147,49 @@ def create_tournament(request):
         with transaction.atomic():
             # Get data from the request
             tournament_title = request.data.get('tournament_title')
-            game = request.data.get('game')  # Game Name
-            game_mode = request.data.get('game_mode')  # Game Mode
+            game = request.data.get('game')
+            game_mode = request.data.get('game_mode')
             tournament_description = request.data.get('tournament_description')
-            tournament_type = request.data.get('tournament_type')  # online, physical, hybrid
+            tournament_type = request.data.get('tournament_type')
             start_date_and_time = request.data.get('start_date_and_time')
             end_date_and_time = request.data.get('end_date_and_time')
             tournament_location = request.data.get('tournament_location')
-            virtual_link = request.data.get('virtual_link')  # Virtual link for online/hybrid tournaments
-            hide_location = request.data.get('hide_location', False)  # true or false
-            
-            tournament_visibility = request.data.get('tournament_visibility')  # public, private, protected
-            entry_type = request.data.get('entry_type')  # Paid or Free
-            entry_fee_price = 0.00 if entry_type == 'Free' else request.data.get('entry_fee', 0.00)
-
+            virtual_link = request.data.get('virtual_link')
+            hide_location = request.data.get('hide_location', False)
+            tournament_visibility = request.data.get('tournament_visibility')
+            entry_type = request.data.get('entry_type')
+            entry_fee_price = 0.00 if entry_type == 'Free' else request.data.get('entry_fee_price', 0.00)
             tournament_logo = request.FILES.get('tournament_logo')
             tournament_banner = request.FILES.get('tournament_banner')
-
-            tournament_access = request.data.get('tournament_access')  # team, individual, team_and_individual
-            team_size = request.data.get('team_size', 1)  # Default team size = 1 for individuals
-
+            tournament_access = request.data.get('tournament_access')
+            team_size = request.data.get('team_size', 1)
             min_number_of_participants = request.data.get('min_number_of_participants', 0)
             max_number_of_participants = request.data.get('max_number_of_participants', 0)
-
             bracket_type = request.data.get('bracket_type', 'Single Elimination')
             tournament_rules = request.data.get('tournament_rules')
 
-            # Prize distribution
-            prize_distribution_type = request.data.get('prize_distribution_type')  # distributed, winner_takes_all, no_prize
-            prize_distribution = request.data.get('prize_distribution', [])  # List of prizes
-            winner_prize = request.data.get('prize')  # Prize for winner_takes_all
-
-            # Sponsors
-            sponsor_ids = request.data.get('sponsor_ids', [])
+            # Sponsor data (Name, Type, Username, Logo)
+            sponsor_names = request.data.getlist('sponsor_names')
+            sponsor_types = request.data.getlist('sponsor_types')
+            sponsor_usernames = request.data.getlist('sponsor_usernames')
+            sponsor_logos = request.FILES.getlist('sponsor_logos')
 
             # Social Links
-            facebook_link = request.data.get('facebook_link')
-            twitter_link = request.data.get('twitter_link')
-            instagram_link = request.data.get('instagram_link')
-            youtube_link = request.data.get('youtube_link')
-            twitch_link = request.data.get('twitch_link')
-            kick_link = request.data.get('kick_link')
+            social_links = {
+                "facebook_link": request.data.get('facebook_link'),
+                "twitter_link": request.data.get('twitter_link'),
+                "instagram_link": request.data.get('instagram_link'),
+                "youtube_link": request.data.get('youtube_link'),
+                "twitch_link": request.data.get('twitch_link'),
+                "kick_link": request.data.get('kick_link'),
+                "tiktok_link": request.data.get('tiktok_link'),
+                "bigolive_link": request.data.get('bigolive_link')
+            }
 
             # Validate dates
             if start_date_and_time >= end_date_and_time:
                 raise ValueError("Start date and time must be before end date and time.")
-            
+
             game = Games.objects.get(game_title=game.title())
 
             # Create Tournament
@@ -217,54 +215,37 @@ def create_tournament(request):
                 tournament_access=tournament_access,
                 entry_fee=entry_type,
                 entry_fee_price=entry_fee_price,
-                facebook_link=facebook_link,
-                twitter_link=twitter_link,
-                instagram_link=instagram_link,
-                youtube_link=youtube_link,
-                twitch_link=twitch_link,
-                kick_link=kick_link
+                **social_links
             )
 
-            # Add sponsors
-            tournament.sponsors.set(Sponsors.objects.filter(sponsor_id__in=sponsor_ids))
+            # Add sponsors (loop through the provided sponsor details)
+            for name, sponsor_type, username, logo in zip(sponsor_names, sponsor_types, sponsor_usernames, sponsor_logos):
+                if sponsor_type.lower() == 'user':
+                    sponsor_instance = Users.objects.get(username=username)
+                elif sponsor_type.lower() == 'team':
+                    sponsor_instance = Teams.objects.get(team_name=username)
+                elif sponsor_type.lower() == 'org':
+                    sponsor_instance = Organization.objects.get(org_name=username)
+                else:
+                    continue
 
-            # Prize distribution logic
-            if prize_distribution_type == 'distributed':
-                for prize_info in prize_distribution:
-                    position = prize_info.get('position')
-                    prize_amount = prize_info.get('prize')
-                    extras = prize_info.get('extras', '')
-
-                    TournamentPrizeDistribution.objects.create(
-                        tournament=tournament,
-                        position=position,
-                        prize=prize_amount,
-                        extras=extras
-                    )
-            elif prize_distribution_type == 'winner_takes_all':
-                TournamentPrizeDistribution.objects.create(
-                    tournament=tournament,
-                    position=1,
-                    prize=winner_prize,
-                    extras='Winner takes all'
+                sponsor = Sponsors.objects.create(
+                    name=name,
+                    sponsor=sponsor_instance,
+                    logo=logo
                 )
-            # No action for 'no_prize'
+                tournament.sponsors.add(sponsor)
 
-            return Response(
-                {"status": "success", "message": "Tournament created successfully"},
-                status=status.HTTP_201_CREATED
-            )
+            return Response({"status": "success", "message": "Tournament created successfully"},
+                            status=status.HTTP_201_CREATED)
 
     except ValueError as e:
-        return Response(
-            {"status": "error", "message": str(e)},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return Response({"status": "error", "message": str(e)},
+                        status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
-        return Response(
-            {"status": "error", "message": f"An error occurred: {str(e)}"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return Response({"status": "error", "message": f"An error occurred: {str(e)}"},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 @api_view(["GET"])

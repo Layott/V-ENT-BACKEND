@@ -1,5 +1,7 @@
 from django.db import models
-from vent_auth.models import Users, Games, Teams
+from vent_auth.models import Users, Games, Teams, Organization
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 
 class Tournament(models.Model):
     TOURNAMENT_VISIBILITY_CHOICES = [
@@ -58,6 +60,9 @@ class Tournament(models.Model):
     youtube_link = models.URLField(null=True, blank=True)
     twitch_link = models.URLField(null=True, blank=True)
     kick_link = models.URLField(null=True, blank=True)
+    tiktok_link = models.URLField(null=True, blank=True)
+    bigolive_link = models.URLField(null=True, blank=True)
+
 
     # Sponsors
     sponsors = models.ManyToManyField('Sponsors', blank=True)
@@ -83,6 +88,12 @@ class TournamentPrizeDistribution(models.Model):
 class Sponsors(models.Model):
     sponsor_id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=255)
+    
+    # Generic relation to support multiple models
+    sponsor_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    sponsor_id_object = models.PositiveIntegerField()
+    sponsor = GenericForeignKey('sponsor_type', 'sponsor_id_object')
+
     logo = models.ImageField(upload_to='sponsor_logos/', null=True, blank=True)
     website = models.URLField(null=True, blank=True)
 
