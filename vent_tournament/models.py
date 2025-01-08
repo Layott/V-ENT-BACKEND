@@ -90,9 +90,9 @@ class Sponsors(models.Model):
     name = models.CharField(max_length=255)
     
     # Generic relation to support multiple models
-    sponsor_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    sponsor_id_object = models.PositiveIntegerField()
-    sponsor = GenericForeignKey('sponsor_type', 'sponsor_id_object')
+    sponsor_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, null=True)
+    sponsor_id_object = models.PositiveIntegerField(null=True)
+    sponsor = GenericForeignKey('sponsor_type', 'sponsor_id_object', null=True)
 
     logo = models.ImageField(upload_to='sponsor_logos/', null=True, blank=True)
     website = models.URLField(null=True, blank=True)
