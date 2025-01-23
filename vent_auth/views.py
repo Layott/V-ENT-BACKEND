@@ -1602,3 +1602,55 @@ def social_auth(request):
             "status": "error",
             "message": f"An error occurred: {str(e)}"
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+def edit_favorite_games(request):
+    try:
+        # Get login_session_token and games list from the request
+        login_session_token = request.data.get('login_session_token')
+        game_ids = request.data.get('game_ids')  # Expected to be a list of game IDs
+
+        if not login_session_token:
+            return Response(
+                {'status': 'error', 'message': 'login_session_token is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not isinstance(game_ids, list):
+            return Response(
+                {'status': 'error', 'message': 'game_ids must be a list of game IDs'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Fetch user by session token
+        user = get_object_or_404(Users, login_session_token=login_session_token)
+
+        # Clear existing favorite games for the user
+        FavoriteGames.objects.filter(user=user).delete()
+
+        # Add new favorite games
+        for game_id in game_ids:
+            game = get_object_or_404(Games, id=game_id)
+            FavoriteGames.objects.create(user=user, game=game)
+
+        return Response(
+            {'status': 'success', 'message': 'Favorite games updated successfully'},
+            status=status.HTTP_200_OK
+        )
+
+    except Users.DoesNotExist:
+        return Response(
+            {'status': 'error', 'message': 'User not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Games.DoesNotExist:
+        return Response(
+            {'status': 'error', 'message': 'One or more games not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {'status': 'error', 'message': f'An unexpected error occurred: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
