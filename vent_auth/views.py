@@ -1631,7 +1631,7 @@ def edit_favorite_games(request):
 
         # Add new favorite games
         for game_id in game_ids:
-            game = get_object_or_404(Games, id=game_id)
+            game = get_object_or_404(Games, game_id=game_id)
             FavoriteGames.objects.create(user=user, game=game)
 
         return Response(
