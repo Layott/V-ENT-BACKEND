@@ -355,7 +355,7 @@ def verify_token(request, uidb64, token):
         return render(request, 'invalid_token.html', {"message": "Invalid verification link."})
 
 
-@api_view(['POST'])
+@api_view(['GET'])
 def get_username_with_email(request):
     email = request.data.get('email')
 
