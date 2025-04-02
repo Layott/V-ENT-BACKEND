@@ -754,9 +754,9 @@ def forgot_password(request):
     )
     
     # Send email with the token
-    sender_email = 'habeebmuftau05@gmail.com'
+    sender_email = 'vermillioninformation@gmail.com'
     receiver_email = email
-    password = 'jvbe whjo lnwe pwxu'  # Use environment variables for sensitive information
+    password = 'gxml vbsa tanv ixci'  # Use environment variables for sensitive information
     subject = 'Verify Email'
     message = f'''Hi,
 
@@ -1103,7 +1103,7 @@ def check_username_availability(request):
         return Response({"status": "error", "message": "Username does not exist"}, status=status.HTTP_404_NOT_FOUND)
     
 
-@api_view(['POST'])
+@api_view(['GET'])
 def get_user_informations(request):
     try:
         session_token = request.headers.get('Authorization')
