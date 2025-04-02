@@ -69,8 +69,8 @@ def send_email(to_address, subject, html_body):
     # Gmail SMTP server credentials
     smtp_server = 'smtp.gmail.com'
     smtp_port = 465  # or 587 for TLS
-    from_address = 'Info@v-ent.co' #vermillioninformation@gmail.com
-    password = 'zoqx eaqt arfv hbhn'  # Or your actual Gmail password (if less secure apps are enabled)
+    from_address = 'vermillioninformation@gmail.com' #vermillioninformation@gmail.comInfo@v-ent.co
+    password = 'gxml vbsa tanv ixci'  # Or your actual Gmail password (if less secure apps are enabled)
 
     try:
         # Create a MIMEMultipart email object
@@ -558,17 +558,7 @@ Your Verification Token Is: {token}
 
 Please use it to verify your account'''
 
-    msg = MIMEMultipart()
-    msg['From'] = sender_email
-    msg['To'] = receiver_email
-    msg['Subject'] = subject
-    msg.attach(MIMEText(message, 'plain'))
-
-    server = smtplib.SMTP('smtp.gmail.com', 587)
-    server.starttls()
-    server.login(sender_email, password)
-    server.sendmail(sender_email, receiver_email, msg.as_string())
-    server.quit()
+    send_email(receiver_email, subject, message)
 
     return Response({"message": "Verification token sent to email"}, status=status.HTTP_200_OK)
 
@@ -1189,35 +1179,25 @@ def get_user_informations(request):
         )
 
 
-
 @api_view(['POST'])
 def add_game_account(request):
     # Get data from the request
-    user_id = request.data.get('user_id')
+    session_token = request.data.get('session_token')
     game_id = request.data.get('game_id')
     game_username = request.data.get('game_username')
 
     # Validate inputs
-    if not user_id or not game_id or not game_username:
+    if not session_token or not game_id or not game_username:
         return Response(
-            {'status': 'error', 'message': 'user_id, game_id, and game_username are required'},
+            {'status': 'error', 'message': 'session_token, game_id, and game_username are required'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Fetch the user and game objects
-    try:
-        user = get_object_or_404(Users, user_id=user_id)
-        game = get_object_or_404(Games, game_id=game_id)
-    except Users.DoesNotExist:
-        return Response(
-            {'status': 'error', 'message': 'User not found'},
-            status=status.HTTP_404_NOT_FOUND
-        )
-    except Games.DoesNotExist:
-        return Response(
-            {'status': 'error', 'message': 'Game not found'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+    # Fetch the user based on session token
+    user = get_object_or_404(Users, login_session_token=session_token)
+
+    # Fetch the game object
+    game = get_object_or_404(Games, game_id=game_id)
 
     # Check if the game account already exists for the user
     if GameAccount.objects.filter(user=user, game=game).exists():
@@ -1228,7 +1208,7 @@ def add_game_account(request):
 
     # Create the game account
     try:
-        game_account = GameAccount.objects.create(
+        GameAccount.objects.create(
             user=user,
             game=game,
             game_username=game_username
@@ -1242,7 +1222,6 @@ def add_game_account(request):
             {'status': 'error', 'message': f'An unexpected error occurred: {str(e)}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
-    
 
 @api_view(['POST'])
 def edit_profile_info(request):
@@ -1654,3 +1633,5 @@ def edit_favorite_games(request):
             {'status': 'error', 'message': f'An unexpected error occurred: {str(e)}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
