@@ -230,14 +230,14 @@ def signup(request):
                 user = existing_user
             else:
                 return Response({
-                "status": "error",
-                "message": "Signup with the username you saved on the waitlist"
-            }, status=status.HTTP_400_BAD_REQUEST)
+                    "status": "error",
+                    "message": "Signup with the username you saved on the waitlist"
+                }, status=status.HTTP_400_BAD_REQUEST)
     else:
         username_is_available = Users.objects.filter(username=username).exists()
 
         if not username_is_available:
-        # Create a new user
+            # Create a new user
             user = Users.objects.create(
                 full_name=fullname,
                 email=email,
@@ -249,13 +249,15 @@ def signup(request):
             )
         else:
             return Response({
-                "status": "Username Already Taken"
+                "status": "error",
+                "message": "Username already taken"
             }, status=status.HTTP_400_BAD_REQUEST)
     
     # Generate verification link
     token = default_token_generator.make_token(user)
     uid = urlsafe_base64_encode(force_bytes(user.pk))
-    verification_link = request.build_absolute_uri(reverse('verify_token', kwargs={'uidb64': uid, 'token': token}))
+    FRONTEND_VERIFY_URL = "https://v-ent.co/email-verified"  # Or from settings
+    verification_link = f"{FRONTEND_VERIFY_URL}/{uid}/{token}"
 
     subject = 'Verify Your Email'
     message = f'''Hi {fullname},
@@ -274,6 +276,85 @@ If you did not create an account, please ignore this email.
     except Exception as e:
         logger.error(f"Failed to send email to {email}: {str(e)}")
         return Response({"status": "error", "message": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# @api_view(['POST'])
+# def signup(request):
+#     fullname = request.data.get('full_name')
+#     email = request.data.get('email')
+#     username = request.data.get('username')
+#     country = request.data.get('country')
+#     password = request.data.get('password')
+#     state = request.data.get('state')
+
+#     if not all([fullname, email, username, password, country, state]):
+#         return Response({"status": "error", "message": "All fields are required"}, status=status.HTTP_400_BAD_REQUEST)
+    
+#     # Check if email already exists for 'normal' signup
+#     existing_user = Users.objects.filter(email=email, signup_type='normal').first()
+
+#     if existing_user:
+#         if existing_user.is_active:
+#             return Response({
+#                 "status": "error",
+#                 "message": "An active account with this email already exists. Please log in."
+#             }, status=status.HTTP_400_BAD_REQUEST)
+#         else:
+#             if existing_user.username == username:
+#                 # Update inactive user details
+#                 existing_user.full_name = fullname
+#                 existing_user.username = username
+#                 existing_user.country = country
+#                 existing_user.state = state
+#                 existing_user.password = make_password(password)
+#                 existing_user.is_active = False
+#                 user = existing_user
+#             else:
+#                 return Response({
+#                 "status": "error",
+#                 "message": "Signup with the username you saved on the waitlist"
+#             }, status=status.HTTP_400_BAD_REQUEST)
+#     else:
+#         username_is_available = Users.objects.filter(username=username).exists()
+
+#         if not username_is_available:
+#         # Create a new user
+#             user = Users.objects.create(
+#                 full_name=fullname,
+#                 email=email,
+#                 username=username,
+#                 password=make_password(password),
+#                 country=country,
+#                 state=state,
+#                 is_active=False
+#             )
+#         else:
+#             return Response({
+#                 "status": "Username Already Taken"
+#             }, status=status.HTTP_400_BAD_REQUEST)
+    
+#     # Generate verification link
+#     token = default_token_generator.make_token(user)
+#     uid = urlsafe_base64_encode(force_bytes(user.pk))
+#     verification_link = request.build_absolute_uri(reverse('verify_token', kwargs={'uidb64': uid, 'token': token}))
+
+#     subject = 'Verify Your Email'
+#     message = f'''Hi {fullname},
+
+# Please click the link below to verify your email:
+
+# {verification_link}
+
+# If you did not create an account, please ignore this email.
+# '''
+
+#     try:
+#         send_email(email, subject, message)
+#         user.save()
+#         return Response({"status": "success", "message": "Verification link sent to email"}, status=status.HTTP_200_OK)
+#     except Exception as e:
+#         logger.error(f"Failed to send email to {email}: {str(e)}")
+#         return Response({"status": "error", "message": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 # @api_view(['POST'])
@@ -318,8 +399,6 @@ If you did not create an account, please ignore this email.
 #             "message": f"Failed to create account: {str(e)}"
 #         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
-
 @api_view(['GET'])
 def verify_token(request, uidb64, token):
     try:
@@ -328,31 +407,65 @@ def verify_token(request, uidb64, token):
         
         if default_token_generator.check_token(user, token):
             if user.is_active:
-                # If user is already verified
-                return render(request, 'account_verified.html', {"message": "Your account is already verified."})
+                return Response({"status": "success", "message": "Your account is already verified."}, status=status.HTTP_200_OK)
             else:
-                # Activate user and create the necessary profiles
+                # Activate user
                 user.is_active = True
                 user.save()
 
-                # Inside verify_token
+                # Create user profile if not exists
                 user_prof, created = UserProfile.objects.get_or_create(user=user)
 
-                # Use the in-memory image file
+                # Set default profile picture
                 profile_pic_file = create_default_profile_picture(user.full_name)
                 user_prof.profile_picture.save(f"{user.username}_profile.png", File(profile_pic_file))
                 user_prof.save()
 
-                # Check if wallet exists before creating
+                # Create wallet if not exists
                 if not UserWallet.objects.filter(user=user).exists():
                     create_user_wallet(user=user)
 
-                return render(request, 'verification_success.html', {"message": "Verification successful! Your account is now activated."})
+                return Response({"status": "success", "message": "Verification successful! Your account is now activated."}, status=status.HTTP_200_OK)
         else:
-            return render(request, 'invalid_token.html', {"message": "Invalid or expired token."})
+            return Response({"status": "error", "message": "Invalid or expired token."}, status=status.HTTP_400_BAD_REQUEST)
 
     except (TypeError, ValueError, OverflowError, Users.DoesNotExist):
-        return render(request, 'invalid_token.html', {"message": "Invalid verification link."})
+        return Response({"status": "error", "message": "Invalid verification link."}, status=status.HTTP_400_BAD_REQUEST)
+
+
+# @api_view(['GET'])
+# def verify_token(request, uidb64, token):
+#     try:
+#         uid = force_str(urlsafe_base64_decode(uidb64))
+#         user = Users.objects.get(pk=uid)
+        
+#         if default_token_generator.check_token(user, token):
+#             if user.is_active:
+#                 # If user is already verified
+#                 return render(request, 'account_verified.html', {"message": "Your account is already verified."})
+#             else:
+#                 # Activate user and create the necessary profiles
+#                 user.is_active = True
+#                 user.save()
+
+#                 # Inside verify_token
+#                 user_prof, created = UserProfile.objects.get_or_create(user=user)
+
+#                 # Use the in-memory image file
+#                 profile_pic_file = create_default_profile_picture(user.full_name)
+#                 user_prof.profile_picture.save(f"{user.username}_profile.png", File(profile_pic_file))
+#                 user_prof.save()
+
+#                 # Check if wallet exists before creating
+#                 if not UserWallet.objects.filter(user=user).exists():
+#                     create_user_wallet(user=user)
+
+#                 return render(request, 'verification_success.html', {"message": "Verification successful! Your account is now activated."})
+#         else:
+#             return render(request, 'invalid_token.html', {"message": "Invalid or expired token."})
+
+#     except (TypeError, ValueError, OverflowError, Users.DoesNotExist):
+#         return render(request, 'invalid_token.html', {"message": "Invalid verification link."})
 
 
 @api_view(['GET'])
@@ -747,40 +860,81 @@ def forgot_password(request):
     # Generate a random 6-digit token
     token = ''.join(random.choices('0123456789', k=6))
     
-    # Create or update the verification token for the user
-    verification_token, created = VerificationToken.objects.update_or_create(
+    try:
+        user = Users.objects.get(email=email, signup_type='normal')
+    except Users.DoesNotExist:
+        # Always return success even if user does not exist (security best practice)
+        return Response({"status": "success", "message": "Password reset token sent to email"}, status=status.HTTP_200_OK)
+    
+    # Create or update the verification token
+    VerificationToken.objects.update_or_create(
         user_email=email,
         defaults={'token': token, 'created_at': timezone.now()}
     )
     
-    # Send email with the token
-    sender_email = 'vermillioninformation@gmail.com'
-    receiver_email = email
-    password = 'gxml vbsa tanv ixci'  # Use environment variables for sensitive information
-    subject = 'Verify Email'
-    message = f'''Hi,
+    subject = 'Reset Your Password'
+    message = f'''
+    Hi {user.full_name},
 
-    Your Verification Token Is: {token}
-    
-    Please use it to verify your account'''
+    Your Password Reset Token is: {token}
 
-    # try:
-    msg = MIMEMultipart()
-    msg['From'] = sender_email
-    msg['To'] = receiver_email
-    msg['Subject'] = subject
-    msg.attach(MIMEText(message, 'plain'))
+    Please enter this token to reset your password.
+    '''
 
-    server = smtplib.SMTP('smtp.gmail.com', 587)
-    server.starttls()
-    server.login(sender_email, password)
-    server.sendmail(sender_email, receiver_email, msg.as_string())
-    server.quit()
-    # except Exception as e:
-    #     logger.error(f"Failed to send email to {email}: {str(e)}")
-    #     return Response({"error": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    try:
+        send_email(email.strip().lower(), subject, message)
+    except Exception as e:
+        logger.error(f"Failed to send password reset email to {email}: {str(e)}")
+        return Response({"error": "Failed to send password reset email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     return Response({"status": "success", "message": "Password reset token sent to email"}, status=status.HTTP_200_OK)
+
+
+
+# @api_view(['POST'])
+# def forgot_password(request):
+#     email = request.data.get('email')
+    
+#     if not email:
+#         return Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+    
+#     # Generate a random 6-digit token
+#     token = ''.join(random.choices('0123456789', k=6))
+    
+#     # Create or update the verification token for the user
+#     verification_token, created = VerificationToken.objects.update_or_create(
+#         user_email=email,
+#         defaults={'token': token, 'created_at': timezone.now()}
+#     )
+    
+#     # Send email with the token
+#     sender_email = 'vermillioninformation@gmail.com'
+#     receiver_email = email
+#     password = 'gxml vbsa tanv ixci'  # Use environment variables for sensitive information
+#     subject = 'Verify Email'
+#     message = f'''Hi,
+
+#     Your Verification Token Is: {token}
+    
+#     Please use it to verify your account'''
+
+#     # try:
+#     msg = MIMEMultipart()
+#     msg['From'] = sender_email
+#     msg['To'] = receiver_email
+#     msg['Subject'] = subject
+#     msg.attach(MIMEText(message, 'plain'))
+
+#     server = smtplib.SMTP('smtp.gmail.com', 587)
+#     server.starttls()
+#     server.login(sender_email, password)
+#     server.sendmail(sender_email, receiver_email, msg.as_string())
+#     server.quit()
+#     # except Exception as e:
+#     #     logger.error(f"Failed to send email to {email}: {str(e)}")
+#     #     return Response({"error": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+#     return Response({"status": "success", "message": "Password reset token sent to email"}, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -837,6 +991,46 @@ def change_password_fp(request):
     except Exception as e:
         logger.error(f"Failed to change password for {email}: {str(e)}")
         return Response({"status":"error", "message": "An error occurred while changing the password"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+def resend_forgot_password_token(request):
+    email = request.data.get('email')
+
+    if not email:
+        return Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        user = Users.objects.get(email=email, signup_type='normal')
+    except Users.DoesNotExist:
+        return Response({"status": "success", "message": "If your email exists, a reset token has been resent."}, status=status.HTTP_200_OK)
+
+    # Generate a new token
+    token = ''.join(random.choices('0123456789', k=6))
+    
+    # Update or create the token
+    VerificationToken.objects.update_or_create(
+        user_email=email,
+        defaults={'token': token, 'created_at': timezone.now()}
+    )
+
+    subject = 'Resend: Reset Your Password'
+    message = f'''
+    Hi {user.full_name},
+
+    Here is your new Password Reset Token: {token}
+
+    Please use it to reset your password.
+    '''
+
+    try:
+        send_email(email.strip().lower(), subject, message)
+    except Exception as e:
+        logger.error(f"Failed to resend password reset email to {email}: {str(e)}")
+        return Response({"error": "Failed to resend password reset email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    return Response({"status": "success", "message": "New password reset token sent to email"}, status=status.HTTP_200_OK)
+
 
 
 @api_view(["POST"])
@@ -1635,3 +1829,43 @@ def edit_favorite_games(request):
         )
 
 
+@api_view(['POST'])
+def resend_link(request):
+    email = request.data.get('email')
+
+    if not email:
+        return Response({"status": "error", "message": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        user = Users.objects.get(email=email, signup_type='normal')
+    except Users.DoesNotExist:
+        return Response({"status": "error", "message": "No account found with this email"}, status=status.HTTP_404_NOT_FOUND)
+
+    if user.is_active:
+        return Response({"status": "error", "message": "Account already verified. Please log in."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Generate new token and uid
+    token = default_token_generator.make_token(user)
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+
+    FRONTEND_VERIFY_URL = "https://v-ent.co/email-verified"  # Use your actual frontend URL
+    verification_link = f"{FRONTEND_VERIFY_URL}/{uid}/{token}"
+
+    subject = 'Resend: Verify Your Email'
+    message = f'''Hi {user.full_name},
+
+It seems you requested a new verification link.
+
+Please click below to verify your account:
+
+{verification_link}
+
+If you didn't request this, feel free to ignore this email.
+'''
+
+    try:
+        send_email(user.email.strip().lower(), subject, message)
+        return Response({"status": "success", "message": "Verification link resent to your email"}, status=status.HTTP_200_OK)
+    except Exception as e:
+        logger.error(f"Failed to resend verification email to {email}: {str(e)}")
+        return Response({"status": "error", "message": "Failed to resend verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

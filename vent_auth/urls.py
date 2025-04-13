@@ -36,5 +36,7 @@ urlpatterns = [
     path("update-web-and-social-links/", update_web_and_social_links, name="update_web_and_social_links"),
     path("social-auth/", social_auth, name="social_auth"),
     path("edit-favorite-games/", edit_favorite_games, name="edit_favorite_games")
+    path("resend-link/", resend_link, name="resend_link"),
+    path("resend-forgot-password-token/", resend_forgot_password_token, name="resend_forgot_password_token"),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
