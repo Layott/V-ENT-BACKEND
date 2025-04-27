@@ -1869,3 +1869,87 @@ If you didn't request this, feel free to ignore this email.
     except Exception as e:
         logger.error(f"Failed to resend verification email to {email}: {str(e)}")
         return Response({"status": "error", "message": "Failed to resend verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+def get_google_login_url(request):
+    client_id = "107316124610-sjpgk55abqcp32c8dohm7r0t2u9sd7gd.apps.googleusercontent.com"
+    redirect_uri = "https://vermillionent.pythonanywhere.com/auth/google-callback/"  # Your API endpoint
+    scope = "openid email profile"
+    response_type = "code"
+
+    auth_url = (
+        f"https://accounts.google.com/o/oauth2/v2/auth"
+        f"?client_id={client_id}"
+        f"&redirect_uri={redirect_uri}"
+        f"&response_type={response_type}"
+        f"&scope={scope}"
+    )
+
+    return Response({"auth_url": auth_url})
+
+
+@api_view(['GET'])
+def google_callback(request):
+    code = request.query_params.get('code')
+    if not code:
+        return Response({"status": "error", "message": "No code provided"}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Exchange code for tokens
+    token_url = "https://oauth2.googleapis.com/token"
+    data = {
+        'code': code,
+        'client_id': "107316124610-sjpgk55abqcp32c8dohm7r0t2u9sd7gd.apps.googleusercontent.com",
+        'client_secret': "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",
+        'redirect_uri': "https://vermillionent.pythonanywhere.com/auth/google-callback/",
+        'grant_type': 'authorization_code'
+    }
+
+    token_response = requests.post(token_url, data=data)
+    token_response_data = token_response.json()
+
+    if 'id_token' not in token_response_data:
+        return Response({"status": "error", "message": "Failed to get ID token"}, status=status.HTTP_400_BAD_REQUEST)
+
+    id_token_str = token_response_data['id_token']
+
+    # Verify the id_token
+    from google.oauth2 import id_token
+    from google.auth.transport import requests as google_requests
+
+    try:
+        idinfo = id_token.verify_oauth2_token(id_token_str, google_requests.Request(), "107316124610-sjpgk55abqcp32c8dohm7r0t2u9sd7gd.apps.googleusercontent.com")
+
+        # Extract user info
+        email = idinfo['email']
+        full_name = idinfo.get('name', '')
+        social_id = idinfo['sub']
+
+        # Now check if user exists
+        user, created = Users.objects.get_or_create(
+            email=email,
+            defaults={
+                'full_name': full_name,
+                'username': email.split('@')[0],
+                'signup_type': 'google',
+                'social_id': social_id,
+                'is_active': True,
+                'country': '',
+                'state': ''
+            }
+        )
+
+        if created:
+            UserProfile.objects.get_or_create(user=user)
+            create_user_wallet(user=user)
+
+        # 👇 Generate your own session token
+        session_token = generate_session_token(user)
+
+        # Redirect user to frontend with session_token
+        frontend_redirect_url = f"https://v-ent.co/user-profile?session_token={session_token}"
+
+        return redirect(frontend_redirect_url)
+
+    except ValueError:
+        return Response({"status": "error", "message": "Invalid ID token"}, status=status.HTTP_400_BAD_REQUEST)

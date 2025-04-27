@@ -16,6 +16,7 @@ class Users(AbstractUser):
     signup_type = models.CharField(max_length=32, default='normal', null=True)  # normal, google, facebook
     provider_id = models.CharField(max_length=256, null=True, blank=True)  # Social provider ID
     tst = models.CharField(max_length=44, null=True)
+    social_id = models.CharField(max_length=100, blank=True, null=True)
 
     USERNAME_FIELD = 'username'  # Use 'username' for authentication
     REQUIRED_FIELDS = ['full_name']  # Exclude 'username'

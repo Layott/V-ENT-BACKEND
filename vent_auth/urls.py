@@ -38,5 +38,7 @@ urlpatterns = [
     path("edit-favorite-games/", edit_favorite_games, name="edit_favorite_games"),
     path("resend-link/", resend_link, name="resend_link"),
     path("resend-forgot-password-token/", resend_forgot_password_token, name="resend_forgot_password_token"),
+    path("get-google-login-url/", get_google_login_url, name="get_google_login_url"),
+    path("google-callback/", google_callback, name="google_callback"),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
