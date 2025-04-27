@@ -1944,7 +1944,12 @@ def google_callback(request):
             create_user_wallet(user=user)
 
         # 👇 Generate your own session token
-        session_token = generate_session_token(user)
+        # Generate a session token
+        session_token = generate_session_token()
+        
+        # Save session token to the user model
+        user.login_session_token = session_token
+        user.save()
 
         # Redirect user to frontend with session_token
         frontend_redirect_url = f"https://v-ent.co/user-profile?session_token={session_token}"
