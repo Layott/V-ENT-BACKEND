@@ -78,13 +78,17 @@ def create_event(request):
 
 @api_view(['GET'])
 def get_all_events(request):
-    session_token = request.GET.get('login_session_token')
+    session_token = request.headers.get('Authorization')
 
     if not session_token:
-        return Response(
-            {'status': 'error', 'message': 'login_session_token is required'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Ensure the token is in the correct format (e.g., 'Bearer <token>')
+    if not session_token.startswith("Bearer "):
+        return Response({'status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Extract the actual token
+    session_token = session_token.split(" ")[1]
 
     # Fetch the user associated with the session token
     user = get_object_or_404(Users, login_session_token=session_token)

@@ -1952,7 +1952,7 @@ def google_callback(request):
         user.save()
 
         # Redirect user to frontend with session_token
-        frontend_redirect_url = f"https://v-ent.co/user-profile?session_token={session_token}"
+        frontend_redirect_url = f"https://test.v-ent.co/user-profile?session_token={session_token}"
 
         return redirect(frontend_redirect_url)
 
