@@ -413,7 +413,7 @@ def get_all_tournaments(request):
     tournaments_by_game = {}
 
     for tournament in all_tournaments:
-        game_name = tournament.tournament_game.name if tournament.tournament_game else "Unknown Game"  # Fixed field name
+        game_name = tournament.tournament_game.game_title if tournament.tournament_game else "Unknown Game"  # Fixed field name
         if game_name not in tournaments_by_game:
             tournaments_by_game[game_name] = []
         tournaments_by_game[game_name].append(tournament)
@@ -422,7 +422,7 @@ def get_all_tournaments(request):
     def get_sponsors_list(tournament):
         return [
             {
-                "id": sponsor.id,
+                "id": sponsor.sponsor_id,
                 "name": sponsor.name,
                 "logo": sponsor.logo.url if sponsor.logo else None,
                 "website": sponsor.website
