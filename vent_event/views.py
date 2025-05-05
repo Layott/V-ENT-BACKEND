@@ -180,7 +180,7 @@ def get_all_events(request):
             "logo": request.build_absolute_uri(event.logo.url) if event.logo else None,
             "banner": request.build_absolute_uri(event.banner.url) if event.banner else None,
             "interaction_count": event.interaction_count,
-            "game": event.game.name if event.game else None,
+            "game": event.game.game_title if event.game else None,
         }
 
     return Response({
