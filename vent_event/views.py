@@ -156,7 +156,7 @@ def get_all_events(request):
     all_events = Event.objects.select_related('game')
     events_by_game = {}
     for event in all_events:
-        game_name = event.game.name if event.game else "Unknown Game"
+        game_name = event.game.game_title if event.game else "Unknown Game"
         if game_name not in events_by_game:
             events_by_game[game_name] = []
         events_by_game[game_name].append(event)
