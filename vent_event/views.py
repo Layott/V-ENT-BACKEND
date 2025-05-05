@@ -1,4 +1,4 @@
-from datetime import timezone
+from django.utils import timezone
 import uuid
 from django.shortcuts import render
 from imports import api_view, Response, get_object_or_404, datetime, status
