@@ -51,7 +51,7 @@ def create_event(request):
 
 
         # Get the event creator
-        creator = get_object_or_404(Users, login_session_token=session_token)
+        creator = get_object_or_404(Users, login_session_token=login_session_token)
 
         # Create the event
         event = Event.objects.create(
