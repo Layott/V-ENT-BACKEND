@@ -2,23 +2,27 @@ from django.db import models
 from vent_auth.models import Users
 
 class Event(models.Model):
-    event_id = models.AutoField(primary_key=True)
-    name = models.CharField(max_length=40)
-    creator = models.ForeignKey(Users, on_delete=models.CASCADE)
-    created_at = models.DateTimeField(auto_now_add=True)
-    last_updated = models.DateTimeField(auto_now=True)
+    event_id = models.AutoField(primary_key=True) # Event ID
+    name = models.CharField(max_length=40) # Name of the event
+    creator = models.ForeignKey(Users, on_delete=models.CASCADE) # Creator of the event
+    created_at = models.DateTimeField(auto_now_add=True) 
+    last_updated = models.DateTimeField(auto_now=True) # Last updated timestamp
     event_type = models.CharField(max_length=8)  # e.g., physical, virtual, hybrid
-    desc = models.CharField(max_length=140)
-    entry_fee = models.DecimalField(max_digits=10, decimal_places=2)
-    reg_start_date = models.DateTimeField()
-    reg_end_date = models.DateTimeField()
-    event_date = models.DateField()
-    start_time = models.TimeField()
-    end_time = models.TimeField()
-    location = models.CharField(max_length=255)  # Physical address
-    event_link = models.CharField(max_length=255)  # URL for virtual events
-    logo = models.ImageField(upload_to='event_logos/', null=True, blank=True)
-    banner = models.ImageField(upload_to='event_banners/', null=True, blank=True)
+    desc = models.CharField(max_length=140) # Description of the event
+    entry_fee = models.DecimalField(max_digits=10, decimal_places=2) # Entry fee for the event
+    reg_start_date = models.DateTimeField() # Registration start date
+    reg_end_date = models.DateTimeField() # Registration end date
+    event_date = models.DateField() # Date of the event
+    start_time = models.TimeField() # Start time of the event
+    end_time = models.TimeField() # End time of the event
+    # For physical events, location is required; for virtual events, event_link is required
+    # For virtual events, event_link is required; for hybrid events, both location and event_link are required
+    # For hybrid events, both location and event_link are required
+    location = models.CharField(max_length=255, null=True, blank=True)  # Location for physical events
+    event_link = models.CharField(max_length=255, null=True, blank=True) # Link for virtual events
+    logo = models.ImageField(upload_to='event_logos/', null=True, blank=True) # Event logo upload path
+    banner = models.ImageField(upload_to='event_banners/', null=True, blank=True) # Event banner upload path
+    is_active = models.BooleanField(default=True)  # To mark if the event is active or not
 
     def __str__(self):
         return self.name
