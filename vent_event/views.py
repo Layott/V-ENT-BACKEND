@@ -7,8 +7,18 @@ from vent_auth.models import Users
 @api_view(['POST'])
 def create_event(request):
     try:
+        session_token = request.headers.get('Authorization')
+
+        if not session_token:
+            return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Ensure the token is in the correct format (e.g., 'Bearer <token>')
+        if not session_token.startswith("Bearer "):
+            return Response({'status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Extract the actual token
+        login_session_token = session_token.split(" ")[1]
         name = request.data.get('name')
-        session_token = request.data.get('session_token')
         event_type = request.data.get('event_type')
         desc = request.data.get('desc')
         entry_fee = request.data.get('entry_fee')
@@ -41,7 +51,7 @@ def create_event(request):
 
 
         # Get the event creator
-        creator = get_object_or_404(Users, session_token=session_token)
+        creator = get_object_or_404(Users, login_session_token=session_token)
 
         # Create the event
         event = Event.objects.create(
