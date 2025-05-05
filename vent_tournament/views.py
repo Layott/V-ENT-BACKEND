@@ -182,9 +182,9 @@ def create_tournament(request):
 
 
             # Sponsor data (Name, Type, Username, Logo)
-            sponsor_names = request.data.getlist('sponsor_names')
-            sponsor_types = request.data.getlist('sponsor_types')
-            sponsor_usernames = request.data.getlist('sponsor_usernames')
+            sponsor_names = request.data.get('sponsor_names', [])
+            sponsor_types = request.data.get('sponsor_types', [])
+            sponsor_usernames = request.data.get('sponsor_usernames', [])
             sponsor_logos = request.FILES.getlist('sponsor_logos')
 
             # Social Links
