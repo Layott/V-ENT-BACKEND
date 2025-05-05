@@ -283,20 +283,140 @@ def create_tournament(request):
 
 
 
+# @api_view(["GET"])
+# def get_all_tournaments(request):
+#     # Featured Tournaments (most interacted)
+#     featured_tournaments = Tournament.objects.order_by('-interaction_count')[:5]
+#     # New Tournaments (recent ones)
+#     new_tournaments = Tournament.objects.order_by('-start_date_and_time')[:5]
+#     # All Tournaments grouped by game
+#     all_tournaments = Tournament.objects.all()
+#     tournaments_by_game = {}
+#     for tournament in all_tournaments:
+#         game = tournament.game if hasattr(tournament, 'game') else "Unknown Game"
+#         if game not in tournaments_by_game:
+#             tournaments_by_game[game] = []
+#         tournaments_by_game[game].append(tournament)
+
+#     # Sponsors Serializer
+#     def get_sponsors_list(tournament):
+#         return [
+#             {
+#                 "id": sponsor.id,
+#                 "name": sponsor.name,
+#                 "logo": sponsor.logo.url if sponsor.logo else None,
+#                 "website": sponsor.website
+#             }
+#             for sponsor in tournament.sponsors.all()
+#         ]
+
+#     # Prize Distributions Serializer
+#     def get_prize_list(tournament):
+#         prize_distributions = TournamentPrizeDistribution.objects.filter(tournament=tournament)
+#         return [
+#             {
+#                 "id": prize.id,
+#                 "position": prize.position,
+#                 "prize": str(prize.prize),
+#                 "extras": prize.extras
+#             }
+#             for prize in prize_distributions
+#         ]
+
+#     # Matches Serializer
+#     def get_match_list(tournament):
+#         matches = Match.objects.filter(tournament=tournament)
+#         return [
+#             {
+#                 "match_id": match.match_id,
+#                 "match_check_in_time": str(match.match_check_in_time),
+#                 "match_check_in_date": str(match.match_check_in_date),
+#                 "match_check_in_started": match.match_check_in_started,
+#                 "match_check_in_ended": match.match_check_in_ended
+#             }
+#             for match in matches
+#         ]
+
+#     # Registered Teams Serializer
+#     def get_registered_teams_list(tournament):
+#         registered_teams = RegisteredTeams.objects.filter(tournament_id=tournament)
+#         return [
+#             {
+#                 "team_id": team.team_id.team_id
+#             }
+#             for team in registered_teams
+#         ]
+
+#     # Serialize Tournaments
+#     def serialize_tournaments(tournament):
+#         return {
+#             "tournament_id": tournament.tournament_id,
+#             "tournament_title": tournament.tournament_title,
+#             "tournament_logo": tournament.tournament_logo.url if tournament.tournament_logo else None,
+#             "tournament_banner": tournament.tournament_banner.url if tournament.tournament_banner else None,
+#             "tournament_description": tournament.tournament_description,
+#             "tournament_rules": tournament.tournament_rules,
+#             "bracket_type": tournament.bracket_type,
+#             "start_date_and_time": tournament.start_date_and_time,
+#             "end_date_and_time": tournament.end_date_and_time,
+#             "tournament_visibility": tournament.tournament_visibility,
+#             "tournament_type": tournament.tournament_type,
+#             "tournament_location": tournament.tournament_location,
+#             "player_size": tournament.player_size,
+#             "max_number_of_teams": tournament.max_number_of_teams,
+#             "min_number_of_teams": tournament.min_number_of_teams,
+#             "tournament_access": tournament.tournament_access,
+#             "entry_fee": tournament.entry_fee,
+#             "entry_fee_price": str(tournament.entry_fee_price),
+#             "facebook_link": tournament.facebook_link,
+#             "twitter_link": tournament.twitter_link,
+#             "instagram_link": tournament.instagram_link,
+#             "youtube_link": tournament.youtube_link,
+#             "twitch_link": tournament.twitch_link,
+#             "kick_link": tournament.kick_link,
+#             "sponsors": get_sponsors_list(tournament),
+#             "prize_distributions": get_prize_list(tournament),
+#             "matches": get_match_list(tournament),
+#             "registered_teams": get_registered_teams_list(tournament),
+#         }
+
+#     # Serialize Featured Tournaments
+#     featured = [serialize_tournaments(tournament) for tournament in featured_tournaments]
+#     # Serialize New Tournaments
+#     new = [serialize_tournaments(tournament) for tournament in new_tournaments]
+#     # Serialize Tournaments by Game
+#     games = {
+#         game: [serialize_tournaments(tournament) for tournament in tournaments]
+#         for game, tournaments in tournaments_by_game.items()
+#     }
+
+#     return Response({
+#         "status": "success",
+#         "data": {
+#             "featured": featured,
+#             "new": new,
+#             "by_game": games
+#         }
+#     }, status=status.HTTP_200_OK)
+
+
 @api_view(["GET"])
 def get_all_tournaments(request):
     # Featured Tournaments (most interacted)
     featured_tournaments = Tournament.objects.order_by('-interaction_count')[:5]
+    
     # New Tournaments (recent ones)
     new_tournaments = Tournament.objects.order_by('-start_date_and_time')[:5]
+    
     # All Tournaments grouped by game
-    all_tournaments = Tournament.objects.all()
+    all_tournaments = Tournament.objects.all().select_related('game')
     tournaments_by_game = {}
+
     for tournament in all_tournaments:
-        game = tournament.game if hasattr(tournament, 'game') else "Unknown Game"
-        if game not in tournaments_by_game:
-            tournaments_by_game[game] = []
-        tournaments_by_game[game].append(tournament)
+        game_name = tournament.game.name if tournament.game else "Unknown Game"
+        if game_name not in tournaments_by_game:
+            tournaments_by_game[game_name] = []
+        tournaments_by_game[game_name].append(tournament)
 
     # Sponsors Serializer
     def get_sponsors_list(tournament):
@@ -347,7 +467,7 @@ def get_all_tournaments(request):
             for team in registered_teams
         ]
 
-    # Serialize Tournaments
+    # Serialize Tournament
     def serialize_tournaments(tournament):
         return {
             "tournament_id": tournament.tournament_id,
@@ -382,8 +502,10 @@ def get_all_tournaments(request):
 
     # Serialize Featured Tournaments
     featured = [serialize_tournaments(tournament) for tournament in featured_tournaments]
+
     # Serialize New Tournaments
     new = [serialize_tournaments(tournament) for tournament in new_tournaments]
+
     # Serialize Tournaments by Game
     games = {
         game: [serialize_tournaments(tournament) for tournament in tournaments]
