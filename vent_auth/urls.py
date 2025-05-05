@@ -40,5 +40,6 @@ urlpatterns = [
     path("resend-forgot-password-token/", resend_forgot_password_token, name="resend_forgot_password_token"),
     path("get-google-login-url/", get_google_login_url, name="get_google_login_url"),
     path("google-callback/", google_callback, name="google_callback"),
+    path("verify-google-token/", verify_token, name="verify_token"),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

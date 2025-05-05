@@ -1906,12 +1906,26 @@ def google_callback(request):
     }
 
     token_response = requests.post(token_url, data=data)
+    
+    if token_response.status_code != 200:
+        return Response({"status": "error", "message": "Failed to retrieve token"}, status=status.HTTP_400_BAD_REQUEST)
+
     token_response_data = token_response.json()
 
     if 'id_token' not in token_response_data:
         return Response({"status": "error", "message": "Failed to get ID token"}, status=status.HTTP_400_BAD_REQUEST)
 
     id_token_str = token_response_data['id_token']
+
+    # Redirect user to frontend with id_token
+    frontend_redirect_url = f"https://test.v-ent.co/user-profile?id_token={id_token_str}"
+
+    return redirect(frontend_redirect_url)
+
+
+@api_view(['GET'])
+def verify_token(request):
+    id_token_str = request.query_params.get('id_token')
 
     # Verify the id_token
     from google.oauth2 import id_token
@@ -1951,10 +1965,18 @@ def google_callback(request):
         user.login_session_token = session_token
         user.save()
 
-        # Redirect user to frontend with session_token
-        frontend_redirect_url = f"https://test.v-ent.co/user-profile?session_token={session_token}"
+        # return session token
+        return Response({
+            "status": "success",
+            "message": "User logged in successfully",
+            "data": {
+                "session_token": session_token,
+                "email": email,
+                "username": user.username,
+                "full_name": full_name
+            }
+        }, status=status.HTTP_200_OK)
 
-        return redirect(frontend_redirect_url)
 
     except ValueError:
         return Response({"status": "error", "message": "Invalid ID token"}, status=status.HTTP_400_BAD_REQUEST)
