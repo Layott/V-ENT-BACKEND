@@ -1,9 +1,10 @@
 from django.db import models
-from vent_auth.models import Users
+from vent_auth.models import Users, Games, Teams, Organization
 
 class Event(models.Model):
     event_id = models.AutoField(primary_key=True) # Event ID
     name = models.CharField(max_length=40) # Name of the event
+    game = models.ForeignKey(Games, on_delete=models.CASCADE, related_name="events")
     creator = models.ForeignKey(Users, on_delete=models.CASCADE) # Creator of the event
     created_at = models.DateTimeField(auto_now_add=True) 
     last_updated = models.DateTimeField(auto_now=True) # Last updated timestamp
@@ -23,6 +24,7 @@ class Event(models.Model):
     logo = models.ImageField(upload_to='event_logos/', null=True, blank=True) # Event logo upload path
     banner = models.ImageField(upload_to='event_banners/', null=True, blank=True) # Event banner upload path
     is_active = models.BooleanField(default=True)  # To mark if the event is active or not
+    interaction_count = models.PositiveIntegerField(default=0) # To track user interactions
 
     def __str__(self):
         return self.name
