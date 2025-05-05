@@ -145,6 +145,17 @@ def search_tournament(request):
 def create_tournament(request):
     try:
         with transaction.atomic():
+            session_token = request.headers.get('Authorization')
+
+            if not session_token:
+                return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Ensure the token is in the correct format (e.g., 'Bearer <token>')
+            if not session_token.startswith("Bearer "):
+                return Response({'status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Extract the actual token
+            login_session_token = session_token.split(" ")[1]
             # Get data from the request
             tournament_title = request.data.get('tournament_title')
             game = request.data.get('game')
@@ -194,9 +205,13 @@ def create_tournament(request):
 
             game = Games.objects.get(game_title=game.title())
 
+            creator = get_object_or_404(Users, login_session_token=login_session_token)
+
+
             # Create Tournament
             tournament = Tournament.objects.create(
                 tournament_title=tournament_title,
+                tournament_creator=creator,
                 tournament_game=game,
                 game_mode=game_mode,
                 tournament_logo=tournament_logo,

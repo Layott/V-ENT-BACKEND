@@ -43,6 +43,8 @@ class Tournament(models.Model):
     tournament_description = models.TextField(null=True)
     tournament_rules = models.TextField(null=True, blank=True)
     bracket_type = models.CharField(max_length=50, default='Single Elimination')
+    tournament_creator = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='tournament_creator')
+    tournament_organization = models.ForeignKey(Organization, on_delete=models.CASCADE, null=True, blank=True)
 
     start_date_and_time = models.DateTimeField()
     end_date_and_time = models.DateTimeField()
