@@ -27,6 +27,13 @@ class Tournament(models.Model):
         ('Free', 'Free'),
     ]
 
+    PRIZE_TYPE_CHOICES = [
+        ('distributed', 'Distributed'),
+        ('winner_takes_all', 'Winner Takes All'),
+        ('no_prize', 'No Prize'),
+    ]
+
+
     tournament_id = models.AutoField(primary_key=True)
     tournament_title = models.CharField(max_length=148, null=False)
     tournament_game = models.ForeignKey(Games, on_delete=models.CASCADE)
@@ -48,6 +55,9 @@ class Tournament(models.Model):
     player_size = models.IntegerField(null=True, blank=True)
     min_number_of_teams = models.IntegerField(null=True, blank=True)
     max_number_of_teams = models.IntegerField(null=True, blank=True)
+
+    prize_type = models.CharField(max_length=20, choices=PRIZE_TYPE_CHOICES, default='no_prize')
+
 
     tournament_access = models.CharField(max_length=20, choices=TOURNAMENT_ACCESS_CHOICES)
     entry_fee = models.CharField(max_length=5, choices=ENTRY_FEE_CHOICES)

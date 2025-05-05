@@ -167,6 +167,8 @@ def create_tournament(request):
             max_number_of_participants = request.data.get('max_number_of_participants', 0)
             bracket_type = request.data.get('bracket_type', 'Single Elimination')
             tournament_rules = request.data.get('tournament_rules')
+            prize_type = request.data.get('prize_type', 'no_prize')
+
 
             # Sponsor data (Name, Type, Username, Logo)
             sponsor_names = request.data.getlist('sponsor_names')
@@ -217,6 +219,24 @@ def create_tournament(request):
                 entry_fee_price=entry_fee_price,
                 **social_links
             )
+
+             # Create prize distributions if applicable
+            if prize_type == 'distributed':
+                prize_data = request.data.get('prize_data', [])
+                for prize_entry in prize_data:
+                    TournamentPrizeDistribution.objects.create(
+                        tournament=tournament,
+                        position=prize_entry['position'],
+                        prize=prize_entry['prize'],
+                        extras=prize_entry.get('extras', '')
+                    )
+            elif prize_type == 'winner_takes_all':
+                TournamentPrizeDistribution.objects.create(
+                    tournament=tournament,
+                    position=1,
+                    prize=request.data.get('total_prize', 0.00),
+                    extras='Winner Takes All'
+                )
 
             # Add sponsors (loop through the provided sponsor details)
             for name, sponsor_type, username, logo in zip(sponsor_names, sponsor_types, sponsor_usernames, sponsor_logos):
