@@ -34,10 +34,11 @@ def create_event(request):
         if event_type == 'virtual' and not event_link:
             return Response({'status': 'error', 'message': 'Event link is required for virtual events.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        sponsors = request.data.getlist('sponsors')  # List of sponsor names
-        sponsor_logos = request.FILES.getlist('sponsor_logos')  # List of sponsor logos
-        social_links = request.data.getlist('social_links')  # List of social media platforms
-        social_urls = request.data.getlist('social_urls')  # Corresponding URLs
+        sponsors = request.data.get('sponsors', [])
+        sponsor_logos = request.data.get('sponsor_logos', [])
+        social_links = request.data.get('social_links', [])
+        social_urls = request.data.get('social_urls', [])
+
 
         # Get the event creator
         creator = get_object_or_404(Users, session_token=session_token)
