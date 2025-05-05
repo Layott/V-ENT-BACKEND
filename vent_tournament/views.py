@@ -409,11 +409,11 @@ def get_all_tournaments(request):
     new_tournaments = Tournament.objects.order_by('-start_date_and_time')[:5]
     
     # All Tournaments grouped by game
-    all_tournaments = Tournament.objects.all().select_related('game')
+    all_tournaments = Tournament.objects.all().select_related('tournament_game')  # Fixed field name
     tournaments_by_game = {}
 
     for tournament in all_tournaments:
-        game_name = tournament.game.name if tournament.game else "Unknown Game"
+        game_name = tournament.tournament_game.name if tournament.tournament_game else "Unknown Game"  # Fixed field name
         if game_name not in tournaments_by_game:
             tournaments_by_game[game_name] = []
         tournaments_by_game[game_name].append(tournament)
