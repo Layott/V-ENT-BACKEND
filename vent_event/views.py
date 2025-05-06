@@ -4,6 +4,9 @@ from django.shortcuts import render
 from imports import api_view, Response, get_object_or_404, datetime, status
 from .models import Event, Sponsor, SocialLink
 from vent_auth.models import Games, Users
+from datetime import timedelta
+
+
 # Create your views here.
 
 # @api_view(['POST'])
