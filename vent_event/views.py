@@ -101,6 +101,9 @@ def create_event(request):
     token = session_token.split(" ")[1]
     user = get_object_or_404(Users, login_session_token=token)
 
+    if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=10):
+        return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
+
     try:
         game_title = request.data.get('game_title')
         if not game_title:
@@ -143,6 +146,9 @@ def get_all_events(request):
 
     token = session_token.split(" ")[1]
     user = get_object_or_404(Users, login_session_token=token)
+
+    if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=10):
+        return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
     today = timezone.now().date()
 

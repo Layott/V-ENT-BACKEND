@@ -38,6 +38,7 @@ import os
 from django.core.files import File
 from django.contrib.auth import get_user_model
 import uuid
+from datetime import timedelta
 
 User = get_user_model()
 
@@ -556,6 +557,7 @@ def login(request):
         
         # Save session token to the user model
         user.login_session_token = session_token
+        user.login_session_created_at = timezone.now()
         user.save()
 
         # Return success response with the session token
@@ -1315,6 +1317,9 @@ def get_user_informations(request):
         # Fetch user object based on the session token
         user = get_object_or_404(Users, login_session_token=session_token)
 
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=10):
+            return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
+
         # Get user profile
         try:
             profile = UserProfile.objects.get(user=user)
@@ -1390,6 +1395,9 @@ def add_game_account(request):
     # Fetch the user based on session token
     user = get_object_or_404(Users, login_session_token=session_token)
 
+    if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=10):
+        return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
+
     # Fetch the game object
     game = get_object_or_404(Games, game_id=game_id)
 
@@ -1441,6 +1449,10 @@ def edit_profile_info(request):
 
         # Fetch user
         user = get_object_or_404(Users, login_session_token=login_session_token)
+
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=10):
+            return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
+
 
         # Fetch user profile
         try:
@@ -1659,6 +1671,10 @@ def update_web_and_social_links(request):
         # Get the user based on the session token
         user = Users.objects.get(login_session_token=login_session_token)
 
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=10):
+            return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
+
+
         # Get the links from the request data
         links = request.data.get("links")
         if not isinstance(links, dict):
@@ -1716,6 +1732,7 @@ def social_auth(request):
             # Social Login
             session_token = generate_session_token()
             user.login_session_token = session_token
+            user.login_session_created_at = timezone.now()
             user.save()
 
             return Response({
@@ -1963,6 +1980,7 @@ def verify_token(request):
         
         # Save session token to the user model
         user.login_session_token = session_token
+        user.login_session_created_at = timezone.now()
         user.save()
 
         # return session token
