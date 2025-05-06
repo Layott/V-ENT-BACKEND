@@ -112,7 +112,7 @@ def create_event(request):
         if not game_title:
             return Response({'status': 'error', 'message': 'Game title is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        game = get_object_or_404(Games, name__iexact=game_title.strip())
+        game = get_object_or_404(Games, game_title__iexact=game_title.strip())
 
         event = Event.objects.create(
             event_id=uuid.uuid4().hex[:10].upper(),
