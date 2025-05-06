@@ -115,7 +115,6 @@ def create_event(request):
         game = get_object_or_404(Games, game_title__iexact=game_title.strip())
 
         event = Event.objects.create(
-            event_id=uuid.uuid4().hex[:10].upper(),
             name=request.data['name'],
             desc=request.data['desc'],
             creator=user,
