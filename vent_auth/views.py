@@ -1935,7 +1935,7 @@ def google_callback(request):
     id_token_str = token_response_data['id_token']
 
     # Redirect user to frontend with id_token
-    frontend_redirect_url = f"https://test.v-ent.co/user-profile?id_token={id_token_str}"
+    frontend_redirect_url = f"https://test.v-ent.co/verify-google-token?id_token={id_token_str}"
 
     return redirect(frontend_redirect_url)
 
