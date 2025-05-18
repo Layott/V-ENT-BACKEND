@@ -1890,7 +1890,7 @@ If you didn't request this, feel free to ignore this email.
 
 @api_view(['GET'])
 def get_google_login_url(request):
-    client_id = "351515180487-2mglilfhb5jhg2f54edfg91gjv5ra63p.apps.googleusercontent.com"
+    client_id = "33973954184-679jm6l22j2di387c7ra8uktmp5mg335.apps.googleusercontent.com"
     redirect_uri = "https://vermillionent.pythonanywhere.com/auth/google-callback/"  # Your API endpoint
     scope = "openid email profile"
     response_type = "code"
@@ -1916,8 +1916,8 @@ def google_callback(request):
     token_url = "https://oauth2.googleapis.com/token"
     data = {
         'code': code,
-        'client_id': "351515180487-2mglilfhb5jhg2f54edfg91gjv5ra63p.apps.googleusercontent.com",
-        'client_secret': "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",
+        'client_id': "33973954184-679jm6l22j2di387c7ra8uktmp5mg335.apps.googleusercontent.com",
+        'client_secret': "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",
         'redirect_uri': "https://vermillionent.pythonanywhere.com/auth/google-callback/",
         'grant_type': 'authorization_code'
     }
@@ -1949,7 +1949,7 @@ def verify_token(request):
     from google.auth.transport import requests as google_requests
 
     try:
-        idinfo = id_token.verify_oauth2_token(id_token_str, google_requests.Request(), "351515180487-2mglilfhb5jhg2f54edfg91gjv5ra63p.apps.googleusercontent.com")
+        idinfo = id_token.verify_oauth2_token(id_token_str, google_requests.Request(), "33973954184-679jm6l22j2di387c7ra8uktmp5mg335.apps.googleusercontent.com")
 
         # Extract user info
         email = idinfo['email']
