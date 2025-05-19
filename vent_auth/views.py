@@ -2007,26 +2007,20 @@ def upload_images(request):
     if not session_token:
         return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Ensure the token is in the correct format (e.g., 'Bearer <token>')
     if not session_token.startswith("Bearer "):
         return Response({'status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Extract the actual token
     login_session_token = session_token.split(" ")[1]
 
     try:
-        # Fetch user based on the session token
         user = get_object_or_404(Users, login_session_token=login_session_token)
 
         if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=10):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
-        # Get the uploaded images
-        images = request.FILES.get('images')
+        images = request.FILES.getlist('images')
         if not images:
             return Response({'status': 'error', 'message': 'No images provided'}, status=status.HTTP_400_BAD_REQUEST)
-        if not isinstance(images, list):
-            return Response({'status': 'error', 'message': 'Images should be a list'}, status=status.HTTP_400_BAD_REQUEST)
 
         for image in images:
             UserGallery.objects.create(user=user, image=image)
@@ -2037,9 +2031,9 @@ def upload_images(request):
         logger = logging.getLogger(__name__)
         logger.error(f"Unexpected error: {str(e)}")
         return Response({'status': 'error', 'message': 'An unexpected error occurred. Please try again later.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
 
-@api_view(['POST'])
+
+@api_view(['GET'])
 def get_user_gallery(request):
     session_token = request.headers.get('Authorization')
 
