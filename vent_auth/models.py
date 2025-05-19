@@ -53,6 +53,15 @@ class UserInterests(models.Model):
     interests = models.CharField(max_length=30)
 
 
+class UserGallery(models.Model):
+    user = models.ForeignKey(Users, on_delete=models.CASCADE)
+    image = models.ImageField(upload_to='gallery/', null=True, blank=True)
+    date_added = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Gallery of {self.user.username}"
+
+
 class VerificationToken(models.Model):
     user_email = models.EmailField(unique=True)
     token = models.CharField(max_length=64)

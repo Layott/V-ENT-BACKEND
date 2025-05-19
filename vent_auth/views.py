@@ -2,7 +2,7 @@ import datetime
 from django.shortcuts import render, redirect, get_object_or_404
 from rest_framework.decorators import api_view
 from .serializers import UserSerializer
-from .models import Users, Games, UserCommunity, VerificationToken, UserProfile, GameAccount, UserWallet, Teams, TeamProfile, TeamWallet, OrgWallet, FavoriteGames, UserGameStats, UserInterests, SocialLink, Waitlist
+from .models import Users, Games, UserCommunity, VerificationToken, UserProfile, GameAccount, UserWallet, Teams, TeamProfile, TeamWallet, OrgWallet, FavoriteGames, UserGameStats, UserInterests, SocialLink, Waitlist, UserGallery
 from rest_framework.response import Response
 from django.contrib.auth.hashers import make_password, check_password
 from django.core.exceptions import ObjectDoesNotExist
@@ -1998,3 +1998,74 @@ def verify_token(request):
 
     except ValueError:
         return Response({"status": "error", "message": "Invalid ID token"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+def upload_images(request):
+    session_token = request.headers.get('Authorization')
+
+    if not session_token:
+        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Ensure the token is in the correct format (e.g., 'Bearer <token>')
+    if not session_token.startswith("Bearer "):
+        return Response({'status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Extract the actual token
+    login_session_token = session_token.split(" ")[1]
+
+    try:
+        # Fetch user based on the session token
+        user = get_object_or_404(Users, login_session_token=login_session_token)
+
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=10):
+            return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
+
+        # Get the uploaded images
+        images = request.FILES.get('images')
+        if not images:
+            return Response({'status': 'error', 'message': 'No images provided'}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(images, list):
+            return Response({'status': 'error', 'message': 'Images should be a list'}, status=status.HTTP_400_BAD_REQUEST)
+
+        for image in images:
+            UserGallery.objects.create(user=user, image=image)
+
+        return Response({'status': 'success', 'message': 'Images uploaded successfully'}, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.error(f"Unexpected error: {str(e)}")
+        return Response({'status': 'error', 'message': 'An unexpected error occurred. Please try again later.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+
+@api_view(['POST'])
+def get_user_gallery(request):
+    session_token = request.headers.get('Authorization')
+
+    if not session_token:
+        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Ensure the token is in the correct format (e.g., 'Bearer <token>')
+    if not session_token.startswith("Bearer "):
+        return Response({'status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Extract the actual token
+    login_session_token = session_token.split(" ")[1]
+
+    try:
+        # Fetch user based on the session token
+        user = get_object_or_404(Users, login_session_token=login_session_token)
+
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=10):
+            return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
+
+        # Fetch user's gallery
+        gallery = UserGallery.objects.filter(user=user).values('image', 'date_added')
+
+        return Response({'status': 'success', 'data': list(gallery)}, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.error(f"Unexpected error: {str(e)}")
+        return Response({'status': 'error', 'message': 'An unexpected error occurred. Please try again later.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

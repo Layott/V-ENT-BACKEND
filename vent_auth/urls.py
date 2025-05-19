@@ -41,5 +41,7 @@ urlpatterns = [
     path("get-google-login-url/", get_google_login_url, name="get_google_login_url"),
     path("google-callback/", google_callback, name="google_callback"),
     path("verify-google-token/", verify_token, name="verify_token"),
+    path("upload-images/", upload_images, name="upload_images"),
+    path("get-user-gallery/", get_user_gallery, name="get_user_gallery"),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
