@@ -2022,6 +2022,16 @@ def upload_images(request):
         if not images:
             return Response({'status': 'error', 'message': 'No images provided'}, status=status.HTTP_400_BAD_REQUEST)
 
+        current_image_count = UserGallery.objects.filter(user=user).count()
+        total_after_upload = current_image_count + len(images)
+
+        if total_after_upload > 5:
+            remaining_slots = max(0, 5 - current_image_count)
+            return Response({
+                'status': 'error',
+                'message': f'Upload limit exceeded. You can only upload {remaining_slots} more image(s).'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         for image in images:
             UserGallery.objects.create(user=user, image=image)
 
@@ -2040,24 +2050,29 @@ def get_user_gallery(request):
     if not session_token:
         return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Ensure the token is in the correct format (e.g., 'Bearer <token>')
     if not session_token.startswith("Bearer "):
         return Response({'status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Extract the actual token
     login_session_token = session_token.split(" ")[1]
 
     try:
-        # Fetch user based on the session token
         user = get_object_or_404(Users, login_session_token=login_session_token)
 
         if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=10):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
-        # Fetch user's gallery
-        gallery = UserGallery.objects.filter(user=user).values('image', 'date_added')
+        gallery_items = UserGallery.objects.filter(user=user)
 
-        return Response({'status': 'success', 'data': list(gallery)}, status=status.HTTP_200_OK)
+        # Build full URLs
+        gallery_data = [
+            {
+                'image': request.build_absolute_uri(item.image.url),
+                'date_added': item.date_added
+            }
+            for item in gallery_items
+        ]
+
+        return Response({'status': 'success', 'data': gallery_data}, status=status.HTTP_200_OK)
 
     except Exception as e:
         logger = logging.getLogger(__name__)
