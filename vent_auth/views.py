@@ -400,17 +400,20 @@ If you did not create an account, please ignore this email.
 #             "message": f"Failed to create account: {str(e)}"
 #         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-@api_view(['GET'])
-def verify_token(request, uidb64, token):
+
+@api_view(['GET']) 
+def verify_token(request, *args, **kwargs):
+    uidb64 = kwargs.get('uidb64')
+    token = kwargs.get('token')
+
     try:
         uid = force_str(urlsafe_base64_decode(uidb64))
         user = Users.objects.get(pk=uid)
-        
+
         if default_token_generator.check_token(user, token):
             if user.is_active:
                 return Response({"status": "success", "message": "Your account is already verified."}, status=status.HTTP_200_OK)
             else:
-                # Activate user
                 user.is_active = True
                 user.save()
 
@@ -432,6 +435,41 @@ def verify_token(request, uidb64, token):
 
     except (TypeError, ValueError, OverflowError, Users.DoesNotExist):
         return Response({"status": "error", "message": "Invalid verification link."}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+# @api_view(['GET'])
+# def verify_token(request, uidb64, token):
+#     try:
+#         uid = force_str(urlsafe_base64_decode(uidb64))
+#         user = Users.objects.get(pk=uid)
+        
+#         if default_token_generator.check_token(user, token):
+#             if user.is_active:
+#                 return Response({"status": "success", "message": "Your account is already verified."}, status=status.HTTP_200_OK)
+#             else:
+#                 # Activate user
+#                 user.is_active = True
+#                 user.save()
+
+#                 # Create user profile if not exists
+#                 user_prof, created = UserProfile.objects.get_or_create(user=user)
+
+#                 # Set default profile picture
+#                 profile_pic_file = create_default_profile_picture(user.full_name)
+#                 user_prof.profile_picture.save(f"{user.username}_profile.png", File(profile_pic_file))
+#                 user_prof.save()
+
+#                 # Create wallet if not exists
+#                 if not UserWallet.objects.filter(user=user).exists():
+#                     create_user_wallet(user=user)
+
+#                 return Response({"status": "success", "message": "Verification successful! Your account is now activated."}, status=status.HTTP_200_OK)
+#         else:
+#             return Response({"status": "error", "message": "Invalid or expired token."}, status=status.HTTP_400_BAD_REQUEST)
+
+#     except (TypeError, ValueError, OverflowError, Users.DoesNotExist):
+#         return Response({"status": "error", "message": "Invalid verification link."}, status=status.HTTP_400_BAD_REQUEST)
 
 
 # @api_view(['GET'])
