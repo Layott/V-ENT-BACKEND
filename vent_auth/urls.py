@@ -7,7 +7,7 @@ from django.conf.urls.static import static
 urlpatterns = [
     # path("admin/", admin.site.urls),
     path('signup/', signup, name='signup'),
-    path('verify/<uidb64>/<token>/', verify_token, name='verify_token'),
+    path('verify/<uidb64>/<token>/', verify_token_3, name='verify_token_3'),
     path('login/', login, name='login'),
     path('logout/', logout, name='logout'),
     path('dj-rest-auth/', include('dj_rest_auth.urls')),

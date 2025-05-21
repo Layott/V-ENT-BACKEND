@@ -402,7 +402,8 @@ If you did not create an account, please ignore this email.
 
 
 @api_view(['GET']) 
-def verify_token(request, *args, **kwargs):
+def verify_token_3(request, *args, **kwargs):
+    print(">>> verify_token called with kwargs:", kwargs)
     uidb64 = kwargs.get('uidb64')
     token = kwargs.get('token')
 
