@@ -2026,14 +2026,8 @@ def verify_token(request):
         return Response({
             "status": "success",
             "message": "User logged in successfully",
-            "data": {
-                "session_token": session_token,
-                "email": email,
-                "username": user.username,
-                "full_name": full_name
-            }
+            "session_token": session_token,
         }, status=status.HTTP_200_OK)
-
 
     except ValueError:
         return Response({"status": "error", "message": "Invalid ID token"}, status=status.HTTP_400_BAD_REQUEST)
