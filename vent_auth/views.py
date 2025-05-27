@@ -39,6 +39,7 @@ from django.core.files import File
 from django.contrib.auth import get_user_model
 import uuid
 from datetime import timedelta
+from vent.settings import FRONTEND_URL, FRONTEND_LOCALHOST
 
 User = get_user_model()
 
@@ -257,7 +258,7 @@ def signup(request):
     # Generate verification link
     token = default_token_generator.make_token(user)
     uid = urlsafe_base64_encode(force_bytes(user.pk))
-    FRONTEND_VERIFY_URL = "https://test.app.v-ent.co/email-verified"  # Or from settings
+    FRONTEND_VERIFY_URL = f"{FRONTEND_LOCALHOST}/email-verified"  # Or from settings
     verification_link = f"{FRONTEND_VERIFY_URL}/{uid}/{token}"
 
     subject = 'Verify Your Email'
@@ -1904,7 +1905,7 @@ def resend_link(request):
     token = default_token_generator.make_token(user)
     uid = urlsafe_base64_encode(force_bytes(user.pk))
 
-    FRONTEND_VERIFY_URL = "https://test.app.v-ent.co/email-verified"  # Use your actual frontend URL
+    FRONTEND_VERIFY_URL = f"{FRONTEND_LOCALHOST}/email-verified"  # Use your actual frontend URL
     verification_link = f"{FRONTEND_VERIFY_URL}/{uid}/{token}"
 
     subject = 'Resend: Verify Your Email'
@@ -1974,7 +1975,7 @@ def google_callback(request):
     id_token_str = token_response_data['id_token']
 
     # Redirect user to frontend with id_token
-    frontend_redirect_url = f"https://test.app.v-ent.co/verify-google-token?id_token={id_token_str}"
+    frontend_redirect_url = f"{FRONTEND_LOCALHOST}/verify-google-token?id_token={id_token_str}"
 
     return redirect(frontend_redirect_url)
 
