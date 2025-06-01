@@ -2115,7 +2115,7 @@ def get_user_gallery(request):
         return Response({'status': 'error', 'message': 'An unexpected error occurred. Please try again later.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-@api_view(['DELETE'])
+@api_view(['POST'])
 def delete_gallery_image(request, image_id):
     session_token = request.headers.get('Authorization')
 
