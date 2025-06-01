@@ -43,5 +43,6 @@ urlpatterns = [
     path("verify-google-token/", verify_token, name="verify_token"),
     path("upload-images/", upload_images, name="upload_images"),
     path("get-user-gallery/", get_user_gallery, name="get_user_gallery"),
+    path("delete-gallery-image/", delete_gallery_image, name="delete_gallery_image"),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
