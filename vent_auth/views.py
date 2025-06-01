@@ -2116,8 +2116,9 @@ def get_user_gallery(request):
 
 
 @api_view(['POST'])
-def delete_gallery_image(request, image_id):
+def delete_gallery_image(request):
     session_token = request.headers.get('Authorization')
+    image_id = request.data.get('image_id')
 
     if not session_token:
         return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
