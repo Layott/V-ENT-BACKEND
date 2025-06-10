@@ -38,8 +38,8 @@ class Tournament(models.Model):
     tournament_title = models.CharField(max_length=148, null=False)
     tournament_game = models.ForeignKey(Games, on_delete=models.CASCADE)
     game_mode = models.CharField(max_length=50, null=True, blank=True)  # Game Mode
-    tournament_logo = models.ImageField(upload_to='tournament_logos/', null=True, blank=True)
-    tournament_banner = models.ImageField(upload_to='tournament_banners/', null=True, blank=True)
+    tournament_logo = models.ImageField(upload_to='tournament_logos/', null=False, blank=False)
+    tournament_banner = models.ImageField(upload_to='tournament_banners/', null=False, blank=False)
     tournament_description = models.TextField(null=True)
     tournament_rules = models.TextField(null=True, blank=True)
     bracket_type = models.CharField(max_length=50, default='Single Elimination')
