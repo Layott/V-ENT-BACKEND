@@ -509,7 +509,7 @@ def verify_token_3(request, *args, **kwargs):
 #         return render(request, 'invalid_token.html', {"message": "Invalid verification link."})
 
 
-@api_view(['GET'])
+@api_view(['POST'])
 def get_username_with_email(request):
     email = request.data.get('email')
 
