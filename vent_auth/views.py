@@ -1730,8 +1730,8 @@ def update_web_and_social_links(request):
                 continue
 
             # Check if a duplicate title is being added
-            if title in existing_titles:
-                return Response({'status': 'error', 'message': f"Duplicate title found: {title}"}, status=status.HTTP_400_BAD_REQUEST)
+            # if title in existing_titles:
+            #     return Response({'status': 'error', 'message': f"Duplicate title found: {title}"}, status=status.HTTP_400_BAD_REQUEST)
 
             # Update if exists, otherwise create a new record
             social_link, created = SocialLink.objects.update_or_create(
