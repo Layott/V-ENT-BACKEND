@@ -6,6 +6,11 @@ from django.db.models import Q
 from .models import Tournament, Sponsors, TournamentPrizeDistribution, Match, RegisteredTeams
 from vent_auth.models import Organization
 from django.utils import timezone
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from django.db import transaction
+from django.db.models import Prefetch
 
 # Create your views here.
 
@@ -181,6 +186,7 @@ def create_tournament(request):
             bracket_type = request.data.get('bracket_type', 'Single Elimination')
             tournament_rules = request.data.get('tournament_rules')
             prize_type = request.data.get('prize_type', 'no_prize')
+            is_draft = request.data.get('is_draft', True)
 
 
             # Sponsor data (Name, Type, Username, Logo)
@@ -237,6 +243,7 @@ def create_tournament(request):
                 tournament_access=tournament_access,
                 entry_fee=entry_type,
                 entry_fee_price=entry_fee_price,
+                is_draft=is_draft,
                 **social_links
             )
 
@@ -408,17 +415,17 @@ def create_tournament(request):
 @api_view(["GET"])
 def get_all_tournaments(request):
     # Featured Tournaments (most interacted)
-    featured_tournaments = Tournament.objects.order_by('-interaction_count')[:5]
+    featured_tournaments = Tournament.objects.filter(is_draft=False).order_by('-interaction_count')[:5]
     
     # New Tournaments (recent ones)
-    new_tournaments = Tournament.objects.order_by('-start_date_and_time')[:5]
+    new_tournaments = Tournament.objects.filter(is_draft=False).order_by('-start_date_and_time')[:5]
     
     # All Tournaments grouped by game
-    all_tournaments = Tournament.objects.all().select_related('tournament_game')  # Fixed field name
+    all_tournaments = Tournament.objects.filter(is_draft=False).select_related('tournament_game')
     tournaments_by_game = {}
 
     for tournament in all_tournaments:
-        game_name = tournament.tournament_game.game_title if tournament.tournament_game else "Unknown Game"  # Fixed field name
+        game_name = tournament.tournament_game.game_title if tournament.tournament_game else "Unknown Game"
         if game_name not in tournaments_by_game:
             tournaments_by_game[game_name] = []
         tournaments_by_game[game_name].append(tournament)
@@ -620,3 +627,105 @@ def view_tournament(request, tournament_id):
 
     except Tournament.DoesNotExist:
         return Response({"status": "error", "message": "Tournament not found"}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(["GET"])
+def view_user_drafted_tournaments(request):
+    try:
+        with transaction.atomic():
+            # Step 1: Get Authorization token
+            session_header = request.headers.get("Authorization")
+            if not session_header:
+                return Response({"status": "error", "message": "Authorization header is required"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not session_header.startswith("Bearer "):
+                return Response({"status": "error", "message": "Invalid token format"}, status=status.HTTP_400_BAD_REQUEST)
+
+            login_session_token = session_header.split(" ", 1)[1]
+
+            # Step 2: Find the user by login_session_token
+            try:
+                user = Users.objects.get(login_session_token=login_session_token)
+            except Users.DoesNotExist:
+                return Response({"status": "error", "message": "Invalid or expired session token"}, status=status.HTTP_401_UNAUTHORIZED)
+
+            # Step 3: Fetch user's draft tournaments
+            tournaments = (
+                Tournament.objects
+                .filter(tournament_creator=user, is_draft=True)
+                .select_related("tournament_game", "tournament_organization")
+                .prefetch_related("sponsors", "prize_distributions")
+                .order_by("-start_date_and_time")
+            )
+
+            # Step 4: Serializers for nested objects
+            def serialize_sponsors(t):
+                return [
+                    {
+                        "id": s.sponsor_id,
+                        "name": s.name,
+                        "logo": s.logo.url if s.logo else None,
+                        "website": s.website
+                    }
+                    for s in t.sponsors.all()
+                ]
+
+            def serialize_prizes(t):
+                return [
+                    {
+                        "id": p.id,
+                        "position": p.position,
+                        "prize": str(p.prize),
+                        "extras": p.extras
+                    }
+                    for p in t.prize_distributions.all()
+                ]
+
+            # Step 5: Main Tournament Serializer
+            def serialize_tournament(t):
+                return {
+                    "tournament_id": t.tournament_id,
+                    "tournament_title": t.tournament_title,
+                    "tournament_game": t.tournament_game.game_title,
+                    "game_mode": t.game_mode,
+                    "tournament_logo": t.tournament_logo.url if t.tournament_logo else None,
+                    "tournament_banner": t.tournament_banner.url if t.tournament_banner else None,
+                    "tournament_description": t.tournament_description,
+                    "tournament_rules": t.tournament_rules,
+                    "bracket_type": t.bracket_type,
+                    "tournament_creator_id": t.tournament_creator.user_id,
+                    "tournament_organization": t.tournament_organization.name if t.tournament_organization else None,
+                    "start_date_and_time": t.start_date_and_time,
+                    "end_date_and_time": t.end_date_and_time,
+                    "tournament_visibility": t.tournament_visibility,
+                    "tournament_type": t.tournament_type,
+                    "tournament_location": t.tournament_location,
+                    "virtual_link": t.virtual_link,
+                    "team_size": t.team_size,
+                    "player_size": t.player_size,
+                    "min_number_of_teams": t.min_number_of_teams,
+                    "max_number_of_teams": t.max_number_of_teams,
+                    "prize_type": t.prize_type,
+                    "tournament_access": t.tournament_access,
+                    "entry_fee": t.entry_fee,
+                    "entry_fee_price": str(t.entry_fee_price),
+                    "facebook_link": t.facebook_link,
+                    "twitter_link": t.twitter_link,
+                    "instagram_link": t.instagram_link,
+                    "youtube_link": t.youtube_link,
+                    "twitch_link": t.twitch_link,
+                    "kick_link": t.kick_link,
+                    "tiktok_link": t.tiktok_link,
+                    "bigolive_link": t.bigolive_link,
+                    "interaction_count": t.interaction_count,
+                    "is_draft": t.is_draft,
+                    "sponsors": serialize_sponsors(t),
+                    "prize_distributions": serialize_prizes(t),
+                }
+
+            serialized_data = [serialize_tournament(t) for t in tournaments]
+
+            return Response({"status": "success", "data": serialized_data}, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

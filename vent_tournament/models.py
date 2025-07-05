@@ -82,6 +82,9 @@ class Tournament(models.Model):
     # Interaction Count
     interaction_count = models.PositiveIntegerField(default=0)  # To track user interactions
 
+    # Check if its a draft
+    is_draft = models.BooleanField(default=True)
+
     def __str__(self):
         return self.tournament_title
 
