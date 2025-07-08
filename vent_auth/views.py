@@ -1357,7 +1357,7 @@ def get_user_informations(request):
         # Fetch user object based on the session token
         user = get_object_or_404(Users, login_session_token=session_token)
 
-        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=10):
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
         # Get user profile
@@ -1711,7 +1711,7 @@ def update_web_and_social_links(request):
         # Get the user based on the session token
         user = Users.objects.get(login_session_token=login_session_token)
 
-        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=10):
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
 
@@ -2049,7 +2049,7 @@ def upload_images(request):
     try:
         user = get_object_or_404(Users, login_session_token=login_session_token)
 
-        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=10):
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
         images = request.FILES.getlist('images')
@@ -2092,7 +2092,7 @@ def get_user_gallery(request):
     try:
         user = get_object_or_404(Users, login_session_token=login_session_token)
 
-        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=10):
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
         gallery_items = UserGallery.objects.filter(user=user)

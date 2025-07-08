@@ -215,7 +215,7 @@ def create_tournament(request):
 
             creator = get_object_or_404(Users, login_session_token=login_session_token)
 
-            if creator.login_session_created_at is None or timezone.now() - creator.login_session_created_at > timedelta(minutes=10):
+            if creator.login_session_created_at is None or timezone.now() - creator.login_session_created_at > timedelta(minutes=120):
                 return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
 

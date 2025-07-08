@@ -69,7 +69,7 @@ class VerificationToken(models.Model):
 
     def is_valid(self):
         now = timezone.now()
-        return now - self.created_at < datetime.timedelta(minutes=10)
+        return now - self.created_at < datetime.timedelta(minutes=120)
 
 
 class UserCommunity(models.Model):
