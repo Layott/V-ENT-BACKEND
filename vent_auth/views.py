@@ -71,8 +71,8 @@ def send_email(to_address, subject, html_body):
     # Gmail SMTP server credentials
     smtp_server = 'smtp.gmail.com'
     smtp_port = 465  # or 587 for TLS
-    from_address = 'vermillioninformation@gmail.com' #vermillioninformation@gmail.comInfo@v-ent.co
-    password = 'gxml vbsa tanv ixci'  # Or your actual Gmail password (if less secure apps are enabled)
+    from_address = 'Info@v-ent.co' #vermillioninformation@gmail.comInfo@v-ent.co
+    password = 'xxcn nisk evik iisc' #gxml vbsa tanv ixci   Or your actual Gmail password (if less secure apps are enabled)
 
     try:
         # Create a MIMEMultipart email object
@@ -659,29 +659,29 @@ def change_fullname(request):
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-@api_view(['POST'])
-def change_username(request):
-    user_id = request.data.get('user_id')
-    new_username = request.data.get('new_username')
+# @api_view(['POST'])
+# def change_username(request):
+#     user_id = request.data.get('user_id')
+#     new_username = request.data.get('new_username')
 
-    if not user_id or not new_username:
-        return Response({"error": "User ID and new username are required"}, status=status.HTTP_400_BAD_REQUEST)
+#     if not user_id or not new_username:
+#         return Response({"error": "User ID and new username are required"}, status=status.HTTP_400_BAD_REQUEST)
 
-    try:
-        # Check if the new username is already in use
-        if Users.objects.filter(username=new_username).exists():
-            return Response({"error": "Username already in use"}, status=status.HTTP_400_BAD_REQUEST)
+#     try:
+#         # Check if the new username is already in use
+#         if Users.objects.filter(username=new_username).exists():
+#             return Response({"error": "Username already in use"}, status=status.HTTP_400_BAD_REQUEST)
 
-        with transaction.atomic():
-            user = Users.objects.select_for_update().get(user_id=user_id)
-            user.username = new_username
-            user.save()
+#         with transaction.atomic():
+#             user = Users.objects.select_for_update().get(user_id=user_id)
+#             user.username = new_username
+#             user.save()
 
-        return Response({'message': 'Username changed successfully'}, status=status.HTTP_200_OK)
-    except Users.DoesNotExist:
-        return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
-    except Exception as e:
-        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+#         return Response({'message': 'Username changed successfully'}, status=status.HTTP_200_OK)
+#     except Users.DoesNotExist:
+#         return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+#     except Exception as e:
+#         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['POST'])
@@ -702,9 +702,9 @@ def change_email(request):
         defaults={'token': token, 'created_at': timezone.now()}
     )
 
-    sender_email = 'habeebmuftau05@gmail.com'
+    sender_email = ''
     receiver_email = new_email
-    password = 'jvbe whjo lnwe pwxu'
+    password = ''
     subject = 'Verify Email'
     message = f'''
 Hi,
