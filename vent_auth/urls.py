@@ -15,7 +15,6 @@ urlpatterns = [
     path('accounts/', include('allauth.urls')),
     path('dj-rest-auth/google/', GoogleLogin.as_view(), name='google_login'),
     path('change-fullname/', change_fullname, name='change_fullname'),
-    path('change-username/', change_username, name='change_username'),
     path('change-email/', change_email, name='change_email'),
     path('verify-new-email/', verify_new_email, name='verify_new_email'),
     path('verify-token-2/', verify_token_2, name='verify_token_2'),
