@@ -139,11 +139,32 @@ class FavoriteGames(models.Model):
 class Teams(models.Model):
     team_id = models.AutoField(primary_key=True)
     team_name = models.CharField(unique=True, max_length=60)
+    team_logo = models.ImageField(upload_to='teams_logos/', null=True, blank=True)
+    team_banner = models.ImageField(upload_to='teams_banners/', null=True, blank=True)
+    
+    game = models.ForeignKey(
+        Games,
+        on_delete=models.CASCADE,
+        related_name='vent_auth_teams'
+    )
+
+    description = models.TextField(default="Passionate gamer with a sharp eye for detail...")
+    allow_membership_requests = models.BooleanField(default=True)
     creation_date = models.DateField(default=timezone.now)
-    team_creator = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='created_teams')
-    team_owner = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='owned_teams')
-    game = models.ForeignKey(Games, on_delete=models.CASCADE)
-    team_privacy = models.CharField(max_length=7, default="public")
+
+    team_creator = models.ForeignKey(
+        Users,
+        on_delete=models.CASCADE,
+        related_name='vent_auth_created_teams'
+    )
+    team_owner = models.ForeignKey(
+        Users,
+        on_delete=models.CASCADE,
+        related_name='vent_auth_owned_teams'
+    )
+
+    penalty_points = models.IntegerField()
+    number_of_members = models.IntegerField()
 
     def __str__(self):
         return self.team_name
