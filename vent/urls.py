@@ -22,4 +22,5 @@ urlpatterns = [
     path("auth/", include('vent_auth.urls')),
     path("tournament/", include('vent_tournament.urls')),
     path("event/", include('vent_event.urls')),
+    path("team/", include('vent_team.urls')),
 ]
