@@ -43,6 +43,14 @@ class TeamInterests(models.Model):
 
 
 class TeamMembers(models.Model):
+    ROLE_CHOICES = [
+        ('captain', 'Captain'),
+        ('vice_captain', 'Vice Captain'),
+        ('member', 'Member'),
+        ('coach', 'Coach'),
+        ('manager', 'Manager'),
+        ('analyst', 'Analyst'),
+    ]
     team = models.ForeignKey(Teams, on_delete=models.CASCADE)
     member = models.ForeignKey(GameAccount, on_delete=models.CASCADE)
-    role = models.Choices() # captain, vice captain, member, coach, manager, analyst
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='member')
