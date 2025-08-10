@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'corsheaders',
     'vent_event',
+    'vent_team'
 ]
 
 MIDDLEWARE = [
