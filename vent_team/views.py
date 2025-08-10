@@ -92,7 +92,7 @@ def get_team_details(request, team_id):
             'banner': team.team_banner.url if team.team_banner else None,
             'description': team.description,
             'owner': team.team_owner.username,
-            'game': team.game.game_name,
+            'game': team.game.game_title,
             'penalty_points': team.penalty_points,
             'number_of_members': team.number_of_members,
             'allow_membership_requests': team.allow_membership_requests,
