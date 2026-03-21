@@ -42,7 +42,7 @@ class UserProfile(models.Model):
     profile_id = models.AutoField(primary_key=True)
     user = models.ForeignKey(Users, on_delete=models.CASCADE)
     profile_picture = models.ImageField(upload_to='profile_pictures/', null=True, blank=True)
-    date_of_birth = models.DateField(null=True)
+    date_of_birth = models.DateField(null=True, blank=True)
     banner = models.ImageField(upload_to='banners/', null=True)
     description = models.CharField(max_length=140, null=True)
     penalty_point = models.IntegerField(default=0, null=True)
