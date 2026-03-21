@@ -79,9 +79,18 @@ MIDDLEWARE = [
     'allauth.account.middleware.AccountMiddleware',
 ]
 
-CORS_ORIGIN_ALLOW_ALL = True
 CORS_ALLOW_CREDENTIALS = True
 
+CORS_ALLOWED_ORIGINS = [
+    "https://www.vermillionent.com",
+    "https://test.app.v-ent.co",
+    "http://localhost:3000",
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://www.vermillionent.com",
+    "https://test.app.v-ent.co",
+]
 
 SITE_ID = 1
 
@@ -101,16 +110,6 @@ TEMPLATES = [
             ],
         },
     },
-]
-
-CORS_ALLOWED_ORIGINS = [
-    "https://www.vermillionent.com",
-    "https://test.app.v-ent.co",
-]
-
-CSRF_TRUSTED_ORIGINS = [
-    "https://www.vermillionent.com",
-    "https://test.app.v-ent.co",
 ]
 
 
