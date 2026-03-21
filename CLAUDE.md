@@ -56,7 +56,7 @@ V-ENT Backend is a **Django 5.0.7 / Python 3.11.9** REST API for an esports/gami
 
 ### Settings & Config
 - `vent/settings.py` — Main Django settings. Database, installed apps, CORS, auth backends, media, social providers.
-- `config.py` — SMTP config and email constants. **Currently has hardcoded credentials — see Known Issues.**
+- `config.py` — SMTP config; `company_email` and `password` read from `COMPANY_EMAIL` / `COMPANY_EMAIL_PASSWORD` env vars.
 - `vent/urls.py` — Root router, mounts all app URL confs.
 
 ### App Map
@@ -68,8 +68,8 @@ V-ENT Backend is a **Django 5.0.7 / Python 3.11.9** REST API for an esports/gami
 | `vent_team` | `/team/` | **Active** | Team management |
 | `vent_anime` | — | **Stub** | In `INSTALLED_APPS`, no views or URLs |
 | `vent_marketplace` | — | **Stub** | In `INSTALLED_APPS`, no views or URLs |
-| `vent_shop` | — | **Stub** | Not in `INSTALLED_APPS` |
-| `vent_wallet` | — | **Stub** | Not in `INSTALLED_APPS` |
+| `vent_anime` | — | **Stub** | In `INSTALLED_APPS`, no views or URLs |
+| `vent_marketplace` | — | **Stub** | In `INSTALLED_APPS`, no views or URLs |
 
 ### Authentication Flow
 1. **Custom backend** (`vent_auth/backends.py`): `EmailOrUsernameModelBackend` — allows login with email or username.
@@ -585,48 +585,41 @@ Never build an endpoint that is not coordinated with the frontend contract in `s
 
 ## Known Issues
 
-### Security (Fix before production)
+### Security — All resolved ✓
+Issues 1–8 (hardcoded secrets, DEBUG, ALLOWED_HOSTS, CORS wildcard, no .env) have all been fixed. All secrets are now in `.env` (never committed). See git log for details.
 
-1. **Hardcoded MySQL password** in `vent/settings.py:132` — `Trust.2308` committed to git. Rotate immediately and move to environment variable.
-2. **Hardcoded Django SECRET_KEY** in `vent/settings.py:28` — committed to git. Rotate immediately.
-3. **Hardcoded Google OAuth credentials** in `vent/settings.py:192-193` — `client_id` and `secret` committed to git. Also: the second `SOCIALACCOUNT_PROVIDERS` block at line 198 **overwrites** the first, so Google credentials are currently non-functional.
-4. **Hardcoded Gmail SMTP password** `rglb ssfs xhip psma` in `config.py:4` and a second password `xxcn nisk evik iisc` hardcoded inside `vent_auth/views.py` — both committed to git. Revoke app passwords and move to AWS SES + environment variables.
-5. **`DEBUG = True`** in `vent/settings.py:31` — exposes full tracebacks. Must be `False` in production, controlled by environment variable.
-6. **`ALLOWED_HOSTS = ['*']`** in `vent/settings.py:33` — allows any host header. Lock down to actual domains in production.
-7. **`CORS_ORIGIN_ALLOW_ALL = True`** in `vent/settings.py:79` — overrides the `CORS_ALLOWED_ORIGINS` whitelist beneath it. Remove `CORS_ORIGIN_ALLOW_ALL` and rely on `CORS_ALLOWED_ORIGINS`.
-8. **No `.env` file** — `python-dotenv` is installed but never used. All secrets are inline. Migrate all secrets to a `.env` file (never commit it).
+### Model / Data Issues — All resolved ✓
+- #9 Duplicate `Teams` model — fixed: `vent_team` now imports from `vent_auth`
+- #10 `UnconfirmedTeams.match_id` PK — renamed to `id` (migration 0007)
+- #11 Split `TeamProfile` — merged all fields into `vent_auth.TeamProfile` (migration 0015)
+- #12 `wallet_balance` is `IntegerField` — **intentional by design**: VENT COINS are whole-number virtual currency; no change needed unless sub-unit pricing is introduced
+- #13 `UserProfile.date_of_birth` missing `blank=True` — fixed (migration 0016)
+- #14 `Users.email` not `unique=True` — fixed (migration 0014)
 
-### Model / Data Issues
-
-9. **Duplicate `Teams` model** — defined in both `vent_auth/models.py` and `vent_team/models.py` with different `related_name`s. Both create separate DB tables. This is confusing and will cause bugs. Decide on one canonical model; the other should be removed or made a proxy.
-10. **`UnconfirmedTeams.match_id`** — the primary key field is named `match_id` but this model has no FK to `Match`. Appears to be a copy-paste error from the `Match` model.
-11. **`TeamProfile` exists in two apps** — `vent_auth.TeamProfile` (tracks matches/tournaments_played) and `vent_team.TeamProfile` (tracks country + social links). No single model has all fields.
-12. **`wallet_balance` is `IntegerField`** — stores currency as whole numbers. If VENT COINS is ever a decimal currency, this needs to change to `DecimalField`.
-13. **`UserProfile.date_of_birth`** has no `null=True, blank=True` — the field is `null=True` but not `blank=True`, meaning the Django form will require it even though the DB allows null. Fix: add `blank=True`.
-14. **`Users.email` is not `unique=True`** — EmailField without `unique=True`. Multiple users can register with the same email.
-
-### Settings Issues
-
-15. **Double `SOCIALACCOUNT_PROVIDERS` definition** (`settings.py:189` and `settings.py:198`) — the second block replaces the first. The actual Google `client_id`/`secret` from the first block is silently lost. The second block only sets `SCOPE` and `AUTH_PARAMS`. Merge them into one.
-16. **`EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD` placeholders** in `settings.py:215-216` — set to `'your_email@gmail.com'`/`'your_email_password'`. Email via settings.py currently won't work; the actual credentials are in `config.py` and used directly in views via `smtplib`. Consolidate to one email approach.
+### Settings Issues — All resolved ✓
+- #15 Double `SOCIALACCOUNT_PROVIDERS` — merged into single block
+- #16 Hardcoded email credentials — moved to `.env`
 
 ### Architecture Issues
 
-17. **`vent_auth/views.py` is ~2200 lines** — all auth, profile, social, gallery, and utility logic in one file. Hard to navigate. Split into feature-specific view files as new endpoints are added.
-18. **No `.env` usage** — `python-dotenv` is in requirements but never loaded. Add `load_dotenv()` to `manage.py` and `wsgi.py`.
-19. **Flask installed but unused** — `Flask`, `Flask-Login`, `Flask-Mail`, `Flask-SQLAlchemy`, `Flask-WTF` are in `requirements.txt`. This is a Django project. Remove these to reduce install size and avoid confusion.
 20. **Celery configured but no tasks defined** — `celery` and `redis` are installed. No `celery.py` or `tasks.py` exists in any app. Infrastructure is ready but no background jobs are wired up yet.
-21. **`delete_user_data.py`** — standalone script in project root that deletes all user data. Should be converted to a Django management command with `--dry-run` support before production use.
-22. **`vent_shop` and `vent_wallet` not in `INSTALLED_APPS`** — these apps exist on disk but are not registered. Either add them or delete them.
-23. **`imports/` folder** — purpose unknown. No documentation. Investigate before shipping.
-24. **Media files committed to git** — `media/` folder appears to be in the repo. Add `media/` to `.gitignore`.
+21. **`imports/` folder** — re-export shim used by `vent_event/views.py` and `vent_tournament/views.py`. Its `__init__.py` re-exports `api_view`, `Response`, `status`, `get_object_or_404`, `datetime`, and `transaction` so those views can write `from imports import ...` instead of multiple direct imports. Not broken, but unconventional — new views should import directly from their source packages.
+22. **`verify_token_2` uses Selenium** — this legacy function (now in `views_auth.py`) opens a Chrome browser on the server during email verification. It is unused/dead code and should be removed when the old signup flow is officially retired.
 
 ---
 
 ## Key Conventions
 
 - Views are function-based with `@api_view` decorators throughout.
-- Wallet objects (`UserWallet`, `TeamWallet`) are created automatically via helper functions in `vent_auth/views.py` — do not create them manually.
+- `vent_auth/views.py` is a re-export shim — actual logic lives in:
+  - `views_helpers.py` — `send_email`, `generate_session_token`, `create_user_wallet`, `create_default_profile_picture`, `generate_unique_username`, `download_image_from_url`
+  - `views_auth.py` — signup, login, logout, email verification, password reset
+  - `views_profile.py` — profile CRUD, game accounts, community, teams, social links, favorite games
+  - `views_social.py` — Google/Facebook OAuth (`GoogleLogin`, `social_auth`, `verify_token`, etc.)
+  - `views_gallery.py` — `upload_images`, `get_user_gallery`, `delete_gallery_image`
+  - `views_wallet.py` — `send_funds`
+  - `views_admin.py` — `admin_login`, `get_all_username_and_email`, `add_email_to_waitlist`, etc.
+- Wallet objects (`UserWallet`, `TeamWallet`) are created automatically via `create_user_wallet()` in `views_helpers.py` — do not create them manually.
 - Profile pictures are auto-generated from user initials using PIL when no image is uploaded.
 - URL names use `snake_case` strings. No `reverse()` name lookups enforced.
 - Tournament `is_draft=True` by default — must be explicitly published.
