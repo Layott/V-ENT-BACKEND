@@ -2,8 +2,8 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 from django.utils import timezone
-from .models import Teams, TeamProfile, TeamMembers
-from vent_auth.models import Users, Games, GameAccount
+from .models import TeamMembers
+from vent_auth.models import Users, Games, GameAccount, Teams, TeamProfile
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django.db.models import F

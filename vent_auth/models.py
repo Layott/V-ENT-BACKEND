@@ -175,6 +175,13 @@ class TeamProfile(models.Model):
     team = models.OneToOneField(Teams, on_delete=models.CASCADE)
     matches = models.IntegerField(default=0)
     tournament_played = models.IntegerField(default=0)
+    country = models.CharField(max_length=40, null=True, blank=True)
+    facebook_link = models.URLField(null=True, blank=True)
+    twitter_link = models.URLField(null=True, blank=True)
+    instagram_link = models.URLField(null=True, blank=True)
+    youtube_link = models.URLField(null=True, blank=True)
+    twitch_link = models.URLField(null=True, blank=True)
+    kick_link = models.URLField(null=True, blank=True)
 
     def __str__(self):
         return f"Profile of {self.team.team_name}"
