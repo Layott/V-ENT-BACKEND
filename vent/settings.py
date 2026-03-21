@@ -13,6 +13,9 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 import os
 from pathlib import Path
 import pymysql
+from dotenv import load_dotenv
+
+load_dotenv()
 
 pymysql.version_info = (1, 4, 6, 'final', 0)
 pymysql.install_as_MySQLdb()
@@ -25,7 +28,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-^6ildgo%-6%^7t(1&2tbqga@x%$0+m98rq+8%$0cw&+9-3$)7!"
+SECRET_KEY = os.environ.get("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -127,11 +130,11 @@ WSGI_APPLICATION = "vent.wsgi.application"
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'vent',
-        'USER': 'admin',
-        'PASSWORD': 'Trust.2308',
-        'HOST': 'localhost',  # Or your remote host
-        'PORT': '3306',       # Or your custom port if different
+        'NAME': os.environ.get('DB_NAME', 'vent'),
+        'USER': os.environ.get('DB_USER', 'admin'),
+        'PASSWORD': os.environ.get('DB_PASSWORD'),
+        'HOST': os.environ.get('DB_HOST', 'localhost'),
+        'PORT': os.environ.get('DB_PORT', '3306'),
     }
 }
 
@@ -189,14 +192,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 SOCIALACCOUNT_PROVIDERS = {
     'google': {
         'APP': {
-            'client_id': '107316124610-92l5cshqkfcsvhbdklvga49qdqo59r6j.apps.googleusercontent.com',  # Replace with your client_id
-            'secret': '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',  # Replace with your client_secret
-            'key': ''
-        }
-    }
-}
-SOCIALACCOUNT_PROVIDERS = {
-    'google': {
+            'client_id': os.environ.get('GOOGLE_CLIENT_ID'),
+            'secret': os.environ.get('GOOGLE_CLIENT_SECRET'),
+            'key': '',
+        },
         'SCOPE': ['profile', 'email'],
         'AUTH_PARAMS': {'access_type': 'offline'},
     }
@@ -212,8 +211,8 @@ EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'your_email@gmail.com'
-EMAIL_HOST_PASSWORD = 'your_email_password'
+EMAIL_HOST_USER = os.environ.get('EMAIL_ADDRESS')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_PASSWORD')
 
-FRONTEND_URL = 'https://test.app.v-ent.co'
-FRONTEND_LOCALHOST = 'http://localhost:3000'
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://test.app.v-ent.co')
+FRONTEND_LOCALHOST = os.environ.get('FRONTEND_LOCALHOST', 'http://localhost:3000')

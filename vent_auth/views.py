@@ -68,11 +68,10 @@ def create_user_wallet(user):
     return "Wallet created successfully"
 
 def send_email(to_address, subject, html_body):
-    # Gmail SMTP server credentials
     smtp_server = 'smtp.gmail.com'
-    smtp_port = 465  # or 587 for TLS
-    from_address = 'Info@v-ent.co' #vermillioninformation@gmail.comInfo@v-ent.co
-    password = 'xxcn nisk evik iisc' #gxml vbsa tanv ixci   Or your actual Gmail password (if less secure apps are enabled)
+    smtp_port = 465
+    from_address = os.environ.get('EMAIL_ADDRESS')
+    password = os.environ.get('EMAIL_PASSWORD')
 
     try:
         # Create a MIMEMultipart email object
@@ -1303,7 +1302,7 @@ def admin_login(request):
     if not password:
         return Response({"status": "error", "message": "Password is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-    if password == "ventontop1234":
+    if password == os.environ.get("ADMIN_PASSWORD"):
         return Response({"status": "success", "message": "Admin Login Successful"}, status=status.HTTP_200_OK)
     else:
         return Response({"status": "error", "message": "Invalid password"}, status=status.HTTP_401_UNAUTHORIZED)
