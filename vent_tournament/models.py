@@ -130,15 +130,9 @@ class Match(models.Model):
 
 
 class UnconfirmedTeams(models.Model):
-    match_id = models.AutoField(primary_key=True)
+    id = models.AutoField(primary_key=True)
     team_id = models.ForeignKey(Teams, on_delete=models.CASCADE)
-    
-
 
     def __str__(self):
-        return f"Match {self.match_id} - {self.tournament.tournament_name}"
-
-    class Meta:
-        verbose_name = "Match"
-        verbose_name_plural = "Matches"
+        return f"UnconfirmedTeam {self.id} - {self.team_id.team_name}"
 
