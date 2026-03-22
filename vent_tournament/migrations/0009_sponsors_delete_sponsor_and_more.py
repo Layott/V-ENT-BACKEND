@@ -15,18 +15,23 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.CreateModel(
-            name='Sponsors',
-            fields=[
-                ('sponsor_id', models.AutoField(primary_key=True, serialize=False)),
-                ('name', models.CharField(max_length=255)),
-                ('sponsor_id_object', models.PositiveIntegerField(null=True)),
-                ('logo', models.ImageField(blank=True, null=True, upload_to='sponsor_logos/')),
-                ('website', models.URLField(blank=True, null=True)),
-            ],
-        ),
-        migrations.DeleteModel(
-            name='Sponsor',
+        migrations.SeparateDatabaseAndState(
+            database_operations=[],
+            state_operations=[
+                migrations.CreateModel(
+                    name='Sponsors',
+                    fields=[
+                        ('sponsor_id', models.AutoField(primary_key=True, serialize=False)),
+                        ('name', models.CharField(max_length=255)),
+                        ('sponsor_id_object', models.PositiveIntegerField(null=True)),
+                        ('logo', models.ImageField(blank=True, null=True, upload_to='sponsor_logos/')),
+                        ('website', models.URLField(blank=True, null=True)),
+                    ],
+                ),
+                migrations.DeleteModel(
+                    name='Sponsor',
+                ),
+            ]
         ),
         migrations.RemoveConstraint(
             model_name='tournamentregistration',
