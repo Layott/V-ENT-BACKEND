@@ -85,11 +85,13 @@ CORS_ALLOWED_ORIGINS = [
     "https://www.vermillionent.com",
     "https://test.app.v-ent.co",
     "http://localhost:3000",
+    "https://v-ent-backend-production.up.railway.app",
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     "https://www.vermillionent.com",
     "https://test.app.v-ent.co",
+    "https://v-ent-backend-production.up.railway.app",
 ]
 
 SITE_ID = 1
