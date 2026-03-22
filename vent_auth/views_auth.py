@@ -93,6 +93,12 @@ Please click the link below to verify your email:
 If you did not create an account, please ignore this email.
 '''
 
+    from django.conf import settings as django_settings
+    if django_settings.DEBUG:
+        user.is_active = True
+        user.save()
+        return Response({"status": "success", "message": "Account created successfully (email verification bypassed in debug mode)"}, status=status.HTTP_200_OK)
+
     try:
         send_email(email, subject, message)
         user.save()
