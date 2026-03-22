@@ -757,6 +757,177 @@ def view_user_drafted_tournaments(request):
 
 
 @api_view(['GET'])
+def get_tournament_participants(request, tournament_id):
+    """GET /tournament/get-tournament-participants/{id}/ — registered participants tab."""
+    try:
+        tournament = get_object_or_404(Tournament, tournament_id=tournament_id, is_draft=False)
+
+        registrations = (
+            tournament.registrations
+            .select_related('team', 'user')
+            .order_by('registered_at')
+        )
+
+        data = [
+            {
+                'registration_id': r.id,
+                'type': 'team' if r.team else 'individual',
+                'participant': (
+                    {'id': r.team.team_id, 'name': r.team.team_name,
+                     'logo': r.team.team_logo.url if r.team.team_logo else None}
+                    if r.team else
+                    {'id': r.user.user_id, 'name': r.user.username}
+                ),
+                'status': r.status,
+                'entry_fee_paid': r.entry_fee_paid,
+                'registered_at': r.registered_at,
+            }
+            for r in registrations
+        ]
+
+        return Response({
+            'status': 'success',
+            'data': {
+                'tournament_id': tournament.tournament_id,
+                'total': len(data),
+                'participants': data,
+            }
+        }, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+def update_bracket(request, tournament_id):
+    """POST /tournament/update-bracket/{id}/ — organizer updates match score / advances bracket."""
+    session_token = request.headers.get('Authorization')
+    if not session_token or not session_token.startswith('Bearer '):
+        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    login_session_token = session_token.split(' ', 1)[1]
+
+    try:
+        user = get_object_or_404(Users, login_session_token=login_session_token)
+
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
+            return Response({'status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        tournament = get_object_or_404(Tournament, tournament_id=tournament_id, is_draft=False)
+
+        if tournament.tournament_creator_id != user.user_id:
+            return Response({'status': 'error', 'message': 'Only the tournament organizer can update brackets'}, status=status.HTTP_403_FORBIDDEN)
+
+        match_id = request.data.get('match_id')
+        score_p1 = request.data.get('score_p1')
+        score_p2 = request.data.get('score_p2')
+        winner_registration_id = request.data.get('winner_registration_id')
+
+        if not match_id or score_p1 is None or score_p2 is None or not winner_registration_id:
+            return Response(
+                {'status': 'error', 'message': 'match_id, score_p1, score_p2, and winner_registration_id are required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        match = get_object_or_404(BracketMatch, id=match_id, tournament=tournament)
+        winner_reg = get_object_or_404(TournamentRegistration, id=winner_registration_id, tournament=tournament)
+
+        match.score_p1 = int(score_p1)
+        match.score_p2 = int(score_p2)
+        match.winner = winner_reg
+        match.status = 'completed'
+        match.completed_at = timezone.now()
+        match.save(update_fields=['score_p1', 'score_p2', 'winner', 'status', 'completed_at'])
+
+        return Response({'status': 'success', 'message': 'Match updated'}, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+def get_organizer_tournaments(request):
+    """GET /tournament/get-organizer-tournaments/ — organizer's published + draft tournaments."""
+    session_token = request.headers.get('Authorization')
+    if not session_token or not session_token.startswith('Bearer '):
+        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    login_session_token = session_token.split(' ', 1)[1]
+
+    try:
+        user = get_object_or_404(Users, login_session_token=login_session_token)
+
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
+            return Response({'status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        tournaments = (
+            Tournament.objects
+            .filter(tournament_creator=user)
+            .select_related('tournament_game')
+            .order_by('-start_date_and_time')
+        )
+
+        now = timezone.now()
+        data = [
+            {
+                'tournament_id': t.tournament_id,
+                'tournament_title': t.tournament_title,
+                'game': t.tournament_game.game_title,
+                'tournament_logo': t.tournament_logo.url if t.tournament_logo else None,
+                'start_date_and_time': t.start_date_and_time,
+                'end_date_and_time': t.end_date_and_time,
+                'is_draft': t.is_draft,
+                'tournament_access': t.tournament_access,
+                'entry_fee': t.entry_fee,
+                'registrations': t.registrations.count() if not t.is_draft else 0,
+                'open_disputes': t.disputes.filter(status='open').count() if not t.is_draft else 0,
+                'computed_status': (
+                    'draft' if t.is_draft else
+                    'upcoming' if t.start_date_and_time > now else
+                    'live' if t.end_date_and_time >= now else
+                    'ended'
+                ),
+            }
+            for t in tournaments
+        ]
+
+        return Response({'status': 'success', 'data': data}, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['DELETE'])
+def delete_draft(request, tournament_id):
+    """DELETE /tournament/delete-draft/{id}/ — delete a draft tournament."""
+    session_token = request.headers.get('Authorization')
+    if not session_token or not session_token.startswith('Bearer '):
+        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    login_session_token = session_token.split(' ', 1)[1]
+
+    try:
+        user = get_object_or_404(Users, login_session_token=login_session_token)
+
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
+            return Response({'status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        tournament = get_object_or_404(Tournament, tournament_id=tournament_id, tournament_creator=user)
+
+        if not tournament.is_draft:
+            return Response(
+                {'status': 'error', 'message': 'Only draft tournaments can be deleted this way. Use admin cancel for published tournaments.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        tournament.delete()
+        return Response({'status': 'success', 'message': 'Draft deleted'}, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
 def get_tournament_brackets(request, tournament_id):
     """Return the bracket structure for a tournament, grouped by round."""
     try:
