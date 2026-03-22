@@ -1,9 +1,9 @@
 from datetime import timedelta
 from django.shortcuts import render
 from imports import api_view,get_object_or_404, Response, status, transaction
-from .models import Tournament, Users, Games, Teams, TournamentPrizeDistribution
+from .models import Tournament, Users, Games, Teams, TournamentPrizeDistribution, TournamentRegistration
 from django.db.models import Q
-from .models import Tournament, Sponsors, TournamentPrizeDistribution, Match, RegisteredTeams
+from .models import Tournament, Sponsors, TournamentPrizeDistribution, Match, RegisteredTeams, TournamentRegistration
 from vent_auth.models import Organization
 from django.utils import timezone
 from rest_framework.decorators import api_view
@@ -65,87 +65,109 @@ from django.db.models import Prefetch
 
 @api_view(['POST'])
 def join_tournament(request):
+    """Register a user or team for a tournament."""
+    session_token = request.headers.get('Authorization')
+    if not session_token or not session_token.startswith('Bearer '):
+        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    login_session_token = session_token.split(' ', 1)[1]
+
     try:
-        user_id = request.data.get('user_id')  # You might want to use login session token instead
+        user = get_object_or_404(Users, login_session_token=login_session_token)
+
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
+            return Response({'status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
+
         tournament_id = request.data.get('tournament_id')
-        team_id = request.data.get('team_id')  # Optional if teams are involved
+        team_id = request.data.get('team_id')  # optional — required for team-access tournaments
 
-        # Validate required fields
-        if not all([user_id, tournament_id]):
-            return Response({'status': 'error', 'message': 'User ID and Tournament ID are required'}, status=status.HTTP_400_BAD_REQUEST)
+        if not tournament_id:
+            return Response({'status': 'error', 'message': 'tournament_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Get user and tournament instances
-        user = get_object_or_404(Users, user_id=user_id)
-        tournament = get_object_or_404(Tournament, tournament_id=tournament_id)
+        tournament = get_object_or_404(Tournament, tournament_id=tournament_id, is_draft=False)
 
-        # If the tournament is team-based, ensure the user joins with a team
-        if tournament.tournament_format == 'team' and not team_id:
-            return Response({'status': 'error', 'message': 'Team ID is required for team-based tournaments'}, status=status.HTTP_400_BAD_REQUEST)
+        # Enforce access type
+        if tournament.tournament_access == 'team' and not team_id:
+            return Response({'status': 'error', 'message': 'team_id is required for team-based tournaments'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Check if team exists for team-based tournaments
+        if tournament.tournament_access == 'individual' and team_id:
+            return Response({'status': 'error', 'message': 'This tournament only accepts individual registrations'}, status=status.HTTP_400_BAD_REQUEST)
+
         if team_id:
             team = get_object_or_404(Teams, team_id=team_id)
-            # Add the team to the tournament (assuming a ManyToManyField relationship or similar exists)
-            tournament.teams.add(team)
+            if TournamentRegistration.objects.filter(tournament=tournament, team=team).exists():
+                return Response({'status': 'error', 'message': 'This team is already registered'}, status=status.HTTP_400_BAD_REQUEST)
+            registration = TournamentRegistration.objects.create(
+                tournament=tournament,
+                team=team,
+                entry_fee_paid=(tournament.entry_fee == 'Free'),
+            )
         else:
-            # Individual tournaments, user can join directly
-            tournament.participants.add(user)  # Assuming a ManyToManyField for participants in Tournament model
+            if TournamentRegistration.objects.filter(tournament=tournament, user=user).exists():
+                return Response({'status': 'error', 'message': 'You are already registered for this tournament'}, status=status.HTTP_400_BAD_REQUEST)
+            registration = TournamentRegistration.objects.create(
+                tournament=tournament,
+                user=user,
+                entry_fee_paid=(tournament.entry_fee == 'Free'),
+            )
 
-        return Response({'status': 'success', 'message': 'Successfully joined the tournament'}, status=status.HTTP_200_OK)
+        return Response({
+            'status': 'success',
+            'message': 'Successfully registered for the tournament',
+            'data': {
+                'registration_id': registration.id,
+                'status': registration.status,
+                'entry_fee_paid': registration.entry_fee_paid,
+            }
+        }, status=status.HTTP_201_CREATED)
 
     except Exception as e:
-        return Response({'status': 'error', 'message': f'Error joining tournament: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
 
 @api_view(['GET'])
 def search_tournament(request):
     try:
-        # Get search parameters from query string
-        name = request.GET.get('name', None)
-        game_id = request.GET.get('game_id', None)
-        location = request.GET.get('location', None)
-        status = request.GET.get('status', None)
+        name = request.GET.get('name')
+        game_id = request.GET.get('game_id')
+        location = request.GET.get('location')
+        access = request.GET.get('access')  # team / individual / team_and_individual
 
-        # Build query filters based on parameters
-        query = Q()
-        
+        query = Q(is_draft=False)
+
         if name:
-            query &= Q(tournament_name__icontains=name)  # Case-insensitive search for name
-        
+            query &= Q(tournament_title__icontains=name)
         if game_id:
-            query &= Q(tournament_game__id=game_id)  # Filter by game ID
-        
+            query &= Q(tournament_game__game_id=game_id)
         if location:
-            query &= Q(tournament_location__icontains=location)  # Case-insensitive search for location
-        
-        if status:
-            query &= Q(tournament_status__iexact=status)  # Exact match for status
+            query &= Q(tournament_location__icontains=location)
+        if access:
+            query &= Q(tournament_access__iexact=access)
 
-        # Query the database for matching tournaments
-        tournaments = Tournament.objects.filter(query)
+        tournaments = Tournament.objects.filter(query).select_related('tournament_game').order_by('-start_date_and_time')
 
-        # Check if any tournaments are found
-        if tournaments.exists():
-            # Return the list of tournaments
-            tournament_list = [
-                {
-                    'tournament_id': tournament.tournament_id,
-                    'tournament_name': tournament.tournament_name,
-                    'tournament_desc': tournament.tournament_desc,
-                    'game': tournament.tournament_game.name,  # Assuming the `Games` model has a 'name' field
-                    'location': tournament.tournament_location,
-                    'status': tournament.tournament_status,
-                    'start_date': tournament.tournament_start_date,
-                    'end_date': tournament.tournament_end_date
-                } 
-                for tournament in tournaments
-            ]
-            return Response({'status': 'success', 'tournaments': tournament_list}, status=status.HTTP_200_OK)
-        
-        return Response({'status': 'success', 'message': 'No tournaments found'}, status=status.HTTP_404_NOT_FOUND)
+        if not tournaments.exists():
+            return Response({'status': 'success', 'data': [], 'message': 'No tournaments found'}, status=status.HTTP_200_OK)
+
+        tournament_list = [
+            {
+                'tournament_id': t.tournament_id,
+                'tournament_title': t.tournament_title,
+                'tournament_logo': t.tournament_logo.url if t.tournament_logo else None,
+                'game': t.tournament_game.game_title,
+                'tournament_access': t.tournament_access,
+                'entry_fee': t.entry_fee,
+                'entry_fee_price': str(t.entry_fee_price),
+                'location': t.tournament_location,
+                'start_date_and_time': t.start_date_and_time,
+                'end_date_and_time': t.end_date_and_time,
+            }
+            for t in tournaments
+        ]
+        return Response({'status': 'success', 'data': tournament_list}, status=status.HTTP_200_OK)
 
     except Exception as e:
-        return Response({'status': 'error', 'message': f'Error searching for tournaments: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['POST'])
@@ -247,7 +269,7 @@ def create_tournament(request):
                 **social_links
             )
 
-             # Create prize distributions if applicable
+            # Create prize distributions if applicable
             if prize_type == 'distributed':
                 prize_data = request.data.get('prize_data', [])
                 for prize_entry in prize_data:
