@@ -1,9 +1,12 @@
 from datetime import timedelta
 from django.shortcuts import render
 from imports import api_view,get_object_or_404, Response, status, transaction
-from .models import Tournament, Users, Games, Teams, TournamentPrizeDistribution, TournamentRegistration
+from .models import (
+    Tournament, Users, Games, Teams,
+    TournamentPrizeDistribution, TournamentRegistration, BracketMatch,
+    Sponsors, Match, RegisteredTeams,
+)
 from django.db.models import Q
-from .models import Tournament, Sponsors, TournamentPrizeDistribution, Match, RegisteredTeams, TournamentRegistration
 from vent_auth.models import Organization
 from django.utils import timezone
 from rest_framework.decorators import api_view
@@ -751,3 +754,66 @@ def view_user_drafted_tournaments(request):
 
     except Exception as e:
         return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+def get_tournament_brackets(request, tournament_id):
+    """Return the bracket structure for a tournament, grouped by round."""
+    try:
+        tournament = get_object_or_404(Tournament, tournament_id=tournament_id, is_draft=False)
+
+        matches = (
+            tournament.bracket_matches
+            .select_related(
+                'participant_1__team', 'participant_1__user',
+                'participant_2__team', 'participant_2__user',
+                'winner__team', 'winner__user',
+            )
+            .order_by('round_number', 'match_number')
+        )
+
+        def participant_label(reg):
+            if reg is None:
+                return None
+            if reg.team:
+                return {'type': 'team', 'id': reg.team.team_id, 'name': reg.team.team_name}
+            if reg.user:
+                return {'type': 'user', 'id': reg.user.user_id, 'name': reg.user.username}
+            return None
+
+        # Group by round
+        rounds = {}
+        for m in matches:
+            r = m.round_number
+            if r not in rounds:
+                rounds[r] = []
+            rounds[r].append({
+                'match_id': m.id,
+                'match_number': m.match_number,
+                'participant_1': participant_label(m.participant_1),
+                'participant_2': participant_label(m.participant_2),
+                'score_p1': m.score_p1,
+                'score_p2': m.score_p2,
+                'winner': participant_label(m.winner),
+                'status': m.status,
+                'scheduled_at': m.scheduled_at,
+                'completed_at': m.completed_at,
+            })
+
+        bracket_data = [
+            {'round': r, 'matches': rounds[r]}
+            for r in sorted(rounds.keys())
+        ]
+
+        return Response({
+            'status': 'success',
+            'data': {
+                'tournament_id': tournament.tournament_id,
+                'tournament_title': tournament.tournament_title,
+                'bracket_type': tournament.bracket_type,
+                'rounds': bracket_data,
+            }
+        }, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

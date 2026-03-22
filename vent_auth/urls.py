@@ -43,4 +43,10 @@ urlpatterns = [
     path("upload-images/", upload_images, name="upload_images"),
     path("get-user-gallery/", get_user_gallery, name="get_user_gallery"),
     path("delete-gallery-image/", delete_gallery_image, name="delete_gallery_image"),
+    # Wallet
+    path("wallet/balance/", get_wallet_balance, name="get_wallet_balance"),
+    path("wallet/transactions/", get_wallet_transactions, name="get_wallet_transactions"),
+    path("wallet/topup/initiate/", topup_initiate, name="topup_initiate"),
+    path("wallet/topup/verify/", topup_verify, name="topup_verify"),
+    path("wallet/send/", send_funds, name="send_funds"),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
