@@ -57,6 +57,7 @@ V-ENT Backend is a **Django 5.0.7 / Python 3.11.9** REST API for an esports/gami
 ### Settings & Config
 - `vent/settings.py` — Main Django settings. Database, installed apps, CORS, auth backends, media, social providers.
 - `config.py` — SMTP config; `company_email` and `password` read from `COMPANY_EMAIL` / `COMPANY_EMAIL_PASSWORD` env vars.
+- Required env vars (add to `.env`): `PAYSTACK_SECRET_KEY`, `VENT_COINS_PER_100_NGN` (default: 50 = 0.5 coins/NGN), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ADMIN_PASSWORD` (legacy), `SECRET_KEY`, `DB_*`.
 - `vent/urls.py` — Root router, mounts all app URL confs.
 
 ### App Map
@@ -111,10 +112,27 @@ V-ENT Backend is a **Django 5.0.7 / Python 3.11.9** REST API for an esports/gami
 | POST | `/auth/forgot-password/change-password/` | Set new password after reset |
 | POST | `/auth/send-code/` | Send verification code |
 | POST | `/auth/save-username/` | Save username after signup |
-| POST | `/auth/admin/login/` | Admin login endpoint |
-| GET | `/auth/admin/get-all-username-and-email/` | Admin: list all users |
-| GET | `/auth/admin/user-count/` | Admin: total user count |
+| POST | `/auth/admin/login/` | Admin login (username+password → session_token) |
+| GET | `/auth/admin/get-all-username-and-email/` | List all usernames + emails |
+| GET | `/auth/admin/user-count/` | Total user count |
 | GET | `/auth/admin/check-username-availability/` | Check if username is taken |
+| GET | `/auth/admin/metrics/` | Platform metrics (users, tournaments, coins, disputes) |
+| GET | `/auth/admin/users/` | Paginated user list (search, role/status filter) |
+| GET | `/auth/admin/users/<id>/` | User detail with wallet + KYC + tournament history |
+| PATCH | `/auth/admin/users/<id>/ban/` | Ban or unban user |
+| PATCH | `/auth/admin/users/<id>/role/` | Assign role (user/organizer/admin) |
+| DELETE | `/auth/admin/users/<id>/delete/` | Delete account (requires confirm=true) |
+| GET | `/auth/admin/tournaments/` | All tournaments with open dispute count |
+| GET | `/auth/admin/tournaments/<id>/` | Tournament detail with disputes + registrations |
+| POST | `/auth/admin/tournaments/<id>/dispute/resolve/` | Resolve/dismiss a dispute |
+| POST | `/auth/admin/tournaments/<id>/cancel/` | Cancel tournament + auto-refund fees |
+| PATCH | `/auth/admin/matches/<id>/score/` | Admin score override |
+| GET | `/auth/admin/payouts/pending/` | Pending withdrawal queue |
+| POST | `/auth/admin/payouts/<id>/approve/` | Approve payout (blocks if not KYC verified) |
+| POST | `/auth/admin/payouts/<id>/reject/` | Reject payout with reason |
+| GET | `/auth/admin/kyc/pending/` | Pending KYC submissions |
+| POST | `/auth/admin/kyc/<id>/approve/` | Approve KYC → sets wallet.kyc_verified=True |
+| POST | `/auth/admin/kyc/<id>/reject/` | Reject KYC with reason |
 | GET | `/auth/get-username-with-email/` | Lookup username by email |
 | POST | `/auth/edit-profile-info/` | Update profile (bio, DOB, etc.) |
 | GET | `/auth/get-user-informations/` | Fetch full user profile |
@@ -131,6 +149,18 @@ V-ENT Backend is a **Django 5.0.7 / Python 3.11.9** REST API for an esports/gami
 | POST | `/auth/upload-images/` | Upload profile/gallery images |
 | GET | `/auth/get-user-gallery/` | Get user's gallery images |
 | DELETE | `/auth/delete-gallery-image/` | Delete a gallery image |
+| GET | `/auth/wallet/balance/` | VENT COINS balance + kyc_verified + pending_withdrawal |
+| GET | `/auth/wallet/transactions/` | Paginated transaction history |
+| POST | `/auth/wallet/topup/initiate/` | Paystack initialize → authorization_url + reference |
+| POST | `/auth/wallet/topup/verify/` | Verify Paystack payment → credit VENT COINS |
+| POST | `/auth/wallet/send/` | Send VENT COINS to another user (PIN required) |
+| POST | `/auth/wallet/pin/verify/` | Verify wallet PIN |
+| POST | `/auth/wallet/pin/set/` | Set or change wallet PIN |
+| POST | `/auth/wallet/deduct/` | Deduct VENT COINS for tournament registration fee |
+| POST | `/auth/wallet/withdraw/initiate/` | Request fiat withdrawal (KYC + PIN required) |
+| GET | `/auth/wallet/withdraw/status/` | Withdrawal request history |
+| POST | `/auth/wallet/kyc/submit/` | Upload KYC document for admin review |
+| GET | `/auth/wallet/kyc/status/` | KYC verification status |
 | — | `/auth/dj-rest-auth/` | dj-rest-auth built-in routes |
 | POST | `/auth/dj-rest-auth/google/` | Google login via dj-rest-auth |
 | — | `/auth/accounts/` | django-allauth routes |
@@ -140,11 +170,18 @@ V-ENT Backend is a **Django 5.0.7 / Python 3.11.9** REST API for an esports/gami
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/tournament/create-tournament/` | Create tournament (supports draft) |
-| GET | `/tournament/search-tournament/` | Search tournaments |
-| POST | `/tournament/join-tournament/` | Join/register for tournament |
-| GET | `/tournament/get-all-tournaments/` | List all published tournaments |
+| GET | `/tournament/search-tournament/` | Search by name/game/location/access |
+| POST | `/tournament/join-tournament/` | Register for tournament (auto-deducts fee for paid) |
+| POST | `/tournament/register-tournament/` | Alias for join-tournament |
+| GET | `/tournament/get-all-tournaments/` | List all published tournaments (featured/new/by_game) |
 | GET | `/tournament/view-tournament/<int:tournament_id>/` | Get tournament details |
-| GET | `/tournament/view-user-drafted-tournaments/` | Get current user's drafts |
+| GET | `/tournament/view-user-drafted-tournaments/` | Get current user's draft tournaments |
+| GET | `/tournament/get-tournament-participants/<int:tournament_id>/` | Participants tab |
+| GET | `/tournament/get-tournament-brackets/<int:tournament_id>/` | Bracket rounds + matches |
+| POST | `/tournament/update-bracket/<int:tournament_id>/` | Organizer: set match score + winner |
+| GET | `/tournament/get-organizer-tournaments/` | All organizer's tournaments with status badge |
+| DELETE | `/tournament/delete-draft/<int:tournament_id>/` | Delete own draft |
+| PUT | `/tournament/edit-tournament/<int:tournament_id>/` | Edit any field on own tournament |
 
 ### `/event/` — vent_event
 
@@ -322,7 +359,8 @@ org_owner   FK(Users) CASCADE, related_name='owned_organizations'
 user_wallet_id   CharField(10) PK
 user             OneToOne(Users) CASCADE, related_name='wallet'
 wallet_balance   IntegerField default=0
-user_wallet_pin  IntegerField null
+pin_hash         CharField(128) null   ← hashed 4-digit PIN via make_password
+kyc_verified     BooleanField default=False
 ```
 
 **`TeamWallet`**
@@ -353,6 +391,57 @@ url    URLField(200)
 email        EmailField unique
 is_notified  BooleanField default=False
 join_date    DateTimeField auto_now_add
+```
+
+**`Transaction`**
+```
+id          AutoField PK
+wallet      FK(UserWallet) CASCADE, related_name='transactions'
+type        CharField(20) choices: top_up|deduction|prize|send|receive|withdrawal|refund
+amount      IntegerField  ← positive=credit, negative=debit
+description CharField(255)
+status      CharField(20) choices: pending|completed|failed|cancelled
+reference   CharField(255) blank  ← Paystack reference
+tournament  FK('vent_tournament.Tournament') null, related_name='transactions'
+created_at  DateTimeField auto_now_add
+```
+
+**`WithdrawalRequest`**
+```
+id              AutoField PK
+wallet          FK(UserWallet) CASCADE, related_name='withdrawals'
+amount          IntegerField  ← VENT COINS
+bank_name       CharField(100)
+account_number  CharField(20)
+account_name    CharField(100)
+status          CharField(20) choices: pending|approved|rejected|processing|completed
+admin_note      TextField blank
+requested_at    DateTimeField auto_now_add
+processed_at    DateTimeField null
+```
+
+**`KYCDocument`**
+```
+id              AutoField PK
+user            FK(Users) CASCADE, related_name='kyc_documents'
+document_type   CharField(50) choices: national_id|passport|drivers_license
+document_image  ImageField(kyc/)
+status          CharField(20) choices: pending|approved|rejected
+rejection_reason TextField blank
+submitted_at    DateTimeField auto_now_add
+reviewed_at     DateTimeField null
+```
+
+**`AdminAction`** (audit log)
+```
+id           AutoField PK
+admin        FK(Users) CASCADE, related_name='admin_actions'
+action_type  CharField(50)  ← 'ban_user', 'approve_payout', 'resolve_dispute', etc.
+target_model CharField(50)
+target_id    CharField(100)
+reason       TextField blank
+metadata     JSONField default=dict
+performed_at DateTimeField auto_now_add
 ```
 
 ---
@@ -436,8 +525,52 @@ match_check_in_ended   BooleanField default=False
 
 **`UnconfirmedTeams`**
 ```
-match_id  AutoField PK   ← misnamed, functions as unconfirmed team ID
-team_id   FK(Teams) CASCADE
+id      AutoField PK
+team_id FK(Teams) CASCADE
+```
+
+**`TournamentRegistration`**
+```
+id               AutoField PK
+tournament       FK(Tournament) CASCADE, related_name='registrations'
+team             FK(Teams) CASCADE null  ← one of team/user is set
+user             FK(Users) CASCADE null
+status           CharField(20) choices: pending|confirmed|disqualified|withdrawn
+registered_at    DateTimeField auto_now_add
+entry_fee_paid   BooleanField default=False
+payment_reference CharField(255) blank
+```
+`unique_together`: (tournament, team) and (tournament, user) — partial constraints.
+
+**`BracketMatch`**
+```
+id             AutoField PK
+tournament     FK(Tournament) CASCADE, related_name='bracket_matches'
+round_number   PositiveIntegerField
+match_number   PositiveIntegerField
+participant_1  FK(TournamentRegistration) null, related_name='matches_as_p1'
+participant_2  FK(TournamentRegistration) null, related_name='matches_as_p2'
+winner         FK(TournamentRegistration) null, related_name='matches_won'
+score_p1       IntegerField default=0
+score_p2       IntegerField default=0
+status         CharField(20) choices: scheduled|in_progress|completed|bye
+scheduled_at   DateTimeField null
+completed_at   DateTimeField null
+```
+Ordered by `round_number`, `match_number`.
+
+**`TournamentDispute`**
+```
+id               AutoField PK
+tournament       FK(Tournament) CASCADE, related_name='disputes'
+match            FK(BracketMatch) null, related_name='disputes'
+raised_by        FK(Users) CASCADE, related_name='disputes_raised'
+description      TextField
+evidence         JSONField default=list  ← list of image URLs / notes
+status           CharField(20) choices: open|under_review|resolved|dismissed
+resolution_note  TextField blank
+created_at       DateTimeField auto_now_add
+resolved_at      DateTimeField null
 ```
 
 ---
@@ -560,7 +693,7 @@ This backend integrates with or is planned to integrate with the following servi
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| **Phase 1 MVP** | Tournament brackets + join/leave, production/streaming integration (OBS/VMIX/Streamlabs), wallet system (buy/send VENT COINS, payouts), admin dashboard (user mgmt, tournament oversight, payout approval) | 🔴 In progress |
+| **Phase 1 MVP** | Tournament brackets + join/leave, production/streaming integration (OBS/VMIX/Streamlabs), wallet system (buy/send VENT COINS, payouts), admin dashboard (user mgmt, tournament oversight, payout approval) | 🟡 Backend complete — frontend wiring + production/streaming integration remaining |
 | **Phase 2** | Events + ticketing + tournament-event linking + vendor shop system | Not started |
 | **Phase 3** | E-Commerce Shop (Vent Shop) | Not started |
 | **Phase 4** | Marketplace (Vermillion City) | Not started |
