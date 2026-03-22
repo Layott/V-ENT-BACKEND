@@ -11,9 +11,6 @@ from django.utils.encoding import force_bytes, force_str
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 
 from vent.settings import FRONTEND_URL
 from .models import Users, UserProfile, UserWallet, VerificationToken
