@@ -7,6 +7,7 @@ from .models import (
     Sponsors, Match, RegisteredTeams,
 )
 from django.db.models import Q
+from django.db import transaction as db_transaction
 from vent_auth.models import Organization
 from django.utils import timezone
 from rest_framework.decorators import api_view
@@ -96,23 +97,59 @@ def join_tournament(request):
         if tournament.tournament_access == 'individual' and team_id:
             return Response({'status': 'error', 'message': 'This tournament only accepts individual registrations'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if team_id:
-            team = get_object_or_404(Teams, team_id=team_id)
-            if TournamentRegistration.objects.filter(tournament=tournament, team=team).exists():
-                return Response({'status': 'error', 'message': 'This team is already registered'}, status=status.HTTP_400_BAD_REQUEST)
-            registration = TournamentRegistration.objects.create(
-                tournament=tournament,
-                team=team,
-                entry_fee_paid=(tournament.entry_fee == 'Free'),
-            )
-        else:
-            if TournamentRegistration.objects.filter(tournament=tournament, user=user).exists():
-                return Response({'status': 'error', 'message': 'You are already registered for this tournament'}, status=status.HTTP_400_BAD_REQUEST)
-            registration = TournamentRegistration.objects.create(
-                tournament=tournament,
-                user=user,
-                entry_fee_paid=(tournament.entry_fee == 'Free'),
-            )
+        is_paid = tournament.entry_fee == 'Paid'
+        entry_fee_coins = int(tournament.entry_fee_price) if is_paid else 0
+        pin = request.data.get('pin')
+
+        # For paid tournaments, verify PIN and check balance before creating registration
+        if is_paid:
+            if not pin:
+                return Response({'status': 'error', 'message': 'pin is required for paid tournament registration'}, status=status.HTTP_400_BAD_REQUEST)
+            from vent_auth.models import UserWallet
+            from django.contrib.auth.hashers import check_password as check_pw
+            try:
+                user_wallet = UserWallet.objects.get(user=user)
+            except UserWallet.DoesNotExist:
+                return Response({'status': 'error', 'message': 'Wallet not found'}, status=status.HTTP_404_NOT_FOUND)
+            if not user_wallet.pin_hash or not check_pw(str(pin), user_wallet.pin_hash):
+                return Response({'status': 'error', 'message': 'Invalid PIN'}, status=status.HTTP_400_BAD_REQUEST)
+            if user_wallet.wallet_balance < entry_fee_coins:
+                return Response({'status': 'error', 'message': 'Insufficient VENT COINS balance'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with db_transaction.atomic():
+            if team_id:
+                team = get_object_or_404(Teams, team_id=team_id)
+                if TournamentRegistration.objects.filter(tournament=tournament, team=team).exists():
+                    return Response({'status': 'error', 'message': 'This team is already registered'}, status=status.HTTP_400_BAD_REQUEST)
+                registration = TournamentRegistration.objects.create(
+                    tournament=tournament,
+                    team=team,
+                    entry_fee_paid=not is_paid,
+                )
+            else:
+                if TournamentRegistration.objects.filter(tournament=tournament, user=user).exists():
+                    return Response({'status': 'error', 'message': 'You are already registered for this tournament'}, status=status.HTTP_400_BAD_REQUEST)
+                registration = TournamentRegistration.objects.create(
+                    tournament=tournament,
+                    user=user,
+                    entry_fee_paid=not is_paid,
+                )
+
+            # Deduct fee for paid tournaments
+            if is_paid:
+                from vent_auth.models import Transaction
+                user_wallet.wallet_balance -= entry_fee_coins
+                user_wallet.save(update_fields=['wallet_balance'])
+                Transaction.objects.create(
+                    wallet=user_wallet,
+                    type='deduction',
+                    amount=-entry_fee_coins,
+                    description=f'Registration fee — {tournament.tournament_title}',
+                    status='completed',
+                    tournament=tournament,
+                )
+                registration.entry_fee_paid = True
+                registration.save(update_fields=['entry_fee_paid'])
 
         return Response({
             'status': 'success',
@@ -121,6 +158,7 @@ def join_tournament(request):
                 'registration_id': registration.id,
                 'status': registration.status,
                 'entry_fee_paid': registration.entry_fee_paid,
+                'coins_deducted': entry_fee_coins if is_paid else 0,
             }
         }, status=status.HTTP_201_CREATED)
 
@@ -922,6 +960,81 @@ def delete_draft(request, tournament_id):
 
         tournament.delete()
         return Response({'status': 'success', 'message': 'Draft deleted'}, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['PUT'])
+def edit_tournament(request, tournament_id):
+    """PUT /tournament/edit-tournament/{id}/ — edit a published or draft tournament."""
+    session_token = request.headers.get('Authorization')
+    if not session_token or not session_token.startswith('Bearer '):
+        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    login_session_token = session_token.split(' ', 1)[1]
+
+    try:
+        user = get_object_or_404(Users, login_session_token=login_session_token)
+
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
+            return Response({'status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        tournament = get_object_or_404(Tournament, tournament_id=tournament_id)
+
+        if tournament.tournament_creator_id != user.user_id:
+            return Response({'status': 'error', 'message': 'Only the tournament organizer can edit this tournament'}, status=status.HTTP_403_FORBIDDEN)
+
+        # Editable fields (partial update — only update what's provided)
+        editable_text = [
+            'tournament_title', 'tournament_description', 'tournament_rules',
+            'tournament_location', 'virtual_link', 'tournament_visibility',
+            'tournament_type', 'bracket_type', 'tournament_access',
+            'entry_fee', 'entry_fee_price', 'team_size', 'player_size',
+            'min_number_of_teams', 'max_number_of_teams', 'prize_type',
+            'game_mode', 'start_date_and_time', 'end_date_and_time',
+            'facebook_link', 'twitter_link', 'instagram_link', 'youtube_link',
+            'twitch_link', 'kick_link', 'tiktok_link', 'bigolive_link',
+        ]
+
+        updated_fields = []
+        for field in editable_text:
+            val = request.data.get(field)
+            if val is not None:
+                setattr(tournament, field, val)
+                updated_fields.append(field)
+
+        # File fields
+        if request.FILES.get('tournament_logo'):
+            tournament.tournament_logo = request.FILES['tournament_logo']
+            updated_fields.append('tournament_logo')
+        if request.FILES.get('tournament_banner'):
+            tournament.tournament_banner = request.FILES['tournament_banner']
+            updated_fields.append('tournament_banner')
+
+        # Publish/draft toggle
+        is_draft = request.data.get('is_draft')
+        if is_draft is not None:
+            tournament.is_draft = str(is_draft) in ('1', 'true', 'True')
+            updated_fields.append('is_draft')
+
+        # Validate game if provided
+        game_title = request.data.get('game')
+        if game_title:
+            try:
+                tournament.tournament_game = Games.objects.get(game_title=game_title.title())
+                updated_fields.append('tournament_game')
+            except Games.DoesNotExist:
+                return Response({'status': 'error', 'message': f'Game "{game_title}" not found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if updated_fields:
+            tournament.save(update_fields=updated_fields)
+
+        return Response({
+            'status': 'success',
+            'message': 'Tournament updated',
+            'data': {'tournament_id': tournament.tournament_id, 'updated_fields': updated_fields}
+        }, status=status.HTTP_200_OK)
 
     except Exception as e:
         return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -16,4 +16,5 @@ urlpatterns = [
     path("update-bracket/<int:tournament_id>/", update_bracket, name="update_bracket"),
     path("get-organizer-tournaments/", get_organizer_tournaments, name="get_organizer_tournaments"),
     path("delete-draft/<int:tournament_id>/", delete_draft, name="delete_draft"),
+    path("edit-tournament/<int:tournament_id>/", edit_tournament, name="edit_tournament"),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

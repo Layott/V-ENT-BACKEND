@@ -401,6 +401,30 @@ def send_funds(request):
 
 
 # ---------------------------------------------------------------------------
+# POST /auth/wallet/pin/verify/
+# ---------------------------------------------------------------------------
+
+@api_view(['POST'])
+def verify_wallet_pin(request):
+    """Verify wallet PIN — used by frontend before showing sensitive actions."""
+    wallet, err = _get_user_from_token(request)
+    if err:
+        return err
+
+    pin = request.data.get('pin')
+    if not pin:
+        return Response({'status': 'error', 'message': 'pin is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not wallet.pin_hash:
+        return Response({'status': 'error', 'message': 'No PIN set on this wallet'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not check_password(str(pin), wallet.pin_hash):
+        return Response({'status': 'error', 'message': 'Invalid PIN'}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({'status': 'success', 'message': 'PIN verified'}, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
 # POST /auth/wallet/pin/set/
 # ---------------------------------------------------------------------------
 
