@@ -3,6 +3,8 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from django.contrib.auth.hashers import check_password
+
 from .models import UserWallet, TeamWallet, OrgWallet
 
 
@@ -29,8 +31,7 @@ def send_funds(request):
         else:
             return Response({'error': 'Invalid recipient type'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if (recipient_type == 'user' and sender_wallet.user_wallet_pin != wallet_pin) or \
-           (recipient_type in ['team', 'org'] and sender_wallet.wallet_pin != wallet_pin):
+        if not sender_wallet.pin_hash or not check_password(str(wallet_pin), sender_wallet.pin_hash):
             return Response({'error': 'Invalid wallet pin'}, status=status.HTTP_400_BAD_REQUEST)
 
         if sender_wallet.wallet_balance < amount:

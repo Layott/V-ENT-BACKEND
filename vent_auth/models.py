@@ -18,6 +18,11 @@ class Users(AbstractUser):
     provider_id = models.CharField(max_length=256, null=True, blank=True)  # Social provider ID
     tst = models.CharField(max_length=44, null=True)
     social_id = models.CharField(max_length=100, blank=True, null=True)
+    role = models.CharField(
+        max_length=20,
+        choices=[('user', 'User'), ('organizer', 'Organizer'), ('admin', 'Admin')],
+        default='user',
+    )
 
     USERNAME_FIELD = 'username'  # Use 'username' for authentication
     REQUIRED_FIELDS = ['full_name']  # Exclude 'username'
@@ -213,7 +218,8 @@ class UserWallet(models.Model):
     user_wallet_id = models.CharField(primary_key=True, max_length=10)
     user = models.OneToOneField(Users, on_delete=models.CASCADE, related_name='wallet')
     wallet_balance = models.IntegerField(default=0)
-    user_wallet_pin = models.IntegerField(null=True, blank=True)
+    pin_hash = models.CharField(max_length=128, blank=True, null=True)  # hashed 4-digit PIN via make_password
+    kyc_verified = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.user.username}'s Wallet"
@@ -249,3 +255,114 @@ class Waitlist(models.Model):
 
     def __str__(self):
         return self.email
+
+
+# ---------------------------------------------------------------------------
+# Wallet — extended models
+# ---------------------------------------------------------------------------
+
+class Transaction(models.Model):
+    TYPE_CHOICES = [
+        ('top_up', 'Top Up'),
+        ('deduction', 'Deduction'),
+        ('prize', 'Prize'),
+        ('send', 'Send'),
+        ('receive', 'Receive'),
+        ('withdrawal', 'Withdrawal'),
+        ('refund', 'Refund'),
+    ]
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+    ]
+
+    wallet = models.ForeignKey(
+        UserWallet, related_name='transactions', on_delete=models.CASCADE
+    )
+    type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    # Positive for credits (top_up, prize, receive, refund), negative for debits
+    amount = models.IntegerField()
+    description = models.CharField(max_length=255)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    reference = models.CharField(max_length=255, blank=True)  # Paystack reference
+    # Lazy string reference avoids circular import with vent_tournament
+    tournament = models.ForeignKey(
+        'vent_tournament.Tournament',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='transactions',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.type} {self.amount} — {self.wallet.user.username}"
+
+
+class WithdrawalRequest(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+        ('processing', 'Processing'),
+        ('completed', 'Completed'),
+    ]
+
+    wallet = models.ForeignKey(
+        UserWallet, on_delete=models.CASCADE, related_name='withdrawals'
+    )
+    amount = models.IntegerField()  # in VENT COINS
+    bank_name = models.CharField(max_length=100)
+    account_number = models.CharField(max_length=20)
+    account_name = models.CharField(max_length=100)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    admin_note = models.TextField(blank=True)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Withdrawal {self.amount} COINS — {self.wallet.user.username} ({self.status})"
+
+
+class KYCDocument(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+    ]
+    DOCUMENT_TYPE_CHOICES = [
+        ('national_id', 'National ID'),
+        ('passport', 'Passport'),
+        ('drivers_license', "Driver's License"),
+    ]
+
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='kyc_documents')
+    document_type = models.CharField(max_length=50, choices=DOCUMENT_TYPE_CHOICES)
+    document_image = models.ImageField(upload_to='kyc/')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    rejection_reason = models.TextField(blank=True)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"KYC {self.document_type} — {self.user.username} ({self.status})"
+
+
+# ---------------------------------------------------------------------------
+# Admin audit log
+# ---------------------------------------------------------------------------
+
+class AdminAction(models.Model):
+    admin = models.ForeignKey(
+        Users, related_name='admin_actions', on_delete=models.CASCADE
+    )
+    action_type = models.CharField(max_length=50)  # 'ban_user', 'approve_payout', etc.
+    target_model = models.CharField(max_length=50)  # 'User', 'Tournament', etc.
+    target_id = models.CharField(max_length=100)
+    reason = models.TextField(blank=True)
+    metadata = models.JSONField(default=dict)
+    performed_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.action_type} by {self.admin.username} @ {self.performed_at}"

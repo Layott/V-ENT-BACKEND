@@ -136,3 +136,89 @@ class UnconfirmedTeams(models.Model):
     def __str__(self):
         return f"UnconfirmedTeam {self.id} - {self.team_id.team_name}"
 
+
+class TournamentRegistration(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('confirmed', 'Confirmed'),
+        ('disqualified', 'Disqualified'),
+        ('withdrawn', 'Withdrawn'),
+    ]
+
+    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='registrations')
+    # Either team or individual — one will be null
+    team = models.ForeignKey(Teams, on_delete=models.CASCADE, null=True, blank=True, related_name='tournament_registrations')
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, null=True, blank=True, related_name='tournament_registrations')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    registered_at = models.DateTimeField(auto_now_add=True)
+    entry_fee_paid = models.BooleanField(default=False)
+    payment_reference = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        unique_together = [
+            ('tournament', 'team'),
+            ('tournament', 'user'),
+        ]
+
+    def __str__(self):
+        participant = self.team.team_name if self.team else self.user.username
+        return f"{participant} @ {self.tournament.tournament_title}"
+
+
+class BracketMatch(models.Model):
+    STATUS_CHOICES = [
+        ('scheduled', 'Scheduled'),
+        ('in_progress', 'In Progress'),
+        ('completed', 'Completed'),
+        ('bye', 'Bye'),
+    ]
+
+    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='bracket_matches')
+    round_number = models.PositiveIntegerField()
+    match_number = models.PositiveIntegerField()
+    participant_1 = models.ForeignKey(
+        TournamentRegistration, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='matches_as_p1'
+    )
+    participant_2 = models.ForeignKey(
+        TournamentRegistration, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='matches_as_p2'
+    )
+    winner = models.ForeignKey(
+        TournamentRegistration, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='matches_won'
+    )
+    score_p1 = models.IntegerField(default=0)
+    score_p2 = models.IntegerField(default=0)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='scheduled')
+    scheduled_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['round_number', 'match_number']
+
+    def __str__(self):
+        return f"{self.tournament.tournament_title} R{self.round_number} M{self.match_number}"
+
+
+class TournamentDispute(models.Model):
+    STATUS_CHOICES = [
+        ('open', 'Open'),
+        ('under_review', 'Under Review'),
+        ('resolved', 'Resolved'),
+        ('dismissed', 'Dismissed'),
+    ]
+
+    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='disputes')
+    match = models.ForeignKey(BracketMatch, on_delete=models.SET_NULL, null=True, blank=True, related_name='disputes')
+    raised_by = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='disputes_raised')
+    description = models.TextField()
+    evidence = models.JSONField(default=list, blank=True)  # list of image URLs / notes
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='open')
+    resolution_note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Dispute by {self.raised_by.username} on {self.tournament.tournament_title}"
+
