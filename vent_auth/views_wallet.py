@@ -11,7 +11,8 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from .models import UserWallet, TeamWallet, OrgWallet, Transaction
+from django.contrib.auth.hashers import make_password
+from .models import UserWallet, TeamWallet, OrgWallet, Transaction, WithdrawalRequest, KYCDocument
 
 
 # ---------------------------------------------------------------------------
@@ -395,5 +396,287 @@ def send_funds(request):
         'status': 'success',
         'data': {
             'new_balance': wallet.wallet_balance,
+        }
+    }, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# POST /auth/wallet/pin/set/
+# ---------------------------------------------------------------------------
+
+@api_view(['POST'])
+def set_wallet_pin(request):
+    """Set or update the wallet PIN. Requires current PIN if one already exists."""
+    wallet, err = _get_user_from_token(request)
+    if err:
+        return err
+
+    new_pin = request.data.get('new_pin')
+    current_pin = request.data.get('current_pin')
+
+    if not new_pin:
+        return Response(
+            {'status': 'error', 'message': 'new_pin is required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if len(str(new_pin)) != 4 or not str(new_pin).isdigit():
+        return Response(
+            {'status': 'error', 'message': 'PIN must be exactly 4 digits'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # If PIN already set, verify current PIN
+    if wallet.pin_hash:
+        if not current_pin:
+            return Response(
+                {'status': 'error', 'message': 'current_pin is required to change an existing PIN'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not check_password(str(current_pin), wallet.pin_hash):
+            return Response(
+                {'status': 'error', 'message': 'Current PIN is incorrect'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    wallet.pin_hash = make_password(str(new_pin))
+    wallet.save(update_fields=['pin_hash'])
+
+    return Response({'status': 'success', 'message': 'PIN set successfully'}, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# POST /auth/wallet/deduct/  (internal — called by tournament registration)
+# ---------------------------------------------------------------------------
+
+@api_view(['POST'])
+def wallet_deduct(request):
+    """Deduct VENT COINS from user wallet for tournament registration fee."""
+    wallet, err = _get_user_from_token(request)
+    if err:
+        return err
+
+    amount = request.data.get('amount')
+    tournament_id = request.data.get('tournament_id')
+    description = request.data.get('description', 'Tournament registration fee')
+    pin = request.data.get('pin')
+
+    if not amount or not tournament_id:
+        return Response(
+            {'status': 'error', 'message': 'amount and tournament_id are required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        amount = int(amount)
+    except (ValueError, TypeError):
+        return Response({'status': 'error', 'message': 'amount must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if amount <= 0:
+        return Response({'status': 'error', 'message': 'amount must be positive'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not wallet.pin_hash or not check_password(str(pin), wallet.pin_hash):
+        return Response({'status': 'error', 'message': 'Invalid PIN'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if wallet.wallet_balance < amount:
+        return Response({'status': 'error', 'message': 'Insufficient balance'}, status=status.HTTP_400_BAD_REQUEST)
+
+    from vent_tournament.models import Tournament
+    try:
+        tournament = Tournament.objects.get(tournament_id=tournament_id)
+    except Tournament.DoesNotExist:
+        return Response({'status': 'error', 'message': 'Tournament not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    wallet.wallet_balance -= amount
+    wallet.save(update_fields=['wallet_balance'])
+
+    Transaction.objects.create(
+        wallet=wallet,
+        type='deduction',
+        amount=-amount,
+        description=description,
+        status='completed',
+        tournament=tournament,
+    )
+
+    return Response({
+        'status': 'success',
+        'data': {'new_balance': wallet.wallet_balance}
+    }, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# POST /auth/wallet/withdraw/initiate/
+# ---------------------------------------------------------------------------
+
+@api_view(['POST'])
+def withdraw_initiate(request):
+    """Request a fiat withdrawal. Requires KYC + PIN."""
+    wallet, err = _get_user_from_token(request)
+    if err:
+        return err
+
+    amount = request.data.get('amount')
+    bank_name = request.data.get('bank_name')
+    account_number = request.data.get('account_number')
+    account_name = request.data.get('account_name')
+    pin = request.data.get('pin')
+
+    if not all([amount, bank_name, account_number, account_name, pin]):
+        return Response(
+            {'status': 'error', 'message': 'amount, bank_name, account_number, account_name, and pin are required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        amount = int(amount)
+    except (ValueError, TypeError):
+        return Response({'status': 'error', 'message': 'amount must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if amount <= 0:
+        return Response({'status': 'error', 'message': 'amount must be positive'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not wallet.kyc_verified:
+        return Response(
+            {'status': 'error', 'message': 'KYC verification required before withdrawing'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    if not wallet.pin_hash or not check_password(str(pin), wallet.pin_hash):
+        return Response({'status': 'error', 'message': 'Invalid PIN'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if wallet.wallet_balance < amount:
+        return Response({'status': 'error', 'message': 'Insufficient balance'}, status=status.HTTP_400_BAD_REQUEST)
+
+    wr = WithdrawalRequest.objects.create(
+        wallet=wallet,
+        amount=amount,
+        bank_name=bank_name,
+        account_number=account_number,
+        account_name=account_name,
+    )
+
+    Transaction.objects.create(
+        wallet=wallet,
+        type='withdrawal',
+        amount=-amount,
+        description=f'Withdrawal to {bank_name} {account_number[-4:]}',
+        status='pending',
+    )
+
+    return Response({
+        'status': 'success',
+        'data': {
+            'withdrawal_id': wr.id,
+            'amount': wr.amount,
+            'status': wr.status,
+            'message': 'Withdrawal request submitted. Pending admin approval.',
+        }
+    }, status=status.HTTP_201_CREATED)
+
+
+# ---------------------------------------------------------------------------
+# GET /auth/wallet/withdraw/status/
+# ---------------------------------------------------------------------------
+
+@api_view(['GET'])
+def withdraw_status(request):
+    """Check withdrawal request history and status."""
+    wallet, err = _get_user_from_token(request)
+    if err:
+        return err
+
+    withdrawals = wallet.withdrawals.order_by('-requested_at')
+
+    data = [
+        {
+            'id': w.id,
+            'amount': w.amount,
+            'bank_name': w.bank_name,
+            'account_number': w.account_number[-4:].rjust(len(w.account_number), '*'),
+            'account_name': w.account_name,
+            'status': w.status,
+            'admin_note': w.admin_note,
+            'requested_at': w.requested_at,
+            'processed_at': w.processed_at,
+        }
+        for w in withdrawals
+    ]
+
+    return Response({'status': 'success', 'data': data}, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# POST /auth/wallet/kyc/submit/
+# ---------------------------------------------------------------------------
+
+@api_view(['POST'])
+def kyc_submit(request):
+    """Submit a KYC document for review."""
+    wallet, err = _get_user_from_token(request)
+    if err:
+        return err
+
+    user = wallet.user
+    document_type = request.data.get('document_type')
+    document_image = request.FILES.get('document_image')
+
+    valid_types = ['national_id', 'passport', 'drivers_license']
+    if document_type not in valid_types:
+        return Response(
+            {'status': 'error', 'message': f'document_type must be one of: {", ".join(valid_types)}'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not document_image:
+        return Response(
+            {'status': 'error', 'message': 'document_image is required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Replace any existing pending document of same type
+    KYCDocument.objects.filter(user=user, document_type=document_type, status='pending').delete()
+
+    doc = KYCDocument.objects.create(
+        user=user,
+        document_type=document_type,
+        document_image=document_image,
+    )
+
+    return Response({
+        'status': 'success',
+        'data': {
+            'kyc_id': doc.id,
+            'document_type': doc.document_type,
+            'status': doc.status,
+            'submitted_at': doc.submitted_at,
+        }
+    }, status=status.HTTP_201_CREATED)
+
+
+# ---------------------------------------------------------------------------
+# GET /auth/wallet/kyc/status/
+# ---------------------------------------------------------------------------
+
+@api_view(['GET'])
+def kyc_status(request):
+    """Check user's KYC verification status."""
+    wallet, err = _get_user_from_token(request)
+    if err:
+        return err
+
+    latest_doc = wallet.user.kyc_documents.order_by('-submitted_at').first()
+
+    return Response({
+        'status': 'success',
+        'data': {
+            'kyc_verified': wallet.kyc_verified,
+            'latest_submission': {
+                'id': latest_doc.id,
+                'document_type': latest_doc.document_type,
+                'status': latest_doc.status,
+                'rejection_reason': latest_doc.rejection_reason if latest_doc.status == 'rejected' else None,
+                'submitted_at': latest_doc.submitted_at,
+            } if latest_doc else None,
         }
     }, status=status.HTTP_200_OK)
