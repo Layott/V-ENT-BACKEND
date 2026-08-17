@@ -1,204 +1,450 @@
-from django.utils import timezone
-import uuid
-from django.shortcuts import render
-from imports import api_view, Response, get_object_or_404, datetime, status
-from .models import Event, Sponsor, SocialLink
-from vent_auth.models import Games, Users
+import json
+import logging
 from datetime import timedelta
 
+from django.conf import settings
+from django.core.paginator import Paginator, EmptyPage
+from django.db import transaction
+from django.db.models import F, Q
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
 
-# Create your views here.
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
 
-# @api_view(['POST'])
-# def create_event(request):
-#     try:
-#         session_token = request.headers.get('Authorization')
+from vent_auth.models import Games, Users
+from .models import Event, TicketTier, Sponsor, SocialLink, VendorInvite
+from .serializers import serialize_event_card, serialize_event_detail
 
-#         if not session_token:
-#             return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+logger = logging.getLogger(__name__)
 
-#         # Ensure the token is in the correct format (e.g., 'Bearer <token>')
-#         if not session_token.startswith("Bearer "):
-#             return Response({'status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
-
-#         # Extract the actual token
-#         login_session_token = session_token.split(" ")[1]
-#         name = request.data.get('name')
-#         event_type = request.data.get('event_type')
-#         desc = request.data.get('desc')
-#         entry_fee = request.data.get('entry_fee')
-#         reg_start_date = request.data.get('reg_start_date')
-#         reg_end_date = request.data.get('reg_end_date')
-#         event_date = request.data.get('event_date')
-#         start_time = request.data.get('start_time')
-#         end_time = request.data.get('end_time')
-#         logo = request.FILES.get('logo')  # Event logo
-#         banner = request.FILES.get('banner')  # Event banner
-#         game_id = request.data.get('game_id')
-#         game = get_object_or_404(Games, pk=game_id)
-
-#         # Validate required fields
-#         if not all([name, session_token, event_type, desc, entry_fee, event_date, start_time, end_time]):
-#             return Response({'status': 'error', 'message': 'All fields are required.'}, status=status.HTTP_400_BAD_REQUEST)
-
-#         # Check for event type (physical, virtual, hybrid) and get location or event_link accordingly
-#         location = request.data.get('location') if event_type in ['physical', 'hybrid'] else None
-#         event_link = request.data.get('event_link') if event_type in ['virtual', 'hybrid'] else None
-
-#         # Validate that location or event link is provided as needed
-#         if event_type == 'physical' and not location:
-#             return Response({'status': 'error', 'message': 'Location is required for physical events.'}, status=status.HTTP_400_BAD_REQUEST)
-#         if event_type == 'virtual' and not event_link:
-#             return Response({'status': 'error', 'message': 'Event link is required for virtual events.'}, status=status.HTTP_400_BAD_REQUEST)
-
-#         sponsors = request.data.get('sponsors', [])
-#         sponsor_logos = request.data.get('sponsor_logos', [])
-#         social_links = request.data.get('social_links', [])
-#         social_urls = request.data.get('social_urls', [])
+SESSION_TIMEOUT_MINUTES = 120
+PAGE_SIZE = 12
+VALID_EVENT_TYPES = {'physical', 'virtual', 'hybrid'}
 
 
-#         # Get the event creator
-#         creator = get_object_or_404(Users, login_session_token=login_session_token)
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-#         # Create the event
-#         event = Event.objects.create(
-#             name=name,
-#             creator=creator,
-#             event_type=event_type,
-#             desc=desc,
-#             entry_fee=entry_fee,
-#             reg_start_date=reg_start_date,
-#             reg_end_date=reg_end_date,
-#             event_date=event_date,
-#             start_time=start_time,
-#             end_time=end_time,
-#             location=location,
-#             event_link=event_link,
-#             logo=logo,  # Set the event logo
-#             banner=banner  # Set the event banner
-#         )
+def _error(message, code, http_status, field_errors=None):
+    """Build the canonical error envelope: {status, data, message, code}."""
+    data = {}
+    if field_errors:
+        data['field_errors'] = field_errors
+    return Response(
+        {'status': 'error', 'data': data, 'message': message, 'code': code},
+        status=http_status,
+    )
 
-#         # Create sponsors with logos if provided
-#         if sponsors and sponsor_logos:
-#             for sponsor_name, logo in zip(sponsors, sponsor_logos):
-#                 Sponsor.objects.create(event=event, name=sponsor_name, logo=logo)
 
-#         # Create social links if provided
-#         if social_links and social_urls:
-#             for platform, url in zip(social_links, social_urls):
-#                 SocialLink.objects.create(event=event, platform=platform, url=url)
+def _authenticate(request):
+    """Resolve the Bearer session token to a live user.
 
-#         return Response({'status': 'success', 'message': 'Event created successfully.'}, status=status.HTTP_201_CREATED)
+    Returns (user, None) on success or (None, error_response) on failure.
+    """
+    header = request.headers.get('Authorization')
+    if not header or not header.startswith('Bearer '):
+        return None, _error(
+            'Authorization header with a Bearer token is required.',
+            'UNAUTHORIZED', status.HTTP_401_UNAUTHORIZED,
+        )
 
-#     except Exception as e:
-#         return Response({'status': 'error', 'message': f'Error creating event: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+    token = header.split(' ', 1)[1].strip()
+    if not token:
+        return None, _error('Bearer token is empty.', 'UNAUTHORIZED', status.HTTP_401_UNAUTHORIZED)
 
+    try:
+        user = Users.objects.get(login_session_token=token)
+    except Users.DoesNotExist:
+        return None, _error('Invalid session token.', 'UNAUTHORIZED', status.HTTP_401_UNAUTHORIZED)
+
+    if user.login_session_created_at is None or \
+            timezone.now() - user.login_session_created_at > timedelta(minutes=SESSION_TIMEOUT_MINUTES):
+        return None, _error('Session token has expired.', 'SESSION_EXPIRED', status.HTTP_401_UNAUTHORIZED)
+
+    return user, None
+
+
+def _parse_datetime(value):
+    """Parse an ISO / datetime-local string into an aware datetime, or None."""
+    if not value:
+        return None
+    dt = parse_datetime(value)
+    if dt is None:
+        return None
+    if settings.USE_TZ and timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, timezone.get_current_timezone())
+    return dt
+
+
+def _as_list(value):
+    """Accept a native list (JSON body) or a JSON-encoded string (multipart)."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else []
+        except (ValueError, TypeError):
+            return []
+    return []
+
+
+def _as_dict(value):
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except (ValueError, TypeError):
+            return {}
+    return {}
+
+
+# ---------------------------------------------------------------------------
+# Create
+# ---------------------------------------------------------------------------
 
 @api_view(['POST'])
 def create_event(request):
-    session_token = request.headers.get('Authorization')
+    """POST /event/create-event/ - create an event.
 
-    if not session_token or not session_token.startswith("Bearer "):
-        return Response({'status': 'error', 'message': 'Authorization required'}, status=status.HTTP_400_BAD_REQUEST)
+    Canonical contract (see events-map.md). Accepts JSON or multipart. Banner may
+    be provided as an uploaded file (`banner`) or an external URL (`banner_url`).
+    """
+    user, auth_error = _authenticate(request)
+    if auth_error:
+        return auth_error
 
-    token = session_token.split(" ")[1]
-    user = get_object_or_404(Users, login_session_token=token)
+    data = request.data
+    field_errors = {}
 
-    if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
-        return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
+    name = (data.get('name') or '').strip()
+    if not name:
+        field_errors['name'] = ['Event name is required.']
+    elif len(name) < 4:
+        field_errors['name'] = ['Event name must be at least 4 characters.']
+    elif len(name) > 40:
+        field_errors['name'] = ['Event name must be at most 40 characters.']
+
+    event_type = (data.get('event_type') or '').strip().lower()
+    if not event_type:
+        field_errors['event_type'] = ['Event type is required.']
+    elif event_type not in VALID_EVENT_TYPES:
+        field_errors['event_type'] = ['Event type must be one of: physical, virtual, hybrid.']
+
+    description = data.get('description')
+    if description is None:
+        description = data.get('desc')  # tolerate the legacy field name
+    description = (description or '').strip()
+    if not description:
+        field_errors['description'] = ['Description is required.']
+
+    start_date = _parse_datetime(data.get('start_date'))
+    if data.get('start_date') and start_date is None:
+        field_errors['start_date'] = ['Invalid start date format. Use ISO 8601.']
+    elif not data.get('start_date'):
+        field_errors['start_date'] = ['Start date is required.']
+
+    end_date = _parse_datetime(data.get('end_date'))
+    if data.get('end_date') and end_date is None:
+        field_errors['end_date'] = ['Invalid end date format. Use ISO 8601.']
+    elif not data.get('end_date'):
+        field_errors['end_date'] = ['End date is required.']
+
+    if start_date and end_date and end_date < start_date:
+        field_errors['end_date'] = ['End date must be on or after the start date.']
+
+    location = (data.get('location') or '').strip() or None
+    virtual_link = (data.get('virtual_link') or data.get('event_link') or '').strip() or None
+
+    if event_type in ('physical', 'hybrid') and not location:
+        field_errors['location'] = ['Location is required for physical and hybrid events.']
+    if event_type in ('virtual', 'hybrid') and not virtual_link:
+        field_errors['virtual_link'] = ['Virtual link is required for virtual and hybrid events.']
+
+    if field_errors:
+        return _error('Validation failed.', 'VALIDATION_FAILED',
+                      status.HTTP_400_BAD_REQUEST, field_errors=field_errors)
+
+    # Optional fields
+    category = (data.get('category') or '').strip() or None
+
+    entry_fee = data.get('entry_fee', 0)
+    try:
+        entry_fee = entry_fee if entry_fee not in ('', None) else 0
+        entry_fee = float(entry_fee)
+    except (ValueError, TypeError):
+        entry_fee = 0
+
+    capacity = data.get('capacity')
+    try:
+        capacity = int(capacity) if capacity not in ('', None) else None
+        if capacity is not None and capacity < 1:
+            capacity = None
+    except (ValueError, TypeError):
+        capacity = None
+
+    banner_url = (data.get('banner_url') or '').strip() or None
+
+    # Optional game lookup (events do not require a game).
+    game = None
+    game_title = data.get('game_title') or data.get('game')
+    game_id = data.get('game_id')
+    if game_id:
+        game = Games.objects.filter(game_id=game_id).first()
+    elif game_title and str(game_title).strip():
+        game = Games.objects.filter(game_title__iexact=str(game_title).strip()).first()
 
     try:
-        game_title = request.data.get('game_title')
-        if not game_title:
-            return Response({'status': 'error', 'message': 'Game title is required'}, status=status.HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            event = Event.objects.create(
+                name=name,
+                creator=user,
+                game=game,
+                event_type=event_type,
+                category=category,
+                desc=description,
+                entry_fee=entry_fee,
+                start_date=start_date,
+                end_date=end_date,
+                # Derive legacy split fields so admin / older readers stay consistent.
+                event_date=start_date.date() if start_date else None,
+                start_time=start_date.time() if start_date else None,
+                end_time=end_date.time() if end_date else None,
+                reg_start_date=timezone.now(),
+                reg_end_date=start_date,
+                location=location,
+                event_link=virtual_link,
+                capacity=capacity,
+                banner=request.FILES.get('banner'),
+                banner_url=banner_url,
+                logo=request.FILES.get('logo'),
+            )
 
-        game = get_object_or_404(Games, game_title__iexact=game_title.strip())
+            for tier in _as_list(data.get('ticket_types')):
+                if not isinstance(tier, dict):
+                    continue
+                tier_name = (tier.get('name') or '').strip()
+                if not tier_name:
+                    continue
+                try:
+                    price = float(tier.get('price') or 0)
+                except (ValueError, TypeError):
+                    price = 0
+                try:
+                    quantity = int(tier.get('quantity') or 0)
+                except (ValueError, TypeError):
+                    quantity = 0
+                TicketTier.objects.create(
+                    event=event, name=tier_name, price=price,
+                    quantity=max(quantity, 0), perks=(tier.get('perks') or '').strip(),
+                )
 
-        event = Event.objects.create(
-            name=request.data['name'],
-            desc=request.data['desc'],
-            creator=user,
-            event_type=request.data['event_type'],
-            entry_fee=request.data.get('entry_fee', 0),
-            reg_start_date=request.data['reg_start_date'],
-            reg_end_date=request.data['reg_end_date'],
-            event_date=request.data['event_date'],
-            start_time=request.data['start_time'],
-            end_time=request.data['end_time'],
-            location=request.data['location'],
-            event_link=request.data.get('event_link'),
-            logo=request.FILES.get('logo'),
-            banner=request.FILES.get('banner'),
-            game=game
-        )
+            for sponsor in _as_list(data.get('sponsors')):
+                if not isinstance(sponsor, dict):
+                    continue
+                sponsor_name = (sponsor.get('name') or '').strip()
+                if not sponsor_name:
+                    continue
+                Sponsor.objects.create(
+                    event=event, name=sponsor_name,
+                    logo_url=(sponsor.get('logo_url') or '').strip() or None,
+                )
 
-        return Response({'status': 'success', 'message': 'Event created successfully'}, status=status.HTTP_201_CREATED)
+            for vendor in _as_list(data.get('vendor_invites')):
+                if not isinstance(vendor, dict):
+                    continue
+                vendor_name = (vendor.get('name') or '').strip()
+                if not vendor_name:
+                    continue
+                VendorInvite.objects.create(
+                    event=event, name=vendor_name,
+                    email=(vendor.get('email') or '').strip() or None,
+                    booth=(vendor.get('booth') or '').strip(),
+                )
 
-    except Exception as e:
-        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            for platform, url in _as_dict(data.get('social_links')).items():
+                if url and str(url).strip():
+                    SocialLink.objects.create(event=event, platform=platform, url=str(url).strip())
+
+        return Response({
+            'status': 'success',
+            'data': {
+                'event_id': event.event_id,
+                'event': serialize_event_detail(request, event),
+            },
+            'message': 'Event created successfully.',
+        }, status=status.HTTP_201_CREATED)
+
+    except Exception:
+        logger.exception('create_event failed for user %s', getattr(user, 'username', None))
+        return _error('Could not create the event. Please try again.',
+                      'INTERNAL_ERROR', status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+# ---------------------------------------------------------------------------
+# Listing
+# ---------------------------------------------------------------------------
 
 @api_view(['GET'])
 def get_all_events(request):
-    session_token = request.headers.get('Authorization')
+    """GET /event/get-all-events/ - public listing with filters + pagination.
 
-    if not session_token or not session_token.startswith("Bearer "):
-        return Response({'status': 'error', 'message': 'Authorization header required'}, status=status.HTTP_400_BAD_REQUEST)
+    Query params: type, category, q (search), from, to (YYYY-MM-DD), page.
+    Returns the filtered page under `events` plus discovery sections
+    (`featured`, `upcoming`, `by_game`) computed from the full active set.
+    """
+    base = (
+        Event.objects.filter(is_active=True)
+        .select_related('game', 'creator')
+        .prefetch_related('ticket_tiers')
+    )
 
-    token = session_token.split(" ")[1]
-    user = get_object_or_404(Users, login_session_token=token)
+    filtered = base
+    event_type = request.GET.get('type')
+    if event_type:
+        filtered = filtered.filter(event_type__iexact=event_type)
 
-    if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
-        return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
+    category = request.GET.get('category')
+    if category:
+        filtered = filtered.filter(category__iexact=category)
 
-    today = timezone.now().date()
+    search = request.GET.get('q') or request.GET.get('search')
+    if search:
+        filtered = filtered.filter(
+            Q(name__icontains=search) | Q(desc__icontains=search) | Q(location__icontains=search)
+        )
 
-    # Featured = top 5 by interaction
-    featured_events = Event.objects.order_by('-interaction_count')[:5]
+    date_from = parse_date(request.GET.get('from') or '')
+    if date_from:
+        filtered = filtered.filter(start_date__date__gte=date_from)
 
-    # Upcoming = event_date >= today
-    upcoming_events = Event.objects.filter(event_date__gte=today).order_by('event_date')[:5]
+    date_to = parse_date(request.GET.get('to') or '')
+    if date_to:
+        filtered = filtered.filter(start_date__date__lte=date_to)
 
-    # Group all by game
-    all_events = Event.objects.select_related('game')
-    events_by_game = {}
-    for event in all_events:
-        game_name = event.game.game_title if event.game else "Unknown Game"
-        if game_name not in events_by_game:
-            events_by_game[game_name] = []
-        events_by_game[game_name].append(event)
+    filtered = filtered.order_by(F('start_date').desc(nulls_last=True))
 
-    # Serializer helper
-    def serialize(event):
-        return {
-            "event_id": event.event_id,
-            "name": event.name,
-            "creator": event.creator.username,
-            "event_type": event.event_type,
-            "desc": event.desc,
-            "entry_fee": str(event.entry_fee),
-            "reg_start_date": event.reg_start_date,
-            "reg_end_date": event.reg_end_date,
-            "event_date": event.event_date,
-            "start_time": str(event.start_time),
-            "end_time": str(event.end_time),
-            "location": event.location,
-            "event_link": event.event_link,
-            "logo": request.build_absolute_uri(event.logo.url) if event.logo else None,
-            "banner": request.build_absolute_uri(event.banner.url) if event.banner else None,
-            "interaction_count": event.interaction_count,
-            "game": event.game.game_title if event.game else None,
-        }
+    paginator = Paginator(filtered, PAGE_SIZE)
+    try:
+        page_number = int(request.GET.get('page', 1))
+    except (ValueError, TypeError):
+        page_number = 1
+    try:
+        page = paginator.page(page_number)
+    except EmptyPage:
+        page = paginator.page(paginator.num_pages) if paginator.num_pages else None
+
+    events = list(page.object_list) if page else []
+
+    # Discovery sections (independent of the active filters).
+    now = timezone.now()
+    featured = list(base.order_by('-interaction_count')[:5])
+    upcoming = list(base.filter(start_date__gte=now).order_by('start_date')[:5])
+
+    by_game = {}
+    for event in base:
+        game_name = event.game.game_title if event.game else 'Other'
+        by_game.setdefault(game_name, []).append(serialize_event_card(request, event))
 
     return Response({
-        "status": "success",
-        "data": {
-            "featured": [serialize(e) for e in featured_events],
-            "upcoming": [serialize(e) for e in upcoming_events],
-            "by_game": {
-                game: [serialize(e) for e in evts]
-                for game, evts in events_by_game.items()
-            }
-        }
+        'status': 'success',
+        'data': {
+            'events': [serialize_event_card(request, e) for e in events],
+            'featured': [serialize_event_card(request, e) for e in featured],
+            'upcoming': [serialize_event_card(request, e) for e in upcoming],
+            'by_game': by_game,
+            'page': page.number if page else 1,
+            'total_pages': paginator.num_pages,
+            'total_count': paginator.count,
+        },
+        'message': 'Events fetched successfully.',
     }, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Detail
+# ---------------------------------------------------------------------------
+
+@api_view(['GET'])
+def view_event(request, event_id):
+    """GET /event/view-event/<id>/ - full event detail (public)."""
+    try:
+        event = (
+            Event.objects
+            .select_related('game', 'creator')
+            .prefetch_related('ticket_tiers', 'sponsors', 'social_links', 'vendor_invites')
+            .get(event_id=event_id, is_active=True)
+        )
+    except Event.DoesNotExist:
+        return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+
+    Event.objects.filter(pk=event.pk).update(interaction_count=F('interaction_count') + 1)
+    event.interaction_count += 1
+
+    return Response({
+        'status': 'success',
+        'data': {'event': serialize_event_detail(request, event)},
+        'message': 'Event fetched successfully.',
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+def event_vendors(request, event_id):
+    """GET /event/<id>/vendors/ - vendor list for an event.
+
+    Returns invited vendors gracefully (empty list, never an error) until the
+    Phase 2 vendor-shop system is built.
+    """
+    try:
+        event = Event.objects.prefetch_related('vendor_invites').get(event_id=event_id, is_active=True)
+    except Event.DoesNotExist:
+        return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+
+    vendors = [
+        {
+            'id': v.id,
+            'name': v.name,
+            'booth': v.booth or None,
+            'category': None,   # populated when the vendor-shop system lands
+            'logo': None,
+        }
+        for v in event.vendor_invites.all()
+    ]
+
+    return Response({
+        'status': 'success',
+        'data': {'vendors': vendors},
+        'message': 'Vendors fetched successfully.',
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+def buy_ticket(request, event_id):
+    """POST /event/<id>/buy-ticket/ - PHASE 2 PLACEHOLDER.
+
+    Real ticket purchasing (wallet deduction, QR issuance) is part of the Events
+    phase and lives outside this app's M1 scope. This endpoint exists only so the
+    FE receives a clean JSON envelope instead of an HTML 404 when the buy flow is
+    triggered. It never touches the wallet.
+    """
+    user, auth_error = _authenticate(request)
+    if auth_error:
+        return auth_error
+
+    if not Event.objects.filter(event_id=event_id, is_active=True).exists():
+        return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+
+    return _error(
+        'Ticket purchasing launches with the Events phase. This feature is not available yet.',
+        'FEATURE_NOT_AVAILABLE', status.HTTP_503_SERVICE_UNAVAILABLE,
+    )
