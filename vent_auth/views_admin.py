@@ -2,17 +2,31 @@ import os
 from datetime import timedelta
 
 from django.contrib.auth import authenticate
+from django.db import transaction
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from django.core import signing
+
 from .models import (
     Users, Waitlist, UserWallet, UserProfile,
-    Transaction, WithdrawalRequest, KYCDocument, AdminAction,
+    Transaction, WithdrawalRequest, KYCDocument, AdminAction, AdminTOTP,
 )
+from . import totp as totp_lib
 from .views_helpers import send_email, generate_session_token
+from .views_kyc_files import kyc_document_url
+from .decorators import (
+    ADMIN_ROLES, ROLE_PERMISSIONS, admin_role_required, resolve_admin, admin_identity,
+)
+
+
+# Pending-2FA tokens are signed, not stored: they carry only the user id and
+# expire on their own.
+PENDING_2FA_SALT = 'vent.admin.2fa'
+PENDING_2FA_MAX_AGE = 300  # seconds
 
 
 # ---------------------------------------------------------------------------
@@ -20,35 +34,11 @@ from .views_helpers import send_email, generate_session_token
 # ---------------------------------------------------------------------------
 
 def _get_admin_user(request):
-    """Return (user, error_response). User must be is_staff and session active."""
-    session_token = request.headers.get('Authorization')
-    if not session_token or not session_token.startswith('Bearer '):
-        return None, Response(
-            {'status': 'error', 'message': 'Authorization header is required'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    token = session_token.split(' ', 1)[1]
-    try:
-        user = Users.objects.get(login_session_token=token)
-    except Users.DoesNotExist:
-        return None, Response(
-            {'status': 'error', 'message': 'Invalid or expired session token'},
-            status=status.HTTP_401_UNAUTHORIZED,
-        )
-    if (
-        user.login_session_created_at is None
-        or timezone.now() - user.login_session_created_at > timedelta(minutes=120)
-    ):
-        return None, Response(
-            {'status': 'error', 'message': 'Session token has expired'},
-            status=status.HTTP_401_UNAUTHORIZED,
-        )
-    if not user.is_staff:
-        return None, Response(
-            {'status': 'error', 'message': 'Admin access required'},
-            status=status.HTTP_403_FORBIDDEN,
-        )
-    return user, None
+    """Authenticate an admin (Bearer + is_staff + live session). No role check.
+
+    Thin wrapper over decorators.resolve_admin - kept for endpoints that need
+    auth without a specific role gate (e.g. /admin/me/)."""
+    return resolve_admin(request)
 
 
 def _log_action(admin, action_type, target_model, target_id, reason='', metadata=None):
@@ -62,27 +52,67 @@ def _log_action(admin, action_type, target_model, target_id, reason='', metadata
     )
 
 
+def _user_kyc_status(user):
+    """Latest KYC doc status ('approved'|'pending'|'rejected') or 'none'."""
+    doc = user.kyc_documents.order_by('-submitted_at').first()
+    return doc.status if doc else 'none'
+
+
+def _user_status(user):
+    """USERROW status per contract §6/§7: banned if not is_active; else
+    kyc_pending if a pending KYC exists; else active. ('suspended' not tracked)."""
+    if not user.is_active:
+        return 'banned'
+    if user.kyc_documents.filter(status='pending').exists():
+        return 'kyc_pending'
+    return 'active'
+
+
+def _wallet_vc(user):
+    w = getattr(user, 'wallet', None)
+    return w.wallet_balance if w else 0
+
+
+def _paginate(request, default_size=20, max_size=200):
+    """Return (page, page_size, offset) from query params."""
+    try:
+        page = max(1, int(request.GET.get('page', 1)))
+    except (ValueError, TypeError):
+        page = 1
+    try:
+        page_size = int(request.GET.get('page_size', default_size))
+    except (ValueError, TypeError):
+        page_size = default_size
+    page_size = max(1, min(page_size, max_size))
+    return page, page_size, (page - 1) * page_size
+
+
 # ---------------------------------------------------------------------------
 # Admin Login
 # ---------------------------------------------------------------------------
 
 @api_view(['POST'])
 def admin_login(request):
-    """Authenticate an admin user. Returns login_session_token on success."""
-    username = request.data.get('username')
+    """Authenticate an admin user. Returns login_session_token on success.
+
+    Accepts `email` OR `username` in the body (the FE sends `email`). The
+    EmailOrUsernameModelBackend resolves either against the same `username`
+    kwarg, so we just pass whichever identifier was supplied."""
+    identifier = request.data.get('email') or request.data.get('username')
     password = request.data.get('password')
 
-    if not username or not password:
+    if not identifier or not password:
         return Response(
-            {'status': 'error', 'message': 'Username and password are required'},
+            {'status': 'error', 'message': 'Email/username and password are required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    user = authenticate(username=username, password=password)
+    user = authenticate(username=identifier, password=password)
     if user is None:
-        # Try email
+        # Fallback: resolve by email then authenticate by username (belt-and-braces
+        # in case a non-email-aware backend is first in the chain).
         try:
-            u = Users.objects.get(email=username)
+            u = Users.objects.get(email=identifier)
             user = authenticate(username=u.username, password=password)
         except Users.DoesNotExist:
             pass
@@ -92,6 +122,93 @@ def admin_login(request):
             {'status': 'error', 'message': 'Invalid credentials or not an admin'},
             status=status.HTTP_401_UNAUTHORIZED,
         )
+
+    # Credentials are correct - but they are only step one. The session token is
+    # issued by /auth/admin/2fa/verify/ after a real TOTP code, never here.
+    enrolment, _ = AdminTOTP.objects.get_or_create(
+        user=user, defaults={'secret': totp_lib.generate_secret()}
+    )
+
+    pending = signing.TimestampSigner(salt=PENDING_2FA_SALT).sign(str(user.user_id))
+    data = {
+        'requires_2fa': True,
+        'pending_token': pending,
+        'expires_in': PENDING_2FA_MAX_AGE,
+        'username': user.username,
+        'email': user.email,
+    }
+
+    if not enrolment.confirmed:
+        # First sign-in (or a reset): hand over the secret once so the admin can
+        # add it to their authenticator, then confirm with a live code.
+        data['enrollment_required'] = True
+        data['secret'] = enrolment.secret
+        data['provisioning_uri'] = totp_lib.provisioning_uri(enrolment.secret, user.email or user.username)
+
+    return Response({
+        'status': 'success',
+        'message': 'Credentials accepted - two-factor code required',
+        'data': data,
+    }, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# POST /auth/admin/2fa/verify/ - step two of admin login
+# ---------------------------------------------------------------------------
+
+@api_view(['POST'])
+def admin_2fa_verify(request):
+    """Exchange a pending-2FA token plus a valid TOTP code for a session token."""
+    pending = request.data.get('pending_token')
+    code = request.data.get('code')
+
+    if not pending or not code:
+        return Response(
+            {'status': 'error', 'message': 'pending_token and code are required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        user_id = signing.TimestampSigner(salt=PENDING_2FA_SALT).unsign(
+            pending, max_age=PENDING_2FA_MAX_AGE
+        )
+    except signing.SignatureExpired:
+        return Response(
+            {'status': 'error', 'message': 'This sign-in attempt expired. Start again.'},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+    except signing.BadSignature:
+        return Response(
+            {'status': 'error', 'message': 'Invalid sign-in attempt'},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    user = Users.objects.filter(user_id=user_id).first()
+    if user is None or not user.is_staff:
+        return Response(
+            {'status': 'error', 'message': 'Invalid credentials or not an admin'},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    enrolment = AdminTOTP.objects.filter(user=user).first()
+    if enrolment is None:
+        return Response(
+            {'status': 'error', 'message': 'Two-factor is not set up for this account'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    matched_step = totp_lib.verify(enrolment.secret, code, enrolment.last_used_step)
+    if matched_step is None:
+        return Response(
+            {'status': 'error', 'message': 'That code is not valid. Check your authenticator and try again.'},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    enrolment.last_used_step = matched_step
+    if not enrolment.confirmed:
+        enrolment.confirmed = True
+        enrolment.confirmed_at = timezone.now()
+    enrolment.save(update_fields=['last_used_step', 'confirmed', 'confirmed_at'])
 
     token = generate_session_token()
     user.login_session_token = token
@@ -105,19 +222,38 @@ def admin_login(request):
             'session_token': token,
             'username': user.username,
             'email': user.email,
+            'admin': admin_identity(user),
         }
     }, status=status.HTTP_200_OK)
 
 
 # ---------------------------------------------------------------------------
-# Platform Metrics — GET /auth/admin/metrics/
+# GET /auth/admin/me/ - current admin identity + permission map
 # ---------------------------------------------------------------------------
 
 @api_view(['GET'])
-def admin_metrics(request):
-    admin, err = _get_admin_user(request)
+def admin_me(request):
+    """Return the authenticated admin's identity + permission map. Available to
+    any is_staff admin (all 4 roles) so the FE can render the correct nav."""
+    admin, err = resolve_admin(request)
     if err:
         return err
+
+    return Response({
+        'status': 'success',
+        'message': 'Admin identity',
+        'data': admin_identity(admin),
+    }, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Platform Metrics - GET /auth/admin/metrics/
+# ---------------------------------------------------------------------------
+
+@api_view(['GET'])
+@admin_role_required(ADMIN_ROLES)
+def admin_metrics(request):
+    admin = request.admin_user
 
     from vent_tournament.models import Tournament
     from django.db.models import Sum
@@ -144,6 +280,7 @@ def admin_metrics(request):
     return Response({
         'status': 'success',
         'data': {
+            # legacy keys (kept for back-compat)
             'total_users': total_users,
             'new_users_today': new_users_today,
             'active_tournaments': active_tournaments,
@@ -152,6 +289,10 @@ def admin_metrics(request):
             'pending_withdrawals': pending_withdrawals,
             'pending_kyc': pending_kyc,
             'open_disputes': open_disputes,
+            # FE-named aliases (contract §3 - exactly the 7 keys the FE reads)
+            'active_users_today': new_users_today,
+            'pending_payouts': pending_withdrawals,
+            'total_vc_circulation': coins_in_circulation,
         }
     }, status=status.HTTP_200_OK)
 
@@ -161,124 +302,171 @@ def admin_metrics(request):
 # ---------------------------------------------------------------------------
 
 @api_view(['GET'])
+@admin_role_required(ADMIN_ROLES)
 def admin_list_users(request):
-    """GET /auth/admin/users/ — paginated, searchable, filterable."""
-    admin, err = _get_admin_user(request)
-    if err:
-        return err
+    """GET /auth/admin/users/ - paginated/searchable/filterable (contract §6).
 
-    qs = Users.objects.select_related('wallet').order_by('-date_joined')
+    Params: page, page_size (20), ordering, search, status, country,
+    date_from, date_to. Response data = {results:[USERROW], count, page, page_size}.
+    """
+    from django.db.models import Q
 
-    q = request.GET.get('q')
-    if q:
-        from django.db.models import Q
-        qs = qs.filter(Q(username__icontains=q) | Q(email__icontains=q))
+    qs = Users.objects.select_related('wallet')
 
-    role_filter = request.GET.get('role')
-    if role_filter:
-        qs = qs.filter(role=role_filter)
+    search = request.GET.get('search')
+    if search:
+        qs = qs.filter(Q(username__icontains=search) | Q(email__icontains=search))
 
-    is_active_filter = request.GET.get('is_active')
-    if is_active_filter is not None:
-        qs = qs.filter(is_active=(is_active_filter.lower() == 'true'))
+    country = request.GET.get('country')
+    if country:
+        qs = qs.filter(country__icontains=country)
 
-    try:
-        page = max(1, int(request.GET.get('page', 1)))
-    except (ValueError, TypeError):
-        page = 1
+    date_from = request.GET.get('date_from')
+    if date_from:
+        qs = qs.filter(date_joined__date__gte=date_from)
+    date_to = request.GET.get('date_to')
+    if date_to:
+        qs = qs.filter(date_joined__date__lte=date_to)
 
-    per_page = 25
-    offset = (page - 1) * per_page
+    status_filter = request.GET.get('status')
+    if status_filter == 'banned':
+        qs = qs.filter(is_active=False)
+    elif status_filter == 'kyc_pending':
+        qs = qs.filter(is_active=True, kyc_documents__status='pending').distinct()
+    elif status_filter == 'active':
+        # active = is_active True AND no pending KYC
+        qs = qs.filter(is_active=True).exclude(kyc_documents__status='pending').distinct()
+    # 'suspended' not tracked - ignore.
+
+    ordering_map = {
+        '-date_joined': '-date_joined',
+        'date_joined': 'date_joined',
+        'username': 'username',
+        '-wallet_vc': '-wallet__wallet_balance',
+        'wallet_vc': 'wallet__wallet_balance',
+    }
+    ordering = ordering_map.get(request.GET.get('ordering'), '-date_joined')
+    qs = qs.order_by(ordering)
+
+    page, page_size, offset = _paginate(request, default_size=20)
     total = qs.count()
-    users = qs[offset: offset + per_page]
+    users = qs[offset: offset + page_size]
 
-    def kyc_status(user):
-        doc = user.kyc_documents.order_by('-submitted_at').first()
-        return doc.status if doc else 'not_submitted'
-
-    data = [
+    results = [
         {
-            'user_id': u.user_id,
+            'id': u.user_id,
             'username': u.username,
             'email': u.email,
             'full_name': u.full_name,
-            'role': u.role,
-            'is_active': u.is_active,
-            'is_staff': u.is_staff,
-            'kyc_status': kyc_status(u),
-            'wallet_balance': u.wallet.wallet_balance if hasattr(u, 'wallet') else 0,
-            'joined_at': u.date_joined,
+            'country': u.country,
+            'status': _user_status(u),
+            'wallet_vc': _wallet_vc(u),
+            'date_joined': u.date_joined,
         }
         for u in users
     ]
 
     return Response({
         'status': 'success',
-        'data': {'users': data, 'total': total, 'page': page, 'per_page': per_page}
+        'data': {'results': results, 'count': total, 'page': page, 'page_size': page_size},
     }, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])
+@admin_role_required(ADMIN_ROLES)
 def admin_get_user(request, user_id):
-    """GET /auth/admin/users/{id}/ — full user detail."""
-    admin, err = _get_admin_user(request)
-    if err:
-        return err
+    """GET /auth/admin/users/{id}/ - full user detail (contract §7)."""
+    from vent_tournament.models import TournamentRegistration
 
     user = get_object_or_404(Users, user_id=user_id)
 
-    try:
-        wallet = user.wallet
-        wallet_data = {
-            'balance': wallet.wallet_balance,
-            'kyc_verified': wallet.kyc_verified,
-            'pin_set': bool(wallet.pin_hash),
-        }
-    except UserWallet.DoesNotExist:
-        wallet_data = None
+    tournaments_count = TournamentRegistration.objects.filter(user=user).count()
 
-    from vent_tournament.models import TournamentRegistration
-    tournaments_played = TournamentRegistration.objects.filter(
-        user=user, status='confirmed'
-    ).count()
+    user_block = {
+        'username': user.username,
+        'full_name': user.full_name,
+        'email': user.email,
+        'status': _user_status(user),
+        'country': user.country,
+        'wallet_vc': _wallet_vc(user),
+        'tournaments_count': tournaments_count,
+        'date_joined': user.date_joined,
+        'last_login': user.last_login,
+        'role': user.role,
+        'kyc_status': _user_kyc_status(user),
+    }
 
-    kyc_docs = [
+    # logins - no login-history model yet; synthesize a single stub row from
+    # the current session timestamp (ip/device/location unavailable → "-"/null).
+    logins = []
+    if user.login_session_created_at:
+        logins.append({
+            'id': 1,
+            'created_at': user.login_session_created_at,
+            'ip': '-',
+            'device': None,
+            'location': None,
+        })
+
+    tournaments = [
         {
-            'id': d.id,
-            'document_type': d.document_type,
-            'status': d.status,
-            'submitted_at': d.submitted_at,
-            'rejection_reason': d.rejection_reason,
+            'id': r.id,
+            'name': r.tournament.tournament_title if r.tournament else None,
+            'status': r.status,
+            'placement': None,
+            'prize_vc': None,
+            'joined_at': r.registered_at,
         }
-        for d in user.kyc_documents.order_by('-submitted_at')
+        for r in TournamentRegistration.objects
+        .filter(user=user).select_related('tournament').order_by('-registered_at')
+    ]
+
+    wallet_txns = []
+    wallet = getattr(user, 'wallet', None)
+    if wallet is not None:
+        wallet_txns = [
+            {
+                'id': t.id,
+                'created_at': t.created_at,
+                'type': t.type,
+                'amount': t.amount,
+                'description': t.description,
+            }
+            for t in wallet.transactions.order_by('-created_at')[:25]
+        ]
+
+    ban_history = [
+        {
+            'id': a.id,
+            'reason': a.reason,
+            'banned_by': a.admin.username if a.admin else None,
+            'created_at': a.performed_at,
+            'lifted_at': None,
+        }
+        for a in AdminAction.objects
+        .filter(action_type__in=['ban_user', 'unban_user'], target_model='User',
+                target_id=str(user_id))
+        .select_related('admin').order_by('-performed_at')
     ]
 
     return Response({
         'status': 'success',
         'data': {
-            'user_id': user.user_id,
-            'username': user.username,
-            'email': user.email,
-            'full_name': user.full_name,
-            'role': user.role,
-            'is_active': user.is_active,
-            'is_staff': user.is_staff,
-            'signup_type': user.signup_type,
-            'date_joined': user.date_joined,
-            'last_login': user.last_login,
-            'wallet': wallet_data,
-            'tournaments_played': tournaments_played,
-            'kyc_documents': kyc_docs,
+            'user': user_block,
+            'logins': logins,
+            'tournaments': tournaments,
+            'wallet': wallet_txns,
+            'reports': [],
+            'ban_history': ban_history,
         }
     }, status=status.HTTP_200_OK)
 
 
 @api_view(['PATCH'])
+@admin_role_required(['super_admin', 'mod_admin'])
 def admin_ban_user(request, user_id):
-    """PATCH /auth/admin/users/{id}/ban/ — ban or unban a user."""
-    admin, err = _get_admin_user(request)
-    if err:
-        return err
+    """PATCH /auth/admin/users/{id}/ban/ - ban or unban a user."""
+    admin = request.admin_user
 
     user = get_object_or_404(Users, user_id=user_id)
     ban = request.data.get('ban')  # True to ban, False to unban
@@ -309,15 +497,17 @@ def admin_ban_user(request, user_id):
 
 
 @api_view(['PATCH'])
+@admin_role_required(['super_admin'])
 def admin_set_user_role(request, user_id):
-    """PATCH /auth/admin/users/{id}/role/ — assign role."""
-    admin, err = _get_admin_user(request)
-    if err:
-        return err
+    """PATCH /auth/admin/users/{id}/role/ - assign role + admin sub-role."""
+    admin = request.admin_user
 
     user = get_object_or_404(Users, user_id=user_id)
     role = request.data.get('role')
+    # shared-spec uses `admin_subrole`; accept `admin_role` as an alias too.
+    admin_subrole = request.data.get('admin_subrole') or request.data.get('admin_role')
     valid_roles = ['user', 'organizer', 'admin']
+    valid_admin_roles = dict(Users.ADMIN_ROLE_CHOICES)
 
     if role not in valid_roles:
         return Response(
@@ -325,28 +515,43 @@ def admin_set_user_role(request, user_id):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    if role == 'admin' and admin_subrole not in valid_admin_roles:
+        return Response(
+            {'status': 'error',
+             'message': 'admin_subrole is required when role is admin and must be one of: '
+                        + ', '.join(valid_admin_roles)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     old_role = user.role
+    old_admin_role = user.admin_role
     user.role = role
     if role == 'admin':
         user.is_staff = True
-    elif old_role == 'admin':
-        user.is_staff = False
-    user.save(update_fields=['role', 'is_staff'])
+        user.admin_role = admin_subrole
+    else:
+        user.admin_role = None
+        if old_role == 'admin':
+            user.is_staff = False
+    user.save(update_fields=['role', 'is_staff', 'admin_role'])
 
-    _log_action(admin, 'set_role', 'User', user_id, metadata={'old_role': old_role, 'new_role': role})
+    _log_action(admin, 'set_role', 'User', user_id, metadata={
+        'old_role': old_role, 'new_role': role,
+        'old_admin_role': old_admin_role, 'new_admin_role': user.admin_role,
+    })
 
     return Response({
         'status': 'success',
-        'message': f'Role updated to {role}',
+        'message': f'Role updated to {role}' + (f' ({user.admin_role})' if user.admin_role else ''),
+        'data': {'user_id': user.user_id, 'role': user.role, 'admin_role': user.admin_role},
     }, status=status.HTTP_200_OK)
 
 
 @api_view(['DELETE'])
+@admin_role_required(['super_admin'])
 def admin_delete_user(request, user_id):
-    """DELETE /auth/admin/users/{id}/ — permanently delete account."""
-    admin, err = _get_admin_user(request)
-    if err:
-        return err
+    """DELETE /auth/admin/users/{id}/ - permanently delete account."""
+    admin = request.admin_user
 
     user = get_object_or_404(Users, user_id=user_id)
     reason = request.data.get('reason', '')
@@ -375,42 +580,93 @@ def admin_delete_user(request, user_id):
 # Tournament Oversight
 # ---------------------------------------------------------------------------
 
+def _tournament_status(t, now):
+    """Derive TROW status. 'cancelled' is not tracked in the schema, so it is
+    never emitted (contract §11)."""
+    if t.is_draft:
+        return 'draft'
+    if t.start_date_and_time and now < t.start_date_and_time:
+        return 'active'
+    if t.end_date_and_time and now > t.end_date_and_time:
+        return 'completed'
+    return 'ongoing'
+
+
 @api_view(['GET'])
+@admin_role_required(ADMIN_ROLES)
 def admin_list_tournaments(request):
-    """GET /auth/admin/tournaments/ — all tournaments with dispute flags."""
-    admin, err = _get_admin_user(request)
-    if err:
-        return err
+    """GET /auth/admin/tournaments/ - paginated (contract §11).
 
-    from vent_tournament.models import Tournament, TournamentDispute
+    Params: page, page_size (20), ordering, search, status.
+    Response data = {results:[TROW], count, page, page_size}.
+    """
+    from vent_tournament.models import Tournament
+    from django.db.models import Count, Sum
 
-    qs = Tournament.objects.select_related('tournament_creator', 'tournament_game').order_by('-start_date_and_time')
+    now = timezone.now()
 
-    data = [
+    qs = (
+        Tournament.objects
+        .select_related('tournament_creator', 'tournament_game')
+        .annotate(_participants=Count('registrations', distinct=True),
+                  _prize=Sum('prize_distributions__prize'))
+    )
+
+    search = request.GET.get('search')
+    if search:
+        qs = qs.filter(tournament_title__icontains=search)
+
+    status_filter = request.GET.get('status')
+    if status_filter == 'draft':
+        qs = qs.filter(is_draft=True)
+    elif status_filter == 'active':
+        qs = qs.filter(is_draft=False, start_date_and_time__gt=now)
+    elif status_filter == 'ongoing':
+        qs = qs.filter(is_draft=False, start_date_and_time__lte=now, end_date_and_time__gte=now)
+    elif status_filter == 'completed':
+        qs = qs.filter(is_draft=False, end_date_and_time__lt=now)
+    elif status_filter == 'cancelled':
+        qs = qs.none()  # cancelled is not tracked → no rows
+
+    ordering_map = {
+        '-created_at': '-start_date_and_time',
+        'created_at': 'start_date_and_time',
+        'name': 'tournament_title',
+        '-prize_pool': '-_prize',
+        '-participants_count': '-_participants',
+    }
+    ordering = ordering_map.get(request.GET.get('ordering'), '-start_date_and_time')
+    qs = qs.order_by(ordering)
+
+    page, page_size, offset = _paginate(request, default_size=20)
+    total = qs.count()
+    rows = qs[offset: offset + page_size]
+
+    results = [
         {
-            'tournament_id': t.tournament_id,
-            'tournament_title': t.tournament_title,
-            'game': t.tournament_game.game_title,
-            'organizer': t.tournament_creator.username,
-            'start_date_and_time': t.start_date_and_time,
-            'end_date_and_time': t.end_date_and_time,
-            'is_draft': t.is_draft,
-            'entry_fee': t.entry_fee,
-            'open_disputes': t.disputes.filter(status='open').count(),
-            'registrations': t.registrations.count(),
+            'id': t.tournament_id,
+            'name': t.tournament_title,
+            'game': t.tournament_game.game_title if t.tournament_game else None,
+            'organizer_username': t.tournament_creator.username if t.tournament_creator else None,
+            'status': _tournament_status(t, now),
+            'participants_count': t._participants or 0,
+            'prize_pool': float(t._prize) if t._prize is not None else 0,
+            'created_at': t.start_date_and_time,
         }
-        for t in qs
+        for t in rows
     ]
 
-    return Response({'status': 'success', 'data': data}, status=status.HTTP_200_OK)
+    return Response({
+        'status': 'success',
+        'data': {'results': results, 'count': total, 'page': page, 'page_size': page_size},
+    }, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])
+@admin_role_required(ADMIN_ROLES)
 def admin_get_tournament(request, tournament_id):
-    """GET /auth/admin/tournaments/{id}/ — tournament detail with disputes."""
-    admin, err = _get_admin_user(request)
-    if err:
-        return err
+    """GET /auth/admin/tournaments/{id}/ - tournament detail with disputes."""
+    admin = request.admin_user
 
     from vent_tournament.models import Tournament
 
@@ -431,7 +687,7 @@ def admin_get_tournament(request, tournament_id):
     registrations = [
         {
             'registration_id': r.id,
-            'participant': r.team.team_name if r.team else r.user.username if r.user else '—',
+            'participant': r.team.team_name if r.team else r.user.username if r.user else '-',
             'type': 'team' if r.team else 'individual',
             'status': r.status,
             'entry_fee_paid': r.entry_fee_paid,
@@ -454,11 +710,10 @@ def admin_get_tournament(request, tournament_id):
 
 
 @api_view(['POST'])
+@admin_role_required(['super_admin', 'mod_admin'])
 def admin_resolve_dispute(request, tournament_id):
-    """POST /auth/admin/tournaments/{id}/dispute/resolve/ — resolve a dispute."""
-    admin, err = _get_admin_user(request)
-    if err:
-        return err
+    """POST /auth/admin/tournaments/{id}/dispute/resolve/ - resolve a dispute."""
+    admin = request.admin_user
 
     from vent_tournament.models import TournamentDispute
 
@@ -485,11 +740,10 @@ def admin_resolve_dispute(request, tournament_id):
 
 
 @api_view(['PATCH'])
+@admin_role_required(['super_admin', 'mod_admin'])
 def admin_override_match_score(request, match_id):
-    """PATCH /auth/admin/matches/{id}/score/ — override bracket match score."""
-    admin, err = _get_admin_user(request)
-    if err:
-        return err
+    """PATCH /auth/admin/matches/{id}/score/ - override bracket match score."""
+    admin = request.admin_user
 
     from vent_tournament.models import BracketMatch, TournamentRegistration
 
@@ -521,11 +775,10 @@ def admin_override_match_score(request, match_id):
 
 
 @api_view(['POST'])
+@admin_role_required(['super_admin', 'mod_admin'])
 def admin_cancel_tournament(request, tournament_id):
-    """POST /auth/admin/tournaments/{id}/cancel/ — cancel tournament + refund fees."""
-    admin, err = _get_admin_user(request)
-    if err:
-        return err
+    """POST /auth/admin/tournaments/{id}/cancel/ - cancel tournament + refund fees."""
+    admin = request.admin_user
 
     from vent_tournament.models import Tournament
 
@@ -538,31 +791,38 @@ def admin_cancel_tournament(request, tournament_id):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    # Refund entry fees for all confirmed paid registrations
+    # Refund entry fees for all confirmed paid registrations.
+    # Whole cancel + refund must be atomic (F2): either every refund lands or
+    # none do. Each wallet row is locked before crediting (F12).
     refunded = 0
     entry_fee_coins = int(float(tournament.entry_fee_price))
-    if entry_fee_coins > 0:
-        for reg in tournament.registrations.filter(status='confirmed', entry_fee_paid=True):
-            wallet = None
-            if reg.user:
+    with transaction.atomic():
+        if entry_fee_coins > 0:
+            paid_regs = (
+                tournament.registrations
+                .select_for_update()
+                .filter(status='confirmed', entry_fee_paid=True)
+            )
+            for reg in paid_regs:
+                if not reg.user_id:
+                    continue
                 try:
-                    wallet = reg.user.wallet
+                    wallet = UserWallet.objects.select_for_update().get(user_id=reg.user_id)
                 except UserWallet.DoesNotExist:
-                    pass
-            if wallet:
+                    continue
                 wallet.wallet_balance += entry_fee_coins
                 wallet.save(update_fields=['wallet_balance'])
                 Transaction.objects.create(
                     wallet=wallet,
                     type='refund',
                     amount=entry_fee_coins,
-                    description=f'Refund — cancelled tournament: {tournament.tournament_title}',
+                    description=f'Refund - cancelled tournament: {tournament.tournament_title}',
                     status='completed',
                     tournament=tournament,
                 )
                 refunded += 1
 
-        tournament.registrations.update(status='withdrawn')
+            tournament.registrations.update(status='withdrawn')
 
     _log_action(admin, 'cancel_tournament', 'Tournament', tournament_id,
                 reason=reason, metadata={'refunded_count': refunded})
@@ -578,11 +838,10 @@ def admin_cancel_tournament(request, tournament_id):
 # ---------------------------------------------------------------------------
 
 @api_view(['GET'])
+@admin_role_required(['super_admin', 'finance_admin'])
 def admin_pending_payouts(request):
-    """GET /auth/admin/payouts/pending/ — pending withdrawal requests."""
-    admin, err = _get_admin_user(request)
-    if err:
-        return err
+    """GET /auth/admin/payouts/pending/ - pending withdrawal requests."""
+    admin = request.admin_user
 
     # Coins → NGN: reverse of COINS_PER_100_NGN ratio
     from vent_auth.views_wallet import COINS_PER_100_NGN
@@ -615,63 +874,142 @@ def admin_pending_payouts(request):
     return Response({'status': 'success', 'data': data}, status=status.HTTP_200_OK)
 
 
-@api_view(['POST'])
-def admin_approve_payout(request, withdrawal_id):
-    """POST /auth/admin/payouts/{id}/approve/ — approve withdrawal."""
-    admin, err = _get_admin_user(request)
-    if err:
-        return err
+def _mask_account(number):
+    number = number or ''
+    return number[-4:].rjust(len(number), '*')
 
-    w = get_object_or_404(WithdrawalRequest, id=withdrawal_id)
-    note = request.data.get('note', '')
 
-    if w.status != 'pending':
-        return Response(
-            {'status': 'error', 'message': f'Withdrawal is already {w.status}'},
-            status=status.HTTP_400_BAD_REQUEST,
+@api_view(['GET'])
+@admin_role_required(['super_admin', 'finance_admin'])
+def admin_payouts_list(request):
+    """GET /auth/admin/payouts/ - status-filterable payout list (contract §15).
+
+    Params: page, page_size (20), ordering, search, status (default pending).
+    Response data = {results:[PROW], count, page, page_size}.
+    """
+    from vent_auth.views_wallet import COINS_PER_100_NGN
+
+    qs = WithdrawalRequest.objects.select_related('wallet__user')
+
+    status_filter = request.GET.get('status', 'pending')
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+
+    search = request.GET.get('search')
+    if search:
+        qs = qs.filter(wallet__user__username__icontains=search)
+
+    ordering_map = {
+        '-submitted_at': '-requested_at',
+        'submitted_at': 'requested_at',
+        '-amount_vc': '-amount',
+        'amount_vc': 'amount',
+    }
+    ordering = ordering_map.get(request.GET.get('ordering'), '-requested_at')
+    qs = qs.order_by(ordering)
+
+    page, page_size, offset = _paginate(request, default_size=20)
+    total = qs.count()
+    rows = qs[offset: offset + page_size]
+
+    results = [
+        {
+            'id': w.id,
+            'username': w.wallet.user.username if w.wallet and w.wallet.user else None,
+            'amount_vc': w.amount,
+            'amount_ngn': (w.amount * 100) // COINS_PER_100_NGN if COINS_PER_100_NGN else 0,
+            'bank_name': w.bank_name,
+            'account_number': _mask_account(w.account_number),
+            'submitted_at': w.requested_at,
+            'status': w.status,
+        }
+        for w in rows
+    ]
+
+    return Response({
+        'status': 'success',
+        'data': {'results': results, 'count': total, 'page': page, 'page_size': page_size},
+    }, status=status.HTTP_200_OK)
+
+
+def _approve_payout_core(admin, withdrawal_id, note=''):
+    """Approve a single pending payout atomically (KYC + balance gated).
+
+    Returns (True, None) on success or (False, reason) when it can't be
+    approved. Shared by the single-approve view and the bulk-approve endpoint
+    so the KYC gate + wallet locking live in one place (F6 / F12)."""
+    with transaction.atomic():
+        try:
+            w = WithdrawalRequest.objects.select_for_update().get(id=withdrawal_id)
+        except WithdrawalRequest.DoesNotExist:
+            return False, 'Withdrawal not found'
+
+        if w.status != 'pending':
+            return False, f'Withdrawal is already {w.status}'
+
+        try:
+            wallet = UserWallet.objects.select_for_update().get(pk=w.wallet_id)
+        except UserWallet.DoesNotExist:
+            return False, 'Wallet not found'
+
+        if not wallet.kyc_verified:
+            return False, 'Cannot approve - user is not KYC verified'
+
+        if wallet.wallet_balance < w.amount:
+            return False, 'Insufficient wallet balance'
+
+        wallet.wallet_balance -= w.amount
+        wallet.save(update_fields=['wallet_balance'])
+
+        Transaction.objects.create(
+            wallet=wallet,
+            type='withdrawal',
+            amount=-w.amount,
+            description=f'Withdrawal to {w.bank_name} {w.account_number[-4:]}',
+            status='completed',
         )
 
-    if not w.wallet.kyc_verified:
-        return Response(
-            {'status': 'error', 'message': 'Cannot approve — user is not KYC verified'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    # Deduct from wallet
-    if w.wallet.wallet_balance < w.amount:
-        return Response(
-            {'status': 'error', 'message': 'Insufficient wallet balance'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    w.wallet.wallet_balance -= w.amount
-    w.wallet.save(update_fields=['wallet_balance'])
-
-    Transaction.objects.create(
-        wallet=w.wallet,
-        type='withdrawal',
-        amount=-w.amount,
-        description=f'Withdrawal to {w.bank_name} {w.account_number[-4:]}',
-        status='completed',
-    )
-
-    w.status = 'approved'
-    w.admin_note = note
-    w.processed_at = timezone.now()
-    w.save(update_fields=['status', 'admin_note', 'processed_at'])
+        w.status = 'approved'
+        w.admin_note = note
+        w.processed_at = timezone.now()
+        w.save(update_fields=['status', 'admin_note', 'processed_at'])
 
     _log_action(admin, 'approve_payout', 'WithdrawalRequest', withdrawal_id,
                 note, metadata={'amount': w.amount})
+    return True, None
+
+
+@api_view(['POST'])
+@admin_role_required(['super_admin', 'finance_admin'])
+def admin_approve_payout(request, withdrawal_id):
+    """POST /auth/admin/payouts/{id}/approve/ - approve withdrawal."""
+    admin = request.admin_user
+    note = request.data.get('note', '')
+
+    ok, reason = _approve_payout_core(admin, withdrawal_id, note)
+    if not ok:
+        code = (status.HTTP_404_NOT_FOUND if reason == 'Withdrawal not found'
+                else status.HTTP_400_BAD_REQUEST)
+        return Response({'status': 'error', 'message': reason}, status=code)
+
+    try:
+        from vent_auth.views_notifications import create_notification
+        w = WithdrawalRequest.objects.select_related('wallet__user').get(id=withdrawal_id)
+        create_notification(
+            w.wallet.user, 'payout', f'Your payout of {w.amount} VC was approved',
+            link='/wallets', metadata={'withdrawal_id': w.id, 'amount': w.amount},
+        )
+    except Exception:
+        pass
 
     return Response({'status': 'success', 'message': 'Payout approved'}, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
+@admin_role_required(['super_admin', 'finance_admin'])
 def admin_reject_payout(request, withdrawal_id):
-    """POST /auth/admin/payouts/{id}/reject/ — reject withdrawal."""
-    admin, err = _get_admin_user(request)
-    if err:
-        return err
+    """POST /auth/admin/payouts/{id}/reject/ - reject withdrawal."""
+    admin = request.admin_user
 
     w = get_object_or_404(WithdrawalRequest, id=withdrawal_id)
     reason = request.data.get('reason', '')
@@ -689,6 +1027,17 @@ def admin_reject_payout(request, withdrawal_id):
 
     _log_action(admin, 'reject_payout', 'WithdrawalRequest', withdrawal_id, reason)
 
+    try:
+        from vent_auth.views_notifications import create_notification
+        create_notification(
+            w.wallet.user, 'payout',
+            f'Your payout of {w.amount} VC was rejected: {reason}' if reason
+            else f'Your payout of {w.amount} VC was rejected',
+            link='/wallets', metadata={'withdrawal_id': w.id, 'amount': w.amount},
+        )
+    except Exception:
+        pass
+
     return Response({'status': 'success', 'message': 'Payout rejected'}, status=status.HTTP_200_OK)
 
 
@@ -697,11 +1046,10 @@ def admin_reject_payout(request, withdrawal_id):
 # ---------------------------------------------------------------------------
 
 @api_view(['GET'])
+@admin_role_required(ADMIN_ROLES)
 def admin_pending_kyc(request):
-    """GET /auth/admin/kyc/pending/ — pending KYC submissions."""
-    admin, err = _get_admin_user(request)
-    if err:
-        return err
+    """GET /auth/admin/kyc/pending/ - pending KYC submissions (all admin roles can view)."""
+    admin = request.admin_user
 
     docs = (
         KYCDocument.objects
@@ -716,7 +1064,9 @@ def admin_pending_kyc(request):
             'user_id': d.user.user_id,
             'username': d.user.username,
             'document_type': d.document_type,
-            'document_image': d.document_image.url if d.document_image else None,
+            # Identity documents are not public files - this is the authenticated
+            # read endpoint, not a /media/ URL (see vent_auth/views_kyc_files.py).
+            'document_image': kyc_document_url(request, d),
             'submitted_at': d.submitted_at,
         }
         for d in docs
@@ -725,12 +1075,59 @@ def admin_pending_kyc(request):
     return Response({'status': 'success', 'data': data}, status=status.HTTP_200_OK)
 
 
+@api_view(['GET'])
+@admin_role_required(ADMIN_ROLES)
+def admin_kyc_list(request):
+    """GET /auth/admin/kyc/ - status-filterable KYC list (contract §18).
+
+    Params: page_size (50), status (omitted = all; else pending|approved|rejected).
+    Response data = {results:[KROW], count}.
+    """
+    qs = KYCDocument.objects.select_related('user').order_by('-submitted_at')
+
+    status_filter = request.GET.get('status')
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+
+    page, page_size, offset = _paginate(request, default_size=50)
+    total = qs.count()
+    docs = qs[offset: offset + page_size]
+
+    def _abs(image):
+        if not image:
+            return None
+        return request.build_absolute_uri(image.url)
+
+    def _kyc_url(doc):
+        return kyc_document_url(request, doc)
+
+    results = [
+        {
+            'id': d.id,
+            'username': d.user.username if d.user else None,
+            'email': d.user.email if d.user else None,
+            'submitted_at': d.submitted_at,
+            'doc_type': d.document_type,
+            'status': d.status,
+            'doc_url': _kyc_url(d),
+            'doc_back_url': None,
+            'selfie_url': None,
+            'rejection_reason': d.rejection_reason,
+        }
+        for d in docs
+    ]
+
+    return Response({
+        'status': 'success',
+        'data': {'results': results, 'count': total},
+    }, status=status.HTTP_200_OK)
+
+
 @api_view(['POST'])
+@admin_role_required(['super_admin', 'finance_admin', 'mod_admin'])
 def admin_approve_kyc(request, kyc_id):
-    """POST /auth/admin/kyc/{id}/approve/ — mark user KYC verified."""
-    admin, err = _get_admin_user(request)
-    if err:
-        return err
+    """POST /auth/admin/kyc/{id}/approve/ - mark user KYC verified."""
+    admin = request.admin_user
 
     doc = get_object_or_404(KYCDocument, id=kyc_id)
 
@@ -754,15 +1151,23 @@ def admin_approve_kyc(request, kyc_id):
     _log_action(admin, 'approve_kyc', 'KYCDocument', kyc_id,
                 metadata={'user_id': doc.user.user_id})
 
+    try:
+        from vent_auth.views_notifications import create_notification
+        create_notification(
+            doc.user, 'kyc', 'Your KYC was approved',
+            link='/wallets/verify', metadata={'kyc_id': doc.id},
+        )
+    except Exception:
+        pass
+
     return Response({'status': 'success', 'message': 'KYC approved'}, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
+@admin_role_required(['super_admin', 'finance_admin', 'mod_admin'])
 def admin_reject_kyc(request, kyc_id):
-    """POST /auth/admin/kyc/{id}/reject/ — reject KYC with reason."""
-    admin, err = _get_admin_user(request)
-    if err:
-        return err
+    """POST /auth/admin/kyc/{id}/reject/ - reject KYC with reason."""
+    admin = request.admin_user
 
     doc = get_object_or_404(KYCDocument, id=kyc_id)
     reason = request.data.get('reason', '')
@@ -781,7 +1186,193 @@ def admin_reject_kyc(request, kyc_id):
     _log_action(admin, 'reject_kyc', 'KYCDocument', kyc_id, reason,
                 metadata={'user_id': doc.user.user_id})
 
+    try:
+        from vent_auth.views_notifications import create_notification
+        create_notification(
+            doc.user, 'kyc', f'Your KYC was rejected: {reason}' if reason else 'Your KYC was rejected',
+            link='/wallets/verify', metadata={'kyc_id': doc.id},
+        )
+    except Exception:
+        pass
+
     return Response({'status': 'success', 'message': 'KYC rejected'}, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Audit log  (N38 / N39)
+# ---------------------------------------------------------------------------
+
+def _audit_multi(request, keys):
+    """Collect filter values across alias keys, supporting comma-separated and
+    repeated params (multiselect)."""
+    values = []
+    for key in keys:
+        for raw in request.GET.getlist(key):
+            values.extend(v.strip() for v in raw.split(',') if v.strip())
+    return values
+
+
+def _audit_parse_date(value):
+    from django.utils.dateparse import parse_date, parse_datetime
+    d = parse_date(value)
+    if d:
+        return d
+    dt = parse_datetime(value)
+    return dt.date() if dt else None
+
+
+def _audit_log_queryset(request):
+    """Filtered + role-scoped AdminAction queryset. super_admin sees all;
+    every other role sees only their own actions (m1-spec §9)."""
+    from django.db.models import Q
+
+    qs = AdminAction.objects.select_related('admin').order_by('-performed_at')
+
+    # Role scoping - request.admin_role is set by the decorator.
+    if getattr(request, 'admin_role', None) != 'super_admin':
+        qs = qs.filter(admin=request.admin_user)
+
+    # Free-text search (accept `q` or FE's `search`)
+    q = request.GET.get('q') or request.GET.get('search')
+    if q:
+        qs = qs.filter(
+            Q(action_type__icontains=q) | Q(target_model__icontains=q)
+            | Q(target_id__icontains=q) | Q(reason__icontains=q)
+            | Q(admin__username__icontains=q)
+        )
+
+    # Action type (accept `action_type` or FE's `action`; multiselect)
+    actions = _audit_multi(request, ['action_type', 'action'])
+    if actions:
+        qs = qs.filter(action_type__in=actions)
+
+    # Actor (accept `actor` / FE's `admin_username` / `admin`; ids or usernames)
+    actors = _audit_multi(request, ['actor', 'admin_username', 'admin'])
+    if actors:
+        ids = [a for a in actors if a.isdigit()]
+        names = [a for a in actors if not a.isdigit()]
+        cond = Q()
+        if ids:
+            cond |= Q(admin__user_id__in=ids)
+        if names:
+            cond |= Q(admin__username__in=names)
+        qs = qs.filter(cond)
+
+    # Date range on performed_at (accept `from`/`to` or FE's `date_from`/`date_to`)
+    d_from = request.GET.get('from') or request.GET.get('date_from')
+    d_to = request.GET.get('to') or request.GET.get('date_to')
+    if d_from:
+        parsed = _audit_parse_date(d_from)
+        if parsed:
+            qs = qs.filter(performed_at__date__gte=parsed)
+    if d_to:
+        parsed = _audit_parse_date(d_to)
+        if parsed:
+            qs = qs.filter(performed_at__date__lte=parsed)
+
+    return qs
+
+
+def _serialize_action(a):
+    """Emit both spec field names and the FE aliases the audit-log page reads."""
+    meta = a.metadata or {}
+    return {
+        'id': a.id,
+        'admin_username': a.admin.username if a.admin else None,
+        'admin_user_id': a.admin.user_id if a.admin else None,
+        'action': a.action_type,        # FE alias
+        'action_type': a.action_type,   # spec
+        'target_type': a.target_model,  # FE alias
+        'target_model': a.target_model,  # spec
+        'target_id': a.target_id,
+        'description': a.reason,         # FE alias
+        'reason': a.reason,              # spec
+        'metadata': meta,
+        'ip': meta.get('ip'),            # not tracked yet (M2) → null
+        'result': meta.get('result', 'success'),
+        'created_at': a.performed_at,    # FE alias
+        'performed_at': a.performed_at,  # spec
+    }
+
+
+@api_view(['GET'])
+@admin_role_required(ROLE_PERMISSIONS['view_audit_log'])
+def admin_audit_log(request):
+    """GET /auth/admin/audit-log/ - paginated (25/page) AdminAction feed.
+
+    Filters: q/search, action_type/action, actor/admin_username, from/to
+    (date_from/date_to). Role-scoped: super_admin sees all; others see own."""
+    qs = _audit_log_queryset(request)
+    total = qs.count()
+
+    try:
+        page = max(1, int(request.GET.get('page', 1)))
+    except (ValueError, TypeError):
+        page = 1
+    try:
+        page_size = int(request.GET.get('page_size', 25))
+    except (ValueError, TypeError):
+        page_size = 25
+    page_size = max(1, min(page_size, 100))
+
+    offset = (page - 1) * page_size
+    rows = [_serialize_action(a) for a in qs[offset: offset + page_size]]
+    total_pages = (total + page_size - 1) // page_size if total else 1
+
+    return Response({
+        'status': 'success',
+        'data': {
+            'results': rows,        # FE alias
+            'actions': rows,        # spec
+            'count': total,         # FE alias
+            'total_count': total,   # spec
+            'page': page,
+            'page_size': page_size,
+            'total_pages': total_pages,
+        },
+        'message': 'Audit log',
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@admin_role_required(ROLE_PERMISSIONS['export_audit_log'])
+def admin_audit_log_export(request):
+    """GET /auth/admin/audit-log/export.csv - streamed CSV of the (filtered)
+    audit log. super_admin only. Same filters as the list endpoint."""
+    import csv
+    import json
+    from django.http import StreamingHttpResponse
+
+    qs = _audit_log_queryset(request)
+
+    class _Echo:
+        def write(self, value):
+            return value
+
+    writer = csv.writer(_Echo())
+    header = [
+        'id', 'performed_at', 'admin_username', 'admin_user_id', 'action_type',
+        'target_model', 'target_id', 'reason', 'metadata',
+    ]
+
+    def _rows():
+        yield writer.writerow(header)
+        for a in qs.iterator():
+            yield writer.writerow([
+                a.id,
+                a.performed_at.isoformat() if a.performed_at else '',
+                a.admin.username if a.admin else '',
+                a.admin.user_id if a.admin else '',
+                a.action_type,
+                a.target_model,
+                a.target_id,
+                a.reason,
+                json.dumps(a.metadata or {}),
+            ])
+
+    response = StreamingHttpResponse(_rows(), content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="audit-log.csv"'
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -789,13 +1380,19 @@ def admin_reject_kyc(request, kyc_id):
 # ---------------------------------------------------------------------------
 
 @api_view(["GET"])
+@admin_role_required(['super_admin', 'support_admin'])
 def get_all_username_and_email(request):
+    # SECURITY (F1): tightened from fully-public → admin RBAC
+    # (super_admin / support_admin per m1-spec §9).
+    admin = request.admin_user
     users = Users.objects.all().values("username", "email")
     return Response({"status": "success", "data": list(users)}, status=status.HTTP_200_OK)
 
 
 @api_view(["GET"])
+@admin_role_required(ADMIN_ROLES)
 def get_number_of_all_users(request):
+    # Gated to any admin role (no unauthenticated FE caller - grep confirmed).
     user_count = Users.objects.count()
     return Response({"status": "success", "total_users": user_count}, status=status.HTTP_200_OK)
 
@@ -905,7 +1502,7 @@ def add_email_to_waitlist(request):
       <p>Welcome to the Vermillion Enterprise community! 🎉 We're thrilled to have you on board.</p>
       <p>
         We are building a platform for people in the anime and gaming industry.
-        We share the same passions as you — anime, games, graphic design,
+        We share the same passions as you - anime, games, graphic design,
         game development, video editing, esports, and so much more.
       </p>
 
@@ -932,10 +1529,10 @@ def add_email_to_waitlist(request):
       <h2>Shop:</h2>
       <p>
         We'll soon have some merchandise and gaming products for you in <strong>Vermillion City (our shop)</strong>.<br>
-        We'll announce once it's live — you'll be able to browse, request custom items, and grab your favorites.
+        We'll announce once it's live - you'll be able to browse, request custom items, and grab your favorites.
       </p>
 
-      <p><em>Fun fact:</em> <strong>"Vermillion City"</strong> was inspired by the anime <em>Pokémon</em> — a place where you can find whatever it is you want.</p>
+      <p><em>Fun fact:</em> <strong>"Vermillion City"</strong> was inspired by the anime <em>Pokémon</em> - a place where you can find whatever it is you want.</p>
 
       <p>Thank you for joining us on this exciting journey.<br>
       If you have any questions, feel free to reach out at <a href="mailto:info@v-ent.co">info@v-ent.co</a>.</p>

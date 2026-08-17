@@ -97,6 +97,16 @@ If you did not create an account, please ignore this email.
     if django_settings.DEBUG:
         user.is_active = True
         user.save()
+        # Mirror verify_token_3 so a debug-bypassed account is fully usable -
+        # otherwise the new user has no profile/wallet and /home, /user-profile,
+        # and paid registration all break.
+        user_prof, _ = UserProfile.objects.get_or_create(user=user)
+        if not user_prof.profile_picture:
+            profile_pic_file = create_default_profile_picture(user.full_name)
+            user_prof.profile_picture.save(f"{user.username}_profile.png", File(profile_pic_file))
+            user_prof.save()
+        if not UserWallet.objects.filter(user=user).exists():
+            create_user_wallet(user=user)
         return Response({"status": "success", "message": "Account created successfully (email verification bypassed in debug mode)"}, status=status.HTTP_200_OK)
 
     try:
@@ -215,6 +225,11 @@ def login(request):
             "status": "success",
             "message": "User logged in successfully",
             "session_token": session_token,
+            # Identity so the FE session (NextAuth) carries who the user is -
+            # owner/self detection (e.g. team ownership) compares against these.
+            "user_id": user.user_id,
+            "username": user.username,
+            "email": user.email,
         }, status=status.HTTP_200_OK)
     else:
         return Response({
