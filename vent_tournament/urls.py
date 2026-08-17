@@ -1,5 +1,9 @@
 from django.urls import path, include
 from .views import *
+from .views_bracket import (
+    generate_bracket, report_match_score, confirm_match_score, raise_dispute,
+    match_detail, distribute_prizes, cancel_tournament, my_disputes,
+)
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -17,4 +21,15 @@ urlpatterns = [
     path("get-organizer-tournaments/", get_organizer_tournaments, name="get_organizer_tournaments"),
     path("delete-draft/<int:tournament_id>/", delete_draft, name="delete_draft"),
     path("edit-tournament/<int:tournament_id>/", edit_tournament, name="edit_tournament"),
+
+    # --- M1 lifecycle endpoints ------------------------------------------
+    path("<int:tournament_id>/generate-bracket/", generate_bracket, name="generate_bracket"),
+    path("<int:tournament_id>/distribute-prizes/", distribute_prizes, name="distribute_prizes"),
+    path("<int:tournament_id>/cancel/", cancel_tournament, name="cancel_tournament"),
+    path("match/<int:match_id>/", match_detail, name="match_detail"),
+    path("match/<int:match_id>/report-score/", report_match_score, name="report_match_score"),
+    path("match/<int:match_id>/confirm-score/", confirm_match_score, name="confirm_match_score"),
+    path("match/<int:match_id>/raise-dispute/", raise_dispute, name="raise_dispute"),
+    path("match/<int:match_id>/dispute/", raise_dispute, name="raise_dispute_alias"),  # contract-table alias
+    path("my-disputes/", my_disputes, name="my_disputes"),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
