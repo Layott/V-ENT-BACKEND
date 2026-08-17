@@ -1,0 +1,23 @@
+[Unit]
+Description=V-ENT Django API (gunicorn)
+After=network.target mysql.service
+
+[Service]
+User=vent
+Group=www-data
+WorkingDirectory=/srv/vent/backend
+EnvironmentFile=/srv/vent/backend/.env
+ExecStart=/srv/vent/backend/venv/bin/gunicorn vent.wsgi:application \
+  --workers 7 --threads 2 --timeout 60 \
+  --bind unix:/run/vent/api.sock \
+  --access-logfile - --error-logfile -
+RuntimeDirectory=vent
+Restart=always
+RestartSec=3
+
+# The app only ever writes to media/private/staticfiles.
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

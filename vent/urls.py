@@ -16,6 +16,8 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -23,4 +25,14 @@ urlpatterns = [
     path("tournament/", include('vent_tournament.urls')),
     path("event/", include('vent_event.urls')),
     path("team/", include('vent_team.urls')),
+    # Root-mounted /setting/, /device/, /user/<id>/update/ for the settings page.
+    path("", include('vent_auth.urls_settings')),
 ]
+
+# Serve uploaded media at the canonical MEDIA_URL (/media/) in dev. The per-app
+# urls.py also append static() but those only serve under their mount prefix
+# (/auth/media/, ...), so Django-generated `.url` / build_absolute_uri paths
+# (which are /media/...) 404 without this root-level serve. Admin KYC review is
+# the first surface to render a /media/ image directly, which exposed the gap.
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

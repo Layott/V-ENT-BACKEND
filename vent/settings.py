@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 import os
 from pathlib import Path
 import pymysql
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -35,9 +36,25 @@ DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
+# Fail loudly rather than booting production on a missing/dev key.
+if not DEBUG and (not SECRET_KEY or SECRET_KEY.startswith('django-insecure-')):
+    raise ImproperlyConfigured(
+        'SECRET_KEY must be set to a real value when DEBUG is off. '
+        'Generate one with: python -c "from django.core.management.utils import '
+        'get_random_secret_key as k; print(k())"'
+    )
 
+
+# Public uploads (avatars, banners, logos). nginx serves this directory directly.
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_ROOT = os.environ.get('MEDIA_ROOT', os.path.join(BASE_DIR, 'media'))
+
+# Private uploads (KYC identity documents). NEVER served by nginx directly - see
+# vent_auth/storages.py and the kyc_document view. Kept outside MEDIA_ROOT so a
+# misconfigured `location /media/` block can never expose a government ID.
+PRIVATE_MEDIA_ROOT = os.environ.get('PRIVATE_MEDIA_ROOT', os.path.join(BASE_DIR, 'private'))
+# The nginx `internal` location that fronts PRIVATE_MEDIA_ROOT for X-Accel-Redirect.
+PRIVATE_MEDIA_URL = os.environ.get('PRIVATE_MEDIA_URL', '/private/')
 
 # Application definition
 
@@ -81,18 +98,26 @@ MIDDLEWARE = [
 
 CORS_ALLOW_CREDENTIALS = True
 
-CORS_ALLOWED_ORIGINS = [
-    "https://www.vermillionent.com",
-    "https://test.app.v-ent.co",
+# Local dev origins are always allowed; production hosts come from the env so a
+# deploy never depends on editing this file. Set CORS_ALLOWED_ORIGINS and
+# CSRF_TRUSTED_ORIGINS as comma-separated absolute origins (scheme included).
+_DEV_ORIGINS = [
     "http://localhost:3000",
-    "https://v-ent-backend-production.up.railway.app",
+    "http://127.0.0.1:3000",
+    # Alt dev ports (used when 3000 is occupied by another local project)
+    "http://localhost:3100",
+    "http://127.0.0.1:3100",
 ]
 
-CSRF_TRUSTED_ORIGINS = [
-    "https://www.vermillionent.com",
-    "https://test.app.v-ent.co",
-    "https://v-ent-backend-production.up.railway.app",
-]
+
+def _origins(env_name):
+    raw = os.environ.get(env_name, '')
+    extra = [o.strip() for o in raw.split(',') if o.strip()]
+    return extra + (_DEV_ORIGINS if DEBUG else [])
+
+
+CORS_ALLOWED_ORIGINS = _origins('CORS_ALLOWED_ORIGINS')
+CSRF_TRUSTED_ORIGINS = _origins('CSRF_TRUSTED_ORIGINS')
 
 SITE_ID = 1
 
@@ -136,6 +161,11 @@ DATABASES = {
         'PASSWORD': os.environ.get('DB_PASSWORD'),
         'HOST': os.environ.get('DB_HOST', 'localhost'),
         'PORT': os.environ.get('DB_PORT', '3306'),
+        # Reuse connections instead of a fresh MySQL handshake per request.
+        # 0 in dev so the runserver autoreloader never holds a stale socket.
+        'CONN_MAX_AGE': 0 if DEBUG else int(os.environ.get('CONN_MAX_AGE', '60')),
+        'CONN_HEALTH_CHECKS': not DEBUG,
+        'OPTIONS': {'charset': 'utf8mb4'},
     }
 }
 
@@ -181,6 +211,35 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
 STATIC_URL = "static/"
+# collectstatic target. nginx serves this directory at /static/ in production;
+# without it `collectstatic` fails and the Django admin renders unstyled.
+STATIC_ROOT = os.environ.get('STATIC_ROOT', os.path.join(BASE_DIR, 'staticfiles'))
+
+
+# ---------------------------------------------------------------------------
+# Production hardening. Every flag here is a no-op in local development
+# (DEBUG=True) so the dev loop over plain http keeps working unchanged.
+# ---------------------------------------------------------------------------
+if not DEBUG:
+    # nginx terminates TLS and forwards the original scheme.
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    USE_X_FORWARDED_HOST = True
+
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_HTTPONLY = True
+
+    SECURE_HSTS_SECONDS = 31536000          # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+    X_FRAME_OPTIONS = 'DENY'
+
+    # Uploads land in a private directory owned by the app user only.
+    FILE_UPLOAD_PERMISSIONS = 0o640
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
