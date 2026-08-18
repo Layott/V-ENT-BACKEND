@@ -13,7 +13,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from vent.settings import FRONTEND_URL
-from .models import Users, UserProfile, UserWallet, VerificationToken
+from .models import Users, UserProfile, UserWallet, VerificationToken, WaitlistReservation
 from .serializers import UserSerializer
 from . import emails
 from .views_helpers import (
@@ -76,6 +76,19 @@ def signup(request):
                     "message": "Signup with the username you saved on the waitlist"
                 }, status=status.HTTP_400_BAD_REQUEST)
     else:
+        # A handle reserved on the pre-launch waitlist is held for its reserver
+        # for WAITLIST_HOLD_DAYS. Without this, 98 people who reserved a name
+        # can lose it to a stranger between launch and the moment they open the
+        # claim email. The reserver themselves is never blocked - the check is
+        # by email - and the hold lapses so abandoned names come back.
+        reserved = WaitlistReservation.objects.filter(username__iexact=username).first()
+        if reserved and reserved.holds_username() and reserved.email.lower() != (email or '').lower():
+            return Response({
+                "status": "error",
+                "message": "That username is reserved by a V-ENT waitlist member. Please choose another.",
+                "code": "USERNAME_RESERVED",
+            }, status=status.HTTP_409_CONFLICT)
+
         username_is_available = Users.objects.filter(username=username).exists()
 
         if not username_is_available:

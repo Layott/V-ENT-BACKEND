@@ -1,0 +1,28 @@
+{% extends "emails/base.html" %}
+{% block title %}Claim your V-ENT account{% endblock %}
+{% block kicker %}Founding member{% endblock %}
+{% block preheader %}V-ENT is open. Your username {{ username }} is waiting for you.{% endblock %}
+{% block heading %}V-ENT is open{% endblock %}
+{% block content %}
+<p style="margin:0 0 20px 0;">Hi {{ name }}, you joined the V-ENT waitlist at number {{ position }}. The platform is live and the account is yours to finish.</p>
+
+{% if username %}
+<p style="margin:0 0 8px 0; font-size:14px; color:#8A8A93;">Your reserved username</p>
+<p style="margin:0 0 24px 0; font-family:Georgia,'Times New Roman',serif; font-size:28px; line-height:34px; font-weight:700; color:#D4AF37;">{{ username }}</p>
+<p style="margin:0 0 24px 0;">We are holding it for you for the next {{ hold_days }} days. Set a password and it is yours.</p>
+{% else %}
+<p style="margin:0 0 24px 0;">Pick a username and set a password, and you are in.</p>
+{% endif %}
+
+{% include "emails/_button.html" with url=claim_url label="Claim my account" %}
+<div style="height:20px; line-height:20px;">&nbsp;</div>
+
+<p style="margin:0 0 24px 0; font-size:13px; line-height:20px; color:#8A8A93;">
+  This link works once and is yours alone. If the button does not work, copy this address into your browser:<br>
+  <a href="{{ claim_url }}" style="color:#9A9AA3; word-break:break-all;">{{ claim_url }}</a>
+</p>
+
+<p style="margin:0 0 8px 0;">As a founding member your profile carries your waitlist number permanently.</p>
+<p style="margin:0; font-size:14px; color:#8A8A93;">You never set a password on the waitlist, so you are choosing one now. Nothing you saved is lost.</p>
+{% endblock %}
+{% block footer_note %}You received this because you joined the V-ENT waitlist before launch.{% endblock %}
