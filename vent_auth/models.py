@@ -38,6 +38,14 @@ class Users(AbstractUser):
         max_length=32, null=True, blank=True, choices=ADMIN_ROLE_CHOICES
     )
 
+    # Set when an account is created by claiming a pre-launch waitlist
+    # reservation. Kept on the user rather than read through the reservation so
+    # a profile can show it without a join, and so it survives if the
+    # reservation row is ever cleaned up. `founding_position` is the queue
+    # number they earned on the waitlist, referral boosts included.
+    is_founding_member = models.BooleanField(default=False)
+    founding_position = models.IntegerField(null=True, blank=True)
+
     USERNAME_FIELD = 'username'  # Use 'username' for authentication
     REQUIRED_FIELDS = ['full_name']  # Exclude 'username'
 
@@ -396,6 +404,65 @@ class Waitlist(models.Model):
 
     def __str__(self):
         return self.email
+
+
+class WaitlistReservation(models.Model):
+    """Somebody who signed up before launch, imported from the waitlist site.
+
+    The waitlist ran on its own site and its own database, and it never captured
+    a password - the join endpoint passed `password_hash: null` for every one of
+    the 102 rows. So there are no credentials to migrate and nobody can "log in
+    with what they saved". What they actually reserved is a **username**.
+
+    Claiming converts that reservation into a real account. The token mailed to
+    them proves they control the address, so no separate verification step is
+    needed; they pick a password and the handle they chose is waiting.
+
+    The row is kept here rather than read from the waitlist database at request
+    time, so the platform never depends on the marketing site being up to let
+    somebody sign in.
+    """
+    email = models.EmailField(unique=True)
+    username = models.CharField(max_length=128, null=True, blank=True)
+    display_name = models.CharField(max_length=148, blank=True)
+    game = models.CharField(max_length=100, blank=True)
+    country = models.CharField(max_length=100, blank=True)
+    position = models.IntegerField(default=0)
+    referral_code = models.CharField(max_length=32, blank=True)
+    boost_count = models.IntegerField(default=0)
+    email_verified = models.BooleanField(default=False)
+    # waitlist_entries.id on the waitlist site, so a re-import updates rather
+    # than duplicates and the two sides stay traceable to each other.
+    source_id = models.BigIntegerField(null=True, blank=True)
+
+    claim_token = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    claim_sent_at = models.DateTimeField(null=True, blank=True)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    claimed_user = models.ForeignKey(
+        'Users', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='waitlist_reservation')
+    # After this, the reserved username goes back into the open pool. Without a
+    # deadline a name someone reserved and abandoned is burned forever.
+    hold_expires_at = models.DateTimeField(null=True, blank=True)
+    imported_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['position']
+
+    def __str__(self):
+        return f"{self.username or self.email} (#{self.position})"
+
+    @property
+    def is_claimed(self):
+        return self.claimed_at is not None
+
+    def holds_username(self):
+        """True while this reservation still blocks the handle from open signup."""
+        if self.is_claimed or not self.username:
+            return False
+        if self.hold_expires_at is None:
+            return True
+        return timezone.now() < self.hold_expires_at
 
 
 # ---------------------------------------------------------------------------

@@ -151,6 +151,27 @@ def send_welcome(to_address, *, name):
     return _send(to_address, 'Welcome to V-ENT', 'welcome.html', {'name': name})
 
 
+def send_waitlist_claim(to_address, *, name, username, position, claim_url, hold_days):
+    """Launch-day invitation to a pre-launch reserver.
+
+    Promises exactly two things, because both are free: the username they
+    reserved, and a permanent founding-member number. No coin bonus is mentioned
+    - see WAITLIST_CLAIM_BONUS_VC, which is 0 by decision.
+    """
+    return _send(
+        to_address,
+        'V-ENT is open. Claim your account',
+        'waitlist_claim.html',
+        {
+            'name': name,
+            'username': username,
+            'position': position,
+            'claim_url': claim_url,
+            'hold_days': hold_days,
+        },
+    )
+
+
 def send_password_reset(to_address, *, name, code, reset_url=None, resend=False):
     return _send(
         to_address,

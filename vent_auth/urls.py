@@ -7,6 +7,7 @@ from django.conf.urls.static import static
 from .views_rankings import games_list
 from .views_admin import admin_2fa_verify
 from .views_kyc_files import kyc_document
+from .views_waitlist import waitlist_claim, waitlist_claim_preview
 
 urlpatterns = [
     # path("admin/", admin.site.urls),
@@ -107,4 +108,8 @@ urlpatterns = [
     path("wallet/kyc/status/", kyc_status, name="kyc_status"),
     # Authenticated read of an identity document. Never a /media/ URL.
     path("kyc/document/<int:document_id>/", kyc_document, name="kyc_document"),
+    # Pre-launch waitlist. The token in the mailed link is the credential,
+    # so neither of these takes a session.
+    path("waitlist/claim/<str:token>/", waitlist_claim_preview, name="waitlist_claim_preview"),
+    path("waitlist/claim/", waitlist_claim, name="waitlist_claim"),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

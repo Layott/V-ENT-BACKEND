@@ -320,3 +320,16 @@ if not DEBUG:
             'https://app.v-ent.co so emailed links still work.', FRONTEND_URL)
         FRONTEND_URL = 'https://app.v-ent.co'
 FRONTEND_LOCALHOST = os.environ.get('FRONTEND_LOCALHOST', 'http://localhost:3000')
+
+# How long a pre-launch reservation keeps its username out of the open signup
+# pool. After this the handle is fair game again, because a name reserved by
+# somebody who never returns should not be burned forever.
+WAITLIST_HOLD_DAYS = int(os.environ.get('WAITLIST_HOLD_DAYS', '90'))
+
+# VENT COINS credited when a waitlist reservation is claimed. Deliberately 0:
+# the founding-member perk is the reserved username and the badge, neither of
+# which costs anything, and the claim email promises no coins. The mechanism
+# exists so that when there is budget this becomes a number, and
+# `manage.py grant_founding_bonus` can pay everyone already marked as founding
+# without anyone having been promised money we did not have.
+WAITLIST_CLAIM_BONUS_VC = int(os.environ.get('WAITLIST_CLAIM_BONUS_VC', '0'))
