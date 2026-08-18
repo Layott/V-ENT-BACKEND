@@ -123,6 +123,18 @@ def admin_login(request):
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
+    # is_staff opens the door; admin_role decides what is behind it. They are
+    # separate fields and can disagree: an account with is_staff and no role
+    # signed in fine and then got 403 from every endpoint, so the dashboard
+    # loaded as a grid of dashes under "Failed to load dashboard data." Refuse
+    # the sign-in instead, and say why.
+    if not user.admin_role:
+        return Response(
+            {'status': 'error',
+             'message': 'This account has no admin role assigned. Ask a super admin to grant one.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
     # Credentials are correct - but they are only step one. The session token is
     # issued by /auth/admin/2fa/verify/ after a real TOTP code, never here.
     enrolment, _ = AdminTOTP.objects.get_or_create(
