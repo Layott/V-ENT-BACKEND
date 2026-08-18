@@ -4,6 +4,10 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 
+from .views_rankings import games_list
+from .views_admin import admin_2fa_verify
+from .views_kyc_files import kyc_document
+
 urlpatterns = [
     # path("admin/", admin.site.urls),
     path('signup/', signup, name='signup'),
@@ -24,12 +28,17 @@ urlpatterns = [
     path("send-code/", send_code, name="send_code"),
     path("save-username/", save_username, name="save_username"),
     path("admin/login/", admin_login, name="admin_login"),
+    path("admin/me/", admin_me, name="admin_me"),
     path("admin/get-all-username-and-email/", get_all_username_and_email, name="get_all_username_and_email"),
     path("admin/user-count/", get_number_of_all_users, name="get_number_of_all_users"),
     path("admin/check-username-availability/", check_username_availability, name="check_username_availability"),
     # Admin dashboard
     path("admin/metrics/", admin_metrics, name="admin_metrics"),
+    path("admin/charts/", admin_charts, name="admin_charts"),
+    path("admin/recent-activity/", admin_recent_activity, name="admin_recent_activity"),
+    path("admin/settings/", admin_settings, name="admin_settings"),
     path("admin/users/", admin_list_users, name="admin_list_users"),
+    path("admin/users/bulk/", admin_bulk_user_action, name="admin_bulk_user_action"),
     path("admin/users/<int:user_id>/", admin_get_user, name="admin_get_user"),
     path("admin/users/<int:user_id>/ban/", admin_ban_user, name="admin_ban_user"),
     path("admin/users/<int:user_id>/role/", admin_set_user_role, name="admin_set_user_role"),
@@ -38,27 +47,49 @@ urlpatterns = [
     path("admin/tournaments/<int:tournament_id>/", admin_get_tournament, name="admin_get_tournament"),
     path("admin/tournaments/<int:tournament_id>/dispute/resolve/", admin_resolve_dispute, name="admin_resolve_dispute"),
     path("admin/tournaments/<int:tournament_id>/cancel/", admin_cancel_tournament, name="admin_cancel_tournament"),
+    path("admin/tournaments/<int:tournament_id>/disqualify/", admin_disqualify_registration, name="admin_disqualify_registration"),
     path("admin/matches/<int:match_id>/score/", admin_override_match_score, name="admin_override_match_score"),
+    path("admin/payouts/", admin_payouts_list, name="admin_payouts_list"),
     path("admin/payouts/pending/", admin_pending_payouts, name="admin_pending_payouts"),
+    path("admin/payouts/bulk-approve/", admin_bulk_approve_payouts, name="admin_bulk_approve_payouts"),
     path("admin/payouts/<int:withdrawal_id>/approve/", admin_approve_payout, name="admin_approve_payout"),
     path("admin/payouts/<int:withdrawal_id>/reject/", admin_reject_payout, name="admin_reject_payout"),
+    path("admin/kyc/", admin_kyc_list, name="admin_kyc_list"),
     path("admin/kyc/pending/", admin_pending_kyc, name="admin_pending_kyc"),
     path("admin/kyc/<int:kyc_id>/approve/", admin_approve_kyc, name="admin_approve_kyc"),
     path("admin/kyc/<int:kyc_id>/reject/", admin_reject_kyc, name="admin_reject_kyc"),
+    path("admin/audit-log/export.csv", admin_audit_log_export, name="admin_audit_log_export"),
+    path("admin/audit-log/", admin_audit_log, name="admin_audit_log"),
+    # Admin dispute center (queue across all tournaments)
+    path("admin/disputes/", admin_disputes_list, name="admin_disputes_list"),
+    path("admin/disputes/<int:dispute_id>/resolve/", admin_resolve_dispute_by_id, name="admin_resolve_dispute_by_id"),
+    # Notifications inbox + bell
+    path("notifications/", list_notifications, name="list_notifications"),
+    path("notifications/unread-count/", notifications_unread_count, name="notifications_unread_count"),
+    path("notifications/read-all/", mark_all_notifications_read, name="mark_all_notifications_read"),
+    path("notifications/<int:notification_id>/read/", mark_notification_read, name="mark_notification_read"),
+    path("notifications/<int:notification_id>/delete/", delete_notification, name="delete_notification"),
     path("get-username-with-email/", get_username_with_email, name="get_username_with_email"),
     path("edit-profile-info/", edit_profile_info, name="edit_profile_info"),
     path("get-user-informations/", get_user_informations, name="get_user_informations"),
+    # Public-ish profile card for a username, used by the wallet send flow.
+    path("user/lookup/", lookup_user, name="lookup_user"),
     path("get-user-status/", get_user_status, name="get_user_status"),
     path("add-email-to-waitlist/", add_email_to_waitlist, name="add_email_to_waitlist"),
     path("update-web-and-social-links/", update_web_and_social_links, name="update_web_and_social_links"),
     path("social-auth/", social_auth, name="social_auth"),
     path("edit-favorite-games/", edit_favorite_games, name="edit_favorite_games"),
+    path("update-favorite-games/", update_favorite_games, name="update_favorite_games"),
+    path("upload-avatar/", upload_avatar, name="upload_avatar"),
+    path("upload-banner/", upload_banner, name="upload_banner"),
     path("resend-link/", resend_link, name="resend_link"),
     path("resend-forgot-password-token/", resend_forgot_password_token, name="resend_forgot_password_token"),
     path("get-google-login-url/", get_google_login_url, name="get_google_login_url"),
     path("google-callback/", google_callback, name="google_callback"),
     path("verify-google-token/", verify_token, name="verify_token"),
     path("upload-images/", upload_images, name="upload_images"),
+    path("games/", games_list, name="games_list"),
+    path("admin/2fa/verify/", admin_2fa_verify, name="admin_2fa_verify"),
     path("get-user-gallery/", get_user_gallery, name="get_user_gallery"),
     path("delete-gallery-image/", delete_gallery_image, name="delete_gallery_image"),
     # Wallet
@@ -74,4 +105,6 @@ urlpatterns = [
     path("wallet/withdraw/status/", withdraw_status, name="withdraw_status"),
     path("wallet/kyc/submit/", kyc_submit, name="kyc_submit"),
     path("wallet/kyc/status/", kyc_status, name="kyc_status"),
+    # Authenticated read of an identity document. Never a /media/ URL.
+    path("kyc/document/<int:document_id>/", kyc_document, name="kyc_document"),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

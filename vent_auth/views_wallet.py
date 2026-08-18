@@ -5,6 +5,7 @@ from datetime import timedelta
 import requests as http_requests
 from django.contrib.auth.hashers import check_password
 from django.core.exceptions import ObjectDoesNotExist
+from django.db import transaction
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from rest_framework import status
@@ -64,7 +65,7 @@ def _get_user_from_token(request):
 
 
 # ---------------------------------------------------------------------------
-# W1 — GET /auth/wallet/balance/
+# W1 - GET /auth/wallet/balance/
 # ---------------------------------------------------------------------------
 
 @api_view(['GET'])
@@ -84,6 +85,7 @@ def get_wallet_balance(request):
             'balance': wallet.wallet_balance,
             'currency': 'VENT COINS',
             'kyc_verified': wallet.kyc_verified,
+            'has_pin': bool(wallet.pin_hash),
             'pending_withdrawal': pending_total,
             'exchange_rate': f'{COINS_PER_100_NGN} VENT COINS per 100 NGN',
         }
@@ -138,7 +140,7 @@ def get_wallet_transactions(request):
 
 
 # ---------------------------------------------------------------------------
-# W3 — POST /auth/wallet/topup/initiate/
+# W3 - POST /auth/wallet/topup/initiate/
 # ---------------------------------------------------------------------------
 
 @api_view(['POST'])
@@ -209,7 +211,7 @@ def topup_initiate(request):
         wallet=wallet,
         type='top_up',
         amount=vent_coins,
-        description=f'Top up via Paystack — {amount_ngn} NGN',
+        description=f'Top up via Paystack - {amount_ngn} NGN',
         status='pending',
         reference=reference,
     )
@@ -226,7 +228,7 @@ def topup_initiate(request):
 
 
 # ---------------------------------------------------------------------------
-# W4 — POST /auth/wallet/topup/verify/
+# W4 - POST /auth/wallet/topup/verify/
 # ---------------------------------------------------------------------------
 
 @api_view(['POST'])
@@ -242,67 +244,81 @@ def topup_verify(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    # Fetch the pending transaction
-    try:
-        txn = Transaction.objects.get(
-            wallet=wallet,
-            reference=reference,
-            type='top_up',
-        )
-    except Transaction.DoesNotExist:
-        return Response(
-            {'status': 'error', 'message': 'Transaction not found'},
-            status=status.HTTP_404_NOT_FOUND,
-        )
+    # Idempotency + concurrency (F5 / F12): lock the transaction row for this
+    # reference before doing anything. A concurrent verify (or the Paystack
+    # webhook) for the same reference blocks here, then reads 'completed' and
+    # returns without crediting a second time. The DB-level unique constraint on
+    # Transaction.reference is the backstop against two rows for one payment.
+    with transaction.atomic():
+        try:
+            txn = Transaction.objects.select_for_update().get(
+                wallet=wallet,
+                reference=reference,
+                type='top_up',
+            )
+        except Transaction.DoesNotExist:
+            return Response(
+                {'status': 'error', 'message': 'Transaction not found'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
-    if txn.status == 'completed':
-        return Response({
-            'status': 'success',
-            'data': {'message': 'Already verified', 'balance': wallet.wallet_balance}
-        }, status=status.HTTP_200_OK)
+        if txn.status == 'completed':
+            locked_wallet = UserWallet.objects.select_for_update().get(pk=wallet.pk)
+            return Response({
+                'status': 'success',
+                'data': {
+                    'message': 'Already verified',
+                    'credited': False,
+                    'idempotent': True,
+                    'balance': locked_wallet.wallet_balance,
+                }
+            }, status=status.HTTP_200_OK)
 
-    if txn.status in ('failed', 'cancelled'):
-        return Response(
-            {'status': 'error', 'message': f'Transaction is {txn.status}'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        if txn.status in ('failed', 'cancelled'):
+            return Response(
+                {'status': 'error', 'message': f'Transaction is {txn.status}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-    # Verify with Paystack
-    try:
-        resp = http_requests.get(
-            f'{PAYSTACK_BASE}/transaction/verify/{reference}',
-            headers=_paystack_headers(),
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except http_requests.RequestException as e:
-        return Response(
-            {'status': 'error', 'message': f'Payment gateway error: {str(e)}'},
-            status=status.HTTP_502_BAD_GATEWAY,
-        )
+        # Verify with Paystack (inside the lock so duplicate calls serialize)
+        try:
+            resp = http_requests.get(
+                f'{PAYSTACK_BASE}/transaction/verify/{reference}',
+                headers=_paystack_headers(),
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except http_requests.RequestException as e:
+            return Response(
+                {'status': 'error', 'message': f'Payment gateway error: {str(e)}'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
-    if not data.get('status') or data['data']['status'] != 'success':
-        txn.status = 'failed'
+        if not data.get('status') or data['data']['status'] != 'success':
+            txn.status = 'failed'
+            txn.save(update_fields=['status'])
+            return Response(
+                {'status': 'error', 'message': 'Payment not successful'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Credit the wallet under a row lock
+        locked_wallet = UserWallet.objects.select_for_update().get(pk=wallet.pk)
+        locked_wallet.wallet_balance += txn.amount
+        locked_wallet.save(update_fields=['wallet_balance'])
+
+        txn.status = 'completed'
         txn.save(update_fields=['status'])
-        return Response(
-            {'status': 'error', 'message': 'Payment not successful'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    # Credit the wallet
-    wallet.wallet_balance += txn.amount
-    wallet.save(update_fields=['wallet_balance'])
-
-    txn.status = 'completed'
-    txn.save(update_fields=['status'])
+        new_balance = locked_wallet.wallet_balance
 
     return Response({
         'status': 'success',
         'data': {
             'message': 'Top-up successful',
+            'credited': True,
             'coins_added': txn.amount,
-            'new_balance': wallet.wallet_balance,
+            'new_balance': new_balance,
         }
     }, status=status.HTTP_200_OK)
 
@@ -348,12 +364,6 @@ def send_funds(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    if wallet.wallet_balance < amount:
-        return Response(
-            {'status': 'error', 'message': 'Insufficient balance'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
     try:
         recipient_wallet = UserWallet.objects.select_related('user').get(
             user__username=recipient_username
@@ -370,32 +380,66 @@ def send_funds(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    # Debit sender
-    wallet.wallet_balance -= amount
-    wallet.save(update_fields=['wallet_balance'])
-    Transaction.objects.create(
-        wallet=wallet,
-        type='send',
-        amount=-amount,
-        description=f'Sent to @{recipient_username}{": " + note if note else ""}',
-        status='completed',
-    )
+    sender_username = wallet.user.username
 
-    # Credit recipient
-    recipient_wallet.wallet_balance += amount
-    recipient_wallet.save(update_fields=['wallet_balance'])
-    Transaction.objects.create(
-        wallet=recipient_wallet,
-        type='receive',
-        amount=amount,
-        description=f'Received from @{wallet.user.username}{": " + note if note else ""}',
-        status='completed',
-    )
+    # Lock both wallets before mutating balances (F12). Order the locks by PK so
+    # two opposing transfers can't deadlock. Balance is re-checked under the lock.
+    with transaction.atomic():
+        first_pk, second_pk = sorted([wallet.pk, recipient_wallet.pk])
+        locked = {
+            w.pk: w
+            for w in UserWallet.objects.select_for_update().filter(
+                pk__in=[first_pk, second_pk]
+            )
+        }
+        sender = locked[wallet.pk]
+        recipient = locked[recipient_wallet.pk]
+
+        if sender.wallet_balance < amount:
+            return Response(
+                {'status': 'error', 'message': 'Insufficient balance'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        sender.wallet_balance -= amount
+        sender.save(update_fields=['wallet_balance'])
+        Transaction.objects.create(
+            wallet=sender,
+            type='send',
+            amount=-amount,
+            description=f'Sent to @{recipient_username}{": " + note if note else ""}',
+            status='completed',
+        )
+
+        recipient.wallet_balance += amount
+        recipient.save(update_fields=['wallet_balance'])
+        Transaction.objects.create(
+            wallet=recipient,
+            type='receive',
+            amount=amount,
+            description=f'Received from @{sender_username}{": " + note if note else ""}',
+            status='completed',
+        )
+
+        new_balance = sender.wallet_balance
+
+    # Notify the recipient they received VC (fire-and-forget - never break the
+    # transfer if the notification insert fails).
+    try:
+        from vent_auth.views_notifications import create_notification
+        create_notification(
+            recipient_wallet.user, 'wallet',
+            f'You received {amount} VC from @{sender_username}',
+            link='/wallets',
+            metadata={'amount': amount, 'from': sender_username},
+        )
+    except Exception:
+        pass
 
     return Response({
         'status': 'success',
         'data': {
-            'new_balance': wallet.wallet_balance,
+            'new_balance': new_balance,
         }
     }, status=status.HTTP_200_OK)
 
@@ -406,7 +450,7 @@ def send_funds(request):
 
 @api_view(['POST'])
 def verify_wallet_pin(request):
-    """Verify wallet PIN — used by frontend before showing sensitive actions."""
+    """Verify wallet PIN - used by frontend before showing sensitive actions."""
     wallet, err = _get_user_from_token(request)
     if err:
         return err
@@ -470,7 +514,7 @@ def set_wallet_pin(request):
 
 
 # ---------------------------------------------------------------------------
-# POST /auth/wallet/deduct/  (internal — called by tournament registration)
+# POST /auth/wallet/deduct/  (internal - called by tournament registration)
 # ---------------------------------------------------------------------------
 
 @api_view(['POST'])
@@ -502,30 +546,36 @@ def wallet_deduct(request):
     if not wallet.pin_hash or not check_password(str(pin), wallet.pin_hash):
         return Response({'status': 'error', 'message': 'Invalid PIN'}, status=status.HTTP_400_BAD_REQUEST)
 
-    if wallet.wallet_balance < amount:
-        return Response({'status': 'error', 'message': 'Insufficient balance'}, status=status.HTTP_400_BAD_REQUEST)
-
     from vent_tournament.models import Tournament
     try:
         tournament = Tournament.objects.get(tournament_id=tournament_id)
     except Tournament.DoesNotExist:
         return Response({'status': 'error', 'message': 'Tournament not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    wallet.wallet_balance -= amount
-    wallet.save(update_fields=['wallet_balance'])
+    # Lock the wallet so a concurrent debit (e.g. two tabs registering) can't
+    # overdraw the balance (F12). Balance is re-checked under the lock.
+    with transaction.atomic():
+        locked_wallet = UserWallet.objects.select_for_update().get(pk=wallet.pk)
 
-    Transaction.objects.create(
-        wallet=wallet,
-        type='deduction',
-        amount=-amount,
-        description=description,
-        status='completed',
-        tournament=tournament,
-    )
+        if locked_wallet.wallet_balance < amount:
+            return Response({'status': 'error', 'message': 'Insufficient balance'}, status=status.HTTP_400_BAD_REQUEST)
+
+        locked_wallet.wallet_balance -= amount
+        locked_wallet.save(update_fields=['wallet_balance'])
+
+        Transaction.objects.create(
+            wallet=locked_wallet,
+            type='deduction',
+            amount=-amount,
+            description=description,
+            status='completed',
+            tournament=tournament,
+        )
+        new_balance = locked_wallet.wallet_balance
 
     return Response({
         'status': 'success',
-        'data': {'new_balance': wallet.wallet_balance}
+        'data': {'new_balance': new_balance}
     }, status=status.HTTP_200_OK)
 
 
@@ -569,24 +619,30 @@ def withdraw_initiate(request):
     if not wallet.pin_hash or not check_password(str(pin), wallet.pin_hash):
         return Response({'status': 'error', 'message': 'Invalid PIN'}, status=status.HTTP_400_BAD_REQUEST)
 
-    if wallet.wallet_balance < amount:
-        return Response({'status': 'error', 'message': 'Insufficient balance'}, status=status.HTTP_400_BAD_REQUEST)
+    # Lock the wallet so the balance check and request creation are consistent
+    # against concurrent debits/approvals (F12). Funds are debited at admin
+    # approval time (admin_approve_payout), not here.
+    with transaction.atomic():
+        locked_wallet = UserWallet.objects.select_for_update().get(pk=wallet.pk)
 
-    wr = WithdrawalRequest.objects.create(
-        wallet=wallet,
-        amount=amount,
-        bank_name=bank_name,
-        account_number=account_number,
-        account_name=account_name,
-    )
+        if locked_wallet.wallet_balance < amount:
+            return Response({'status': 'error', 'message': 'Insufficient balance'}, status=status.HTTP_400_BAD_REQUEST)
 
-    Transaction.objects.create(
-        wallet=wallet,
-        type='withdrawal',
-        amount=-amount,
-        description=f'Withdrawal to {bank_name} {account_number[-4:]}',
-        status='pending',
-    )
+        wr = WithdrawalRequest.objects.create(
+            wallet=locked_wallet,
+            amount=amount,
+            bank_name=bank_name,
+            account_number=account_number,
+            account_name=account_name,
+        )
+
+        Transaction.objects.create(
+            wallet=locked_wallet,
+            type='withdrawal',
+            amount=-amount,
+            description=f'Withdrawal to {bank_name} {account_number[-4:]}',
+            status='pending',
+        )
 
     return Response({
         'status': 'success',

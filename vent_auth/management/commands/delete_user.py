@@ -57,7 +57,7 @@ class Command(BaseCommand):
         ]
 
         if dry_run:
-            self.stdout.write(self.style.WARNING('DRY RUN — no changes will be made.\n'))
+            self.stdout.write(self.style.WARNING('DRY RUN - no changes will be made.\n'))
             with connection.cursor() as cursor:
                 for table, column in tables:
                     cursor.execute(f"SELECT COUNT(*) FROM {table} WHERE {column} = %s", [user.user_id])

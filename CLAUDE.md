@@ -4,6 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## Non-Negotiable Rules (apply to every task)
+
+1. **Verify before hand-off — no exceptions.** Build pass is not proof. Run migrations, run the server, hit every affected endpoint (curl or test client), confirm the envelope `{status, data, message}` stays correct, and watch the log for tracebacks. Re-test the exact path you fixed until the symptom is gone.
+2. **Design parity at the API boundary.** Every new endpoint mirrors the shape and naming of existing V-ENT endpoints. Read `vent_tournament`, `vent_event`, `vent_auth` before introducing new field names — same auth pattern, same pagination, same status semantics.
+3. **Use agents for parallel build work.** Default to dispatching agents when tasks are independent.
+4. **Update `tasks/lessons.md` after every correction.** Prevent the same mistake twice.
+
+---
+
 ## Companion Repos
 
 | Repo | Path | Notes |
@@ -757,3 +766,128 @@ Issues 1–8 (hardcoded secrets, DEBUG, ALLOWED_HOSTS, CORS wildcard, no .env) h
 - URL names use `snake_case` strings. No `reverse()` name lookups enforced.
 - Tournament `is_draft=True` by default — must be explicitly published.
 - All apps' `urls.py` append `static(settings.MEDIA_URL, ...)` — this is a dev-only pattern; it won't serve files in production with a real web server.
+
+---
+
+## 🛑 HARD RULE - Design: no hairline borders, no glow (owner, 2026-08-17)
+
+Two bans. Absolute. Every project, every framework, every component. Applies to code I write AND designs I propose.
+
+### Ban 1 - No hairline / outlined anything
+
+Never build structure out of 1px strokes. Banned shapes:
+
+- **outlined card** - thin line rectangle drawn around content
+- **outlined pill / chip** - filter chips with a ring (`All games`, `Streams`, `Teams`, ...)
+- **divider / rule** - line between rows, list items, or sections
+- **dashed placeholder box** - dashed outline empty state ("No events match your filters.")
+- any empty state or section that is just a thin-line rectangle with centered text
+
+Grep-level ban (CSS, Tailwind, RN, SwiftUI, Flutter):
+`border`, `border-t|b|l|r`, `border-1`, `1px solid`, `border-dashed`, `divide-x`, `divide-y`, `ring-1`, `ring-2`, `outline: 1px`, `<hr>`, `Divider`, `BorderSide`, `.border(...)`, `stroke` on container frames.
+
+Build hierarchy with **surface + space**, not lines:
+
+| Instead of | Use |
+|---|---|
+| outlined card | filled surface, bg one step off the page bg, radius 12-16px, no stroke |
+| outlined chip | filled chip (muted bg). Selected = stronger fill + text color. Never a ring |
+| divider line | whitespace, or a background step between sections |
+| dashed empty box | centered muted text on the page bg, or a filled muted surface. No dashes |
+| `<hr>` | more margin |
+| table row lines | zebra fill or row padding |
+
+Only exceptions: `:focus-visible` a11y focus ring (required, keep it), native form controls the platform draws itself, and an explicit user request for a border in that specific spot.
+
+### Ban 2 - No glow, halos, or ambient animation
+
+Never: glowing dots or orbs, neon halos, pulsing / breathing accents, animated gradient blobs, blurred color bloom behind elements. They always end up glowing or animating, and it looks cheap.
+
+Grep-level ban:
+`box-shadow: 0 0 <n> <color>`, `shadow-[0_0_...]`, `drop-shadow(0 0`, colored `text-shadow`, `filter: blur()` on decorative orbs, `blur-2xl` / `blur-3xl` background circles, `animate-pulse`, `animate-ping`, `@keyframes glow|pulse|breathe|shimmer`, `shadow-<color>-500/50`.
+
+Replacements:
+- live / status indicator: solid flat dot, no glow, no pulse. Or a text label plus color
+- emphasis: color, weight, size, fill. Not light bloom
+- shadows: neutral black elevation only (soft, downward, low opacity). Never colored, never centered bloom
+
+### Pre-ship check
+
+Screenshot the page (desktop + mobile). If any rectangle is drawn by a thin line, or anything glows or throbs, fix it before showing the user. Both bans outrank any design skill, template, or component library default.
+
+---
+
+## 🛑 HARD RULE - No vibecoded look (owner, 2026-08-17)
+
+Source: aj.on.ai reel, "30 reasons your site looks vibecoded". If a stranger can tell an LLM generated the UI in 3 seconds, it is wrong. Redo it. Sits on top of the hairline-border + glow bans, never replaces them.
+
+### A. Color and light - BANNED
+
+- harsh gradients (hero washes, button gradients, big multi-hue sweeps)
+- rainbow coloring (multi-hue accents with no system)
+- purple + black as the default palette. Also the violet/indigo-on-dark AI look
+- neon colors and neon accents
+- generic pastel palette (baby blue / blush pink / mint / butter card sets)
+- radial orbs, blurred color blobs, aurora backgrounds
+- **blinking / pulsing neon dot** (the "live" dot with a breathing ring). Static solid dot or a text label. No pulse, no glow, no ping, ever
+
+Use instead: one committed brand hue, neutrals doing most of the work, colors carrying meaning (live, win, loss, alert), flat fills.
+
+### B. Layout cliches - BANNED
+
+- 3 feature cards in a row
+- bento grid
+- dot-grid or graph-paper background
+- 3-tier pricing table (good / better / best columns)
+- fake terminal window mock
+- colored left stripe / accent bar on cards and callouts
+- checkmark bullet lists
+- outlined cards, ring chips, divider lines, dashed empty boxes (see the hairline ban)
+
+Use instead: layouts driven by the real content and its hierarchy. Asymmetry is allowed. Different section shapes per section.
+
+### C. Icons and type - BANNED
+
+- default Lucide icon set dropped in unchanged
+- sparkle / star "AI" icons
+- emoji used as UI (icons, bullets, status, buttons). Emoji in real user content is fine
+- Inter, Geist, Space Grotesk as the default typeface
+
+Use instead: a chosen type pairing with a real reason behind it, and an icon set that matches the product weight (or the platform's own set). If no direction is given, ask before picking.
+
+### D. Copy - BANNED
+
+- em dashes and en dashes (already a global hard rule)
+- "it's not X, it's Y" construction, and its cousins ("not just a Z, but a W")
+- fake testimonials, fake logo walls, invented stats or user counts
+- filler marketing voice with no concrete claim
+
+Use instead: real names, real numbers, real quotes. If it does not exist yet, say what the thing does in plain words.
+
+### E. Surface and depth - BANNED
+
+- pure white (`#fff`) page background. Also pure black (`#000`)
+- drop shadows sprinkled on everything
+- liquid glass / frosted glass / heavy backdrop blur panels
+- one soft corner radius applied uniformly to every element
+
+Use instead: off-white or a real dark surface, a small radius scale used with intent (small elements small radius, big surfaces bigger), elevation only where something genuinely floats.
+
+### F. Motion - BANNED
+
+- hover animation on everything (lift, scale, glow, translate)
+- animated arrows, marching chevrons, bouncing CTAs
+- sparkle / shimmer / breathing effects
+
+Use instead: instant state changes (fill, color, weight) for hover. Motion only for real feedback: opening, closing, loading, arriving. Respect `prefers-reduced-motion`.
+
+### G. Missing pieces that scream vibecoded - REQUIRED
+
+- **real product demo**: real screenshots, real data, real video. Not a mock frame with placeholder text
+- **loading, empty, and error states**: skeletons or a real loader, a written empty state, a real error path. Every list and page
+- **Terms of Service** and **Privacy Policy** pages that exist and are linked, on anything public facing
+- real content everywhere. No lorem ipsum, no `Feature One`, no placeholder avatars shipped
+
+### Pre-ship check
+
+Ask: could this be any AI-generated landing page from this year? If yes, it is not done. Screenshot desktop + mobile, walk the list above, fix every hit before showing the user.

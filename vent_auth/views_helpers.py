@@ -3,8 +3,38 @@ import random
 import string
 import requests
 from io import BytesIO
+from django.conf import settings
 from PIL import Image, ImageDraw, ImageFont
 from .models import Users, UserWallet
+
+
+# Cross-platform font resolution for the generated default avatar.
+# Ordered by preference: bundled repo font first (works everywhere), then the
+# fonts that ship by default on the common host OSes, then Pillow's built-in
+# bitmap font as a last resort. This must never raise on Linux (prod EC2).
+_BUNDLED_FONT = os.path.join(settings.BASE_DIR, 'assets', 'fonts', 'Inter-Bold.ttf')
+_FONT_CANDIDATES = [
+    _BUNDLED_FONT,
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',      # Debian/Ubuntu (EC2)
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+    '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf',
+    '/Library/Fonts/Arial Bold.ttf',                            # macOS
+    'C:\\Windows\\Fonts\\arialbd.ttf',                          # Windows
+]
+
+
+def _load_avatar_font(size=40):
+    """Return a usable PIL font, trying bundled + system fonts, never raising."""
+    for path in _FONT_CANDIDATES:
+        try:
+            return ImageFont.truetype(path, size=size)
+        except (OSError, IOError):
+            continue
+    # Pillow >= 10.1 can scale the built-in bitmap font; older falls back to 1x.
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:
+        return ImageFont.load_default()
 
 
 def generate_wallet_id():
@@ -63,14 +93,10 @@ def create_default_profile_picture(full_name):
     image = Image.new('RGB', (100, 100), color='#46484F')
     draw = ImageDraw.Draw(image)
 
-    font_path = "C:\\Users\\habee\\Downloads\\despair_time\\Despair Time Straight.otf"
-    try:
-        font = ImageFont.truetype(font_path, size=40)
-    except IOError:
-        font = ImageFont.load_default()
+    font = _load_avatar_font(size=40)
 
-    names = full_name.split()
-    initials = ''.join(name[0].upper() for name in names[:2])
+    names = (full_name or '').split()
+    initials = ''.join(name[0].upper() for name in names[:2]) or 'V'
 
     text_bbox = draw.textbbox((0, 0), initials, font=font)
     text_width = text_bbox[2] - text_bbox[0]

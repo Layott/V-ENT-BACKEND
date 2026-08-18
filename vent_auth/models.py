@@ -1,10 +1,20 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 import datetime
 
+from .storages import private_storage
+
 
 class Users(AbstractUser):
+    ADMIN_ROLE_CHOICES = [
+        ('super_admin', 'Super Admin'),
+        ('finance_admin', 'Finance Admin'),
+        ('mod_admin', 'Moderator Admin'),
+        ('support_admin', 'Support Admin'),
+    ]
+
     user_id = models.AutoField(primary_key=True)
     full_name = models.CharField(max_length=148, null=True)
     username = models.CharField(max_length=128, unique=True)
@@ -23,9 +33,20 @@ class Users(AbstractUser):
         choices=[('user', 'User'), ('organizer', 'Organizer'), ('admin', 'Admin')],
         default='user',
     )
+    # RBAC sub-role. NULL for non-admins; required when role == 'admin'.
+    admin_role = models.CharField(
+        max_length=32, null=True, blank=True, choices=ADMIN_ROLE_CHOICES
+    )
 
     USERNAME_FIELD = 'username'  # Use 'username' for authentication
     REQUIRED_FIELDS = ['full_name']  # Exclude 'username'
+
+    def clean(self):
+        # Advisory: enforced at the API layer (admin_set_user_role). Only fires
+        # when full_clean() is called (e.g. Django admin forms).
+        super().clean()
+        if self.role == 'admin' and not self.admin_role:
+            raise ValidationError({'admin_role': 'admin_role is required when role is admin.'})
 
     def __str__(self):
         return f"{self.username} ({self.signup_type})"
@@ -144,6 +165,10 @@ class FavoriteGames(models.Model):
 class Teams(models.Model):
     team_id = models.AutoField(primary_key=True)
     team_name = models.CharField(unique=True, max_length=60)
+    # A team may be fielded by an organization (org profiles list their rosters).
+    organization = models.ForeignKey(
+        'Organization', on_delete=models.SET_NULL, null=True, blank=True, related_name='teams',
+    )
     team_logo = models.ImageField(upload_to='teams_logos/', null=True, blank=True)
     team_banner = models.ImageField(upload_to='teams_banners/', null=True, blank=True)
     
@@ -168,8 +193,13 @@ class Teams(models.Model):
         related_name='vent_auth_owned_teams'
     )
 
-    penalty_points = models.IntegerField()
-    number_of_members = models.IntegerField()
+    penalty_points = models.IntegerField(default=0)
+    number_of_members = models.IntegerField(default=0)
+
+    # Membership-settings columns (teams-consolidation-contract Part A).
+    max_members = models.PositiveIntegerField(null=True, blank=True)
+    password_protected = models.BooleanField(default=False)
+    join_password = models.CharField(max_length=128, null=True, blank=True)  # hashed via make_password
 
     def __str__(self):
         return self.team_name
@@ -193,11 +223,38 @@ class TeamProfile(models.Model):
 
 
 class TeamMembers(models.Model):
+    ROLE_CHOICES = [
+        ('owner', 'Owner'),
+        ('captain', 'Captain'),
+        ('vice_captain', 'Vice Captain'),
+        ('member', 'Member'),
+        ('coach', 'Coach'),
+        ('manager', 'Manager'),
+        ('analyst', 'Analyst'),
+    ]
     team_member_id = models.AutoField(primary_key=True)
     team = models.ForeignKey(Teams, on_delete=models.CASCADE)
     user = models.ForeignKey(Users, on_delete=models.CASCADE)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='member')
     is_captain = models.BooleanField(default=False)
     join_date = models.DateField(default=timezone.now)
+
+
+class TeamJoinRequest(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('accepted', 'Accepted'),
+        ('rejected', 'Rejected'),
+    ]
+    team = models.ForeignKey(Teams, on_delete=models.CASCADE, related_name='join_requests')
+    applicant = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='team_join_requests')
+    message = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"JoinRequest {self.applicant_id}→{self.team_id} ({self.status})"
 
 
 class GameAccount(models.Model):
@@ -208,10 +265,90 @@ class GameAccount(models.Model):
 
 
 class Organization(models.Model):
+    """An esports organization: a brand that fields teams and runs tournaments.
+
+    The model was four columns (id, name, creator, owner) while the UI expected a
+    full profile - identity, stats, verification. The rest of it lives here now.
+    """
+
     org_id = models.AutoField(primary_key=True)
     org_name = models.CharField(max_length=148, unique=True)
     org_creator = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='created_organizations')
     org_owner = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='owned_organizations')
+
+    # Identity
+    tag = models.CharField(max_length=12, blank=True, default='')        # e.g. VEC
+    bio = models.CharField(max_length=280, blank=True, default='')
+    mission = models.TextField(blank=True, default='')
+    focus = models.CharField(max_length=120, blank=True, default='')     # e.g. "Free Fire · FIFA"
+    location = models.CharField(max_length=120, blank=True, default='')
+    region = models.CharField(max_length=60, blank=True, default='')
+    contact_email = models.EmailField(blank=True, default='')
+    founded = models.DateField(null=True, blank=True)
+    logo = models.ImageField(upload_to='org_logos/', null=True, blank=True)
+    banner = models.ImageField(upload_to='org_banners/', null=True, blank=True)
+    social_links = models.JSONField(default=dict, blank=True)
+
+    # Trust
+    verified = models.BooleanField(default=False)
+    verification_requested = models.BooleanField(default=False)
+    verification_note = models.TextField(blank=True, default='')
+
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
+
+    class Meta:
+        ordering = ['org_name']
+
+    def __str__(self):
+        return self.org_name
+
+
+class OrgMember(models.Model):
+    ROLE_CHOICES = [
+        ('owner', 'Owner'),
+        ('admin', 'Admin'),
+        ('manager', 'Manager'),
+        ('member', 'Member'),
+    ]
+
+    org = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='members')
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='org_memberships')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='member')
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('org', 'user')
+        ordering = ['role', 'joined_at']
+
+    def __str__(self):
+        return f"{self.user_id}@{self.org_id} ({self.role})"
+
+
+class OrgJoinRequest(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('accepted', 'Accepted'),
+        ('rejected', 'Rejected'),
+    ]
+
+    org = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='join_requests')
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='org_join_requests')
+    message = models.CharField(max_length=280, blank=True, default='')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+
+class OrgFollower(models.Model):
+    org = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='followers')
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='followed_orgs')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('org', 'user')
 
 
 class UserWallet(models.Model):
@@ -258,7 +395,7 @@ class Waitlist(models.Model):
 
 
 # ---------------------------------------------------------------------------
-# Wallet — extended models
+# Wallet - extended models
 # ---------------------------------------------------------------------------
 
 class Transaction(models.Model):
@@ -286,7 +423,13 @@ class Transaction(models.Model):
     amount = models.IntegerField()
     description = models.CharField(max_length=255)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
-    reference = models.CharField(max_length=255, blank=True)  # Paystack reference
+    # Paystack reference. Unique so a single payment reference can credit the
+    # wallet at most once (idempotency backstop for topup verify + webhook).
+    # NULL (not '') for transactions with no gateway reference - MySQL permits
+    # many NULLs under a unique index but not many empty strings.
+    reference = models.CharField(
+        max_length=255, blank=True, null=True, default=None, unique=True
+    )  # Paystack reference
     # Lazy string reference avoids circular import with vent_tournament
     tournament = models.ForeignKey(
         'vent_tournament.Tournament',
@@ -297,7 +440,7 @@ class Transaction(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.type} {self.amount} — {self.wallet.user.username}"
+        return f"{self.type} {self.amount} - {self.wallet.user.username}"
 
 
 class WithdrawalRequest(models.Model):
@@ -322,7 +465,7 @@ class WithdrawalRequest(models.Model):
     processed_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
-        return f"Withdrawal {self.amount} COINS — {self.wallet.user.username} ({self.status})"
+        return f"Withdrawal {self.amount} COINS - {self.wallet.user.username} ({self.status})"
 
 
 class KYCDocument(models.Model):
@@ -339,14 +482,17 @@ class KYCDocument(models.Model):
 
     user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='kyc_documents')
     document_type = models.CharField(max_length=50, choices=DOCUMENT_TYPE_CHOICES)
-    document_image = models.ImageField(upload_to='kyc/')
+    # Identity documents live outside MEDIA_ROOT (see vent_auth/storages.py).
+    # nginx serves MEDIA_ROOT directly, so a file written there is public to
+    # anyone who guesses the name. Read these through GET /auth/kyc/document/<id>/.
+    document_image = models.ImageField(upload_to='kyc/', storage=private_storage)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     rejection_reason = models.TextField(blank=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
     reviewed_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
-        return f"KYC {self.document_type} — {self.user.username} ({self.status})"
+        return f"KYC {self.document_type} - {self.user.username} ({self.status})"
 
 
 # ---------------------------------------------------------------------------
@@ -366,3 +512,347 @@ class AdminAction(models.Model):
 
     def __str__(self):
         return f"{self.action_type} by {self.admin.username} @ {self.performed_at}"
+
+
+# ---------------------------------------------------------------------------
+# User settings
+# ---------------------------------------------------------------------------
+
+class UserSetting(models.Model):
+    """Per-user preferences for the /settings page.
+
+    Stored as a single JSON blob keyed by section (notifications, privacy,
+    security, payments, language) so new toggles don't need a migration. The
+    view merges DEFAULT_SETTINGS on read, so a missing key is never a crash.
+    """
+    user = models.OneToOneField(Users, related_name='settings', on_delete=models.CASCADE)
+    data = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Settings - {self.user.username}"
+
+
+# ---------------------------------------------------------------------------
+# Platform-wide admin settings  (admin dashboard §21)
+# ---------------------------------------------------------------------------
+
+# Sensible defaults so a fresh install returns a complete settings object with
+# no migration required for new toggles. The view deep-merges the stored blob
+# over this so a missing key is never a crash.
+DEFAULT_ADMIN_SETTINGS = {
+    'platform_fees': {
+        'tournament_fee_pct': 0,
+        'withdrawal_fee_pct': 0,
+        'listing_fee_pct': 0,
+        'payout_min_vc': 0,
+        'topup_max_ngn_per_day': 0,
+    },
+    'feature_flags': {
+        'tournaments_enabled': True,
+        'events_enabled': True,
+        'wallet_enabled': True,
+        'marketplace_enabled': False,
+        'shop_enabled': False,
+        'anime_enabled': False,
+        'wager_enabled': False,
+        'referral_program_enabled': False,
+    },
+    'banner': {
+        'enabled': False,
+        'title': '',
+        'message': '',
+        'type': 'info',   # info | warn | error | success
+    },
+    'maintenance': {
+        'enabled': False,
+        'message': '',
+    },
+}
+
+
+def _deep_merge_settings(defaults, stored):
+    """Two-level deep-merge of `stored` over `defaults`.
+
+    Section dicts (platform_fees, feature_flags, banner, maintenance) merge
+    key-by-key; scalars fall back to the default when absent. Extra top-level
+    keys the caller saved are carried through untouched.
+    """
+    stored = stored or {}
+    out = {}
+    for key, default_val in defaults.items():
+        if isinstance(default_val, dict):
+            out[key] = {**default_val, **(stored.get(key) or {})}
+        else:
+            out[key] = stored.get(key, default_val)
+    for key, val in stored.items():
+        if key not in out:
+            out[key] = val
+    return out
+
+
+class AdminSetting(models.Model):
+    """Singleton row holding the platform-wide admin config as a JSON blob.
+
+    Mirrors UserSetting but scoped to the whole platform (one row, pk=1). Read
+    via `AdminSetting.load()`; `merged()` returns the blob deep-merged over
+    DEFAULT_ADMIN_SETTINGS so every documented key is always present.
+    """
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1)
+    data = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def save(self, *args, **kwargs):
+        self.id = 1  # enforce singleton
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1, defaults={'data': {}})
+        return obj
+
+    def merged(self):
+        return _deep_merge_settings(DEFAULT_ADMIN_SETTINGS, self.data or {})
+
+    def __str__(self):
+        return "Admin platform settings"
+
+
+class Notification(models.Model):
+    """A single in-app notification for a user. Written fire-and-forget from the
+    platform's real event sites (wallet receive, tournament registration, team
+    join request, dispute raised/resolved, KYC + payout decisions) via
+    `views_notifications.create_notification`. Powers the /notifications inbox
+    and the header bell unread badge."""
+
+    CATEGORY_CHOICES = [
+        ('tournament', 'Tournament'),
+        ('event', 'Event'),
+        ('wallet', 'Wallet'),
+        ('dispute', 'Dispute'),
+        ('team', 'Team'),
+        ('kyc', 'KYC'),
+        ('payout', 'Payout'),
+        ('system', 'System'),
+        ('mention', 'Mention'),
+        ('follower', 'Follower'),
+    ]
+
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='notifications')
+    category = models.CharField(max_length=40, default='system')
+    title = models.CharField(max_length=160)
+    body = models.CharField(max_length=500, blank=True, default='')
+    link = models.CharField(max_length=300, blank=True, default='')
+    is_read = models.BooleanField(default=False, db_index=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"[{self.category}] {self.title} -> {self.user_id}"
+
+
+class AdminTOTP(models.Model):
+    """Time-based one-time password enrolment for an admin account.
+
+    The admin portal used to accept any six digits - the "2FA" step was
+    frontend theatre with no server involvement. This stores the shared secret
+    so codes are verified against RFC 6238 for real.
+
+    `last_used_step` blocks replay: a code is valid for its 30-second step, and
+    each step can only be spent once.
+    """
+
+    user = models.OneToOneField(Users, on_delete=models.CASCADE, related_name='admin_totp')
+    secret = models.CharField(max_length=64)              # base32, no padding
+    confirmed = models.BooleanField(default=False)        # set once a code verifies
+    last_used_step = models.BigIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"TOTP<{self.user_id} confirmed={self.confirmed}>"
+
+
+# ---------------------------------------------------------------------------
+# Community - feed posts, clubs, discussion threads, scrims, direct messages
+# ---------------------------------------------------------------------------
+
+class Post(models.Model):
+    """A feed post. Text plus an optional image, attributed to a real user."""
+
+    author = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='posts')
+    body = models.TextField()
+    image = models.ImageField(upload_to='post_images/', null=True, blank=True)
+    game = models.ForeignKey(Games, on_delete=models.SET_NULL, null=True, blank=True, related_name='posts')
+    club = models.ForeignKey('Club', on_delete=models.CASCADE, null=True, blank=True, related_name='posts')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"post {self.pk} by {self.author_id}"
+
+
+class PostLike(models.Model):
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='likes')
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='post_likes')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('post', 'user')
+
+
+class PostComment(models.Model):
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='comments')
+    author = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='post_comments')
+    body = models.CharField(max_length=1000)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+
+class Club(models.Model):
+    """A community group - usually built around a game."""
+
+    name = models.CharField(max_length=120, unique=True)
+    description = models.TextField(blank=True, default='')
+    game = models.ForeignKey(Games, on_delete=models.SET_NULL, null=True, blank=True, related_name='clubs')
+    logo = models.ImageField(upload_to='club_logos/', null=True, blank=True)
+    banner = models.ImageField(upload_to='club_banners/', null=True, blank=True)
+    owner = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='owned_clubs')
+    is_private = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class ClubMember(models.Model):
+    club = models.ForeignKey(Club, on_delete=models.CASCADE, related_name='members')
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='club_memberships')
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('club', 'user')
+
+
+class Thread(models.Model):
+    """A discussion thread - longer-form than a feed post."""
+
+    CATEGORY_CHOICES = [
+        ('general', 'General'),
+        ('lfg', 'Looking for group'),
+        ('strategy', 'Strategy'),
+        ('support', 'Support'),
+        ('marketplace', 'Marketplace'),
+    ]
+
+    title = models.CharField(max_length=180)
+    body = models.TextField()
+    category = models.CharField(max_length=30, choices=CATEGORY_CHOICES, default='general')
+    author = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='threads')
+    club = models.ForeignKey(Club, on_delete=models.CASCADE, null=True, blank=True, related_name='threads')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    last_activity_at = models.DateTimeField(auto_now_add=True)
+    view_count = models.PositiveIntegerField(default=0)
+    is_pinned = models.BooleanField(default=False)
+    is_locked = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-is_pinned', '-last_activity_at']
+
+
+class ThreadReply(models.Model):
+    thread = models.ForeignKey(Thread, on_delete=models.CASCADE, related_name='replies')
+    author = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='thread_replies')
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+
+class ThreadUpvote(models.Model):
+    """One upvote per user per thread."""
+
+    thread = models.ForeignKey(Thread, on_delete=models.CASCADE, related_name='upvotes')
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='thread_upvotes')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('thread', 'user')
+
+
+class ThreadReplyUpvote(models.Model):
+    """One upvote per user per reply."""
+
+    reply = models.ForeignKey(ThreadReply, on_delete=models.CASCADE, related_name='upvotes')
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='thread_reply_upvotes')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('reply', 'user')
+
+
+class Scrim(models.Model):
+    """A practice-match request posted by one team, accepted by another."""
+
+    STATUS_CHOICES = [
+        ('open', 'Open'),
+        ('accepted', 'Accepted'),
+        ('cancelled', 'Cancelled'),
+        ('played', 'Played'),
+    ]
+
+    team = models.ForeignKey(Teams, on_delete=models.CASCADE, related_name='scrims_posted')
+    opponent = models.ForeignKey(
+        Teams, on_delete=models.SET_NULL, null=True, blank=True, related_name='scrims_accepted',
+    )
+    # Set when the post is a direct challenge: only this team may accept.
+    challenged = models.ForeignKey(
+        Teams, on_delete=models.SET_NULL, null=True, blank=True, related_name='scrims_challenged',
+    )
+    game = models.ForeignKey(Games, on_delete=models.SET_NULL, null=True, blank=True, related_name='scrims')
+    created_by = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='scrims_created')
+    scheduled_for = models.DateTimeField(null=True, blank=True)
+    match_format = models.CharField(max_length=20, blank=True, default='')
+    region = models.CharField(max_length=40, blank=True, default='')
+    notes = models.CharField(max_length=280, blank=True, default='')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='open')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+
+class Conversation(models.Model):
+    """A direct-message thread between exactly two people."""
+
+    user_a = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='conversations_a')
+    user_b = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='conversations_b')
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_message_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        unique_together = ('user_a', 'user_b')
+        ordering = ['-last_message_at']
+
+
+class DirectMessage(models.Model):
+    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name='messages')
+    sender = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='sent_messages')
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['created_at']

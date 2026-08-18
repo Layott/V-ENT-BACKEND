@@ -1,3 +1,4 @@
+from django.http import Http404
 import datetime
 import logging
 import random
@@ -19,6 +20,42 @@ from .views_helpers import send_email
 logger = logging.getLogger(__name__)
 
 
+def _user_from_bearer(request):
+    """Return (user, error_response) from a `Authorization: Bearer <token>` header.
+
+    Standard session-token auth used by the newer profile endpoints. 120-min
+    timeout, consistent with the rest of vent_auth.
+    """
+    session_token = request.headers.get('Authorization')
+    if not session_token:
+        return None, Response(
+            {'status': 'error', 'message': 'Authorization header is required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not session_token.startswith('Bearer '):
+        return None, Response(
+            {'status': 'error', 'message': 'Invalid token format'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    token = session_token.split(' ', 1)[1]
+    try:
+        user = Users.objects.get(login_session_token=token)
+    except Users.DoesNotExist:
+        return None, Response(
+            {'status': 'error', 'message': 'Invalid or expired session token'},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+    if (
+        user.login_session_created_at is None
+        or timezone.now() - user.login_session_created_at > timedelta(minutes=120)
+    ):
+        return None, Response(
+            {'status': 'error', 'message': 'Session token has expired'},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+    return user, None
+
+
 @api_view(['POST'])
 def change_fullname(request):
     user_id = request.data.get('user_id')
@@ -35,6 +72,8 @@ def change_fullname(request):
         return Response({'message': 'Full name changed successfully'}, status=status.HTTP_200_OK)
     except Users.DoesNotExist:
         return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Http404:
+        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -100,6 +139,8 @@ def verify_new_email(request):
         return Response({"error": "Token does not exist"}, status=status.HTTP_400_BAD_REQUEST)
     except Users.DoesNotExist:
         return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+    except Http404:
+        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -126,6 +167,8 @@ def add_date_of_birth(request):
         return Response({"error": "User profile not found"}, status=status.HTTP_404_NOT_FOUND)
     except ValueError:
         return Response({"error": "Invalid date format. Use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+    except Http404:
+        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -143,9 +186,10 @@ def add_game_account(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    user = get_object_or_404(Users, login_session_token=session_token)
-
-    if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=360):
+    user = Users.objects.filter(login_session_token=session_token).first()
+    if user is None:
+        return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
+    if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
         return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
     game = get_object_or_404(Games, game_id=game_id)
@@ -162,6 +206,8 @@ def add_game_account(request):
             {'status': 'success', 'message': 'Game account added successfully'},
             status=status.HTTP_201_CREATED
         )
+    except Http404:
+        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response(
             {'status': 'error', 'message': f'An unexpected error occurred: {str(e)}'},
@@ -188,6 +234,8 @@ def edit_game_account_username(request):
 
     except GameAccount.DoesNotExist:
         return Response({"error": "Game account does not exist"}, status=status.HTTP_404_NOT_FOUND)
+    except Http404:
+        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -256,8 +304,9 @@ def get_user_informations(request):
 
         session_token = session_token.split(" ")[1]
 
-        user = get_object_or_404(Users, login_session_token=session_token)
-
+        user = Users.objects.filter(login_session_token=session_token).first()
+        if user is None:
+            return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
         if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
@@ -295,6 +344,8 @@ def get_user_informations(request):
 
     except Users.DoesNotExist:
         return Response({'status': 'error', 'message': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Http404:
+        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
         return Response({'status': 'error', 'message': 'An unexpected error occurred. Please try again later.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -317,6 +368,8 @@ def get_user_status(request):
 
     except Users.DoesNotExist:
         return Response({'status': 'error', 'message': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Http404:
+        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'status': 'error', 'message': f'An error occurred: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -379,8 +432,9 @@ def edit_favorite_games(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        user = get_object_or_404(Users, login_session_token=login_session_token)
-
+        user = Users.objects.filter(login_session_token=login_session_token).first()
+        if user is None:
+            return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
         FavoriteGames.objects.filter(user=user).delete()
 
         for game_id in game_ids:
@@ -393,6 +447,8 @@ def edit_favorite_games(request):
         return Response({'status': 'error', 'message': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
     except Games.DoesNotExist:
         return Response({'status': 'error', 'message': 'One or more games not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Http404:
+        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'status': 'error', 'message': f'An unexpected error occurred: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -417,9 +473,10 @@ def edit_profile_info(request):
         country = request.data.get('country')
         interests = request.data.get('interests')
 
-        user = get_object_or_404(Users, login_session_token=login_session_token)
-
-        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=360):
+        user = Users.objects.filter(login_session_token=login_session_token).first()
+        if user is None:
+            return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
         try:
@@ -471,6 +528,174 @@ def edit_profile_info(request):
             status=status.HTTP_200_OK,
         )
 
+    except Http404:
+        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
         return Response({'status': 'error', 'message': 'An unexpected error occurred. Please try again later.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+def upload_avatar(request):
+    """POST /auth/upload-avatar/ - multipart avatar upload → media/profile_pictures/.
+
+    Returns the absolute URL. Storage is Django's configured backend, so the
+    M2 S3 cutover needs no change here.
+    """
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+
+    avatar = request.FILES.get('profile_picture') or request.FILES.get('profile_pic') or request.FILES.get('avatar')
+    if not avatar:
+        return Response(
+            {'status': 'error', 'message': 'profile_picture file is required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not (avatar.content_type or '').startswith('image/'):
+        return Response(
+            {'status': 'error', 'message': 'Invalid image format'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    profile.profile_picture = avatar
+    profile.save()
+
+    return Response({
+        'status': 'success',
+        'message': 'Avatar updated successfully',
+        'data': {'profile_picture': request.build_absolute_uri(profile.profile_picture.url)},
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+def upload_banner(request):
+    """POST /auth/upload-banner/ - multipart banner upload → media/banners/."""
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+
+    banner = request.FILES.get('banner')
+    if not banner:
+        return Response(
+            {'status': 'error', 'message': 'banner file is required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not (banner.content_type or '').startswith('image/'):
+        return Response(
+            {'status': 'error', 'message': 'Invalid image format'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    profile.banner = banner
+    profile.save()
+
+    return Response({
+        'status': 'success',
+        'message': 'Banner updated successfully',
+        'data': {'banner': request.build_absolute_uri(profile.banner.url)},
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+def update_favorite_games(request):
+    """POST /auth/update-favorite-games/ - Bearer + {game_ids:[int]}.
+
+    Header-auth replacement for edit_favorite_games (which took the token in the
+    body). Replaces the user's favorite games with the given set.
+    """
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+
+    game_ids = request.data.get('game_ids')
+    if not isinstance(game_ids, list):
+        return Response(
+            {'status': 'error', 'message': 'game_ids must be a list of game IDs'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        with transaction.atomic():
+            FavoriteGames.objects.filter(user=user).delete()
+            for game_id in game_ids:
+                game = get_object_or_404(Games, game_id=game_id)
+                FavoriteGames.objects.create(user=user, game=game)
+    except Games.DoesNotExist:
+        return Response(
+            {'status': 'error', 'message': 'One or more games not found'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    titles = list(
+        FavoriteGames.objects.filter(user=user).values_list('game__game_title', flat=True)
+    )
+    return Response({
+        'status': 'success',
+        'message': 'Favorite games updated successfully',
+        'data': {'favorite_games': titles},
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+def lookup_user(request):
+    """Resolve a username (or email) to a public profile card.
+
+    The wallet's send flow needs to show who it is about to pay. It used to
+    synthesize that card in the frontend - a made-up display name, a stock
+    portrait and a coin-flip "verified" tick - which meant the confirmation
+    screen could show a person who does not exist. This returns the real row or
+    a 404.
+
+    Deliberately thin: username, display name, avatar. No email, no wallet, no
+    counts, so it cannot be used to enumerate account details.
+    """
+    session_token = request.headers.get('Authorization')
+    if not session_token or not session_token.startswith('Bearer '):
+        return Response({'status': 'error', 'message': 'Authorization header is required'},
+                        status=status.HTTP_401_UNAUTHORIZED)
+
+    viewer = Users.objects.filter(login_session_token=session_token.split(' ', 1)[1]).first()
+    if viewer is None:
+        return Response({'status': 'error', 'message': 'Invalid or expired session token'},
+                        status=status.HTTP_401_UNAUTHORIZED)
+    if viewer.login_session_created_at is None or \
+            timezone.now() - viewer.login_session_created_at > timedelta(minutes=120):
+        return Response({'status': 'error', 'message': 'Session token has expired'},
+                        status=status.HTTP_401_UNAUTHORIZED)
+
+    query = (request.GET.get('q') or request.GET.get('username') or '').strip().lstrip('@')
+    if len(query) < 3:
+        return Response({'status': 'error', 'code': 'VALIDATION_FAILED',
+                         'message': 'Enter at least 3 characters.'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    if query.lower() == (viewer.username or '').lower():
+        return Response({'status': 'error', 'code': 'SELF_TRANSFER',
+                         'message': 'You cannot send VENT COINS to yourself.'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    user = (Users.objects.filter(username__iexact=query).first()
+            or Users.objects.filter(email__iexact=query).first())
+    if user is None or not user.is_active:
+        return Response({'status': 'error', 'code': 'NOT_FOUND',
+                         'message': 'No V-ENT account with that username.'},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    profile = UserProfile.objects.filter(user=user).first()
+    avatar = (request.build_absolute_uri(profile.profile_picture.url)
+              if profile and profile.profile_picture else None)
+
+    return Response({
+        'status': 'success',
+        'message': 'User found',
+        'data': {'user': {
+            'user_id': user.user_id,
+            'username': user.username,
+            'full_name': user.full_name,
+            'avatar': avatar,
+            'profile_picture': avatar,
+        }},
+    }, status=status.HTTP_200_OK)

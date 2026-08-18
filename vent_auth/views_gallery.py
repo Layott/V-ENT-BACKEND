@@ -1,3 +1,4 @@
+from django.http import Http404
 import logging
 from datetime import timedelta
 
@@ -23,8 +24,9 @@ def upload_images(request):
     login_session_token = session_token.split(" ")[1]
 
     try:
-        user = get_object_or_404(Users, login_session_token=login_session_token)
-
+        user = Users.objects.filter(login_session_token=login_session_token).first()
+        if user is None:
+            return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
         if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
@@ -47,6 +49,8 @@ def upload_images(request):
 
         return Response({'status': 'success', 'message': 'Images uploaded successfully'}, status=status.HTTP_200_OK)
 
+    except Http404:
+        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         logger = logging.getLogger(__name__)
         logger.error(f"Unexpected error: {str(e)}")
@@ -66,8 +70,9 @@ def get_user_gallery(request):
     login_session_token = session_token.split(" ")[1]
 
     try:
-        user = get_object_or_404(Users, login_session_token=login_session_token)
-
+        user = Users.objects.filter(login_session_token=login_session_token).first()
+        if user is None:
+            return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
         if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
@@ -84,6 +89,8 @@ def get_user_gallery(request):
 
         return Response({'status': 'success', 'data': gallery_data}, status=status.HTTP_200_OK)
 
+    except Http404:
+        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         logger = logging.getLogger(__name__)
         logger.error(f"Unexpected error: {str(e)}")
@@ -104,9 +111,10 @@ def delete_gallery_image(request):
     login_session_token = session_token.split(" ")[1]
 
     try:
-        user = get_object_or_404(Users, login_session_token=login_session_token)
-
-        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=360):
+        user = Users.objects.filter(login_session_token=login_session_token).first()
+        if user is None:
+            return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
         gallery_item = get_object_or_404(UserGallery, id=image_id, user=user)
@@ -117,6 +125,8 @@ def delete_gallery_image(request):
     except UserGallery.DoesNotExist:
         return Response({'status': 'error', 'message': 'Image not found'}, status=status.HTTP_404_NOT_FOUND)
 
+    except Http404:
+        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         logger = logging.getLogger(__name__)
         logger.error(f"Unexpected error: {str(e)}")
