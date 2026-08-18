@@ -95,7 +95,11 @@ class VerificationToken(models.Model):
 
     def is_valid(self):
         now = timezone.now()
-        return now - self.created_at < datetime.timedelta(minutes=120)
+        # Read the setting directly - importing views_helpers here would be a
+        # circular import, since that module imports this one.
+        from django.conf import settings
+        window = int(getattr(settings, 'SESSION_TOKEN_TIMEOUT_MINUTES', 60 * 24 * 14))
+        return now - self.created_at < datetime.timedelta(minutes=window)
 
 
 class UserCommunity(models.Model):

@@ -5,6 +5,7 @@ Auth: Bearer `login_session_token` (16-char), 120-minute expiry - same pattern a
 the rest of vent_tournament. Envelope: {status, data, message[, code]}.
 """
 from datetime import timedelta
+from vent_auth.views_helpers import session_timeout_minutes
 
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -21,7 +22,7 @@ from .services import prizes as prize_service
 from .services import wallet as wallet_service
 from vent_auth.models import Users
 
-SESSION_TIMEOUT = timedelta(minutes=120)
+SESSION_TIMEOUT = timedelta(minutes=session_timeout_minutes())
 
 
 # ---------------------------------------------------------------------------

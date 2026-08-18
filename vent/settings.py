@@ -59,6 +59,11 @@ PRIVATE_MEDIA_URL = os.environ.get('PRIVATE_MEDIA_URL', '/private/')
 # Local IP-to-location database (DB-IP City Lite, MaxMind format). Used to fill
 # a new account's country and region without asking for them at signup and
 # without calling out to a geolocation service. Absent = the lookup is skipped.
+# How long a login_session_token stays valid. Two hours meant a player who
+# opened the app after lunch was silently logged out; 14 days matches what a
+# consumer app is expected to do. Override per environment.
+SESSION_TOKEN_TIMEOUT_MINUTES = int(os.environ.get('SESSION_TOKEN_TIMEOUT_MINUTES', str(60 * 24 * 14)))
+
 GEOIP_DB_PATH = os.environ.get('GEOIP_DB_PATH', os.path.join(BASE_DIR, 'geo', 'dbip-city-lite.mmdb'))
 
 # Application definition

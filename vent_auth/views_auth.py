@@ -16,6 +16,7 @@ from vent.settings import FRONTEND_URL
 from .models import Users, UserProfile, UserWallet, VerificationToken
 from .serializers import UserSerializer
 from .views_helpers import (
+    session_timeout_minutes,
     send_email,
     generate_session_token,
     create_default_profile_picture,
@@ -233,9 +234,23 @@ def login(request):
                 'message': 'Your account is not confirmed. Please verify your email address.'
             }, status=status.HTTP_403_FORBIDDEN)
 
-        session_token = generate_session_token()
+        # Reuse a session that is still valid instead of minting a new one.
+        #
+        # Every login used to overwrite login_session_token, so signing in on a
+        # second device - or the same person opening a second tab - silently
+        # killed the first session and the app bounced them to the login screen.
+        # Keeping the live token means the other device stays signed in.
+        existing = user.login_session_token
+        created = user.login_session_created_at
+        still_valid = (
+            bool(existing)
+            and created is not None
+            and timezone.now() - created <= timedelta(minutes=session_timeout_minutes())
+        )
+
+        session_token = existing if still_valid else generate_session_token()
         user.login_session_token = session_token
-        user.login_session_created_at = timezone.now()
+        user.login_session_created_at = timezone.now()   # sliding expiry
         user.save()
 
         return Response({
