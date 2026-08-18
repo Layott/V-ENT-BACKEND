@@ -51,6 +51,7 @@ from vent_tournament.services import bracket as bracket_service
 DEMO_PREFIX = 'demo_'
 DEMO_DOMAIN = '@seed.v-ent.co'
 DEMO_PASSWORD = 'VentDemo2026!'
+DEMO_PIN = '2468'
 
 # Flat brand fills. No gradient, no glow - the same rule the UI follows.
 FILLS = {
@@ -273,9 +274,18 @@ class Command(BaseCommand):
             profile.description = f'{full_name.split()[0]} plays out of Lagos.'
             profile.save()
         wallet = get_or_create_user_wallet(user)
+        fields = []
         if coins and wallet.wallet_balance == 0:
             wallet.wallet_balance = coins
-            wallet.save(update_fields=['wallet_balance'])
+            fields.append('wallet_balance')
+        # Paid registration, sending coins and buying a ticket all stop at the
+        # PIN prompt. Without one the demo account cannot walk any flow that
+        # moves money, which is most of what is worth testing.
+        if not wallet.pin_hash:
+            wallet.pin_hash = make_password(DEMO_PIN)
+            fields.append('pin_hash')
+        if fields:
+            wallet.save(update_fields=fields)
         return user
 
     def make_teams(self, players, game):
