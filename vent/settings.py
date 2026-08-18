@@ -56,6 +56,11 @@ PRIVATE_MEDIA_ROOT = os.environ.get('PRIVATE_MEDIA_ROOT', os.path.join(BASE_DIR,
 # The nginx `internal` location that fronts PRIVATE_MEDIA_ROOT for X-Accel-Redirect.
 PRIVATE_MEDIA_URL = os.environ.get('PRIVATE_MEDIA_URL', '/private/')
 
+# Local IP-to-location database (DB-IP City Lite, MaxMind format). Used to fill
+# a new account's country and region without asking for them at signup and
+# without calling out to a geolocation service. Absent = the lookup is skipped.
+GEOIP_DB_PATH = os.environ.get('GEOIP_DB_PATH', os.path.join(BASE_DIR, 'geo', 'dbip-city-lite.mmdb'))
+
 # Application definition
 
 INSTALLED_APPS = [

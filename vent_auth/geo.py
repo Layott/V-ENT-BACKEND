@@ -1,0 +1,115 @@
+"""Resolve a request's country and region from its IP address.
+
+Runs entirely on this machine. The lookup reads a MaxMind-format database file
+from disk (DB-IP's free City Lite build, refreshed monthly by a cron job), so a
+signup never waits on a third-party geolocation API and no user IP leaves the
+server. That matters twice over: it keeps signup fast on a high-latency link,
+and it keeps a personal data point in-house.
+
+Everything degrades quietly. If the database file is missing or the address is
+private, the caller gets (None, None) and signup carries on - a missing country
+must never be the reason somebody cannot create an account.
+"""
+import ipaddress
+import logging
+import os
+import threading
+
+from django.conf import settings
+
+logger = logging.getLogger(__name__)
+
+_reader = None
+_reader_lock = threading.Lock()
+_reader_failed = False
+
+
+def _db_path():
+    return getattr(settings, 'GEOIP_DB_PATH', '') or os.environ.get('GEOIP_DB_PATH', '')
+
+
+def _get_reader():
+    """Open the database once and keep it. geoip2 readers are thread-safe."""
+    global _reader, _reader_failed
+    if _reader is not None or _reader_failed:
+        return _reader
+
+    with _reader_lock:
+        if _reader is not None or _reader_failed:
+            return _reader
+        path = _db_path()
+        if not path or not os.path.exists(path):
+            _reader_failed = True
+            logger.info('geoip: no database at %r, location lookup disabled', path)
+            return None
+        try:
+            import geoip2.database
+            _reader = geoip2.database.Reader(path)
+        except Exception as exc:
+            _reader_failed = True
+            logger.warning('geoip: could not open %r (%s)', path, exc)
+            return None
+    return _reader
+
+
+def client_ip(request):
+    """The caller's real address.
+
+    nginx sits in front in production and appends the client to
+    X-Forwarded-For, so REMOTE_ADDR is always the proxy. Only the first entry in
+    that header is meaningful; the rest can be forged by the client. In
+    development there is no proxy, so REMOTE_ADDR is used directly.
+    """
+    if not settings.DEBUG:
+        forwarded = request.META.get('HTTP_X_FORWARDED_FOR', '')
+        if forwarded:
+            first = forwarded.split(',')[0].strip()
+            if first:
+                return first
+    return request.META.get('REMOTE_ADDR') or ''
+
+
+def _is_public(ip):
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return not (addr.is_private or addr.is_loopback or addr.is_reserved
+                or addr.is_link_local or addr.is_unspecified)
+
+
+def locate(ip):
+    """(country_name, region_name) for an address, or (None, None).
+
+    Never raises. A geolocation failure is not worth failing a signup over.
+    """
+    if not ip or not _is_public(ip):
+        return None, None
+
+    reader = _get_reader()
+    if reader is None:
+        return None, None
+
+    try:
+        response = reader.city(ip)
+    except Exception:
+        # AddressNotFoundError and friends - unknown address, nothing to do.
+        return None, None
+
+    country = getattr(response.country, 'name', None)
+    region = None
+    subdivisions = getattr(response, 'subdivisions', None)
+    if subdivisions:
+        try:
+            region = subdivisions.most_specific.name
+        except Exception:
+            region = None
+    if not region:
+        region = getattr(getattr(response, 'city', None), 'name', None)
+
+    return country, region
+
+
+def locate_request(request):
+    """Convenience wrapper: resolve straight from a DRF/Django request."""
+    return locate(client_ip(request))

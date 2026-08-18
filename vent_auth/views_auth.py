@@ -22,20 +22,32 @@ from .views_helpers import (
     create_user_wallet,
 )
 
+from .geo import locate_request
+
 logger = logging.getLogger(__name__)
 
 
 @api_view(['POST'])
 def signup(request):
-    fullname = request.data.get('full_name')
     email = request.data.get('email')
     username = request.data.get('username')
-    country = request.data.get('country')
     password = request.data.get('password')
-    state = request.data.get('state')
 
-    if not all([fullname, email, username, password, country, state]):
-        return Response({"status": "error", "message": "All fields are required"}, status=status.HTTP_400_BAD_REQUEST)
+    # Signup asks for three things only: email, username, password. Full name is
+    # optional and collected later in onboarding, and location is resolved from
+    # the caller's IP rather than made into two more form fields. Values sent by
+    # an older client are still honoured.
+    fullname = (request.data.get('full_name') or '').strip()
+
+    country = (request.data.get('country') or '').strip()
+    state = (request.data.get('state') or '').strip()
+    if not country or not state:
+        geo_country, geo_region = locate_request(request)
+        country = country or (geo_country or '')
+        state = state or (geo_region or '')
+
+    if not all([email, username, password]):
+        return Response({"status": "error", "message": "Email, username and password are required"}, status=status.HTTP_400_BAD_REQUEST)
 
     existing_user = Users.objects.filter(email=email, signup_type='normal').first()
 
@@ -47,10 +59,13 @@ def signup(request):
             }, status=status.HTTP_400_BAD_REQUEST)
         else:
             if existing_user.username == username:
-                existing_user.full_name = fullname
+                if fullname:
+                    existing_user.full_name = fullname
                 existing_user.username = username
-                existing_user.country = country
-                existing_user.state = state
+                if country:
+                    existing_user.country = country
+                if state:
+                    existing_user.state = state
                 existing_user.password = make_password(password)
                 existing_user.is_active = False
                 user = existing_user
@@ -64,12 +79,14 @@ def signup(request):
 
         if not username_is_available:
             user = Users.objects.create(
-                full_name=fullname,
+                # Falls back to the username so every surface that prints a
+                # display name has something real to show until onboarding.
+                full_name=fullname or username,
                 email=email,
                 username=username,
                 password=make_password(password),
-                country=country,
-                state=state,
+                country=country or None,
+                state=state or None,
                 is_active=False
             )
         else:
