@@ -123,6 +123,18 @@ def admin_login(request):
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
+    # is_staff opens the door; admin_role decides what is behind it. They are
+    # separate fields and can disagree: an account with is_staff and no role
+    # signed in fine and then got 403 from every endpoint, so the dashboard
+    # loaded as a grid of dashes under "Failed to load dashboard data." Refuse
+    # the sign-in instead, and say why.
+    if not user.admin_role:
+        return Response(
+            {'status': 'error',
+             'message': 'This account has no admin role assigned. Ask a super admin to grant one.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
     # Credentials are correct - but they are only step one. The session token is
     # issued by /auth/admin/2fa/verify/ after a real TOTP code, never here.
     enrolment, _ = AdminTOTP.objects.get_or_create(
@@ -843,8 +855,7 @@ def admin_pending_payouts(request):
     """GET /auth/admin/payouts/pending/ - pending withdrawal requests."""
     admin = request.admin_user
 
-    # Coins → NGN: reverse of COINS_PER_100_NGN ratio
-    from vent_auth.views_wallet import COINS_PER_100_NGN
+    from vent_auth.views_wallet import coins_to_ngn
 
     withdrawals = (
         WithdrawalRequest.objects
@@ -862,7 +873,7 @@ def admin_pending_payouts(request):
                 'kyc_verified': w.wallet.kyc_verified,
             },
             'amount_vent_coins': w.amount,
-            'amount_ngn': (w.amount * 100) // COINS_PER_100_NGN if COINS_PER_100_NGN else 0,
+            'amount_ngn': coins_to_ngn(w.amount),
             'bank_name': w.bank_name,
             'account_number': w.account_number[-4:].rjust(len(w.account_number), '*'),
             'account_name': w.account_name,
@@ -887,7 +898,7 @@ def admin_payouts_list(request):
     Params: page, page_size (20), ordering, search, status (default pending).
     Response data = {results:[PROW], count, page, page_size}.
     """
-    from vent_auth.views_wallet import COINS_PER_100_NGN
+    from vent_auth.views_wallet import coins_to_ngn
 
     qs = WithdrawalRequest.objects.select_related('wallet__user')
 
@@ -917,7 +928,7 @@ def admin_payouts_list(request):
             'id': w.id,
             'username': w.wallet.user.username if w.wallet and w.wallet.user else None,
             'amount_vc': w.amount,
-            'amount_ngn': (w.amount * 100) // COINS_PER_100_NGN if COINS_PER_100_NGN else 0,
+            'amount_ngn': coins_to_ngn(w.amount),
             'bank_name': w.bank_name,
             'account_number': _mask_account(w.account_number),
             'submitted_at': w.requested_at,

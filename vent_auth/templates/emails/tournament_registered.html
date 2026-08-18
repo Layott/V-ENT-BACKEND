@@ -1,0 +1,17 @@
+{% extends "emails/base.html" %}
+{% block title %}You are registered{% endblock %}
+{% block kicker %}Tournaments{% endblock %}
+{% block preheader %}{{ tournament }} starts {{ starts }}. Your slot is confirmed.{% endblock %}
+{% block heading %}Your slot is confirmed{% endblock %}
+{% block content %}
+<p style="margin:0 0 20px 0;">{{ name }}, you are in <strong style="color:#FFFFFF;">{{ tournament }}</strong>.</p>
+
+{% include "emails/_rows.html" with rows=rows %}
+
+<div style="height:24px; line-height:24px;">&nbsp;</div>
+{% include "emails/_button.html" with url=bracket_url label="View the bracket" %}
+<div style="height:24px; line-height:24px;">&nbsp;</div>
+
+<p style="margin:0; font-size:14px; color:#8A8A93;">Check in opens 30 minutes before the first match. Miss it and your slot goes to a substitute.</p>
+{% endblock %}
+{% block footer_note %}You received this because you registered for a tournament on V-ENT.{% endblock %}

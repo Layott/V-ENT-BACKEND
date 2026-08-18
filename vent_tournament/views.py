@@ -380,7 +380,7 @@ def search_tournament(request):
         date_from = request.GET.get('from')
         date_to = request.GET.get('to')
 
-        query = Q(is_draft=False)
+        query = Q(is_draft=False, tournament_visibility__in=['public', 'protected'])
 
         if name:
             query &= Q(tournament_title__icontains=name)
@@ -735,16 +735,26 @@ def create_tournament(request):
 #     }, status=status.HTTP_200_OK)
 
 
+# A tournament set to `private` is, in the organizer's own words on the creation
+# wizard, "hidden from the public and available to only users with a link". The
+# listing endpoints filtered on is_draft alone, so every private tournament was
+# published on the front page. Direct links still resolve - that is the point of
+# the setting - but nothing here puts one in front of somebody who was not sent
+# it. `protected` stays listed on purpose: it restricts registration, not
+# discovery.
+PUBLICLY_LISTED = {'is_draft': False, 'tournament_visibility__in': ['public', 'protected']}
+
+
 @api_view(["GET"])
 def get_all_tournaments(request):
     # Featured Tournaments (most interacted)
-    featured_tournaments = Tournament.objects.filter(is_draft=False).order_by('-interaction_count')[:5]
+    featured_tournaments = Tournament.objects.filter(**PUBLICLY_LISTED).order_by('-interaction_count')[:5]
     
     # New Tournaments (recent ones)
-    new_tournaments = Tournament.objects.filter(is_draft=False).order_by('-start_date_and_time')[:5]
+    new_tournaments = Tournament.objects.filter(**PUBLICLY_LISTED).order_by('-start_date_and_time')[:5]
     
     # All Tournaments grouped by game
-    all_tournaments = Tournament.objects.filter(is_draft=False).select_related('tournament_game')
+    all_tournaments = Tournament.objects.filter(**PUBLICLY_LISTED).select_related('tournament_game')
     tournaments_by_game = {}
 
     for tournament in all_tournaments:
@@ -1120,26 +1130,58 @@ def get_tournament_participants(request, tournament_id):
 
         registrations = (
             tournament.registrations
-            .select_related('team', 'user')
-            .order_by('registered_at')
+            .select_related('team', 'team__team_owner', 'user')
+            .order_by('seed', 'registered_at')
         )
 
-        data = [
-            {
+        # Played / won counts for this tournament, so the participants table can
+        # show a real record instead of a column that is 0% for everybody.
+        played, won = {}, {}
+        finished = tournament.bracket_matches.filter(status='completed')
+        for match in finished:
+            for reg_id in (match.participant_1_id, match.participant_2_id):
+                if reg_id:
+                    played[reg_id] = played.get(reg_id, 0) + 1
+            if match.winner_id:
+                won[match.winner_id] = won.get(match.winner_id, 0) + 1
+
+        def entrant(r):
+            if r.team:
+                owner = r.team.team_owner
+                return {
+                    'id': r.team.team_id,
+                    'name': r.team.team_name,
+                    'logo': r.team.team_logo.url if r.team.team_logo else None,
+                    'captain': owner.username if owner else None,
+                    'country': None,
+                }
+            return {
+                'id': r.user.user_id,
+                'name': r.user.full_name or r.user.username,
+                'username': r.user.username,
+                'logo': None,
+                'captain': r.user.username,
+                'country': r.user.country or None,
+            }
+
+        data = []
+        for index, r in enumerate(registrations, start=1):
+            matches = played.get(r.id, 0)
+            wins = won.get(r.id, 0)
+            data.append({
                 'registration_id': r.id,
                 'type': 'team' if r.team else 'individual',
-                'participant': (
-                    {'id': r.team.team_id, 'name': r.team.team_name,
-                     'logo': r.team.team_logo.url if r.team.team_logo else None}
-                    if r.team else
-                    {'id': r.user.user_id, 'name': r.user.username}
-                ),
+                'seed': r.seed or index,
+                'participant': entrant(r),
+                'matches_played': matches,
+                'wins': wins,
+                'losses': matches - wins,
+                'win_rate': round(wins * 100 / matches) if matches else None,
+                'final_position': r.final_position,
                 'status': r.status,
                 'entry_fee_paid': r.entry_fee_paid,
                 'registered_at': r.registered_at,
-            }
-            for r in registrations
-        ]
+            })
 
         return Response({
             'status': 'success',

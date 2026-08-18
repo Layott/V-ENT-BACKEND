@@ -1,0 +1,8 @@
+{% comment %}Bulletproof button. VML for Outlook, table cell everywhere else.{% endcomment %}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0">
+  <tr>
+    <td bgcolor="{{ color|default:'#ED1C24' }}" style="background-color:{{ color|default:'#ED1C24' }}; border-radius:10px;">
+      <a href="{{ url }}" style="display:inline-block; padding:15px 34px; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:16px; font-weight:600; color:{{ text_color|default:'#FFFFFF' }}; text-decoration:none; border-radius:10px;">{{ label }}</a>
+    </td>
+  </tr>
+</table>

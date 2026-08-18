@@ -1,0 +1,20 @@
+{% extends "emails/base.html" %}
+{% block title %}Your ticket{% endblock %}
+{% block kicker %}Events{% endblock %}
+{% block preheader %}Ticket {{ code }} for {{ event }}. Show this code at the door.{% endblock %}
+{% block heading %}Your ticket is ready{% endblock %}
+{% block content %}
+<p style="margin:0 0 20px 0;">{{ name }}, here is your entry to <strong style="color:#FFFFFF;">{{ event }}</strong>. Show this code at the door.</p>
+
+{% include "emails/_code.html" with code=code note="One admission" %}
+
+<div style="height:20px; line-height:20px;">&nbsp;</div>
+{% include "emails/_rows.html" with rows=rows %}
+
+<div style="height:24px; line-height:24px;">&nbsp;</div>
+{% include "emails/_button.html" with url=ticket_url label="Open my ticket" color="#D4AF37" text_color="#131316" %}
+<div style="height:24px; line-height:24px;">&nbsp;</div>
+
+<p style="margin:0; font-size:14px; color:#8A8A93;">The scannable version lives in My Tickets. If your phone dies, the code above is enough.</p>
+{% endblock %}
+{% block footer_note %}You received this because you bought a ticket on V-ENT.{% endblock %}

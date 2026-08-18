@@ -1,0 +1,96 @@
+{% comment %}
+V-ENT transactional email layout.
+
+Rules this file follows, because email is not the web:
+  * tables for structure - Outlook still uses Word's rendering engine
+  * every style inline or in a <style> that is only a progressive enhancement
+  * no web fonts; Georgia echoes Fraunces, the system stack echoes Inter
+  * no images required to understand the message - most clients block them by
+    default, so the wordmark is text
+  * 600px wide, degrading to full width on a phone
+  * one action per email, as a table-cell button that works without CSS
+
+Brand: red #ED1C24 primary, gold #D4AF37 for money, green #4CAF50 for success.
+Surfaces are dark (#131316 page, #1C1C21 card) but never pure black.
+{% endcomment %}<!DOCTYPE html>
+<html lang="en" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="color-scheme" content="dark">
+<meta name="supported-color-schemes" content="dark">
+<title>{% block title %}V-ENT{% endblock %}</title>
+<!--[if mso]>
+<noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+<![endif]-->
+<style>
+  @media only screen and (max-width:620px) {
+    .wrap { width:100% !important; }
+    .pad { padding-left:24px !important; padding-right:24px !important; }
+    .h1 { font-size:26px !important; line-height:32px !important; }
+    .stack { display:block !important; width:100% !important; }
+    .stack-gap { height:12px !important; }
+  }
+</style>
+</head>
+<body style="margin:0; padding:0; background-color:#131316;">
+  <!-- Inbox preview line. Hidden in the body, shown next to the subject. -->
+  <div style="display:none; font-size:1px; color:#131316; line-height:1px; max-height:0; max-width:0; opacity:0; overflow:hidden;">
+    {% block preheader %}{% endblock %}
+    &#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;
+  </div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#131316" style="background-color:#131316;">
+    <tr>
+      <td align="center" style="padding:32px 12px 40px 12px;">
+
+        <table role="presentation" class="wrap" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px; max-width:600px;">
+
+          <!-- Wordmark. Text, not an image, so a blocked-image inbox still shows it. -->
+          <tr>
+            <td align="left" style="padding:0 8px 20px 8px;">
+              <span style="font-family:Georgia,'Times New Roman',serif; font-size:24px; font-weight:700; color:#ED1C24; letter-spacing:-0.5px;">V-ENT</span>
+              <span style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:12px; color:#7A7A82; padding-left:8px;">{% block kicker %}Vermillion Enterprise{% endblock %}</span>
+            </td>
+          </tr>
+
+          <!-- Card -->
+          <tr>
+            <td bgcolor="#1C1C21" style="background-color:#1C1C21; border-radius:14px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td class="pad" style="padding:36px 40px 8px 40px;">
+                    <h1 class="h1" style="margin:0 0 12px 0; font-family:Georgia,'Times New Roman',serif; font-size:30px; line-height:36px; font-weight:700; color:#FFFFFF;">{% block heading %}{% endblock %}</h1>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="pad" style="padding:0 40px 36px 40px; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:16px; line-height:26px; color:#C8C8CE;">
+                    {% block content %}{% endblock %}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td class="pad" style="padding:28px 16px 0 16px; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:12px; line-height:20px; color:#6F6F78;">
+              {% block footer_note %}You received this because someone used this address to sign in to V-ENT. If that was not you, you can ignore this message.{% endblock %}
+              <div style="height:14px; line-height:14px;">&nbsp;</div>
+              <a href="https://app.v-ent.co" style="color:#9A9AA3; text-decoration:underline;">app.v-ent.co</a>
+              &nbsp;&nbsp;
+              <a href="https://app.v-ent.co/privacy-policy" style="color:#9A9AA3; text-decoration:underline;">Privacy</a>
+              &nbsp;&nbsp;
+              <a href="https://app.v-ent.co/terms-of-use.pdf" style="color:#9A9AA3; text-decoration:underline;">Terms</a>
+              <div style="height:10px; line-height:10px;">&nbsp;</div>
+              &copy; 2026 Vermillion Enterprise (V-ENT), Lagos, Nigeria
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

@@ -1,0 +1,24 @@
+{% extends "emails/base.html" %}
+{% block title %}Withdrawal update{% endblock %}
+{% block kicker %}Wallet{% endblock %}
+{% block preheader %}Your withdrawal of {{ amount_ngn }} is {{ state }}.{% endblock %}
+{% block heading %}{{ headline }}{% endblock %}
+{% block content %}
+<p style="margin:0 0 20px 0;">{{ name }}, {{ intro }}</p>
+
+{% include "emails/_rows.html" with rows=rows %}
+
+<div style="height:24px; line-height:24px;">&nbsp;</div>
+{% if rejected %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#2A1F1F" style="background-color:#2A1F1F; border-radius:12px;">
+  <tr><td style="padding:16px 20px; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px; line-height:22px; color:#E4A8AB;">
+    <strong style="color:#FFFFFF;">Reason:</strong> {{ reason }}<br>
+    Your VENT COINS have been returned to your wallet in full. Fix the detail above and request again.
+  </td></tr>
+</table>
+<div style="height:24px; line-height:24px;">&nbsp;</div>
+{% endif %}
+
+{% include "emails/_button.html" with url="https://app.v-ent.co/wallets" label="Open my wallet" %}
+{% endblock %}
+{% block footer_note %}You received this because you requested a withdrawal on V-ENT.{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "emails/base.html" %}
+{% block title %}Identity check{% endblock %}
+{% block kicker %}Verification{% endblock %}
+{% block preheader %}{{ preheader }}{% endblock %}
+{% block heading %}{{ headline }}{% endblock %}
+{% block content %}
+<p style="margin:0 0 20px 0;">{{ name }}, {{ intro }}</p>
+
+{% if approved %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#1E2A1F" style="background-color:#1E2A1F; border-radius:12px;">
+  <tr><td style="padding:18px 20px; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:15px; line-height:23px; color:#A5D6A7;">
+    <strong style="color:#FFFFFF;">Now unlocked</strong><br>
+    Withdrawals to your bank, paid tournament entry, and prize payouts.
+  </td></tr>
+</table>
+{% else %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#2A1F1F" style="background-color:#2A1F1F; border-radius:12px;">
+  <tr><td style="padding:18px 20px; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:15px; line-height:23px; color:#E4A8AB;">
+    <strong style="color:#FFFFFF;">What to fix</strong><br>
+    {{ reason }}
+  </td></tr>
+</table>
+{% endif %}
+
+<div style="height:24px; line-height:24px;">&nbsp;</div>
+{% include "emails/_button.html" with url="https://app.v-ent.co/wallets/verify" label=cta %}
+{% endblock %}
+{% block footer_note %}You received this because you submitted an identity document on V-ENT.{% endblock %}

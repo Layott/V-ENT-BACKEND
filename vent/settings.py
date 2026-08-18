@@ -46,7 +46,12 @@ if not DEBUG and (not SECRET_KEY or SECRET_KEY.startswith('django-insecure-')):
 
 
 # Public uploads (avatars, banners, logos). nginx serves this directory directly.
-MEDIA_URL = '/media/'
+# Absolute in production. The frontend runs on app.v-ent.co and the media files
+# are served by the API host, so a relative '/media/...' resolves against the
+# wrong origin and every uploaded image 404s. Making MEDIA_URL absolute fixes it
+# once, for every endpoint, instead of wrapping .url at each of the sixteen
+# places a view emits one.
+MEDIA_URL = os.environ.get('MEDIA_BASE_URL', '/media/')
 MEDIA_ROOT = os.environ.get('MEDIA_ROOT', os.path.join(BASE_DIR, 'media'))
 
 # Private uploads (KYC identity documents). NEVER served by nginx directly - see
@@ -248,8 +253,14 @@ if not DEBUG:
     SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
     X_FRAME_OPTIONS = 'DENY'
 
-    # Uploads land in a private directory owned by the app user only.
-    FILE_UPLOAD_PERMISSIONS = 0o640
+    # nginx serves everything under MEDIA_ROOT straight off disk as www-data, so
+    # public uploads have to be world readable. They were 0o640, which made every
+    # profile picture, team logo and tournament banner answer 403. Identity
+    # documents are not covered by this: they are written by the private storage
+    # in vent_auth/storages.py, which clamps them back to 0o640 in a directory
+    # nginx can only reach through an internal X-Accel-Redirect.
+    FILE_UPLOAD_PERMISSIONS = 0o644
+    FILE_UPLOAD_DIRECTORY_PERMISSIONS = 0o755
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field

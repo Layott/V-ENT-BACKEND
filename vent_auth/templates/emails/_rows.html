@@ -1,0 +1,9 @@
+{% comment %}Label/value rows. Separated by fill and spacing, never by rules.{% endcomment %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#26262C" style="background-color:#26262C; border-radius:12px;">
+  {% for row in rows %}
+  <tr>
+    <td style="padding:{% if forloop.first %}18px{% else %}12px{% endif %} 20px {% if forloop.last %}18px{% else %}0{% endif %} 20px; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px; color:#8A8A93;" width="45%">{{ row.0 }}</td>
+    <td align="right" style="padding:{% if forloop.first %}18px{% else %}12px{% endif %} 20px {% if forloop.last %}18px{% else %}0{% endif %} 20px; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:15px; font-weight:600; color:{{ row.2|default:'#FFFFFF' }};">{{ row.1 }}</td>
+  </tr>
+  {% endfor %}
+</table>

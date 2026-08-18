@@ -1,0 +1,14 @@
+{% extends "emails/base.html" %}
+{% block title %}Confirm your new address{% endblock %}
+{% block kicker %}Account{% endblock %}
+{% block preheader %}Code {{ code }} confirms {{ new_email }} as your new V-ENT address.{% endblock %}
+{% block heading %}Confirm your new address{% endblock %}
+{% block content %}
+<p style="margin:0 0 20px 0;">{{ name }}, you asked to move your V-ENT account to <strong style="color:#FFFFFF;">{{ new_email }}</strong>. Enter this code to make the change.</p>
+
+{% include "emails/_code.html" with code=code note="Expires in "|add:expires_in %}
+
+<div style="height:24px; line-height:24px;">&nbsp;</div>
+<p style="margin:0; font-size:14px; color:#8A8A93;">Until you enter it, sign-in and every V-ENT email still go to <strong style="color:#C8C8CE;">{{ old_email }}</strong>. Did not request this? Change your password now.</p>
+{% endblock %}
+{% block footer_note %}You received this because this address was entered as a new sign-in address for a V-ENT account.{% endblock %}
