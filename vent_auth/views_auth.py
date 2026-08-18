@@ -15,9 +15,9 @@ from rest_framework.response import Response
 from vent.settings import FRONTEND_URL
 from .models import Users, UserProfile, UserWallet, VerificationToken
 from .serializers import UserSerializer
+from . import emails
 from .views_helpers import (
     session_timeout_minutes,
-    send_email,
     generate_session_token,
     create_default_profile_picture,
     create_user_wallet,
@@ -101,16 +101,6 @@ def signup(request):
     FRONTEND_VERIFY_URL = f"{FRONTEND_URL}/email-verified"
     verification_link = f"{FRONTEND_VERIFY_URL}/{uid}/{token}"
 
-    subject = 'Verify Your Email'
-    message = f'''Hi {fullname},
-
-Please click the link below to verify your email:
-
-{verification_link}
-
-If you did not create an account, please ignore this email.
-'''
-
     from django.conf import settings as django_settings
     if django_settings.DEBUG:
         user.is_active = True
@@ -128,7 +118,8 @@ If you did not create an account, please ignore this email.
         return Response({"status": "success", "message": "Account created successfully (email verification bypassed in debug mode)"}, status=status.HTTP_200_OK)
 
     try:
-        send_email(email, subject, message)
+        emails.send_verify_email(
+            email, name=fullname, code=token, verify_url=verification_link)
         user.save()
         return Response({"status": "success", "message": "Verification link sent to email"}, status=status.HTTP_200_OK)
     except Exception as e:
@@ -312,17 +303,9 @@ def forgot_password(request):
         defaults={'token': token, 'created_at': timezone.now()}
     )
 
-    subject = 'Reset Your Password'
-    message = f'''
-    Hi {user.full_name},
-
-    Your Password Reset Token is: {token}
-
-    Please enter this token to reset your password.
-    '''
-
     try:
-        send_email(email.strip().lower(), subject, message)
+        emails.send_password_reset(
+            email.strip().lower(), name=user.full_name or user.username, code=token)
     except Exception as e:
         logger.error(f"Failed to send password reset email to {email}: {str(e)}")
         return Response({"error": "Failed to send password reset email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -393,17 +376,10 @@ def resend_forgot_password_token(request):
         defaults={'token': token, 'created_at': timezone.now()}
     )
 
-    subject = 'Resend: Reset Your Password'
-    message = f'''
-    Hi {user.full_name},
-
-    Here is your new Password Reset Token: {token}
-
-    Please use it to reset your password.
-    '''
-
     try:
-        send_email(email.strip().lower(), subject, message)
+        emails.send_password_reset(
+            email.strip().lower(), name=user.full_name or user.username,
+            code=token, resend=True)
     except Exception as e:
         logger.error(f"Failed to resend password reset email to {email}: {str(e)}")
         return Response({"error": "Failed to resend password reset email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -432,20 +408,10 @@ def resend_link(request):
     FRONTEND_VERIFY_URL = f"{FRONTEND_URL}/email-verified"
     verification_link = f"{FRONTEND_VERIFY_URL}/{uid}/{token}"
 
-    subject = 'Resend: Verify Your Email'
-    message = f'''Hi {user.full_name},
-
-It seems you requested a new verification link.
-
-Please click below to verify your account:
-
-{verification_link}
-
-If you didn't request this, feel free to ignore this email.
-'''
-
     try:
-        send_email(user.email.strip().lower(), subject, message)
+        emails.send_verify_email(
+            user.email.strip().lower(), name=user.full_name or user.username,
+            code=token, verify_url=verification_link, resend=True)
         return Response({"status": "success", "message": "Verification link resent to your email"}, status=status.HTTP_200_OK)
     except Exception as e:
         logger.error(f"Failed to resend verification email to {email}: {str(e)}")
@@ -470,18 +436,9 @@ def send_code(request):
         defaults={'token': token, 'created_at': timezone.now()}
     )
 
-    subject = 'Verify Your Email'
-    message = f'''
-    <html>
-    <body>
-        <p>Hi,</p>
-        <p>Your Verification Token Is: <strong>{token}</strong></p>
-        <p>Please use it to verify your account.</p>
-    </body>
-    </html>
-    '''
-
-    if send_email(email.strip().lower(), subject, message):
+    # No account exists yet at this point in the flow, so there is no name to
+    # greet with. The template handles a bare "Hi there".
+    if emails.send_verify_email(email.strip().lower(), name='there', code=token):
         return Response({"status": "success", "message": "Verification token sent to email"}, status=status.HTTP_200_OK)
     else:
         return Response({"status": "error", "message": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -510,52 +467,10 @@ def save_username(request):
     user = Users.objects.create(email=email.strip().lower(), username=username.strip().lower())
     user.save()
 
-    subject = 'Welcome to Vermillion City🎉'
-    message = f'''
-    <html>
-    <body>
-        <img src="https://vermillionent.pythonanywhere.com/media/images/top.jpg" alt="Top Image"/>
-        <p>Hi <strong>{username}</strong>,</p>
-
-        <p>Welcome to the Vermillion Enterprise community! 🎉 We're thrilled to have you on board.</p>
-
-        <p>We are building a platform for people in the anime and gaming industry. We share the passions as you, in anime, games, graphics design, game development, video editing, esports and so much more.</p>
-
-        <p><strong>What to do:</strong></p>
-        <ul>
-            <li>Explore: Check out our <a href="https://www.vermillionent.com/Features"><em>features</em></a> we plan to release, if you haven't seen it.</li>
-            <li>Earn: Our referral program will start soon! And if you're up for earning some small items/change, keep an eye out for our mail🤝</li>
-        </ul>
-
-        <p><strong>Stay Connected:</strong></p>
-        <ul>
-            <li>Follow us on <a href="https://www.instagram.com/vermillionent/"><em>Instagram</em></a> and <a href="https://www.tiktok.com/@vermillionent"><em>TikTok</em></a> for updates and sneak peeks.</li>
-            <li>Join discussions on <a href="https://chat.whatsapp.com/Ff5r5TeEEnz3O2TSxk8bh1"><em>WhatsApp</em></a> or <a href="https://discord.com/invite/mxevc5aQG3"><em>Discord</em></a> and share your thoughts with fellow fans.</li>
-            <li>We'll release updates regularly and we'll have programs for you, so prepare for the big launch😉</li>
-            <li>Keep an eye on your inbox for exclusive updates and opportunities.</li>
-        </ul>
-
-        <p><strong>Shop:</strong></p>
-        <ul>
-            <li>We have some merchandise and gaming products for you in <a href="https://vermillionents.com.ng/"><em>Vermillion City</em> (our shop)</a>.</li>
-            <li>You can simply browse to see what you like or join our community and request from us.</li>
-        </ul>
-
-        <p>Fun fact: "Vermillion City" was inspired by the anime "Pokémon". A place where you can find whatever it is you want.</p>
-
-        <p>Thank you for joining us on this exciting journey. If you have any questions, feel free to reach out!<br>
-        You can reach us at <a href="mailto:support@vermillionent.com"><em>support@vermillionent.com</em></a>.</p>
-
-        <p>Thank you,<br>
-        The V-ENT Team.</p>
-
-        <img src="https://vermillionent.pythonanywhere.com/media/images/bottom.jpg" alt="Bottom Image"/>
-
-    </body>
-    </html>
-    '''
-
-    if send_email(email.strip().lower(), subject, message):
+    # The old welcome mail pointed its header and footer images at
+    # vermillionent.pythonanywhere.com, a host that no longer exists, so every
+    # new user's first email arrived with two broken images in it.
+    if emails.send_welcome(email.strip().lower(), name=username):
         return Response({"status": "success", "message": "Username saved successfully"}, status=status.HTTP_200_OK)
     else:
         return Response({"status": "error", "message": "Failed to send welcome email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

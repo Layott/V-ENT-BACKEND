@@ -15,7 +15,8 @@ from .models import (
     Users, UserProfile, UserInterests, UserCommunity, UserWallet,
     Games, GameAccount, FavoriteGames, Teams, TeamProfile, SocialLink,
 )
-from .views_helpers import send_email, session_timeout_minutes
+from . import emails
+from .views_helpers import session_timeout_minutes
 
 logger = logging.getLogger(__name__)
 
@@ -98,15 +99,15 @@ def change_email(request):
         defaults={'token': token, 'created_at': timezone.now()}
     )
 
-    subject = 'Verify Email'
-    message = f'''
-Hi,
-
-Your Verification Token Is: {token}
-
-Please use it to verify your account'''
-
-    send_email(new_email, subject, message)
+    # Greet the person by name and tell them which address the account moves
+    # from, so a code arriving out of the blue is recognisable as theirs.
+    owner = Users.objects.filter(user_id=user_id).first()
+    emails.send_verify_new_email(
+        new_email,
+        name=(owner.full_name or owner.username) if owner else 'there',
+        code=token,
+        old_email=owner.email if owner else '',
+    )
 
     return Response({"message": "Verification token sent to email"}, status=status.HTTP_200_OK)
 

@@ -1,0 +1,261 @@
+"""Every email V-ENT sends, named.
+
+Views used to build their own HTML inline, which is how the platform ended up
+sending `<p>Hi,</p>` with a broken image tag pointing at a host that no longer
+exists. Each message now has one function here, so a view says what it wants to
+send and never how it looks, and the eleven templates under `templates/emails/`
+are the only place the design lives.
+
+Nothing in this module raises. A verification code that reaches the database but
+not the inbox is recoverable (the user asks for a resend); a signup that 500s
+because the mail relay hiccuped is not.
+"""
+import logging
+import re
+
+from django.conf import settings
+
+logger = logging.getLogger(__name__)
+
+APP_URL = 'https://app.v-ent.co'
+
+
+def _plain_text(html):
+    """A readable text/plain part.
+
+    EmailMultiAlternatives was being handed the HTML as its plain body, so any
+    client preferring text got a wall of table markup. Stripping tags is crude
+    but it leaves the code, the amount, and the link readable, which is all the
+    text part has to do.
+    """
+    text = re.sub(r'(?is)<(script|style|head).*?</\1>', '', html)
+    text = re.sub(r'(?i)<br\s*/?>|</(p|tr|div|h1|h2|table)>', '\n', text)
+    text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r'&nbsp;|&#847;|&zwnj;', ' ', text)
+    text = re.sub(r'&copy;', '(c)', text)
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
+    return text.strip()
+
+
+def _send(to_address, subject, template, context):
+    """Render `template` and send it. Returns True on success, never raises."""
+    from django.core.mail import EmailMultiAlternatives
+    from django.template.loader import render_to_string
+
+    try:
+        html = render_to_string(f'emails/{template}', context)
+    except Exception:
+        logger.exception('email template %r failed to render for %s', template, to_address)
+        return False
+
+    try:
+        message = EmailMultiAlternatives(
+            subject=subject,
+            body=_plain_text(html),
+            from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', None),
+            to=[to_address],
+        )
+        message.attach_alternative(html, 'text/html')
+        message.send(fail_silently=False)
+        logger.info('sent %r to %s', template, to_address)
+        return True
+    except Exception:
+        logger.exception('send failed: %r to %s', template, to_address)
+        return False
+
+
+def _expiry_label():
+    """How long a verification token lasts, in the words the email uses."""
+    minutes = getattr(settings, 'VERIFICATION_TOKEN_MINUTES', 120)
+    hours = minutes // 60
+    if hours >= 1:
+        return f"{hours} hour" if hours == 1 else f"{hours} hours"
+    return f"{minutes} minutes"
+
+
+def _first_name(user):
+    full = (getattr(user, 'full_name', '') or '').strip()
+    if full:
+        return full.split()[0]
+    return getattr(user, 'username', None) or 'there'
+
+
+# ---------------------------------------------------------------------------
+# Getting in
+# ---------------------------------------------------------------------------
+
+def send_verify_email(to_address, *, name, code, verify_url=None, resend=False):
+    return _send(
+        to_address,
+        'Your V-ENT verification code' if resend else 'Confirm your email to finish signing up',
+        'verify_email.html',
+        {'name': name, 'code': code, 'expires_in': _expiry_label(), 'verify_url': verify_url},
+    )
+
+
+def send_welcome(to_address, *, name):
+    return _send(to_address, 'Welcome to V-ENT', 'welcome.html', {'name': name})
+
+
+def send_password_reset(to_address, *, name, code, reset_url=None, resend=False):
+    return _send(
+        to_address,
+        'Your new V-ENT password reset code' if resend else 'Your V-ENT password reset code',
+        'reset_password.html',
+        {'name': name, 'code': code, 'expires_in': _expiry_label(), 'reset_url': reset_url},
+    )
+
+
+def send_verify_new_email(to_address, *, name, code, old_email):
+    return _send(
+        to_address,
+        'Confirm your new V-ENT address',
+        'verify_new_email.html',
+        {'name': name, 'code': code, 'expires_in': _expiry_label(),
+         'new_email': to_address, 'old_email': old_email},
+    )
+
+
+def send_waitlist_welcome(to_address):
+    return _send(to_address, 'You are on the V-ENT waitlist', 'waitlist_welcome.html', {})
+
+
+# ---------------------------------------------------------------------------
+# Playing
+# ---------------------------------------------------------------------------
+
+def send_tournament_registered(user, tournament, *, entry_paid_vc=0):
+    """Confirmation that a slot is held. Sent once, on a confirmed registration."""
+    starts = tournament.start_date_and_time
+    rows = [
+        ('Game', tournament.tournament_game.game_title if tournament.tournament_game else 'To be announced'),
+        ('Starts', starts.strftime('%d %b %Y, %H:%M') if starts else 'To be announced'),
+        ('Format', tournament.bracket_type or 'Single elimination'),
+    ]
+    if entry_paid_vc:
+        rows.append(('Entry paid', f'{int(entry_paid_vc):,} VC', '#D4AF37'))
+    pool = tournament.prize_pool_coins
+    if pool:
+        rows.append(('Prize pool', f'{pool:,} VC', '#D4AF37'))
+
+    return _send(
+        user.email,
+        f'You are in: {tournament.tournament_title}',
+        'tournament_registered.html',
+        {
+            'name': _first_name(user),
+            'tournament': tournament.tournament_title,
+            'starts': starts.strftime('%d %b, %H:%M') if starts else 'soon',
+            'bracket_url': f'{APP_URL}/tournaments/view-tournament?id={tournament.tournament_id}',
+            'rows': rows,
+        },
+    )
+
+
+def send_ticket_purchased(ticket):
+    """One email per ticket, because each ticket admits one person by its code."""
+    event = ticket.event
+    starts = event.start_date
+    rows = [
+        ('Tier', ticket.tier.name),
+        ('Venue', event.location or 'Online'),
+        ('Doors', starts.strftime('%d %b %Y, %H:%M') if starts else 'To be announced'),
+        ('Paid', f'{int(ticket.price_vc):,} VC', '#D4AF37'),
+    ]
+    return _send(
+        ticket.attendee_email or ticket.user.email,
+        f'Your ticket for {event.name}',
+        'ticket_purchased.html',
+        {
+            'name': ticket.attendee_name or _first_name(ticket.user),
+            'event': event.name,
+            'code': ticket.code,
+            'ticket_url': f'{APP_URL}/events/my-tickets',
+            'rows': rows,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Money
+# ---------------------------------------------------------------------------
+
+def send_payout_approved(withdrawal, *, amount_ngn):
+    user = withdrawal.wallet.user
+    return _send(
+        user.email,
+        'Your withdrawal is on the way',
+        'payout_processed.html',
+        {
+            'name': _first_name(user),
+            'headline': 'Your withdrawal is on the way',
+            'state': 'approved',
+            'rejected': False,
+            'intro': 'your withdrawal has been approved and sent to your bank.',
+            'amount_ngn': f'NGN {amount_ngn:,}',
+            'rows': [
+                ('Amount', f'{withdrawal.amount:,} VC', '#D4AF37'),
+                ('You receive', f'NGN {amount_ngn:,}', '#4CAF50'),
+                ('Bank', f'{withdrawal.bank_name} {withdrawal.account_number}'),
+                ('Reference', f'WDR-{withdrawal.id}'),
+                ('Arrives', 'within 1 to 3 business days'),
+            ],
+        },
+    )
+
+
+def send_payout_rejected(withdrawal, *, reason):
+    user = withdrawal.wallet.user
+    return _send(
+        user.email,
+        'We could not process your withdrawal',
+        'payout_processed.html',
+        {
+            'name': _first_name(user),
+            'headline': 'We could not process that withdrawal',
+            'state': 'rejected',
+            'rejected': True,
+            'intro': 'your withdrawal request was not approved, and every coin is back in your wallet.',
+            'reason': reason or 'No reason was recorded. Contact support and we will explain.',
+            'rows': [
+                ('Amount returned', f'{withdrawal.amount:,} VC', '#D4AF37'),
+                ('Bank', f'{withdrawal.bank_name} {withdrawal.account_number}'),
+                ('Reference', f'WDR-{withdrawal.id}'),
+            ],
+        },
+    )
+
+
+def send_kyc_approved(user):
+    return _send(
+        user.email,
+        'Your identity has been verified',
+        'kyc_result.html',
+        {
+            'name': _first_name(user),
+            'approved': True,
+            'headline': 'Identity verified',
+            'preheader': 'Your ID check passed. Withdrawals are unlocked.',
+            'intro': 'your document checked out.',
+            'cta': 'View my wallet',
+        },
+    )
+
+
+def send_kyc_rejected(user, *, reason):
+    return _send(
+        user.email,
+        'We need a clearer copy of your ID',
+        'kyc_result.html',
+        {
+            'name': _first_name(user),
+            'approved': False,
+            'headline': 'We need a clearer document',
+            'preheader': 'Your ID check did not pass. Here is what to fix.',
+            'intro': 'we could not verify the document you sent.',
+            'reason': reason or 'The document could not be read. Retake the photo in good light '
+                                'with all four corners visible.',
+            'cta': 'Try again',
+        },
+    )
