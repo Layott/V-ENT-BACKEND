@@ -1,3 +1,4 @@
+import logging
 import os
 import random
 import string
@@ -6,6 +7,8 @@ from io import BytesIO
 from django.conf import settings
 from PIL import Image, ImageDraw, ImageFont
 from .models import Users, UserWallet
+
+logger = logging.getLogger(__name__)
 
 
 # Cross-platform font resolution for the generated default avatar.
@@ -57,31 +60,34 @@ def create_user_wallet(user):
 
 
 def send_email(to_address, subject, html_body):
-    smtp_server = 'smtp.gmail.com'
-    smtp_port = 465
-    from_address = os.environ.get('EMAIL_ADDRESS')
-    password = os.environ.get('EMAIL_PASSWORD')
+    """Send one HTML email through whatever backend settings configure.
 
-    import smtplib
-    from email.mime.text import MIMEText
-    from email.mime.multipart import MIMEMultipart
+    This used to open a hardcoded connection to smtp.gmail.com:465 with
+    credentials from EMAIL_ADDRESS/EMAIL_PASSWORD, ignoring Django's mail
+    settings entirely, and swallow every exception. In production that meant
+    signup answered "Verification link sent to email" while nothing was sent
+    and nothing was logged.
+
+    Now it uses the configured backend - on the server that is the local
+    Postfix, which relays to the mail provider - and failures are logged.
+    Callers still get True/False so no existing flow changes shape.
+    """
+    from django.conf import settings
+    from django.core.mail import EmailMultiAlternatives
 
     try:
-        msg = MIMEMultipart()
-        msg['From'] = from_address
-        msg['To'] = to_address
-        msg['Subject'] = subject
-        msg.attach(MIMEText(html_body, 'html'))
-
-        server = smtplib.SMTP_SSL(smtp_server, smtp_port)
-        server.login(from_address, password)
-        server.sendmail(from_address, to_address, msg.as_string())
-        server.quit()
-
+        message = EmailMultiAlternatives(
+            subject=subject,
+            body=html_body,
+            from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', None),
+            to=[to_address],
+        )
+        message.attach_alternative(html_body, 'text/html')
+        message.send(fail_silently=False)
         return True
-    except Exception as e:
+    except Exception:
+        logger.exception('send_email failed for %s (subject=%r)', to_address, subject)
         return False
-
 
 def generate_session_token(length=16):
     """Generate a random 16-character token"""
