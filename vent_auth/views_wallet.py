@@ -1,4 +1,5 @@
 import os
+from .views_helpers import session_timeout_minutes
 import uuid
 from datetime import timedelta
 
@@ -55,7 +56,7 @@ def _get_user_from_token(request):
         )
     if (
         user.user.login_session_created_at is None
-        or timezone.now() - user.user.login_session_created_at > timedelta(minutes=120)
+        or timezone.now() - user.user.login_session_created_at > timedelta(minutes=session_timeout_minutes())
     ):
         return None, Response(
             {'status': 'error', 'message': 'Session token has expired'},

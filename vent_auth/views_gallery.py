@@ -1,4 +1,5 @@
 from django.http import Http404
+from .views_helpers import session_timeout_minutes
 import logging
 from datetime import timedelta
 
@@ -27,7 +28,7 @@ def upload_images(request):
         user = Users.objects.filter(login_session_token=login_session_token).first()
         if user is None:
             return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
-        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
         images = request.FILES.getlist('images')
@@ -73,7 +74,7 @@ def get_user_gallery(request):
         user = Users.objects.filter(login_session_token=login_session_token).first()
         if user is None:
             return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
-        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
         gallery_items = UserGallery.objects.filter(user=user)
@@ -114,7 +115,7 @@ def delete_gallery_image(request):
         user = Users.objects.filter(login_session_token=login_session_token).first()
         if user is None:
             return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
-        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
         gallery_item = get_object_or_404(UserGallery, id=image_id, user=user)

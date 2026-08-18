@@ -139,3 +139,14 @@ def download_image_from_url(url):
     if response.status_code == 200:
         return BytesIO(response.content)
     raise Exception("Failed to download profile picture.")
+
+
+def session_timeout_minutes():
+    """Minutes a login_session_token stays valid.
+
+    Centralised so the window is one setting rather than the same literal
+    repeated in eighteen places, which is how it ended up meaning "two hours"
+    everywhere long after that stopped being a sensible answer.
+    """
+    from django.conf import settings
+    return int(getattr(settings, 'SESSION_TOKEN_TIMEOUT_MINUTES', 60 * 24 * 14))

@@ -1,4 +1,5 @@
 import json
+from vent_auth.views_helpers import session_timeout_minutes
 from django.http import Http404
 from datetime import timedelta
 from django.shortcuts import render
@@ -212,7 +213,7 @@ def join_tournament(request):
         user = Users.objects.filter(login_session_token=login_session_token).first()
         if user is None:
             return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
-        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
 
         tournament_id = request.data.get('tournament_id')
@@ -505,7 +506,7 @@ def create_tournament(request):
             creator = Users.objects.filter(login_session_token=login_session_token).first()
             if creator is None:
                 return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
-            if creator.login_session_created_at is None or timezone.now() - creator.login_session_created_at > timedelta(minutes=120):
+            if creator.login_session_created_at is None or timezone.now() - creator.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
                 return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
 
@@ -1168,7 +1169,7 @@ def update_bracket(request, tournament_id):
         user = Users.objects.filter(login_session_token=login_session_token).first()
         if user is None:
             return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
-        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
 
         tournament = get_object_or_404(Tournament, tournament_id=tournament_id, is_draft=False)
@@ -1218,7 +1219,7 @@ def get_organizer_tournaments(request):
         user = Users.objects.filter(login_session_token=login_session_token).first()
         if user is None:
             return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
-        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
 
         tournaments = (
@@ -1273,7 +1274,7 @@ def delete_draft(request, tournament_id):
         user = Users.objects.filter(login_session_token=login_session_token).first()
         if user is None:
             return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
-        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
 
         tournament = get_object_or_404(Tournament, tournament_id=tournament_id, tournament_creator=user)
@@ -1306,7 +1307,7 @@ def edit_tournament(request, tournament_id):
         user = Users.objects.filter(login_session_token=login_session_token).first()
         if user is None:
             return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
-        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
 
         tournament = get_object_or_404(Tournament, tournament_id=tournament_id)

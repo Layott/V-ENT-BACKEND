@@ -15,7 +15,7 @@ from .models import (
     Users, UserProfile, UserInterests, UserCommunity, UserWallet,
     Games, GameAccount, FavoriteGames, Teams, TeamProfile, SocialLink,
 )
-from .views_helpers import send_email
+from .views_helpers import send_email, session_timeout_minutes
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ def _user_from_bearer(request):
         )
     if (
         user.login_session_created_at is None
-        or timezone.now() - user.login_session_created_at > timedelta(minutes=120)
+        or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes())
     ):
         return None, Response(
             {'status': 'error', 'message': 'Session token has expired'},
@@ -189,7 +189,7 @@ def add_game_account(request):
     user = Users.objects.filter(login_session_token=session_token).first()
     if user is None:
         return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
-    if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
+    if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
         return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
     game = get_object_or_404(Games, game_id=game_id)
@@ -307,7 +307,7 @@ def get_user_informations(request):
         user = Users.objects.filter(login_session_token=session_token).first()
         if user is None:
             return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
-        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
         try:
@@ -389,7 +389,7 @@ def update_web_and_social_links(request):
     try:
         user = Users.objects.get(login_session_token=login_session_token)
 
-        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
         links = request.data.get("links")
@@ -476,7 +476,7 @@ def edit_profile_info(request):
         user = Users.objects.filter(login_session_token=login_session_token).first()
         if user is None:
             return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
-        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=120):
+        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
             return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
 
         try:
@@ -662,7 +662,7 @@ def lookup_user(request):
         return Response({'status': 'error', 'message': 'Invalid or expired session token'},
                         status=status.HTTP_401_UNAUTHORIZED)
     if viewer.login_session_created_at is None or \
-            timezone.now() - viewer.login_session_created_at > timedelta(minutes=120):
+            timezone.now() - viewer.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
         return Response({'status': 'error', 'message': 'Session token has expired'},
                         status=status.HTTP_401_UNAUTHORIZED)
 
