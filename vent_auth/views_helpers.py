@@ -46,17 +46,32 @@ def generate_wallet_id():
 
 
 def create_user_wallet(user):
+    """Create the user's wallet and return it.
+
+    Returned the string "Wallet created successfully" before, which no caller
+    used and which made the function awkward to reuse.
+    """
     while True:
         wallet_id = generate_wallet_id()
         if not UserWallet.objects.filter(user_wallet_id=wallet_id).exists():
             break
 
-    user_wallet = UserWallet.objects.create(
-        user=user,
-        user_wallet_id=wallet_id
-    )
-    user_wallet.save()
-    return "Wallet created successfully"
+    return UserWallet.objects.create(user=user, user_wallet_id=wallet_id)
+
+
+def get_or_create_user_wallet(user):
+    """The user's wallet, creating it if it is missing.
+
+    Wallets were only created at email verification, so any account that
+    reached an authenticated screen without going through that path had none -
+    and the wallet endpoints answered 401 "Invalid or expired session token",
+    which signed the user out of the whole app. A missing wallet is not an
+    authentication failure; it is a row we can create.
+    """
+    wallet = UserWallet.objects.filter(user=user).first()
+    if wallet is not None:
+        return wallet
+    return create_user_wallet(user)
 
 
 def send_email(to_address, subject, html_body):

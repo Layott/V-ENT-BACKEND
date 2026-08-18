@@ -1,5 +1,5 @@
 import os
-from .views_helpers import session_timeout_minutes
+from .views_helpers import session_timeout_minutes, get_or_create_user_wallet
 import uuid
 from datetime import timedelta
 
@@ -14,7 +14,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from django.contrib.auth.hashers import make_password
-from .models import UserWallet, TeamWallet, OrgWallet, Transaction, WithdrawalRequest, KYCDocument
+from .models import Users, UserWallet, TeamWallet, OrgWallet, Transaction, WithdrawalRequest, KYCDocument
 
 
 # ---------------------------------------------------------------------------
@@ -40,29 +40,45 @@ def _ngn_to_coins(amount_ngn: int) -> int:
 
 
 def _get_user_from_token(request):
-    """Return (user, error_response) from Authorization header."""
-    session_token = request.headers.get('Authorization')
-    if not session_token or not session_token.startswith('Bearer '):
+    """Return (wallet, error_response) for the caller's Bearer token.
+
+    Authentication and wallet lookup are deliberately separate steps. This used
+    to do both at once:
+
+        UserWallet.objects.filter(user__login_session_token=token).first()
+
+    so a user who simply had no wallet row got 401 "Invalid or expired session
+    token" - which is false, and worse, the frontend's session guard treats any
+    401 on an authenticated request as a dead session and signs the user out of
+    the entire app. Wallets were only created at email verification, so every
+    account that had not been through that path was logged straight back out.
+
+    Now: a bad or expired token is a 401, and a missing wallet is simply created.
+    """
+    header = request.headers.get('Authorization')
+    if not header or not header.startswith('Bearer '):
         return None, Response(
             {'status': 'error', 'message': 'Authorization header is required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
-    token = session_token.split(' ', 1)[1]
-    user = UserWallet.objects.filter(user__login_session_token=token).select_related('user').first()
+
+    token = header.split(' ', 1)[1].strip()
+    user = Users.objects.filter(login_session_token=token).first() if token else None
     if user is None:
         return None, Response(
             {'status': 'error', 'message': 'Invalid or expired session token'},
             status=status.HTTP_401_UNAUTHORIZED,
         )
     if (
-        user.user.login_session_created_at is None
-        or timezone.now() - user.user.login_session_created_at > timedelta(minutes=session_timeout_minutes())
+        user.login_session_created_at is None
+        or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes())
     ):
         return None, Response(
             {'status': 'error', 'message': 'Session token has expired'},
             status=status.HTTP_401_UNAUTHORIZED,
         )
-    return user, None  # returns wallet object + user via wallet.user
+
+    return get_or_create_user_wallet(user), None
 
 
 # ---------------------------------------------------------------------------
