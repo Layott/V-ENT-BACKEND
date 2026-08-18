@@ -1,17 +1,27 @@
 {% extends "emails/base.html" %}
 {% block title %}Verify your email{% endblock %}
-{% block preheader %}Your V-ENT verification code is {{ code }}. It expires in {{ expires_in }}.{% endblock %}
+{% block preheader %}{% if code %}Your V-ENT verification code is {{ code }}. It expires in {{ expires_in }}.{% else %}Confirm your email address to finish setting up your V-ENT account.{% endif %}{% endblock %}
 {% block heading %}Confirm your email{% endblock %}
 {% block content %}
+{% if code %}
 <p style="margin:0 0 20px 0;">Hi {{ name }}, welcome to V-ENT. Enter this code to finish setting up your account.</p>
 
 {% include "emails/_code.html" with code=code note="Expires in "|add:expires_in %}
+{% else %}
+<p style="margin:0 0 24px 0;">Hi {{ name }}, welcome to V-ENT. One tap confirms your address and finishes setting up your account.</p>
+{% endif %}
 
-<div style="height:24px; line-height:24px;">&nbsp;</div>
 {% if verify_url %}
-<p style="margin:0 0 16px 0;">Or confirm in one tap:</p>
-{% include "emails/_button.html" with url=verify_url label="Verify my email" %}
+{% if code %}
 <div style="height:24px; line-height:24px;">&nbsp;</div>
+<p style="margin:0 0 16px 0;">Or confirm in one tap:</p>
+{% endif %}
+{% include "emails/_button.html" with url=verify_url label="Confirm my email" %}
+<div style="height:20px; line-height:20px;">&nbsp;</div>
+<p style="margin:0 0 24px 0; font-size:13px; line-height:20px; color:#8A8A93;">
+  The link expires in {{ expires_in }}. If the button does not work, copy this address into your browser:<br>
+  <a href="{{ verify_url }}" style="color:#9A9AA3; word-break:break-all;">{{ verify_url }}</a>
+</p>
 {% endif %}
 
 <p style="margin:0; font-size:14px; color:#8A8A93;">If you did not create a V-ENT account, ignore this email and nothing will happen.</p>

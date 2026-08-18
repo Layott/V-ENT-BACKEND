@@ -11,6 +11,7 @@ not the inbox is recoverable (the user asks for a resend); a signup that 500s
 because the mail relay hiccuped is not.
 """
 import logging
+import os
 import re
 
 from django.conf import settings
@@ -18,6 +19,31 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 APP_URL = 'https://app.v-ent.co'
+
+# The V-ENT mark, embedded in every message rather than linked.
+#
+# A remote <img> is the easy version and the wrong one: most clients block
+# remote images until the reader opts in, so the first thing anyone sees from us
+# would be a broken box, and it makes the mail depend on app.v-ent.co being up.
+# Attaching the file as a related part with a Content-ID means the image travels
+# inside the message and renders on open. Resend is only the relay here - it
+# forwards the MIME we build, so this works the same through any SMTP path.
+LOGO_PATH = os.path.join(os.path.dirname(__file__), 'assets', 'email_logo.png')
+LOGO_CID = 'ventlogo'
+_logo_bytes = None
+
+
+def _logo():
+    """The logo file, read once. None if it is missing, which is not fatal."""
+    global _logo_bytes
+    if _logo_bytes is None:
+        try:
+            with open(LOGO_PATH, 'rb') as handle:
+                _logo_bytes = handle.read()
+        except OSError:
+            logger.warning('email logo missing at %s; sending without it', LOGO_PATH)
+            _logo_bytes = b''
+    return _logo_bytes or None
 
 
 def _plain_text(html):
@@ -43,6 +69,8 @@ def _send(to_address, subject, template, context):
     from django.core.mail import EmailMultiAlternatives
     from django.template.loader import render_to_string
 
+    context = dict(context, logo_cid=LOGO_CID if _logo() else '')
+
     try:
         html = render_to_string(f'emails/{template}', context)
     except Exception:
@@ -57,6 +85,20 @@ def _send(to_address, subject, template, context):
             to=[to_address],
         )
         message.attach_alternative(html, 'text/html')
+
+        logo = _logo()
+        if logo:
+            from email.mime.image import MIMEImage
+
+            # multipart/related wraps the alternative parts and the image, which
+            # is what lets `cid:` resolve. Marked inline so no client lists the
+            # logo as an attachment.
+            message.mixed_subtype = 'related'
+            image = MIMEImage(logo, 'png')
+            image.add_header('Content-ID', f'<{LOGO_CID}>')
+            image.add_header('Content-Disposition', 'inline', filename='v-ent.png')
+            message.attach(image)
+
         message.send(fail_silently=False)
         logger.info('sent %r to %s', template, to_address)
         return True
@@ -85,10 +127,21 @@ def _first_name(user):
 # Getting in
 # ---------------------------------------------------------------------------
 
-def send_verify_email(to_address, *, name, code, verify_url=None, resend=False):
+def send_verify_email(to_address, *, name, code=None, verify_url=None, resend=False):
+    """Confirm an address, by typed code or by one-tap link.
+
+    Two flows share this message and they are not interchangeable. Signup
+    verifies by link, so it passes `verify_url` and no code - its token is a
+    URL token, and printing one as a code hands the reader forty characters
+    with no screen to type them into. The email-first flow passes a real
+    six-digit `code`. Whichever arrives is the one the email shows.
+    """
+    subject = 'Confirm your email to finish signing up'
+    if resend:
+        subject = 'Your V-ENT verification link' if verify_url else 'Your V-ENT verification code'
     return _send(
         to_address,
-        'Your V-ENT verification code' if resend else 'Confirm your email to finish signing up',
+        subject,
         'verify_email.html',
         {'name': name, 'code': code, 'expires_in': _expiry_label(), 'verify_url': verify_url},
     )
