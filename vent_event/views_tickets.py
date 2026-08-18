@@ -244,6 +244,11 @@ def buy_ticket(request, event_id):
             link='/events/my-tickets',
             metadata={'event_id': event.event_id, 'tier': tier.name},
         )
+        # One email per ticket: each carries its own code and admits one person,
+        # and a buyer booking for friends needs to forward them individually.
+        from vent_auth import emails
+        for ticket in tickets:
+            emails.send_ticket_purchased(ticket)
     except Exception:
         pass
 

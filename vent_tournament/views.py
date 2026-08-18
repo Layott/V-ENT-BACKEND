@@ -341,6 +341,13 @@ def join_tournament(request):
                 link=f'/tournaments/view-tournament?id={tournament.tournament_id}',
                 metadata={'tournament_id': tournament.tournament_id},
             )
+            # Confirmation of the slot, with the start time and what was paid.
+            # Sent to whoever holds the entry: the team owner, or the player.
+            from vent_auth import emails
+            emails.send_tournament_registered(
+                recipient, tournament,
+                entry_paid_vc=entry_fee_coins if is_paid else 0,
+            )
         except Http404:
             return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
         except Exception:
