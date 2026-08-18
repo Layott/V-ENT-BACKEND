@@ -273,11 +273,17 @@ LOGOUT_REDIRECT_URL = '/'
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 
 # SMTP Configuration
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = os.environ.get('EMAIL_ADDRESS')
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_PASSWORD')
+# Mail goes to the local Postfix, which relays to the configured provider.
+# Hardcoding a Gmail host meant production could only ever send from a personal
+# Gmail account, and only if an app password happened to be set.
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', os.environ.get('EMAIL_ADDRESS', ''))
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', os.environ.get('EMAIL_PASSWORD', ''))
+EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '20'))
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'V-ENT <no-reply@v-ent.co>')
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://test.app.v-ent.co')
 FRONTEND_LOCALHOST = os.environ.get('FRONTEND_LOCALHOST', 'http://localhost:3000')
