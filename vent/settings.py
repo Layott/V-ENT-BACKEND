@@ -301,5 +301,22 @@ EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '20'))
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'V-ENT <no-reply@v-ent.co>')
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
-FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://test.app.v-ent.co')
+# Every link we mail - verification, password reset, the Google sign-in bounce -
+# is built from this. A stale value does not raise, it just sends people to a
+# host that does not resolve, so a wrong setting here silently locks out every
+# new signup. `test.app.v-ent.co` was the default and was still in the
+# production .env on 2026-08-18; it has never resolved.
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://app.v-ent.co')
+
+# Guard rail, because the failure above is invisible until a real person cannot
+# sign up: in production, refuse a frontend URL that does not point at a host we
+# actually serve. Better to fall back to the live app than to mail a dead link.
+if not DEBUG:
+    _allowed_frontend_hosts = ('app.v-ent.co', 'v-ent.co')
+    if not FRONTEND_URL.startswith(tuple(f'https://{h}' for h in _allowed_frontend_hosts)):
+        import logging as _logging
+        _logging.getLogger(__name__).error(
+            'FRONTEND_URL=%r does not point at a live V-ENT host; falling back to '
+            'https://app.v-ent.co so emailed links still work.', FRONTEND_URL)
+        FRONTEND_URL = 'https://app.v-ent.co'
 FRONTEND_LOCALHOST = os.environ.get('FRONTEND_LOCALHOST', 'http://localhost:3000')

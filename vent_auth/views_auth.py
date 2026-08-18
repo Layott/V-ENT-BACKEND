@@ -118,8 +118,14 @@ def signup(request):
         return Response({"status": "success", "message": "Account created successfully (email verification bypassed in debug mode)"}, status=status.HTTP_200_OK)
 
     try:
+        # `token` is a URL token, not something a human types, and there is no
+        # code-entry screen for signup - /verify-email only offers "resend".
+        # Printing it as a code gave people a 40-character string with nowhere
+        # to put it. Send the link and nothing else.
+        # Signup only asks for username, email and password, so `fullname` is
+        # normally blank; falling back to the username avoids mailing "Hi ,".
         emails.send_verify_email(
-            email, name=fullname, code=token, verify_url=verification_link)
+            email, name=fullname or username, verify_url=verification_link)
         user.save()
         return Response({"status": "success", "message": "Verification link sent to email"}, status=status.HTTP_200_OK)
     except Exception as e:
@@ -411,7 +417,7 @@ def resend_link(request):
     try:
         emails.send_verify_email(
             user.email.strip().lower(), name=user.full_name or user.username,
-            code=token, verify_url=verification_link, resend=True)
+            verify_url=verification_link, resend=True)
         return Response({"status": "success", "message": "Verification link resent to your email"}, status=status.HTTP_200_OK)
     except Exception as e:
         logger.error(f"Failed to resend verification email to {email}: {str(e)}")
