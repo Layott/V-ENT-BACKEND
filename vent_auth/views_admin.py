@@ -843,8 +843,7 @@ def admin_pending_payouts(request):
     """GET /auth/admin/payouts/pending/ - pending withdrawal requests."""
     admin = request.admin_user
 
-    # Coins → NGN: reverse of COINS_PER_100_NGN ratio
-    from vent_auth.views_wallet import COINS_PER_100_NGN
+    from vent_auth.views_wallet import coins_to_ngn
 
     withdrawals = (
         WithdrawalRequest.objects
@@ -862,7 +861,7 @@ def admin_pending_payouts(request):
                 'kyc_verified': w.wallet.kyc_verified,
             },
             'amount_vent_coins': w.amount,
-            'amount_ngn': (w.amount * 100) // COINS_PER_100_NGN if COINS_PER_100_NGN else 0,
+            'amount_ngn': coins_to_ngn(w.amount),
             'bank_name': w.bank_name,
             'account_number': w.account_number[-4:].rjust(len(w.account_number), '*'),
             'account_name': w.account_name,
@@ -887,7 +886,7 @@ def admin_payouts_list(request):
     Params: page, page_size (20), ordering, search, status (default pending).
     Response data = {results:[PROW], count, page, page_size}.
     """
-    from vent_auth.views_wallet import COINS_PER_100_NGN
+    from vent_auth.views_wallet import coins_to_ngn
 
     qs = WithdrawalRequest.objects.select_related('wallet__user')
 
@@ -917,7 +916,7 @@ def admin_payouts_list(request):
             'id': w.id,
             'username': w.wallet.user.username if w.wallet and w.wallet.user else None,
             'amount_vc': w.amount,
-            'amount_ngn': (w.amount * 100) // COINS_PER_100_NGN if COINS_PER_100_NGN else 0,
+            'amount_ngn': coins_to_ngn(w.amount),
             'bank_name': w.bank_name,
             'account_number': _mask_account(w.account_number),
             'submitted_at': w.requested_at,

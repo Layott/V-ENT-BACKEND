@@ -49,14 +49,10 @@ def _authenticate(request):
     return user, None
 
 
-def _coins_per_100_ngn():
-    # Single source of truth: the wallet app owns the rate.
-    from vent_auth.views_wallet import COINS_PER_100_NGN
-    return COINS_PER_100_NGN
-
-
 def _ngn_to_coins(amount_ngn):
-    return int((float(amount_ngn) * _coins_per_100_ngn()) // 100)
+    # Single source of truth: the wallet app owns the rate.
+    from vent_auth.views_wallet import NGN_PER_COIN
+    return int(float(amount_ngn) // NGN_PER_COIN)
 
 
 def _new_code():

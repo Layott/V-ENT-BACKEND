@@ -1,0 +1,16 @@
+{% extends "emails/base.html" %}
+{% block title %}You are on the list{% endblock %}
+{% block kicker %}Waitlist{% endblock %}
+{% block preheader %}You are on the V-ENT waitlist. We will tell you the moment it opens.{% endblock %}
+{% block heading %}You are on the list{% endblock %}
+{% block content %}
+<p style="margin:0 0 20px 0;">Thanks for signing up. V-ENT is a home for competitive gaming in Africa: tournaments with real prize money, events with real tickets, and a wallet that pays out.</p>
+<p style="margin:0 0 24px 0;">We will email you the moment your account can be created. No noise in between.</p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#26262C" style="background-color:#26262C; border-radius:12px;">
+  <tr><td style="padding:18px 20px; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px; line-height:22px; color:#9A9AA3;">
+    Want in sooner? Reply to this email and tell us what you play. We read every one.
+  </td></tr>
+</table>
+{% endblock %}
+{% block footer_note %}You received this because this address joined the V-ENT waitlist.{% endblock %}

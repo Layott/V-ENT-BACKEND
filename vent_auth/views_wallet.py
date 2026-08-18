@@ -22,9 +22,21 @@ from .models import Users, UserWallet, TeamWallet, OrgWallet, Transaction, Withd
 # ---------------------------------------------------------------------------
 
 PAYSTACK_BASE = 'https://api.paystack.co'
-# Exchange rate: how many VENT COINS per 100 NGN
-# Default: 50 coins per 100 NGN  (i.e. 1 NGN = 0.5 VENT COINS)
-COINS_PER_100_NGN = int(os.environ.get('VENT_COINS_PER_100_NGN', 50))
+
+# One VENT COIN costs 1,000 NGN. That is the rate the product states everywhere
+# a user can read it: the top-up screen, the onboarding page, the home wallet
+# card, and the platform docs.
+#
+# The default used to be `VENT_COINS_PER_100_NGN = 50`, which prices a coin at
+# 2 NGN - five hundred times cheaper than the screen the user is looking at
+# while they pay. Nobody had noticed because production has never taken a real
+# payment. Set NGN_PER_COIN in the environment to change the rate; the legacy
+# variable is still honoured so an existing deployment is not silently repriced.
+_legacy_per_100 = os.environ.get('VENT_COINS_PER_100_NGN')
+if _legacy_per_100 and int(_legacy_per_100) > 0:
+    NGN_PER_COIN = 100 // int(_legacy_per_100) or 1
+else:
+    NGN_PER_COIN = int(os.environ.get('NGN_PER_COIN', 1000))
 
 
 def _paystack_headers():
@@ -35,8 +47,13 @@ def _paystack_headers():
 
 
 def _ngn_to_coins(amount_ngn: int) -> int:
-    """Convert NGN amount to VENT COINS (integer)."""
-    return (amount_ngn * COINS_PER_100_NGN) // 100
+    """Convert an NGN amount to whole VENT COINS, rounding down."""
+    return int(amount_ngn) // NGN_PER_COIN
+
+
+def coins_to_ngn(coins: int) -> int:
+    """What a coin balance is worth in NGN. The inverse of _ngn_to_coins."""
+    return int(coins) * NGN_PER_COIN
 
 
 def _get_user_from_token(request):
@@ -104,7 +121,9 @@ def get_wallet_balance(request):
             'kyc_verified': wallet.kyc_verified,
             'has_pin': bool(wallet.pin_hash),
             'pending_withdrawal': pending_total,
-            'exchange_rate': f'{COINS_PER_100_NGN} VENT COINS per 100 NGN',
+            'balance_ngn': coins_to_ngn(wallet.wallet_balance),
+            'ngn_per_coin': NGN_PER_COIN,
+            'exchange_rate': f'{NGN_PER_COIN:,} NGN per VENT COIN',
         }
     }, status=status.HTTP_200_OK)
 
@@ -181,9 +200,10 @@ def topup_initiate(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    if amount_ngn < 100:
+    if amount_ngn < NGN_PER_COIN:
         return Response(
-            {'status': 'error', 'message': 'Minimum top-up is 100 NGN'},
+            {'status': 'error',
+             'message': f'Minimum top-up is {NGN_PER_COIN:,} NGN (1 VENT COIN)'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
