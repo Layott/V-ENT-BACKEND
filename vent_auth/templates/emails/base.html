@@ -50,21 +50,25 @@ Surfaces are dark (#131316 page, #1C1C21 card) but never pure black.
           <!--
             The V-ENT mark, attached to the message as a related part rather
             than linked, so it renders without the reader allowing remote
-            images. `alt` carries the wordmark in the brand red, which is what
-            a client that strips images entirely will draw instead.
+            images.
+
+            The mark sits beside the wordmark rather than replacing it. On its
+            own the V reads as a shape, not as a name - the first version of
+            this dropped the letters and the header stopped saying who sent it.
+            Keeping both also means an inbox that strips images still shows
+            "V-ENT" in the brand red, which is what `alt` carries too.
           -->
           <tr>
-            <td align="left" style="padding:0 8px 20px 8px;">
+            <td align="left" style="padding:0 8px 22px 8px;">
               <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                 <tr>
                   {% if logo_cid %}
-                  <td valign="middle" style="padding-right:10px;">
-                    <img src="cid:{{ logo_cid }}" width="36" height="37" alt="V-ENT"
-                         style="display:block; width:36px; height:37px; border:0; outline:none; text-decoration:none; font-family:Georgia,'Times New Roman',serif; font-size:22px; font-weight:700; color:#ED1C24;">
+                  <td valign="middle" style="padding-right:9px; line-height:0;">
+                    <img src="cid:{{ logo_cid }}" width="30" height="31" alt=""
+                         style="display:block; width:30px; height:31px; border:0; outline:none;">
                   </td>
-                  {% else %}
-                  <td valign="middle" style="padding-right:10px; font-family:Georgia,'Times New Roman',serif; font-size:22px; font-weight:700; color:#ED1C24; letter-spacing:-0.5px;">V-ENT</td>
                   {% endif %}
+                  <td valign="middle" style="padding-right:10px; font-family:Georgia,'Times New Roman',serif; font-size:26px; line-height:30px; font-weight:700; color:#ED1C24; letter-spacing:-0.5px;">V-ENT</td>
                   <td valign="middle" style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:12px; color:#7A7A82;">{% block kicker %}Vermillion Enterprise{% endblock %}</td>
                 </tr>
               </table>
