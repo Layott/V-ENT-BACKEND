@@ -425,7 +425,10 @@ class Command(BaseCommand):
                     event_date=start.date(), start_time=start.time(), end_time=end.time(),
                     location=spec['location'], capacity=spec['capacity'],
                     event_link='https://twitch.tv/vent' if spec['kind'] == 'virtual' else None,
-                    is_active=spec['start'] > timezone.now(),
+                    # is_active means "not cancelled", not "not finished" -
+                    # the serializer derives upcoming/live/ended from the dates.
+                    # Setting it from the start date hid every past event.
+                    is_active=True,
                     is_featured=spec['name'].startswith('V-ENT'),
                 )
                 short = spec['name'].split()[0]

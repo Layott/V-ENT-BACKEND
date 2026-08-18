@@ -752,6 +752,19 @@ def create_tournament(request):
 PUBLICLY_LISTED = {'is_draft': False, 'tournament_visibility__in': ['public', 'protected']}
 
 
+def _is_creator(request, tournament):
+    """True when the caller's Bearer token belongs to the tournament's creator."""
+    header = request.headers.get('Authorization') or ''
+    if not header.startswith('Bearer '):
+        return False
+    token = header.split(' ', 1)[1]
+    if not token or not tournament.tournament_creator_id:
+        return False
+    return Users.objects.filter(
+        login_session_token=token, user_id=tournament.tournament_creator_id
+    ).exists()
+
+
 @api_view(["GET"])
 def get_all_tournaments(request):
     # Featured Tournaments (most interacted)
@@ -873,7 +886,15 @@ def view_tournament(request, tournament_id):
     try:
         # Fetch the tournament
         tournament = Tournament.objects.get(tournament_id=tournament_id)
-        
+
+        # A draft is an unpublished plan: half-written rules, a prize pool the
+        # organizer is still arguing about, a date that will move. It was
+        # readable by anybody who tried the id. Only its creator sees it until
+        # it is published.
+        if tournament.is_draft and not _is_creator(request, tournament):
+            return Response({'status': 'error', 'message': 'Not found'},
+                            status=status.HTTP_404_NOT_FOUND)
+
         # Increase interaction count
         tournament.interaction_count += 1
         tournament.save(update_fields=['interaction_count'])
