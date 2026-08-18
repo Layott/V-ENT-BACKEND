@@ -195,3 +195,71 @@ class ReservedUsernameHoldTests(TestCase):
         reservation.save()
         # Held by the real account now, not by the reservation.
         self.assertFalse(reservation.holds_username())
+
+
+class ImportCommandTests(TestCase):
+    """The import runs once against 102 real rows, so it is worth proving that
+    re-running it is safe and that it never disturbs somebody already in."""
+
+    def _write(self, rows):
+        import json, tempfile, os
+        handle = tempfile.NamedTemporaryFile('w', suffix='.json', delete=False, encoding='utf-8')
+        json.dump(rows, handle)
+        handle.close()
+        self.addCleanup(os.unlink, handle.name)
+        return handle.name
+
+    def test_import_creates_rows_and_mints_one_token_each(self):
+        from django.core.management import call_command
+        path = self._write([
+            {'id': 1, 'email': 'A@Example.com', 'username': 'Alpha', 'display_name': 'Al',
+             'position': 1, 'country': 'Nigeria', 'email_verified': True, 'boost_count': 2,
+             'referral_code': 'AAA', 'game': 'FIFA'},
+            {'id': 2, 'email': 'b@example.com', 'username': None, 'display_name': '',
+             'position': 2, 'country': '', 'email_verified': False},
+        ])
+        call_command('import_waitlist', path, verbosity=0)
+
+        self.assertEqual(WaitlistReservation.objects.count(), 2)
+        alpha = WaitlistReservation.objects.get(email='a@example.com')
+        # Email and username are normalised, or the signup guard and the claim
+        # lookup would miss on case alone.
+        self.assertEqual(alpha.username, 'alpha')
+        self.assertEqual(alpha.position, 1)
+        self.assertTrue(alpha.email_verified)
+        self.assertTrue(alpha.claim_token)
+        self.assertIsNotNone(alpha.hold_expires_at)
+
+        no_name = WaitlistReservation.objects.get(email='b@example.com')
+        self.assertIsNone(no_name.username)
+        self.assertTrue(no_name.claim_token)
+
+    def test_reimport_keeps_the_same_token_and_skips_claimed_rows(self):
+        from django.core.management import call_command
+        path = self._write([
+            {'id': 1, 'email': 'a@example.com', 'username': 'alpha', 'position': 1},
+            {'id': 2, 'email': 'b@example.com', 'username': 'beta', 'position': 2},
+        ])
+        call_command('import_waitlist', path, verbosity=0)
+        original = WaitlistReservation.objects.get(email='a@example.com').claim_token
+
+        beta = WaitlistReservation.objects.get(email='b@example.com')
+        beta.claimed_at = timezone.now()
+        beta.claim_token = None
+        beta.save()
+
+        call_command('import_waitlist', path, verbosity=0)
+
+        # A live token must survive a re-import, or every link already mailed dies.
+        self.assertEqual(WaitlistReservation.objects.get(email='a@example.com').claim_token, original)
+        # A claimed row must not have a token minted back onto it.
+        beta.refresh_from_db()
+        self.assertIsNone(beta.claim_token)
+        self.assertIsNotNone(beta.claimed_at)
+        self.assertEqual(WaitlistReservation.objects.count(), 2)
+
+    def test_dry_run_writes_nothing(self):
+        from django.core.management import call_command
+        path = self._write([{'id': 1, 'email': 'a@example.com', 'username': 'alpha', 'position': 1}])
+        call_command('import_waitlist', path, dry_run=True, verbosity=0)
+        self.assertEqual(WaitlistReservation.objects.count(), 0)
