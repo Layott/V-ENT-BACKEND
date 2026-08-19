@@ -195,43 +195,6 @@ def get_username_with_email(request):
 
 
 @api_view(['POST'])
-def verify_token_2(request):
-    email = request.data.get('email')
-    token = request.data.get('token')
-
-    if not email or not token:
-        return Response({"error": "Email and token are required"}, status=status.HTTP_400_BAD_REQUEST)
-
-    try:
-        verification_token = VerificationToken.objects.get(user_email=email)
-
-        if verification_token.token == token and verification_token.is_valid():
-            data = request.data.copy()
-            if 'password' in data:
-                data['password'] = make_password(data['password'])
-
-            serializer = UserSerializer(data=data)
-            if serializer.is_valid():
-                driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
-                print('setup success')
-                driver.get("http://www.vermillionents.com.ng")
-                print('driver opened sit succcessfully')
-
-                user = serializer.save()
-                create_user_wallet(user=user)
-                verification_token.delete()
-
-                return Response({"success": "User created successfully"}, status=status.HTTP_201_CREATED)
-            else:
-                return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
-        else:
-            return Response({"error": "Invalid or expired token"}, status=status.HTTP_400_BAD_REQUEST)
-
-    except VerificationToken.DoesNotExist:
-        return Response({"error": "Token does not exist"}, status=status.HTTP_400_BAD_REQUEST)
-
-
-@api_view(['POST'])
 def login(request):
     username_or_email = request.data.get('username_or_email')
     password = request.data.get('password')
