@@ -1,7 +1,6 @@
 import logging
 
 from django.core.files import File
-from django.shortcuts import redirect
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view
@@ -9,7 +8,6 @@ from rest_framework.response import Response
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from dj_rest_auth.registration.views import SocialLoginView
 
-from vent.settings import FRONTEND_URL
 from .models import Users, UserProfile, UserWallet
 from .views_helpers import (
     generate_session_token,
@@ -104,106 +102,11 @@ def social_auth(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-@api_view(['GET'])
-def get_google_login_url(request):
-    import os
-    client_id = os.environ.get('GOOGLE_CLIENT_ID', '')
-    redirect_uri = "https://vermillionent.pythonanywhere.com/auth/google-callback/"
-    scope = "openid email profile"
-    response_type = "code"
-
-    auth_url = (
-        f"https://accounts.google.com/o/oauth2/v2/auth"
-        f"?client_id={client_id}"
-        f"&redirect_uri={redirect_uri}"
-        f"&response_type={response_type}"
-        f"&scope={scope}"
-    )
-
-    return Response({"auth_url": auth_url})
-
-
-@api_view(['GET'])
-def google_callback(request):
-    import os
-    import requests as http_requests
-
-    code = request.query_params.get('code')
-    if not code:
-        return Response({"status": "error", "message": "No code provided"}, status=status.HTTP_400_BAD_REQUEST)
-
-    token_url = "https://oauth2.googleapis.com/token"
-    data = {
-        'code': code,
-        'client_id': os.environ.get('GOOGLE_CLIENT_ID', ''),
-        'client_secret': os.environ.get('GOOGLE_CLIENT_SECRET', ''),
-        'redirect_uri': "https://vermillionent.pythonanywhere.com/auth/google-callback/",
-        'grant_type': 'authorization_code'
-    }
-
-    token_response = http_requests.post(token_url, data=data)
-
-    if token_response.status_code != 200:
-        return Response({"status": "error", "message": "Failed to retrieve token"}, status=status.HTTP_400_BAD_REQUEST)
-
-    token_response_data = token_response.json()
-
-    if 'id_token' not in token_response_data:
-        return Response({"status": "error", "message": "Failed to get ID token"}, status=status.HTTP_400_BAD_REQUEST)
-
-    id_token_str = token_response_data['id_token']
-
-    frontend_redirect_url = f"{FRONTEND_URL}/verify-google-token?id_token={id_token_str}"
-
-    return redirect(frontend_redirect_url)
-
-
-@api_view(['GET'])
-def verify_token(request):
-    import os
-    from google.oauth2 import id_token
-    from google.auth.transport import requests as google_requests
-
-    id_token_str = request.query_params.get('id_token')
-
-    try:
-        idinfo = id_token.verify_oauth2_token(
-            id_token_str,
-            google_requests.Request(),
-            os.environ.get('GOOGLE_CLIENT_ID', '')
-        )
-
-        email = idinfo['email']
-        full_name = idinfo.get('name', '')
-        social_id = idinfo['sub']
-
-        user, created = Users.objects.get_or_create(
-            email=email,
-            defaults={
-                'full_name': full_name,
-                'username': email.split('@')[0],
-                'signup_type': 'google',
-                'social_id': social_id,
-                'is_active': True,
-                'country': '',
-                'state': ''
-            }
-        )
-
-        if created:
-            UserProfile.objects.get_or_create(user=user)
-            create_user_wallet(user=user)
-
-        session_token = generate_session_token()
-        user.login_session_token = session_token
-        user.login_session_created_at = timezone.now()
-        user.save()
-
-        return Response({
-            "status": "success",
-            "message": "User logged in successfully",
-            "session_token": session_token,
-        }, status=status.HTTP_200_OK)
-
-    except ValueError:
-        return Response({"status": "error", "message": "Invalid ID token"}, status=status.HTTP_400_BAD_REQUEST)
+# Removed 2026-08-25: get_google_login_url, google_callback and verify_token.
+# All three built their redirect_uri from
+# "https://vermillionent.pythonanywhere.com/auth/google-callback/", a host that
+# stopped resolving when the platform moved to its own server, so none of them
+# could have completed a sign-in. Nothing called them either - the browser signs
+# in through NextAuth's Google provider and the only backend endpoint on that
+# path is social_auth above. verify_token was also the one place that created an
+# account with is_active=True and no country, straight from a query parameter.

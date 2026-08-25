@@ -19,6 +19,6 @@
 <div style="height:24px; line-height:24px;">&nbsp;</div>
 {% endif %}
 
-{% include "emails/_button.html" with url="https://app.v-ent.co/wallets" label="Open my wallet" %}
+{% include "emails/_button.html" with url=app_url|add:"/wallets" label="Open my wallet" %}
 {% endblock %}
 {% block footer_note %}You received this because you requested a withdrawal on V-ENT.{% endblock %}

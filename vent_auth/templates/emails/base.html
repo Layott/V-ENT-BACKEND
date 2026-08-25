@@ -98,11 +98,11 @@ Surfaces are dark (#131316 page, #1C1C21 card) but never pure black.
             <td class="pad" style="padding:28px 16px 0 16px; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:12px; line-height:20px; color:#6F6F78;">
               {% block footer_note %}You received this because someone used this address to sign in to V-ENT. If that was not you, you can ignore this message.{% endblock %}
               <div style="height:14px; line-height:14px;">&nbsp;</div>
-              <a href="https://app.v-ent.co" style="color:#9A9AA3; text-decoration:underline;">app.v-ent.co</a>
+              <a href="{{ app_url }}" style="color:#9A9AA3; text-decoration:underline;">{{ app_host }}</a>
               &nbsp;&nbsp;
-              <a href="https://app.v-ent.co/privacy-policy" style="color:#9A9AA3; text-decoration:underline;">Privacy</a>
+              <a href="{{ app_url }}/privacy-policy" style="color:#9A9AA3; text-decoration:underline;">Privacy</a>
               &nbsp;&nbsp;
-              <a href="https://app.v-ent.co/terms-of-use.pdf" style="color:#9A9AA3; text-decoration:underline;">Terms</a>
+              <a href="{{ app_url }}/terms-of-use.pdf" style="color:#9A9AA3; text-decoration:underline;">Terms</a>
               <div style="height:10px; line-height:10px;">&nbsp;</div>
               &copy; 2026 Vermillion Enterprise (V-ENT), Lagos, Nigeria
             </td>
