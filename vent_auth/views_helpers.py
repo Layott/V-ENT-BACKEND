@@ -1,3 +1,4 @@
+import re
 import logging
 import os
 import random
@@ -165,3 +166,64 @@ def session_timeout_minutes():
     """
     from django.conf import settings
     return int(getattr(settings, 'SESSION_TOKEN_TIMEOUT_MINUTES', 60 * 24 * 14))
+
+
+# ---------------------------------------------------------------------------
+# Usernames
+# ---------------------------------------------------------------------------
+# One place decides what a username may be, because there are four ways to get
+# one (signup, save-username, a waitlist claim, and changing it in settings) and
+# they disagreed. Two rules matter:
+#
+#   1. Case does not create a new name. `Layott` and `layott` are the same
+#      person's handle, so the second one cannot be taken. MySQL's
+#      utf8mb4_unicode_ci collation already refuses it at the unique index; the
+#      application checks too, so the error is a message rather than a 500.
+#
+#   2. Plain characters only. Styled unicode - the mathematical alphanumerics
+#      people paste as "fonts", zero-width joiners, right-to-left overrides -
+#      renders as letters but is not letters, and it is how somebody
+#      impersonates a name that is already taken.
+
+USERNAME_MIN = 3
+USERNAME_MAX = 20
+USERNAME_PATTERN = re.compile(r'^[a-z0-9_]+$')
+
+
+def normalize_username(raw):
+    """Lowercase and strip. The stored form is the compared form."""
+    return (raw or '').strip().lower()
+
+
+def username_problem(raw):
+    """Why this username cannot be used, or None if it can.
+
+    Returns a sentence meant to be shown to the person typing it.
+    """
+    name = normalize_username(raw)
+    if not name:
+        return 'Choose a username.'
+    if len(name) < USERNAME_MIN:
+        return f'A username needs at least {USERNAME_MIN} characters.'
+    if len(name) > USERNAME_MAX:
+        return f'A username can be at most {USERNAME_MAX} characters.'
+    if not USERNAME_PATTERN.match(name):
+        return 'Use letters, numbers and underscores only - no spaces, symbols or styled fonts.'
+    return None
+
+
+def username_taken(raw, *, exclude_user=None):
+    """True when somebody else already holds this handle, ignoring case."""
+    from .models import Users, WaitlistReservation
+
+    name = normalize_username(raw)
+    users = Users.objects.filter(username__iexact=name)
+    if exclude_user is not None:
+        users = users.exclude(pk=exclude_user.pk)
+    if users.exists():
+        return True
+
+    # A handle held by an unclaimed waitlist reservation is not free either.
+    return WaitlistReservation.objects.filter(
+        username__iexact=name, claimed_at__isnull=True,
+    ).exists()
