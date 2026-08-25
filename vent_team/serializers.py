@@ -115,6 +115,44 @@ def _collect_members(request, team):
     return list(members.values())
 
 
+def _viewer_state(request, team, members):
+    """What this team is to whoever is looking at it.
+
+    The detail payload carried nothing viewer-relative, so the profile page had
+    to guess: it showed "Leave team" to strangers, and offered "Request to join"
+    to people who had already asked.
+    """
+    from vent_team.views import _optional_user
+
+    user = _optional_user(request)
+    if user is None:
+        return {
+            'viewer_is_owner': False,
+            'viewer_is_member': False,
+            'viewer_request_status': 'none',
+        }
+
+    is_owner = team.team_owner_id == user.user_id
+    is_member = is_owner or any(m.get('user_id') == user.user_id for m in members)
+
+    request_status = 'none'
+    if not is_member:
+        latest = (
+            TeamJoinRequest.objects
+            .filter(team=team, user=user)
+            .order_by('-created_at')
+            .first()
+        )
+        if latest is not None:
+            request_status = latest.status
+
+    return {
+        'viewer_is_owner': is_owner,
+        'viewer_is_member': is_member,
+        'viewer_request_status': request_status,
+    }
+
+
 def serialize_team_detail(request, team):
     """Full shape for the team-profile page (hero/overview/members/stats tabs)."""
     profile = TeamProfile.objects.filter(team=team).first()
@@ -175,4 +213,5 @@ def serialize_team_detail(request, team):
             'most_played_games': [],
         },
         '_pendingRequestCount': pending_count,
+        **_viewer_state(request, team, members),
     }
