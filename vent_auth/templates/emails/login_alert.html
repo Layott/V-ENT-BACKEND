@@ -1,0 +1,17 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<h1 style="margin:0 0 16px; font-size:22px; color:#ffffff;">New sign-in to your account</h1>
+
+<p style="margin:0 0 16px; color:#C9C9CF; font-size:15px; line-height:1.6;">
+  Hi {{ name }}, your V-ENT account was signed into from a device or place we have not seen before.
+</p>
+
+{% include "emails/_rows.html" with rows=rows %}
+
+<p style="margin:20px 0 0; color:#C9C9CF; font-size:15px; line-height:1.6;">
+  If that was you, there is nothing to do. If it was not, change your password now and the sign-in
+  will be ended with it.
+</p>
+
+{% include "emails/_button.html" with url=reset_url label="Change my password" %}
+{% endblock %}

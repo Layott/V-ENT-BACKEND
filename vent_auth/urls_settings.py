@@ -77,6 +77,7 @@ urlpatterns = [
     path('user/<int:user_id>/profile/', prof.public_profile),
 
     # Devices / sessions
+    path('setting/login-activity/', v.login_activity),
     path('device/list/', v.list_devices),
     path('device/<str:device_id>/revoke/', v.revoke_device),
 ]

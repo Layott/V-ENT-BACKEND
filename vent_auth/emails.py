@@ -342,3 +342,57 @@ def send_kyc_rejected(user, *, reason):
             'cta': 'Try again',
         },
     )
+
+
+def send_login_alert(user, request=None):
+    """Tell somebody their account was signed into from somewhere new.
+
+    Only called when the address has not been seen on the account before, and
+    only when the account has the alert switched on - it is on by default,
+    because the first time this matters is the time nobody expected it.
+    """
+    try:
+        from .models import UserSetting
+
+        # Settings live in one JSON blob keyed by section, so read it that way
+        # rather than expecting a column that does not exist.
+        setting = UserSetting.objects.filter(user=user).first()
+        if setting is not None:
+            security = (setting.data or {}).get('security') or {}
+            if isinstance(security, dict) and security.get('login_alerts') is False:
+                return False
+
+        latest = user.login_events.first() if hasattr(user, 'login_events') else None
+        where = ', '.join(p for p in [getattr(latest, 'city', ''), getattr(latest, 'country', '')] if p)
+        rows = [
+            ('When', latest.created_at.strftime('%d %b %Y, %H:%M') if latest else 'Just now'),
+            ('Where', where or 'Unknown location'),
+            ('IP address', getattr(latest, 'ip', '') or 'Unknown'),
+            ('Device', _short_agent(getattr(latest, 'user_agent', ''))),
+        ]
+        return _send(
+            user.email.strip().lower(),
+            'New sign-in to your V-ENT account',
+            'login_alert.html',
+            {
+                'name': user.full_name or user.username,
+                'rows': rows,
+                'reset_url': f'{APP_URL}/forgot-password',
+            },
+        )
+    except Exception:
+        logger.exception('login alert failed for %s', getattr(user, 'email', '?'))
+        return False
+
+
+def _short_agent(agent):
+    """A user agent string, reduced to something a person can read."""
+    if not agent:
+        return 'Unknown device'
+    browsers = [('Edg/', 'Edge'), ('OPR/', 'Opera'), ('Chrome/', 'Chrome'),
+                ('Firefox/', 'Firefox'), ('Safari/', 'Safari')]
+    systems = [('Windows NT 10', 'Windows'), ('Windows', 'Windows'), ('Android', 'Android'),
+               ('iPhone', 'iPhone'), ('iPad', 'iPad'), ('Mac OS X', 'Mac'), ('Linux', 'Linux')]
+    browser = next((label for token, label in browsers if token in agent), 'Unknown browser')
+    system = next((label for token, label in systems if token in agent), 'Unknown device')
+    return f'{browser} on {system}'
