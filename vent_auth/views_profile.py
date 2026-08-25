@@ -82,14 +82,28 @@ def change_fullname(request):
 
 @api_view(['POST'])
 def change_email(request):
-    user_id = request.data.get('user_id')
-    new_email = request.data.get('new_email')
+    # The account is whoever is holding the token, never a user_id posted in the
+    # body. As written, this endpoint would mail a change code for any account
+    # to any address, and verify_new_email would then move that account's email
+    # to the attacker's - which is a password reset away from the account.
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
 
-    if not user_id or not new_email:
-        return Response({"error": "User ID and new email are required"}, status=status.HTTP_400_BAD_REQUEST)
+    new_email = (request.data.get('new_email') or '').strip().lower()
+    user_id = user.user_id
 
-    if Users.objects.filter(email=new_email).exists():
-        return Response({"error": "Email already in use"}, status=status.HTTP_400_BAD_REQUEST)
+    if not new_email:
+        return Response({"status": "error", "message": "A new email address is required"},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    if new_email == (user.email or '').strip().lower():
+        return Response({"status": "error", "message": "That is already your email address."},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    if Users.objects.filter(email__iexact=new_email).exclude(pk=user.pk).exists():
+        return Response({"status": "error", "message": "That email is already in use."},
+                        status=status.HTTP_400_BAD_REQUEST)
 
     from .models import VerificationToken
 
@@ -117,21 +131,33 @@ def change_email(request):
 def verify_new_email(request):
     from .models import VerificationToken
 
-    user_id = request.data.get('user_id')
-    new_email = request.data.get('new_email')
+    # Same rule as change_email: the token identifies the account.
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+
+    user_id = user.user_id
+    new_email = (request.data.get('new_email') or '').strip().lower()
     token = request.data.get('token')
 
-    if not user_id or not new_email or not token:
-        return Response({"error": "User ID, new email, and token are required"}, status=status.HTTP_400_BAD_REQUEST)
+    if not new_email or not token:
+        return Response({"status": "error", "message": "The new email and the code are required"},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    if Users.objects.filter(email__iexact=new_email).exclude(pk=user.pk).exists():
+        return Response({"status": "error", "message": "That email is already in use."},
+                        status=status.HTTP_400_BAD_REQUEST)
 
     try:
         verification_token = VerificationToken.objects.get(user_email=new_email)
 
-        if verification_token.token == token and verification_token.is_valid():
+        from .models import VerificationToken as _VT
+
+        if verification_token.token == token and verification_token.is_valid(_VT.RESET_CODE_MINUTES):
             with transaction.atomic():
                 user = Users.objects.select_for_update().get(user_id=user_id)
                 user.email = new_email
-                user.save()
+                user.save(update_fields=['email'])
                 verification_token.delete()
 
             return Response({"message": "Email changed successfully"}, status=status.HTTP_200_OK)

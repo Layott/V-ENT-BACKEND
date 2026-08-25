@@ -255,3 +255,80 @@ def login_activity(request):
         'data': {'events': rows},
         'message': 'Recent sign-ins.',
     })
+
+
+@api_view(['POST'])
+def change_username(request):
+    """POST /setting/username/ - change the handle, with the rules applied.
+
+    The account panel had a Save next to the username that posted into
+    update_user_account, which only ever wrote full_name, country and state - so
+    the button appeared to work and changed nothing.
+    """
+    from .views_helpers import normalize_username, username_problem, username_taken
+
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+
+    raw = request.data.get('username')
+    problem = username_problem(raw)
+    if problem:
+        return Response({'status': 'error', 'message': problem},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    name = normalize_username(raw)
+    if name == normalize_username(user.username):
+        return Response({'status': 'success', 'data': {'username': user.username},
+                         'message': 'That is already your username.'})
+
+    if username_taken(name, exclude_user=user):
+        return Response({'status': 'error', 'message': 'That username is taken.'},
+                        status=status.HTTP_409_CONFLICT)
+
+    user.username = name
+    user.save(update_fields=['username'])
+    return Response({
+        'status': 'success',
+        'data': {'username': user.username},
+        'message': 'Username updated.',
+    })
+
+
+@api_view(['GET'])
+def account_overview(request):
+    """GET /setting/account/ - the identity half of the settings page.
+
+    Member ID and Date joined rendered as "-" because nothing served them.
+    """
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+
+    kyc = user.kyc_documents.order_by('-submitted_at').first() if hasattr(user, 'kyc_documents') else None
+    wallet = getattr(user, 'wallet', None)
+    profile = getattr(user, 'userprofile', None)
+
+    return Response({
+        'status': 'success',
+        'data': {
+            'account': {
+                'user_id': user.user_id,
+                'username': user.username,
+                'email': user.email,
+                'email_verified': user.is_active,
+                'full_name': user.full_name,
+                'date_joined': user.date_joined,
+                'country': user.country,
+                'state': user.state,
+                # KYC is parked, so it reports parked rather than an eternal
+                # "Pending" that nobody is working through.
+                'kyc_status': 'parked' if kyc is None else kyc.status,
+                'kyc_verified': bool(getattr(wallet, 'kyc_verified', False)),
+                'penalty_points': getattr(profile, 'penalty_point', 0) if profile else 0,
+                'is_founding_member': user.is_founding_member,
+                'founding_position': user.founding_position,
+            },
+        },
+        'message': 'Account overview.',
+    })

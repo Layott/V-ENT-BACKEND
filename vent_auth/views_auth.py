@@ -19,6 +19,8 @@ from .models import Users, UserProfile, UserWallet, VerificationToken, WaitlistR
 from .serializers import UserSerializer
 from . import emails
 from .views_helpers import (
+    normalize_username,
+    username_problem,
     session_timeout_minutes,
     generate_session_token,
     create_default_profile_picture,
@@ -51,6 +53,12 @@ def signup(request):
 
     if not all([email, username, password]):
         return Response({"status": "error", "message": "Email, username and password are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # One rule for what a handle may be, wherever it is chosen.
+    problem = username_problem(username)
+    if problem:
+        return Response({"status": "error", "message": problem}, status=status.HTTP_400_BAD_REQUEST)
+    username = normalize_username(username)
 
     existing_user = Users.objects.filter(email=email, signup_type='normal').first()
 

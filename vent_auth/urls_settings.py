@@ -78,6 +78,8 @@ urlpatterns = [
 
     # Devices / sessions
     path('setting/login-activity/', v.login_activity),
+    path('setting/username/', v.change_username),
+    path('setting/account/', v.account_overview),
     path('device/list/', v.list_devices),
     path('device/<str:device_id>/revoke/', v.revoke_device),
 ]
