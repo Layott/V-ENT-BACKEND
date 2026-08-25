@@ -80,6 +80,7 @@ urlpatterns = [
     path("social-auth/", social_auth, name="social_auth"),
     path("edit-favorite-games/", edit_favorite_games, name="edit_favorite_games"),
     path("update-favorite-games/", update_favorite_games, name="update_favorite_games"),
+    path("update-gaming-accounts/", update_gaming_accounts, name="update_gaming_accounts"),
     path("upload-avatar/", upload_avatar, name="upload_avatar"),
     path("upload-banner/", upload_banner, name="upload_banner"),
     path("resend-link/", resend_link, name="resend_link"),

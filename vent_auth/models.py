@@ -205,6 +205,38 @@ class FavoriteGames(models.Model):
     user = models.ForeignKey(Users, on_delete=models.CASCADE)
     game = models.ForeignKey(Games, on_delete=models.CASCADE)
 
+    # The editor has asked for both of these since it was built, and the model
+    # held neither, so every save dropped them and the panel came back blank.
+    gamertag = models.CharField(max_length=64, blank=True, default='')
+    is_main = models.BooleanField(default=False)
+
+
+class PlatformAccount(models.Model):
+    """A player's handle on an external platform: PSN, Steam, Discord, others.
+
+    Distinct from GameAccount, which is a handle for one game. The Gaming
+    Accounts panel posted to /auth/update-gaming-accounts/, an endpoint that did
+    not exist, so nothing a person typed there had ever been stored.
+
+    `verified` stays False for anything typed by hand. It is reserved for a
+    handle confirmed by the platform itself - Discord and Steam can do that, and
+    most of the others have no public way to.
+    """
+
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='platform_accounts')
+    platform = models.CharField(max_length=32)
+    display_name = models.CharField(max_length=64, blank=True, default='')
+    gamertag = models.CharField(max_length=64, blank=True, default='')
+    connected = models.BooleanField(default=False)
+    verified = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user', 'platform')
+
+    def __str__(self):
+        return f'{self.user_id}:{self.platform}' 
+
 
 class Teams(models.Model):
     team_id = models.AutoField(primary_key=True)
