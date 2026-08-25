@@ -57,3 +57,4 @@ Thumbs.db
 
 # Local backups
 backups/
+local-dev.sqlite3
