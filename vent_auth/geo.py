@@ -110,7 +110,20 @@ def locate(ip):
             except Exception:
                 region = None
 
-    return country, region
+    return country, _tidy_place(region)
+
+
+def _tidy_place(name):
+    """Trim what a city name carries for the database's benefit, not a reader's.
+
+    DB-IP names districts in brackets - a real lookup came back
+    "Lagos (Victoria Island Annex)" - and a profile should read "Lagos".
+    """
+    if not name:
+        return name
+    import re
+    cleaned = re.sub(r'\s*\([^)]*\)', '', name).strip()
+    return cleaned or name
 
 
 def locate_request(request):
