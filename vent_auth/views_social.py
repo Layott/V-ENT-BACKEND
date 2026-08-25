@@ -8,7 +8,8 @@ from rest_framework.response import Response
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from dj_rest_auth.registration.views import SocialLoginView
 
-from .geo import refresh_daily_location
+from .geo import record_login, refresh_daily_location
+from . import emails
 from .models import Users, UserProfile, UserWallet
 from .views_helpers import (
     generate_session_token,
@@ -48,8 +49,10 @@ def social_auth(request):
             user.login_session_created_at = timezone.now()
             user.save()
 
-            # Same daily location refresh the password path does.
+            # Same daily location refresh and history the password path does.
             refresh_daily_location(user, request)
+            if record_login(user, request, method='google'):
+                emails.send_login_alert(user, request)
 
             return Response({
                 "status": "success",

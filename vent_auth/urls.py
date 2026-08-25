@@ -8,6 +8,7 @@ from .views_rankings import games_list
 from .views_admin import admin_2fa_verify
 from .views_kyc_files import kyc_document
 from .views_waitlist import waitlist_claim, waitlist_claim_preview
+from . import views_linking as linking
 
 urlpatterns = [
     # path("admin/", admin.site.urls),
@@ -81,6 +82,12 @@ urlpatterns = [
     path("edit-favorite-games/", edit_favorite_games, name="edit_favorite_games"),
     path("update-favorite-games/", update_favorite_games, name="update_favorite_games"),
     path("update-gaming-accounts/", update_gaming_accounts, name="update_gaming_accounts"),
+    # Linking an external account for real: Discord OAuth2, Steam OpenID.
+    path("link/status/", linking.link_status, name="link_status"),
+    path("link/<str:provider>/start/", linking.link_start, name="link_start"),
+    path("link/discord/callback/", linking.discord_callback, name="discord_link_callback"),
+    path("link/steam/callback/", linking.steam_callback, name="steam_link_callback"),
+    path("link/<str:provider>/disconnect/", linking.link_disconnect, name="link_disconnect"),
     path("upload-avatar/", upload_avatar, name="upload_avatar"),
     path("upload-banner/", upload_banner, name="upload_banner"),
     path("resend-link/", resend_link, name="resend_link"),

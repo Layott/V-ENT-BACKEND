@@ -213,3 +213,45 @@ def revoke_device(request, device_id):
         'data': {'devices': [_current_device(user)]},
         'message': 'No such active session.',
     })
+
+
+@api_view(['GET'])
+def login_activity(request):
+    """GET /setting/login-activity/ - the last ten sign-ins on this account.
+
+    Real rows. The panel used to ship a fixed list of invented devices, which
+    made the one thing this table is for - spotting a sign-in that was not
+    yours - impossible.
+    """
+    from .emails import _short_agent
+    from .models import LoginEvent
+
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+
+    events = LoginEvent.objects.filter(user=user)[:10]
+    current_token_time = user.login_session_created_at
+
+    rows = []
+    for e in events:
+        where = ', '.join(p for p in [e.city, e.country] if p)
+        rows.append({
+            'id': e.id,
+            'device': _short_agent(e.user_agent),
+            'browser': '',
+            'ip': e.ip or '',
+            'location': where or 'Unknown location',
+            'time': e.created_at.isoformat(),
+            'method': e.method,
+            'current': bool(
+                current_token_time
+                and abs((e.created_at - current_token_time).total_seconds()) < 90
+            ),
+        })
+
+    return Response({
+        'status': 'success',
+        'data': {'events': rows},
+        'message': 'Recent sign-ins.',
+    })

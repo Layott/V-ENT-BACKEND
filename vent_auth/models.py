@@ -142,6 +142,36 @@ class VerificationToken(models.Model):
         return timezone.now() - self.ticket_created_at < datetime.timedelta(minutes=self.RESET_TICKET_MINUTES)
 
 
+class LoginEvent(models.Model):
+    """One row per successful sign-in.
+
+    The Security page showed a fixed list of invented sign-ins - a MacBook, an
+    iPad, addresses in Lagos and Abuja - on every account, which is worse than
+    showing nothing: the whole point of that table is to let somebody spot a
+    sign-in that was not theirs.
+
+    Kept short on purpose. The last twenty per account is plenty for "does
+    anything here look unfamiliar", and it keeps a table of addresses from
+    growing forever.
+    """
+
+    KEEP_PER_USER = 20
+
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='login_events')
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    city = models.CharField(max_length=120, blank=True, default='')
+    country = models.CharField(max_length=120, blank=True, default='')
+    user_agent = models.CharField(max_length=400, blank=True, default='')
+    method = models.CharField(max_length=20, default='password')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+
+    def __str__(self):
+        return f'{self.user_id} @ {self.created_at:%Y-%m-%d %H:%M}'
+
+
 class UserCommunity(models.Model):
     user = models.ForeignKey(Users, on_delete=models.CASCADE)
     is_gamer = models.BooleanField(default=False)

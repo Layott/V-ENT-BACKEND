@@ -25,7 +25,7 @@ from .views_helpers import (
     create_user_wallet,
 )
 
-from .geo import locate_request, refresh_daily_location
+from .geo import locate_request, record_login, refresh_daily_location
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +232,13 @@ def login(request):
         # request actually came from, so nobody has to pick their own city off a
         # list and no profile quietly says Lagos two years after a move.
         refresh_daily_location(user, request)
+
+        # And every sign-in is written to the account's own history, which is
+        # what the Security page reads instead of the invented list it shipped
+        # with. A first-time address also triggers the alert, if it is on.
+        is_new_place = record_login(user, request, method='password')
+        if is_new_place:
+            emails.send_login_alert(user, request)
 
         return Response({
             "status": "success",

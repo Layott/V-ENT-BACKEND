@@ -170,3 +170,39 @@ def refresh_daily_location(user, request):
     except Exception:
         logger.warning('geoip: daily location refresh failed', exc_info=True)
         return False
+
+
+def record_login(user, request, *, method='password'):
+    """Write a sign-in to the account's history, and say whether it looks new.
+
+    Returns True when this address has not been seen on the account before,
+    which is what a "new sign-in" alert should be based on. Never raises: a
+    history write must not be able to fail a login.
+    """
+    from .models import LoginEvent
+
+    try:
+        ip = client_ip(request) or None
+        country, city = locate(ip) if ip else (None, None)
+        agent = (request.META.get('HTTP_USER_AGENT') or '')[:400]
+
+        seen_before = LoginEvent.objects.filter(user=user, ip=ip).exists() if ip else True
+
+        LoginEvent.objects.create(
+            user=user, ip=ip, city=city or '', country=country or '',
+            user_agent=agent, method=method,
+        )
+
+        # Keep the table short rather than letting a year of sign-ins pile up.
+        stale = list(
+            LoginEvent.objects.filter(user=user)
+            .order_by('-created_at')
+            .values_list('id', flat=True)[LoginEvent.KEEP_PER_USER:]
+        )
+        if stale:
+            LoginEvent.objects.filter(id__in=stale).delete()
+
+        return not seen_before
+    except Exception:
+        logger.warning('login history write failed', exc_info=True)
+        return False
