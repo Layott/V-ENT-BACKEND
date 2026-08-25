@@ -23,6 +23,6 @@
 {% endif %}
 
 <div style="height:24px; line-height:24px;">&nbsp;</div>
-{% include "emails/_button.html" with url="https://app.v-ent.co/wallets/verify" label=cta %}
+{% include "emails/_button.html" with url=app_url|add:"/wallets/verify" label=cta %}
 {% endblock %}
 {% block footer_note %}You received this because you submitted an identity document on V-ENT.{% endblock %}

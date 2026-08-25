@@ -23,6 +23,6 @@
 </table>
 
 <div style="height:26px; line-height:26px;">&nbsp;</div>
-{% include "emails/_button.html" with url="https://app.v-ent.co/tournaments" label="Browse tournaments" %}
+{% include "emails/_button.html" with url=app_url|add:"/tournaments" label="Browse tournaments" %}
 {% endblock %}
 {% block footer_note %}You received this because you verified a V-ENT account with this address.{% endblock %}

@@ -18,13 +18,17 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-APP_URL = 'https://app.v-ent.co'
+# Every link and every host name printed in a message comes from here, so the
+# day the platform moves host there is one value to change. FRONTEND_URL is
+# guarded in settings, so this cannot end up pointing at a dead host.
+APP_URL = getattr(settings, 'FRONTEND_URL', 'https://v-ent.co').rstrip('/')
+APP_HOST = APP_URL.split('://', 1)[-1]
 
 # The V-ENT mark, embedded in every message rather than linked.
 #
 # A remote <img> is the easy version and the wrong one: most clients block
 # remote images until the reader opts in, so the first thing anyone sees from us
-# would be a broken box, and it makes the mail depend on app.v-ent.co being up.
+# would be a broken box, and it makes the mail depend on the app being up.
 # Attaching the file as a related part with a Content-ID means the image travels
 # inside the message and renders on open. Resend is only the relay here - it
 # forwards the MIME we build, so this works the same through any SMTP path.
@@ -69,7 +73,12 @@ def _send(to_address, subject, template, context):
     from django.core.mail import EmailMultiAlternatives
     from django.template.loader import render_to_string
 
-    context = dict(context, logo_cid=LOGO_CID if _logo() else '')
+    context = dict(
+        context,
+        logo_cid=LOGO_CID if _logo() else '',
+        app_url=APP_URL,
+        app_host=APP_HOST,
+    )
 
     try:
         html = render_to_string(f'emails/{template}', context)
