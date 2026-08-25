@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from dj_rest_auth.registration.views import SocialLoginView
 
+from .geo import refresh_daily_location
 from .models import Users, UserProfile, UserWallet
 from .views_helpers import (
     generate_session_token,
@@ -47,6 +48,9 @@ def social_auth(request):
             user.login_session_created_at = timezone.now()
             user.save()
 
+            # Same daily location refresh the password path does.
+            refresh_daily_location(user, request)
+
             return Response({
                 "status": "success",
                 "message": "Login successful.",
@@ -84,6 +88,8 @@ def social_auth(request):
         session_token = generate_session_token()
         user.login_session_token = session_token
         user.save()
+
+        refresh_daily_location(user, request)
 
         return Response({
             "status": "success",

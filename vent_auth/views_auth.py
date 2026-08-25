@@ -25,7 +25,7 @@ from .views_helpers import (
     create_user_wallet,
 )
 
-from .geo import locate_request
+from .geo import locate_request, refresh_daily_location
 
 logger = logging.getLogger(__name__)
 
@@ -227,6 +227,11 @@ def login(request):
         user.login_session_token = session_token
         user.login_session_created_at = timezone.now()   # sliding expiry
         user.save()
+
+        # First sign-in of the day sets the profile's location from where the
+        # request actually came from, so nobody has to pick their own city off a
+        # list and no profile quietly says Lagos two years after a move.
+        refresh_daily_location(user, request)
 
         return Response({
             "status": "success",
