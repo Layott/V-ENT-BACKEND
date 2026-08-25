@@ -101,13 +101,39 @@ class VerificationToken(models.Model):
     token = models.CharField(max_length=64)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    def is_valid(self):
+    # Proof that whoever is asking to set a new password actually read the code
+    # we mailed. Minted when the code checks out, spent when the password
+    # changes. Before this existed, /forgot-password/change-password/ took an
+    # email address and a new password and nothing else, so anyone could take
+    # over any account by naming it.
+    reset_ticket = models.CharField(max_length=64, blank=True, default='')
+    ticket_created_at = models.DateTimeField(null=True, blank=True)
+
+    # Six digits is 1,000,000 guesses, and nginx rate limiting alone would let a
+    # patient attacker walk it. Five wrong codes burns the token.
+    attempts = models.PositiveSmallIntegerField(default=0)
+
+    RESET_CODE_MINUTES = 15
+    RESET_TICKET_MINUTES = 15
+    MAX_ATTEMPTS = 5
+
+    def is_valid(self, window_minutes=None):
         now = timezone.now()
-        # Read the setting directly - importing views_helpers here would be a
-        # circular import, since that module imports this one.
-        from django.conf import settings
-        window = int(getattr(settings, 'SESSION_TOKEN_TIMEOUT_MINUTES', 60 * 24 * 14))
-        return now - self.created_at < datetime.timedelta(minutes=window)
+        if window_minutes is None:
+            # Read the setting directly - importing views_helpers here would be
+            # a circular import, since that module imports this one.
+            from django.conf import settings
+            window_minutes = int(getattr(settings, 'SESSION_TOKEN_TIMEOUT_MINUTES', 60 * 24 * 14))
+        return now - self.created_at < datetime.timedelta(minutes=window_minutes)
+
+    def ticket_is_valid(self, ticket):
+        """True only for the exact unspent ticket, inside its window."""
+        import hmac
+        if not ticket or not self.reset_ticket or not self.ticket_created_at:
+            return False
+        if not hmac.compare_digest(str(ticket), self.reset_ticket):
+            return False
+        return timezone.now() - self.ticket_created_at < datetime.timedelta(minutes=self.RESET_TICKET_MINUTES)
 
 
 class UserCommunity(models.Model):

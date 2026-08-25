@@ -3,7 +3,9 @@ from datetime import timedelta
 
 from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import make_password
+from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files import File
 from django.utils import timezone
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
@@ -275,8 +277,12 @@ def forgot_password(request):
 
     token = ''.join(random.choices('0123456789', k=6))
 
+    # Any account, whichever way it was created. Someone who signed up with
+    # Google still needs a password: the admin dashboard asks for one, and
+    # filtering on signup_type='normal' here meant they were told "sent to
+    # email" while nothing was sent and no token row was written.
     try:
-        user = Users.objects.get(email=email, signup_type='normal')
+        user = Users.objects.get(email=email)
     except Users.DoesNotExist:
         return Response({"status": "success", "message": "Password reset token sent to email"}, status=status.HTTP_200_OK)
 
@@ -303,13 +309,36 @@ def verify_forgot_password_token(request):
     if not email or not token:
         return Response({"status": "error", "message": "Email and token are required"}, status=status.HTTP_400_BAD_REQUEST)
 
+    import hmac
+    import secrets
+
     try:
         verification_token = VerificationToken.objects.get(user_email=email)
 
-        if verification_token.token == token and verification_token.is_valid():
+        if verification_token.attempts >= VerificationToken.MAX_ATTEMPTS:
             verification_token.delete()
-            return Response({"status": "success", "message": "Token Valid"}, status=status.HTTP_202_ACCEPTED)
+            return Response({"status": "error", "message": "Too many attempts. Request a new code."}, status=status.HTTP_400_BAD_REQUEST)
+
+        code_ok = hmac.compare_digest(str(verification_token.token), str(token))
+        # A reset code lives 15 minutes, not the two weeks the shared session
+        # window gives it.
+        if code_ok and verification_token.is_valid(VerificationToken.RESET_CODE_MINUTES):
+            # The row survives the check, carrying a single-use ticket. The next
+            # step has to present that ticket, so knowing an email address is no
+            # longer enough to change its password.
+            verification_token.token = ''
+            verification_token.reset_ticket = secrets.token_urlsafe(32)
+            verification_token.ticket_created_at = timezone.now()
+            verification_token.attempts = 0
+            verification_token.save()
+            return Response({
+                "status": "success",
+                "message": "Token Valid",
+                "ticket": verification_token.reset_ticket,
+            }, status=status.HTTP_202_ACCEPTED)
         else:
+            verification_token.attempts += 1
+            verification_token.save(update_fields=['attempts'])
             return Response({"status": "error", "message": "Invalid or expired token"}, status=status.HTTP_400_BAD_REQUEST)
 
     except VerificationToken.DoesNotExist:
@@ -320,14 +349,41 @@ def verify_forgot_password_token(request):
 def change_password_fp(request):
     email = request.data.get('email')
     new_password = request.data.get('new_password')
+    ticket = request.data.get('ticket')
 
     if not email or not new_password:
         return Response({"status": "error", "message": "Email and new password are required"}, status=status.HTTP_400_BAD_REQUEST)
 
+    if not ticket:
+        return Response({"status": "error", "message": "This reset link is incomplete. Start again from Forgot Password."}, status=status.HTTP_400_BAD_REQUEST)
+
+    email = email.strip().lower()
+
+    # The ticket is the whole authorisation. It exists only because the code we
+    # mailed was entered correctly, it is good for fifteen minutes, and it is
+    # spent here.
+    try:
+        record = VerificationToken.objects.get(user_email=email)
+    except VerificationToken.DoesNotExist:
+        return Response({"status": "error", "message": "This reset has expired. Start again from Forgot Password."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not record.ticket_is_valid(ticket):
+        return Response({"status": "error", "message": "This reset has expired. Start again from Forgot Password."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        validate_password(new_password)
+    except DjangoValidationError as exc:
+        return Response({"status": "error", "message": " ".join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
     try:
         user = Users.objects.get(email=email)
         user.password = make_password(new_password)
+        # Whoever was signed in on the old password is signed out. A reset is
+        # what someone does when they think the account is not only theirs.
+        user.login_session_token = None
+        user.login_session_created_at = None
         user.save()
+        record.delete()
 
         return Response({"status": "success", "message": "Password changed successfully"}, status=status.HTTP_200_OK)
 
@@ -347,7 +403,7 @@ def resend_forgot_password_token(request):
         return Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        user = Users.objects.get(email=email, signup_type='normal')
+        user = Users.objects.get(email=email)
     except Users.DoesNotExist:
         return Response({"status": "success", "message": "If your email exists, a reset token has been resent."}, status=status.HTTP_200_OK)
 
