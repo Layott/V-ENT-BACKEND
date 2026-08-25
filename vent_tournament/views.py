@@ -29,12 +29,35 @@ BRACKET_FORMATS = {
     'double_elimination': 'double_elimination',
     'round_robin': 'round_robin',
     'swiss': 'swiss',
+    # The wizard has offered Battle Royale and Swiss System since it was built,
+    # and neither slug was listed here - so normalize_bracket_type quietly
+    # returned the default and a battle royale was created, saved and displayed
+    # as a single elimination bracket.
+    'battle_royale': 'battle_royale',
+    'swiss_system': 'swiss',
+    'free_for_all': 'battle_royale',
 }
+
+
 
 
 def normalize_bracket_type(value, default='single_elimination'):
     slug = str(value or '').strip().lower().replace('-', '_').replace(' ', '_')
     return BRACKET_FORMATS.get(slug, default)
+
+
+# What each format is called when a person reads it.
+BRACKET_LABELS = {
+    'single_elimination': 'Single Elimination',
+    'double_elimination': 'Double Elimination',
+    'round_robin': 'Round Robin',
+    'swiss': 'Swiss System',
+    'battle_royale': 'Battle Royale',
+}
+
+
+def bracket_label(value):
+    return BRACKET_LABELS.get(normalize_bracket_type(value), 'Single Elimination')
 
 def _card_lookups(tournaments):
     """Bulk-compute the per-tournament numbers the listing cards need.
@@ -84,6 +107,7 @@ def serialize_tournament_card(t, confirmed_count=0, prize_pool=0):
         "status": t.status,
         "is_draft": t.is_draft,
         "format": t.bracket_type,
+        "format_label": bracket_label(t.bracket_type),
         "prize_type": t.prize_type,
         "prize_pool": prize_pool,
         "current_participants": confirmed_count,
@@ -102,6 +126,7 @@ def serialize_tournament_card(t, confirmed_count=0, prize_pool=0):
         "tournament_banner": t.tournament_banner.url if t.tournament_banner else None,
         "tournament_description": t.tournament_description,
         "bracket_type": t.bracket_type,
+        "format_label": bracket_label(t.bracket_type),
         "start_date_and_time": t.start_date_and_time,
         "end_date_and_time": t.end_date_and_time,
         "tournament_visibility": t.tournament_visibility,
@@ -985,6 +1010,7 @@ def view_tournament(request, tournament_id):
             "tournament_description": tournament.tournament_description,
             "tournament_rules": tournament.tournament_rules,
             "bracket_type": tournament.bracket_type,
+            "format_label": bracket_label(tournament.bracket_type),
             "start_date_and_time": tournament.start_date_and_time,
             "end_date_and_time": tournament.end_date_and_time,
             "tournament_visibility": tournament.tournament_visibility,
@@ -1110,6 +1136,7 @@ def view_user_drafted_tournaments(request):
                     "tournament_description": t.tournament_description,
                     "tournament_rules": t.tournament_rules,
                     "bracket_type": t.bracket_type,
+                    "format_label": bracket_label(t.bracket_type),
                     "tournament_creator_id": t.tournament_creator.user_id,
                     "tournament_organization": t.tournament_organization.name if t.tournament_organization else None,
                     "start_date_and_time": t.start_date_and_time,
@@ -1503,6 +1530,7 @@ def get_tournament_brackets(request, tournament_id):
                 'tournament_id': tournament.tournament_id,
                 'tournament_title': tournament.tournament_title,
                 'bracket_type': tournament.bracket_type,
+                'format_label': bracket_label(tournament.bracket_type),
                 'rounds': bracket_data,
             }
         }, status=status.HTTP_200_OK)
