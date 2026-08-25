@@ -284,7 +284,10 @@ class Teams(models.Model):
         related_name='vent_auth_teams'
     )
 
-    description = models.TextField(default="Passionate gamer with a sharp eye for detail...")
+    # Blank, not a sentence about a person. This defaulted to "Passionate gamer
+    # with a sharp eye for detail...", so every team created without a
+    # description introduced itself with somebody's profile bio.
+    description = models.TextField(blank=True, default='')
     allow_membership_requests = models.BooleanField(default=True)
     creation_date = models.DateField(default=timezone.now)
 
