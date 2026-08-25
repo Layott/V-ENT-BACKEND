@@ -9,6 +9,27 @@
 from django.db import migrations
 
 
+def _make_nullable(apps, schema_editor):
+    """Force the real ALTER on MySQL; do nothing anywhere else.
+
+    The SQL is MySQL's own MODIFY syntax, so running it verbatim on SQLite -
+    which a local development database now uses - fails with a syntax error and
+    blocks every migration after it. On SQLite the columns are already nullable
+    from the model state, so there is nothing to do.
+    """
+    if schema_editor.connection.vendor != 'mysql':
+        return
+    schema_editor.execute("ALTER TABLE vent_event_event MODIFY event_link varchar(255) NULL;")
+    schema_editor.execute("ALTER TABLE vent_event_event MODIFY location varchar(255) NULL;")
+
+
+def _make_not_null(apps, schema_editor):
+    if schema_editor.connection.vendor != 'mysql':
+        return
+    schema_editor.execute("ALTER TABLE vent_event_event MODIFY event_link varchar(255) NOT NULL;")
+    schema_editor.execute("ALTER TABLE vent_event_event MODIFY location varchar(255) NOT NULL;")
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -16,14 +37,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL(
-            sql=[
-                "ALTER TABLE vent_event_event MODIFY event_link varchar(255) NULL;",
-                "ALTER TABLE vent_event_event MODIFY location varchar(255) NULL;",
-            ],
-            reverse_sql=[
-                "ALTER TABLE vent_event_event MODIFY event_link varchar(255) NOT NULL;",
-                "ALTER TABLE vent_event_event MODIFY location varchar(255) NOT NULL;",
-            ],
-        ),
+        migrations.RunPython(_make_nullable, _make_not_null),
     ]

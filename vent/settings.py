@@ -168,7 +168,23 @@ WSGI_APPLICATION = "vent.wsgi.application"
 #     }
 # }
 
-DATABASES = {
+# A local machine does not always have MySQL running, and "I could not test it
+# locally" is not an acceptable reason to ship. DB_ENGINE=sqlite gives a
+# throwaway file database for local work only: it is refused when DEBUG is off,
+# so production cannot fall into it by a stray environment variable.
+_USE_SQLITE = os.environ.get('DB_ENGINE', '').lower() == 'sqlite'
+if _USE_SQLITE and not DEBUG:
+    raise RuntimeError('DB_ENGINE=sqlite is for local development only.')
+
+if _USE_SQLITE:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / os.environ.get('SQLITE_NAME', 'local-dev.sqlite3'),
+        }
+    }
+else:
+    DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': os.environ.get('DB_NAME', 'vent'),
@@ -182,7 +198,7 @@ DATABASES = {
         'CONN_HEALTH_CHECKS': not DEBUG,
         'OPTIONS': {'charset': 'utf8mb4'},
     }
-}
+    }
 
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators
