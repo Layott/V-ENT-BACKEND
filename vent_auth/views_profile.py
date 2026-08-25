@@ -327,6 +327,9 @@ def get_user_informations(request):
             'username': user.username,
             'email': user.email,
             'country': user.country,
+            # The city, so a profile can read "Lagos, Nigeria". Both halves are
+            # set by the daily location refresh at sign-in.
+            'state': user.state,
             'profile_picture': request.build_absolute_uri(profile.profile_picture.url) if profile and profile.profile_picture else None,
             'banner': request.build_absolute_uri(profile.banner.url) if profile and profile.banner else None,
             'description': profile.description if profile else None,

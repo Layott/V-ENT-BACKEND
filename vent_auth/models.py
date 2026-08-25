@@ -22,6 +22,12 @@ class Users(AbstractUser):
     password = models.CharField(max_length=256, null=True)
     country = models.CharField(max_length=256, null=True)
     state = models.CharField(max_length=256, null=True)
+
+    # Where the account signed in from, refreshed on the first login of each
+    # day rather than on every request: the lookup is a local database read, but
+    # a write on every call would be a write on every call.
+    last_login_ip = models.GenericIPAddressField(null=True, blank=True)
+    location_updated_at = models.DateTimeField(null=True, blank=True)
     login_session_token = models.CharField(max_length=16, null=True)
     login_session_created_at = models.DateTimeField(null=True, blank=True)
     signup_type = models.CharField(max_length=32, default='normal', null=True)  # normal, google, facebook

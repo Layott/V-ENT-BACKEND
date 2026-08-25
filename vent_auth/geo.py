@@ -97,15 +97,18 @@ def locate(ip):
         return None, None
 
     country = getattr(response.country, 'name', None)
-    region = None
-    subdivisions = getattr(response, 'subdivisions', None)
-    if subdivisions:
-        try:
-            region = subdivisions.most_specific.name
-        except Exception:
-            region = None
+
+    # City first, because "Lagos, Nigeria" is what a profile shows and what
+    # anyone reading it expects. The subdivision (state or province) is the
+    # fallback for an address the database only places that coarsely.
+    region = getattr(getattr(response, 'city', None), 'name', None)
     if not region:
-        region = getattr(getattr(response, 'city', None), 'name', None)
+        subdivisions = getattr(response, 'subdivisions', None)
+        if subdivisions:
+            try:
+                region = subdivisions.most_specific.name
+            except Exception:
+                region = None
 
     return country, region
 
@@ -113,3 +116,44 @@ def locate(ip):
 def locate_request(request):
     """Convenience wrapper: resolve straight from a DRF/Django request."""
     return locate(client_ip(request))
+
+
+def refresh_daily_location(user, request):
+    """Update a user's country and city from their IP, once per day.
+
+    Called on the way through login, both the password path and Google's. The
+    lookup is a local file read so it costs nothing worth measuring, but the
+    write is worth rationing: once per local day per account is enough to keep a
+    profile honest without touching the database on every sign-in.
+
+    Returns True when something changed. Never raises - a location that cannot
+    be resolved is not a reason to fail a login, and a private address (anyone
+    testing on localhost) is skipped entirely.
+    """
+    from django.utils import timezone
+
+    try:
+        ip = client_ip(request)
+        if not ip or not _is_public(ip):
+            return False
+
+        already_today = (
+            user.location_updated_at
+            and timezone.localtime(user.location_updated_at).date() == timezone.localdate()
+        )
+        if already_today:
+            return False
+
+        country, city = locate(ip)
+        if not country:
+            return False
+
+        user.country = country
+        user.state = city or user.state
+        user.last_login_ip = ip
+        user.location_updated_at = timezone.now()
+        user.save(update_fields=['country', 'state', 'last_login_ip', 'location_updated_at'])
+        return True
+    except Exception:
+        logger.warning('geoip: daily location refresh failed', exc_info=True)
+        return False
