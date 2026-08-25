@@ -6,6 +6,7 @@ Included at root in vent/urls.py.
 from django.urls import path
 
 from . import views_settings as v
+from . import views_profile as prof
 from . import views_rankings as rank
 from . import views_orgs as orgs
 from . import views_community as community
@@ -73,6 +74,7 @@ urlpatterns = [
 
     # Account
     path('user/<str:user_id>/update/', v.update_user_account),
+    path('user/<int:user_id>/profile/', prof.public_profile),
 
     # Devices / sessions
     path('device/list/', v.list_devices),

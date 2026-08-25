@@ -8,7 +8,8 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from .models import (
@@ -337,7 +338,8 @@ def get_user_informations(request):
             'social_links': list(social_links),
             'wallet_balance': wallet.wallet_balance if wallet else 0,
             'interests': interests,
-            'favorite_games': list(user_games),
+            'favorite_games': _favorite_games_payload(user, request),
+            'gaming_accounts': _gaming_accounts_payload(user),
             'achievements': list(achievements),
         }
 
@@ -614,32 +616,153 @@ def update_favorite_games(request):
     if err:
         return err
 
+    # Two shapes. `games` carries the gamertag and which title is the main game,
+    # which is what the editor has always collected and what this endpoint used
+    # to throw away. `game_ids` is the old shape and still works.
+    games = request.data.get('games')
     game_ids = request.data.get('game_ids')
-    if not isinstance(game_ids, list):
+
+    if isinstance(games, list):
+        entries = []
+        for item in games:
+            if not isinstance(item, dict):
+                continue
+            gid = item.get('game_id') or item.get('id')
+            if not gid:
+                continue
+            entries.append({
+                'game_id': gid,
+                'gamertag': (item.get('gamertag') or '').strip()[:64],
+                'is_main': bool(item.get('is_main') or item.get('isMain')),
+            })
+    elif isinstance(game_ids, list):
+        entries = [{'game_id': gid, 'gamertag': '', 'is_main': False} for gid in game_ids]
+    else:
         return Response(
-            {'status': 'error', 'message': 'game_ids must be a list of game IDs'},
+            {'status': 'error', 'message': 'Send games: [{game_id, gamertag, is_main}] or game_ids: [int]'},
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+    # Exactly one main game, and only when there is anything at all. The profile
+    # displays a single one, so two would be a rendering bug in waiting.
+    if entries and not any(e['is_main'] for e in entries):
+        entries[0]['is_main'] = True
+    seen_main = False
+    for entry in entries:
+        if entry['is_main'] and seen_main:
+            entry['is_main'] = False
+        seen_main = seen_main or entry['is_main']
 
     try:
         with transaction.atomic():
             FavoriteGames.objects.filter(user=user).delete()
-            for game_id in game_ids:
-                game = get_object_or_404(Games, game_id=game_id)
-                FavoriteGames.objects.create(user=user, game=game)
+            for entry in entries:
+                game = get_object_or_404(Games, game_id=entry['game_id'])
+                FavoriteGames.objects.create(
+                    user=user, game=game,
+                    gamertag=entry['gamertag'], is_main=entry['is_main'],
+                )
     except Games.DoesNotExist:
         return Response(
             {'status': 'error', 'message': 'One or more games not found'},
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    titles = list(
-        FavoriteGames.objects.filter(user=user).values_list('game__game_title', flat=True)
-    )
     return Response({
         'status': 'success',
         'message': 'Favorite games updated successfully',
-        'data': {'favorite_games': titles},
+        'data': {'favorite_games': _favorite_games_payload(user, request)},
+    }, status=status.HTTP_200_OK)
+
+
+def _favorite_games_payload(user, request):
+    """Favourite games as objects, main game first.
+
+    This used to be a list of bare titles, so the editor could not show a
+    gamertag or a star even once they were stored.
+    """
+    rows = (
+        FavoriteGames.objects.filter(user=user)
+        .select_related('game')
+        .order_by('-is_main', 'game__game_title')
+    )
+    return [
+        {
+            'id': row.game.game_id,
+            'game_id': row.game.game_id,
+            'name': row.game.game_title,
+            'game_title': row.game.game_title,
+            'logo': request.build_absolute_uri(row.game.logo.url) if row.game.logo else None,
+            'gamertag': row.gamertag,
+            'is_main': row.is_main,
+        }
+        for row in rows
+    ]
+
+
+def _gaming_accounts_payload(user):
+    """Platform handles, keyed by slug for the panel that renders them."""
+    from .models import PlatformAccount
+
+    return {
+        row.platform: {
+            'display_name': row.display_name,
+            'gamertag': row.gamertag,
+            'connected': row.connected,
+            'verified': row.verified,
+        }
+        for row in PlatformAccount.objects.filter(user=user)
+    }
+
+
+@api_view(['POST'])
+def update_gaming_accounts(request):
+    """POST /auth/update-gaming-accounts/ - Bearer + {accounts: {slug: {...}}}.
+
+    The panel has posted here since it was built. The endpoint did not exist, so
+    every save answered 404 and nothing anyone typed was ever stored.
+    """
+    from .models import PlatformAccount
+
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+
+    accounts = request.data.get('accounts')
+    if not isinstance(accounts, dict):
+        return Response(
+            {'status': 'error', 'message': 'accounts must be an object keyed by platform'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    with transaction.atomic():
+        for slug, value in accounts.items():
+            slug = str(slug).strip().lower()[:32]
+            if not slug or not isinstance(value, dict):
+                continue
+            display_name = (value.get('display_name') or value.get('displayName') or '').strip()[:64]
+            gamertag = (value.get('gamertag') or '').strip()[:64]
+            connected = bool(value.get('connected'))
+
+            # An entry emptied out is an entry removed, rather than a row saying
+            # nothing sitting in the table forever.
+            if not display_name and not gamertag and not connected:
+                PlatformAccount.objects.filter(user=user, platform=slug).delete()
+                continue
+
+            PlatformAccount.objects.update_or_create(
+                user=user, platform=slug,
+                defaults={
+                    'display_name': display_name,
+                    'gamertag': gamertag,
+                    'connected': connected,
+                },
+            )
+
+    return Response({
+        'status': 'success',
+        'message': 'Gaming accounts updated',
+        'data': {'gaming_accounts': _gaming_accounts_payload(user)},
     }, status=status.HTTP_200_OK)
 
 
@@ -702,4 +825,54 @@ def lookup_user(request):
             'avatar': avatar,
             'profile_picture': avatar,
         }},
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def public_profile(request, user_id):
+    """GET /user/<id>/profile/ - somebody else's profile.
+
+    The frontend has called this since profiles could be opened by id, and it
+    answered 404, so every link to another player - and every link the Share
+    button was meant to produce - led nowhere.
+
+    Public means public: no email, no wallet, no penalty points, no session
+    state. Anything here can be read by anyone with the link, which is the point
+    of a share button.
+    """
+    from .models import SocialLink, UserInterests
+
+    user = Users.objects.filter(user_id=user_id, is_active=True).first()
+    if user is None:
+        return Response(
+            {'status': 'error', 'message': 'No such profile'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    profile = UserProfile.objects.filter(user=user).first()
+    interests = list(UserInterests.objects.filter(user=user).values_list('interests', flat=True))
+    social_links = list(SocialLink.objects.filter(user=user).values('title', 'url'))
+    achievements = list(user.achievements.values('name', 'description', 'logo'))
+
+    return Response({
+        'status': 'success',
+        'message': 'Profile retrieved',
+        'data': {
+            'user_id': user.user_id,
+            'username': user.username,
+            'full_name': user.full_name,
+            'country': user.country,
+            'state': user.state,
+            'description': profile.description if profile else None,
+            'profile_picture': request.build_absolute_uri(profile.profile_picture.url) if profile and profile.profile_picture else None,
+            'banner': request.build_absolute_uri(profile.banner.url) if profile and profile.banner else None,
+            'interests': interests,
+            'social_links': social_links,
+            'favorite_games': _favorite_games_payload(user, request),
+            'gaming_accounts': _gaming_accounts_payload(user),
+            'achievements': achievements,
+            'is_founding_member': user.is_founding_member,
+            'date_joined': user.date_joined,
+        },
     }, status=status.HTTP_200_OK)
