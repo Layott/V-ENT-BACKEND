@@ -129,16 +129,49 @@ def admin_login(request):
     # separate fields and can disagree: an account with is_staff and no role
     # signed in fine and then got 403 from every endpoint, so the dashboard
     # loaded as a grid of dashes under "Failed to load dashboard data." Refuse
-    # the sign-in instead, and say why.
+    # the sign-in instead, and say why. Shared with the step-up door so the two
+    # cannot answer this differently.
+    refusal = _admin_refusal(user)
+    if refusal is not None:
+        return refusal
+
+    return Response({
+        'status': 'success',
+        'message': 'Credentials accepted - two-factor code required',
+        'data': _pending_2fa_payload(user),
+    }, status=status.HTTP_200_OK)
+
+
+def _admin_refusal(user):
+    """Why this account may not open the console, or None if it may.
+
+    Both doors ask the same two questions in the same order, so an account that
+    is refused at one is refused at the other for the same stated reason.
+    """
+    if not user.is_staff:
+        return Response(
+            {'code': 'NOT_AN_ADMIN', 'status': 'error',
+             'message': 'This account is not an administrator.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    # is_staff opens the door; admin_role decides what is behind it.
     if not user.admin_role:
         return Response(
-            { 'code': 'ACCOUNT_NO_ADMIN_ROLE','status': 'error',
+            {'code': 'ACCOUNT_NO_ADMIN_ROLE', 'status': 'error',
              'message': 'This account has no admin role assigned. Ask a super admin to grant one.'},
             status=status.HTTP_403_FORBIDDEN,
         )
+    return None
 
-    # Credentials are correct - but they are only step one. The session token is
-    # issued by /auth/admin/2fa/verify/ after a real TOTP code, never here.
+
+def _pending_2fa_payload(user):
+    """The short-lived token a TOTP code exchanges for a session token.
+
+    Never a session token itself. Both the password path and the step-up path
+    end here, so they cannot drift apart - the first version of this was copied
+    into the second door and the copy forgot the provisioning URI, which is the
+    only time the enrolling admin is ever shown their secret.
+    """
     enrolment, _ = AdminTOTP.objects.get_or_create(
         user=user, defaults={'secret': totp_lib.generate_secret()}
     )
@@ -157,12 +190,56 @@ def admin_login(request):
         # add it to their authenticator, then confirm with a live code.
         data['enrollment_required'] = True
         data['secret'] = enrolment.secret
-        data['provisioning_uri'] = totp_lib.provisioning_uri(enrolment.secret, user.email or user.username)
+        data['provisioning_uri'] = totp_lib.provisioning_uri(
+            enrolment.secret, user.email or user.username)
+
+    return data
+
+
+# ---------------------------------------------------------------------------
+# POST /auth/admin/step-up/ - the second factor alone, for a live session
+# ---------------------------------------------------------------------------
+
+@api_view(['POST'])
+def admin_step_up(request):
+    """Trade a live site session for a pending-2FA token.
+
+    An admin who has just signed in on the site was sent to /admin, bounced to
+    /admin/login, and asked for the username and password they had typed a
+    moment earlier. The session already carries that proof, so the only thing
+    the second prompt added was friction.
+
+    This does not weaken the door. The password authenticated the session; this
+    endpoint refuses anyone whose session is not a staff account with a role,
+    and still issues nothing but a pending token - the session token for the
+    console comes from /auth/admin/2fa/verify/ after a real TOTP code, exactly
+    as it does on the password path.
+    """
+    header = request.headers.get('Authorization') or ''
+    if not header.startswith('Bearer '):
+        return Response(
+            {'code': 'AUTHORIZATION_HEADER_REQUIRED', 'status': 'error',
+             'message': 'Authorization header is required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    token = header.split(' ', 1)[1].strip()
+    user = Users.objects.filter(login_session_token=token).first() if token else None
+    if user is None:
+        return Response(
+            {'code': 'INVALID_EXPIRED_SESSION_TOKEN', 'status': 'error',
+             'message': 'Invalid or expired session token'},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    refusal = _admin_refusal(user)
+    if refusal is not None:
+        return refusal
 
     return Response({
         'status': 'success',
-        'message': 'Credentials accepted - two-factor code required',
-        'data': data,
+        'message': 'Signed in already - two-factor code required',
+        'data': _pending_2fa_payload(user),
     }, status=status.HTTP_200_OK)
 
 
