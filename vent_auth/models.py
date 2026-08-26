@@ -868,6 +868,42 @@ class AdminTOTP(models.Model):
         return f"TOTP<{self.user_id} confirmed={self.confirmed}>"
 
 
+class SavedCard(models.Model):
+    """A card that can be charged again, described by what Paystack told us.
+
+    There is no card number here and there never will be. Paystack returns an
+    authorization code plus the brand, the last four digits, the expiry and the
+    issuing bank; that is enough to recognise a card and to charge it, and it is
+    the only version of "saving a card" that does not put this platform inside
+    PCI DSS scope.
+    """
+
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='saved_cards')
+    authorization_code = models.CharField(max_length=128, blank=True, default='')
+    # Paystack's signature identifies the same physical card across
+    # authorizations, so re-adding a card updates it instead of duplicating it.
+    signature = models.CharField(max_length=128, blank=True, default='', db_index=True)
+
+    brand = models.CharField(max_length=32, blank=True, default='')
+    last4 = models.CharField(max_length=4, blank=True, default='')
+    exp_month = models.CharField(max_length=2, blank=True, default='')
+    exp_year = models.CharField(max_length=4, blank=True, default='')
+    bank = models.CharField(max_length=120, blank=True, default='')
+    channel = models.CharField(max_length=32, blank=True, default='card')
+    country = models.CharField(max_length=8, blank=True, default='')
+
+    is_default = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    removed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ('-is_default', '-created_at')
+
+    def __str__(self):
+        return f'{self.brand} ****{self.last4}'
+
+
 class UserTOTP(models.Model):
     """An ordinary account's authenticator.
 
