@@ -51,6 +51,7 @@ def serialize_team_card(request, team, profile_map=None):
     return {
         'id': team.team_id,
         'team_id': team.team_id,
+        'slug': team.slug,
         'name': team.team_name,
         'tag': None,  # no tag column on Teams yet
         'game': game_title,

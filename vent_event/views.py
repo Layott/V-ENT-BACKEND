@@ -280,6 +280,7 @@ def create_event(request):
             'status': 'success',
             'data': {
                 'event_id': event.event_id,
+                'slug': event.slug,
                 'event': serialize_event_detail(request, event),
             },
             'message': 'Event created successfully.',
@@ -377,13 +378,15 @@ def get_all_events(request):
 
 @api_view(['GET'])
 def view_event(request, event_id):
-    """GET /event/view-event/<id>/ - full event detail (public)."""
+    """GET /event/view-event/<id or slug>/ - full event detail (public)."""
+    from vent_auth.slugs import lookup_kwargs
+
     try:
         event = (
             Event.objects
             .select_related('game', 'creator')
             .prefetch_related('ticket_tiers', 'sponsors', 'social_links', 'vendor_invites')
-            .get(event_id=event_id, is_active=True)
+            .get(is_active=True, **lookup_kwargs(event_id, id_field='event_id'))
         )
     except Event.DoesNotExist:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)

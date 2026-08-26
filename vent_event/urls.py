@@ -19,7 +19,7 @@ from .views_linking import (
 urlpatterns = [
     path("create-event/", create_event, name="create_event"),
     path("get-all-events/", get_all_events, name="get_all_events"),
-    path("view-event/<int:event_id>/", view_event, name="view_event"),
+    path("view-event/<str:event_id>/", view_event, name="view_event"),
     # Vendor shops
     path("<int:event_id>/vendors/", event_vendors, name="event_vendors"),
     path("<int:event_id>/vendors/create/", create_vendor, name="create_vendor"),

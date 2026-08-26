@@ -56,6 +56,10 @@ class Tournament(models.Model):
 
     tournament_id = models.AutoField(primary_key=True)
     tournament_title = models.CharField(max_length=148, null=False)
+    # The readable half of the address. Generated once on creation and left
+    # alone afterwards, so renaming a tournament cannot break a link somebody
+    # has already shared.
+    slug = models.SlugField(max_length=160, unique=True, null=True, blank=True, db_index=True)
     tournament_game = models.ForeignKey(Games, on_delete=models.SET_NULL, null=True, blank=True)
     game_mode = models.CharField(max_length=50, null=True, blank=True)  # Game Mode
     tournament_logo = models.ImageField(upload_to='tournament_logos/', null=True, blank=True)
@@ -141,6 +145,14 @@ class Tournament(models.Model):
         """A tournament is 'paid' (KYC-gated) if it charges entry or awards a prize."""
         entry = int(self.entry_fee_price) if self.entry_fee_price else 0
         return self.entry_fee == 'Paid' and entry > 0 or self.prize_pool_coins > 0
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from vent_auth.slugs import build_slug
+            self.slug = build_slug(
+                self.tournament_title, model=type(self), instance_pk=self.pk, pk_field='pk',
+            )
+        super().save(*args, **kwargs)
 
 
 class TournamentPrizeDistribution(models.Model):

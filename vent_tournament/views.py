@@ -127,6 +127,7 @@ def serialize_tournament_card(t, confirmed_count=0, prize_pool=0):
         "entry_fee_vc": int(t.entry_fee_price or 0),
         # --- legacy keys ---
         "tournament_id": t.tournament_id,
+        "slug": t.slug,
         "tournament_title": t.tournament_title,
         "tournament_logo": t.tournament_logo.url if t.tournament_logo else None,
         "tournament_banner": t.tournament_banner.url if t.tournament_banner else None,
@@ -670,7 +671,8 @@ def create_tournament(request):
                 tournament.sponsors.add(sponsor)
 
             return Response({"status": "success", "message": "Tournament created successfully",
-                             "data": {"tournament_id": tournament.tournament_id, "is_draft": is_draft_bool}},
+                             "data": {"tournament_id": tournament.tournament_id,
+                                      "slug": tournament.slug, "is_draft": is_draft_bool}},
                             status=status.HTTP_201_CREATED)
 
     except ValueError as e:
@@ -943,8 +945,11 @@ def get_all_tournaments(request):
 @api_view(["GET"])
 def view_tournament(request, tournament_id):
     try:
-        # Fetch the tournament
-        tournament = Tournament.objects.get(tournament_id=tournament_id)
+        # The address may be an id or a slug, so a link carrying the name and a
+        # link somebody bookmarked last month both resolve.
+        from vent_auth.slugs import lookup_kwargs
+
+        tournament = Tournament.objects.get(**lookup_kwargs(tournament_id, id_field='tournament_id'))
 
         # A draft is an unpublished plan: half-written rules, a prize pool the
         # organizer is still arguing about, a date that will move. It was
@@ -1033,6 +1038,7 @@ def view_tournament(request, tournament_id):
             "status": tournament.status,
             "is_draft": tournament.is_draft,
             "format": tournament.bracket_type,
+            "slug": tournament.slug,
             "prize_type": tournament.prize_type,
             "prize_currency": tournament.prize_currency or 'VC',
             "prize_pool_total": str(tournament.prize_pool_total) if tournament.prize_pool_total else None,
