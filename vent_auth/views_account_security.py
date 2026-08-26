@@ -350,3 +350,31 @@ def cancel_deletion(request):
     user.deletion_requested_at = None
     user.save(update_fields=['is_deactivated', 'deactivated_at', 'deletion_requested_at'])
     return _ok({'deletion_scheduled_for': None}, 'Your account is active again.')
+
+
+# ---------------------------------------------------------------------------
+# The founder badge
+# ---------------------------------------------------------------------------
+
+@api_view(['POST'])
+def founder_badge(request):
+    """POST /setting/founder-badge/ {show: bool} - wear it or do not.
+
+    Only a founder can switch this; for anybody else it is not a setting, it is
+    a claim, and the endpoint says so rather than storing something that will
+    never render.
+    """
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+
+    if not getattr(user, 'is_founder', False):
+        return _err('This is only available to founding members of V-ENT.', 'NOT_A_FOUNDER',
+                    status.HTTP_403_FORBIDDEN)
+
+    user.show_founder_badge = bool(request.data.get('show', True))
+    user.save(update_fields=['show_founder_badge'])
+    return _ok(
+        {'is_founder': True, 'show_founder_badge': user.show_founder_badge},
+        'Badge on.' if user.show_founder_badge else 'Badge off.',
+    )

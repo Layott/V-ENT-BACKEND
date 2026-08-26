@@ -90,6 +90,7 @@ urlpatterns = [
     path('setting/deactivate/', sec.deactivate_account),
     path('setting/delete/', sec.delete_account),
     path('setting/cancel-deletion/', sec.cancel_deletion),
+    path('setting/founder-badge/', sec.founder_badge),
     path('device/list/', v.list_devices),
     path('device/<str:device_id>/revoke/', v.revoke_device),
 ]

@@ -60,6 +60,12 @@ class Users(AbstractUser):
     is_founding_member = models.BooleanField(default=False)
     founding_position = models.IntegerField(null=True, blank=True)
 
+    # A founder can carry a badge beside their name, and can switch it off.
+    # Being a founder is a fact; wearing it is a choice, and somebody who does
+    # not want a mark on every post they make should not have to have one.
+    is_founder = models.BooleanField(default=False)
+    show_founder_badge = models.BooleanField(default=True)
+
     USERNAME_FIELD = 'username'  # Use 'username' for authentication
     REQUIRED_FIELDS = ['full_name']  # Exclude 'username'
 

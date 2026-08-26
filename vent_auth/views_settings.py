@@ -327,6 +327,8 @@ def account_overview(request):
                 'kyc_verified': bool(getattr(wallet, 'kyc_verified', False)),
                 'penalty_points': getattr(profile, 'penalty_point', 0) if profile else 0,
                 'is_founding_member': user.is_founding_member,
+                'is_founder': getattr(user, 'is_founder', False),
+                'founder_badge': bool(getattr(user, 'is_founder', False) and user.show_founder_badge),
                 'founding_position': user.founding_position,
             },
         },
