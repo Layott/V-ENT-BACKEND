@@ -9,6 +9,7 @@ from .views_admin import admin_2fa_verify
 from .views_kyc_files import kyc_document
 from .views_waitlist import waitlist_claim, waitlist_claim_preview
 from . import views_linking as linking
+from . import views_cards as cards
 
 urlpatterns = [
     # path("admin/", admin.site.urls),
@@ -83,6 +84,12 @@ urlpatterns = [
     path("update-favorite-games/", update_favorite_games, name="update_favorite_games"),
     path("update-gaming-accounts/", update_gaming_accounts, name="update_gaming_accounts"),
     # Linking an external account for real: Discord OAuth2, Steam OpenID.
+    # Saved cards. A card is saved by being used once, never by typing its
+    # number into a V-ENT form.
+    path("wallet/cards/", cards.list_cards, name="list_cards"),
+    path("wallet/cards/<int:card_id>/remove/", cards.remove_card, name="remove_card"),
+    path("wallet/cards/<int:card_id>/default/", cards.set_default_card, name="set_default_card"),
+    path("wallet/cards/charge/", cards.charge_saved_card, name="charge_saved_card"),
     path("link/status/", linking.link_status, name="link_status"),
     path("link/<str:provider>/start/", linking.link_start, name="link_start"),
     path("link/discord/callback/", linking.discord_callback, name="discord_link_callback"),

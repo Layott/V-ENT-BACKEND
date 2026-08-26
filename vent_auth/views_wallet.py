@@ -1,3 +1,4 @@
+import logging
 import os
 from .views_helpers import session_timeout_minutes, get_or_create_user_wallet
 import uuid
@@ -20,6 +21,8 @@ from .models import Users, UserWallet, TeamWallet, OrgWallet, Transaction, Withd
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+logger = logging.getLogger(__name__)
 
 PAYSTACK_BASE = 'https://api.paystack.co'
 
@@ -349,6 +352,18 @@ def topup_verify(request):
         txn.save(update_fields=['status'])
         new_balance = locked_wallet.wallet_balance
 
+        # A card is saved by being used. Paystack returns a reusable
+        # authorization plus the brand, last four and expiry, which is
+        # everything needed to charge it again and to show it - and none of it
+        # is a card number.
+        saved_card = None
+        if request.data.get('save_card'):
+            from .views_cards import store_authorization
+            try:
+                saved_card = store_authorization(wallet.user, data.get('data') or {})
+            except Exception:
+                logger.warning('could not store the card authorization', exc_info=True)
+
     return Response({
         'status': 'success',
         'data': {
@@ -356,6 +371,10 @@ def topup_verify(request):
             'credited': True,
             'coins_added': txn.amount,
             'new_balance': new_balance,
+            'card_saved': bool(saved_card),
+            'card': {
+                'brand': saved_card.brand, 'last4': saved_card.last4,
+            } if saved_card else None,
         }
     }, status=status.HTTP_200_OK)
 
