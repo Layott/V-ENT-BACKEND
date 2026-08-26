@@ -127,6 +127,8 @@ _DEV_ORIGINS = [
     # which on the main dev machine it permanently is)
     "http://localhost:3001",
     "http://127.0.0.1:3001",
+    "http://localhost:3002",
+    "http://127.0.0.1:3002",
     "http://localhost:3100",
     "http://127.0.0.1:3100",
 ]

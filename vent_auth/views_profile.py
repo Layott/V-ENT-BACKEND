@@ -854,6 +854,12 @@ def lookup_user(request):
     }, status=status.HTTP_200_OK)
 
 
+def _may_message(viewer, owner):
+    """Deferred import: views_usersearch imports from this module."""
+    from .views_usersearch import may_message
+    return may_message(viewer, owner)
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def public_profile(request, user_id):
@@ -917,6 +923,11 @@ def public_profile(request, user_id):
             # profile that switched it off does not show one anywhere.
             'founder_badge': bool(getattr(user, 'is_founder', False) and user.show_founder_badge),
             'date_joined': user.date_joined,
+            # Whether the person reading this may start a conversation. The
+            # profile had no way to message anybody at all, and the setting
+            # that governs it was written and never read, so it is reported
+            # here and enforced in dm_send.
+            'can_message': _may_message(viewer if not _ignored else None, user),
         },
     }, status=status.HTTP_200_OK)
 

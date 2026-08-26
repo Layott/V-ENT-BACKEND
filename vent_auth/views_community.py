@@ -79,6 +79,14 @@ def _person(request, user):
         'username': user.username,
         'full_name': user.full_name,
         'avatar': _avatar(request, user),
+        # The founder mark, wherever a name appears. It was only ever reported
+        # by the profile endpoint, so the badge showed on a profile and nowhere
+        # else - not on a post, a comment, a thread or a conversation. This is
+        # the one builder every community author goes through.
+        #
+        # Only reported when the person is wearing it: switching it off in
+        # settings has to switch it off everywhere, not just on the profile.
+        'founder_badge': bool(getattr(user, 'is_founder', False) and user.show_founder_badge),
     }
 
 
@@ -777,6 +785,16 @@ def dm_send(request, conversation_id):
             return _error('No user with that username.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
         if other.user_id == user.user_id:
             return _error('You cannot message yourself.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+        # `allow_direct_messages` was written by the Privacy panel and read by
+        # nothing, so somebody who had turned messages off still received them.
+        # Checked here rather than only in the client, because a setting only
+        # the client honours is not a setting.
+        from .views_usersearch import may_message
+        if not may_message(user, other):
+            return _error(
+                f'@{other.username} does not accept direct messages.',
+                'DM_NOT_ALLOWED', status.HTTP_403_FORBIDDEN,
+            )
         convo = _conversation_for(user, other)
     else:
         convo = Conversation.objects.filter(id=conversation_id).first()

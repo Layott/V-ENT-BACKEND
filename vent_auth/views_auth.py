@@ -268,6 +268,12 @@ def login(request):
             "user_id": user.user_id,
             "username": user.username,
             "email": user.email,
+            # Whether this account can reach the admin console. Not a
+            # permission - the console has its own token and its own 2FA, and
+            # this grants none of it. It is here so the frontend can take a
+            # staff member to the admin sign-in after they log in, instead of
+            # expecting them to know the address and type it.
+            "is_staff": bool(user.is_staff or user.is_superuser),
         }, status=status.HTTP_200_OK)
     else:
         return Response({

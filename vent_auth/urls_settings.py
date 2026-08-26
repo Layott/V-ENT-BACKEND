@@ -6,6 +6,7 @@ Included at root in vent/urls.py.
 from django.urls import path
 
 from . import views_settings as v
+from . import views_usersearch as usersearch
 from . import views_profile as prof
 from . import views_account_security as sec
 from . import views_rankings as rank
@@ -76,6 +77,9 @@ urlpatterns = [
     # Account
     path('user/<str:user_id>/update/', v.update_user_account),
     path('user/<int:user_id>/profile/', prof.public_profile),
+    # Finding a person by name, so a direct message can be addressed by
+    # picking somebody rather than by spelling their handle correctly.
+    path('user/search/', usersearch.user_search),
 
     # Devices / sessions
     path('setting/login-activity/', v.login_activity),
