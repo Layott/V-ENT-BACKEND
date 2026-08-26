@@ -356,11 +356,19 @@ def send_login_alert(user, request=None):
 
         # Settings live in one JSON blob keyed by section, so read it that way
         # rather than expecting a column that does not exist.
-        setting = UserSetting.objects.filter(user=user).first()
-        if setting is not None:
-            security = (setting.data or {}).get('security') or {}
-            if isinstance(security, dict) and security.get('login_alerts') is False:
-                return False
+        #
+        # This read fails open on purpose. If the preference cannot be read, the
+        # alert still goes out: telling somebody about a sign-in they did not
+        # make is a small annoyance, and staying silent because a lookup errored
+        # is how an account gets taken quietly.
+        try:
+            setting = UserSetting.objects.filter(user=user).first()
+            if setting is not None:
+                security = (setting.data or {}).get('security') or {}
+                if isinstance(security, dict) and security.get('login_alerts') is False:
+                    return False
+        except Exception:
+            logger.warning('could not read login alert preference; sending anyway', exc_info=True)
 
         latest = user.login_events.first() if hasattr(user, 'login_events') else None
         where = ', '.join(p for p in [getattr(latest, 'city', ''), getattr(latest, 'country', '')] if p)
