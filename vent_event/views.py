@@ -379,16 +379,26 @@ def get_all_events(request):
 @api_view(['GET'])
 def view_event(request, event_id):
     """GET /event/view-event/<id or slug>/ - full event detail (public)."""
-    from vent_auth.slugs import lookup_kwargs
+    from vent_auth.slugs import resolve_or_redirect
 
-    try:
-        event = (
+    event, moved_to = resolve_or_redirect(
+        event_id, entity_type='event', id_field='event_id', model=Event,
+        queryset=(
             Event.objects
             .select_related('game', 'creator')
             .prefetch_related('ticket_tiers', 'sponsors', 'social_links', 'vendor_invites')
-            .get(is_active=True, **lookup_kwargs(event_id, id_field='event_id'))
-        )
-    except Event.DoesNotExist:
+            .filter(is_active=True)
+        ),
+    )
+    if moved_to:
+        # Renamed. A ticket emailed under the old name still has to open.
+        return Response({
+            'status': 'moved',
+            'code': 'SLUG_CHANGED',
+            'message': 'This event has been renamed.',
+            'data': {'slug': moved_to, 'url': f'/events/{moved_to}'},
+        }, status=status.HTTP_200_OK)
+    if event is None:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
     Event.objects.filter(pk=event.pk).update(interaction_count=F('interaction_count') + 1)

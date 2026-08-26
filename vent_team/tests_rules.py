@@ -110,7 +110,15 @@ class MembershipSettingsTests(TestCase):
         self.team.refresh_from_db()
         self.assertTrue(self.team.password_protected)
         self.assertNotEqual(self.team.join_password, 'letmein')
-        self.assertTrue(self.team.join_password.startswith('pbkdf2_'))
+        # Assert the behaviour, not the algorithm's name. The old check read
+        # `startswith('pbkdf2_')`, which fails under the fast MD5 hasher these
+        # tests configure for speed and would fail again on any future hasher
+        # change - while still passing if the password were stored in some other
+        # readable form. What matters is that it is not the plaintext and that
+        # it verifies.
+        from django.contrib.auth.hashers import check_password
+        self.assertTrue(check_password('letmein', self.team.join_password))
+        self.assertFalse(check_password('wrong-password', self.team.join_password))
 
     def test_turning_protection_off_clears_the_password(self):
         self.edit({'team_password': 'letmein'})

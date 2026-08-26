@@ -891,3 +891,7 @@ Use instead: instant state changes (fill, color, weight) for hover. Motion only 
 ### Pre-ship check
 
 Ask: could this be any AI-generated landing page from this year? If yes, it is not done. Screenshot desktop + mobile, walk the list above, fix every hit before showing the user.
+
+See the slug rule in ../CLAUDE.md: no numeric id in any user-visible URL. New models get `slug`, `sync_slug()` in `save()`, and `resolve_or_redirect()` at the view. Nameless things get an opaque token, never the primary key.
+
+Every new feature ships SEO and en/fr/pt translation in the same commit, and there is one model per concept - see the two rules at the end of ../CLAUDE.md.

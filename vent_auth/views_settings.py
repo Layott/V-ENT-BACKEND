@@ -43,6 +43,19 @@ DEFAULT_SETTINGS = {
     'language': 'en',
     'region': 'NG',
     'timezone': 'Africa/Lagos',
+    # The first-run walkthrough. Kept on the account rather than in
+    # localStorage so somebody who signs in on their phone after finishing it on
+    # a laptop is not walked through the whole platform a second time.
+    #
+    # `version` is the part that earns its keep: when the walkthrough gains a
+    # chapter for something genuinely new, bumping it here shows that chapter to
+    # people who finished the old one, without showing them the rest again.
+    'walkthrough': {
+        'completed_at': None,
+        'skipped': False,
+        'version': 0,
+        'chapters_seen': [],
+    },
 }
 
 _SECTION_KEYS = ('notifications', 'privacy', 'security', 'payments')

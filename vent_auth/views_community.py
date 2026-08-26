@@ -175,7 +175,13 @@ def post_create(request):
 
 @api_view(['GET'])
 def post_detail(request, post_id):
-    post = Post.objects.select_related('author', 'game', 'club').filter(id=post_id).first()
+    from vent_auth.slugs import lookup_kwargs
+
+    post = (
+        Post.objects.select_related('author', 'game', 'club')
+        .filter(**lookup_kwargs(post_id, id_field='id'))
+        .first()
+    )
     if post is None:
         return _error('Post not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     return _ok({'post': serialize_post(request, post, _optional_user(request), with_comments=True)},
@@ -305,7 +311,18 @@ def club_create(request):
 
 @api_view(['GET'])
 def club_detail(request, club_id):
-    club = Club.objects.select_related('game', 'owner').filter(id=club_id).first()
+    from vent_auth.slugs import resolve_or_redirect
+
+    club, moved_to = resolve_or_redirect(
+        club_id, entity_type='club', id_field='id', model=Club,
+        queryset=Club.objects.select_related('game', 'owner'),
+    )
+    if moved_to:
+        return Response({
+            'status': 'moved', 'code': 'SLUG_CHANGED',
+            'message': 'This club has been renamed.',
+            'data': {'slug': moved_to, 'url': f'/community/club/{moved_to}'},
+        }, status=status.HTTP_200_OK)
     if club is None:
         return _error('Club not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
@@ -424,7 +441,18 @@ def thread_create(request):
 
 @api_view(['GET'])
 def thread_detail(request, thread_id):
-    thread = Thread.objects.select_related('author', 'club').filter(id=thread_id).first()
+    from vent_auth.slugs import resolve_or_redirect
+
+    thread, moved_to = resolve_or_redirect(
+        thread_id, entity_type='thread', id_field='id', model=Thread,
+        queryset=Thread.objects.select_related('author', 'club'),
+    )
+    if moved_to:
+        return Response({
+            'status': 'moved', 'code': 'SLUG_CHANGED',
+            'message': 'This thread has been renamed.',
+            'data': {'slug': moved_to, 'url': f'/community/thread/{moved_to}'},
+        }, status=status.HTTP_200_OK)
     if thread is None:
         return _error('Thread not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 

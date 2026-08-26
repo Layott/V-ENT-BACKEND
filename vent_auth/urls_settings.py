@@ -19,7 +19,7 @@ urlpatterns = [
     # Organizations (root-mounted: the FE calls /organization/...)
     path('organization/list/', orgs.org_list),
     path('organization/create/', orgs.org_create),
-    path('organization/<int:org_id>/', orgs.org_detail),
+    path('organization/<str:org_id>/', orgs.org_detail),
     path('organization/<int:org_id>/members/', orgs.org_members),
     path('organization/<int:org_id>/promote/', orgs.org_promote),
     path('organization/<int:org_id>/kick/', orgs.org_kick),
@@ -40,18 +40,18 @@ urlpatterns = [
     # Community (root-mounted: /post/, /club/, /thread/, /scrim/, /dm/)
     path('post/list/', community.post_list),
     path('post/create/', community.post_create),
-    path('post/<int:post_id>/', community.post_detail),
+    path('post/<str:post_id>/', community.post_detail),
     path('post/<int:post_id>/like/', community.post_like),
     path('post/<int:post_id>/comment/', community.post_comment),
 
     path('club/list/', community.club_list),
     path('club/create/', community.club_create),
-    path('club/<int:club_id>/', community.club_detail),
+    path('club/<str:club_id>/', community.club_detail),
     path('club/<int:club_id>/join/', community.club_join),
 
     path('thread/list/', community.thread_list),
     path('thread/create/', community.thread_create),
-    path('thread/<int:thread_id>/', community.thread_detail),
+    path('thread/<str:thread_id>/', community.thread_detail),
     path('thread/<int:thread_id>/reply/', community.thread_reply),
     path('thread/<int:thread_id>/upvote/', community.thread_upvote),
     path('thread/reply/<int:reply_id>/upvote/', community.thread_reply_upvote),
