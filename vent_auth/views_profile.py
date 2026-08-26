@@ -913,6 +913,9 @@ def public_profile(request, user_id):
             'gaming_accounts': _gaming_accounts_payload(user),
             'achievements': achievements,
             'is_founding_member': user.is_founding_member,
+            # The badge is only reported when the person is wearing it, so a
+            # profile that switched it off does not show one anywhere.
+            'founder_badge': bool(getattr(user, 'is_founder', False) and user.show_founder_badge),
             'date_joined': user.date_joined,
         },
     }, status=status.HTTP_200_OK)
