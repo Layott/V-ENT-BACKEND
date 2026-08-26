@@ -324,7 +324,7 @@ def inbound_start(request, provider):
         return Response(
             {'status': 'error', 'configured': False,
              'message': f"{cfg['label']} sign-in is not set up yet.",
-             'code': 'NOT_CONFIGURED', 'data': None},
+             'code': 'NOT_CONFIGURED', 'data': {'provider': cfg['label']}},
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 

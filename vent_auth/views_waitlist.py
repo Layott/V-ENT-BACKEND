@@ -102,6 +102,7 @@ def waitlist_claim(request):
             "status": "error",
             "message": f"Password must be at least {MIN_PASSWORD_LENGTH} characters",
             "code": "PASSWORD_TOO_SHORT",
+            "data": {"minimum": MIN_PASSWORD_LENGTH},
         }, status=status.HTTP_400_BAD_REQUEST)
 
     with transaction.atomic():
@@ -131,7 +132,7 @@ def waitlist_claim(request):
             return Response({
                 "status": "error",
                 "message": "Choose a username to finish claiming your account",
-                "code": "USERNAME_REQUIRED",
+                "code": "USERNAME_REQUIRED_TO_CLAIM",
             }, status=status.HTTP_400_BAD_REQUEST)
 
         # An account can already exist on this address. The common case is

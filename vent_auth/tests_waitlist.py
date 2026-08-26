@@ -133,7 +133,7 @@ class ClaimTests(TestCase):
         missing = self.client.post(self.url, {'token': 'tok-noname', 'password': 'a-real-password'},
                                    content_type='application/json')
         self.assertEqual(missing.status_code, 400)
-        self.assertEqual(missing.json()['code'], 'USERNAME_REQUIRED')
+        self.assertEqual(missing.json()['code'], 'USERNAME_REQUIRED_TO_CLAIM')
 
         chosen = self.client.post(self.url, {'token': 'tok-noname', 'password': 'a-real-password',
                                              'username': 'PickedLater'},
