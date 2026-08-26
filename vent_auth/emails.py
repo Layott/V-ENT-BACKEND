@@ -396,3 +396,63 @@ def _short_agent(agent):
     browser = next((label for token, label in browsers if token in agent), 'Unknown browser')
     system = next((label for token, label in systems if token in agent), 'Unknown device')
     return f'{browser} on {system}'
+
+
+def send_partner_application_received(partner):
+    """Acknowledge an application, and be clear that nothing is granted yet."""
+    try:
+        return _send(
+            partner.contact_email,
+            'We have your V-ENT partner application',
+            'partner_status.html',
+            {
+                'name': partner.contact_name or partner.name,
+                'heading': 'Application received',
+                'intro': (
+                    f'we have your application for {partner.name}. An admin reviews it before '
+                    'any access is granted, and you will hear from us either way.'
+                ),
+                'rows': [
+                    ('Partner', partner.name),
+                    ('Access requested', ', '.join(partner.requested_scopes) or 'None specified'),
+                    ('Sign-in with V-ENT', 'Requested' if partner.sso_status == 'requested' else 'Not requested'),
+                ],
+                'body': '',
+                'cta_url': f'{APP_URL}/partners',
+                'cta_label': 'Open the partner area',
+            },
+        )
+    except Exception:
+        logger.exception('partner application email failed')
+        return False
+
+
+def send_partner_decision(partner):
+    """Tell a partner what was decided, and exactly what they may read."""
+    approved = partner.status == 'approved'
+    try:
+        return _send(
+            partner.contact_email,
+            f'Your V-ENT partner application was {partner.status}',
+            'partner_status.html',
+            {
+                'name': partner.contact_name or partner.name,
+                'heading': 'Partner access approved' if approved else f'Partner application {partner.status}',
+                'intro': (
+                    'your partner account is live. The scopes below are what your keys can read.'
+                    if approved else
+                    f'your application for {partner.name} was {partner.status}.'
+                ),
+                'rows': [
+                    ('Partner', partner.name),
+                    ('Status', partner.status.title()),
+                    ('Scopes granted', ', '.join(partner.approved_scopes) or 'None'),
+                ],
+                'body': partner.review_note or '',
+                'cta_url': f'{APP_URL}/partners',
+                'cta_label': 'Open the partner area',
+            },
+        )
+    except Exception:
+        logger.exception('partner decision email failed')
+        return False

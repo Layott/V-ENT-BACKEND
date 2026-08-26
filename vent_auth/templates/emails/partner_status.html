@@ -1,0 +1,16 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<h1 style="margin:0 0 16px; font-size:22px; color:#ffffff;">{{ heading }}</h1>
+
+<p style="margin:0 0 16px; color:#C9C9CF; font-size:15px; line-height:1.6;">
+  Hi {{ name }}, {{ intro }}
+</p>
+
+{% include "emails/_rows.html" with rows=rows %}
+
+{% if body %}
+<p style="margin:20px 0 0; color:#C9C9CF; font-size:15px; line-height:1.6;">{{ body }}</p>
+{% endif %}
+
+{% include "emails/_button.html" with url=cta_url label=cta_label %}
+{% endblock %}

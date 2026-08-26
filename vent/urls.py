@@ -16,6 +16,8 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+
+from vent_partners import urls as partner_urls
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -26,6 +28,10 @@ urlpatterns = [
     path("event/", include('vent_event.urls')),
     path("team/", include('vent_team.urls')),
     # Root-mounted /setting/, /device/, /user/<id>/update/ for the settings page.
+    # The partner API is versioned and mounted separately, because it is the one
+    # surface outside developers build against and its URLs must stay put.
+    path("api/v1/", include((partner_urls.api_urlpatterns, 'partner_api'))),
+    path("partners/", include((partner_urls.partner_urlpatterns, 'partners'))),
     path("", include('vent_auth.urls_settings')),
 ]
 
