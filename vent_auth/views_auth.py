@@ -217,6 +217,17 @@ def login(request):
                 'message': 'Your account is not confirmed. Please verify your email address.'
             }, status=status.HTTP_403_FORBIDDEN)
 
+        # Signing in is how somebody undoes a deactivation or cancels a
+        # scheduled deletion. The screen promises exactly that, so it happens
+        # here rather than being a separate button nobody finds.
+        if getattr(user, 'is_deactivated', False) or user.deletion_requested_at:
+            user.is_deactivated = False
+            user.deactivated_at = None
+            user.deletion_requested_at = None
+            user.save(update_fields=[
+                'is_deactivated', 'deactivated_at', 'deletion_requested_at',
+            ])
+
         # Reuse a session that is still valid instead of minting a new one.
         #
         # Every login used to overwrite login_session_token, so signing in on a

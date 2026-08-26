@@ -28,6 +28,14 @@ class Users(AbstractUser):
     # a write on every call would be a write on every call.
     last_login_ip = models.GenericIPAddressField(null=True, blank=True)
     location_updated_at = models.DateTimeField(null=True, blank=True)
+
+    # Deactivation hides an account and is undone by signing in. A scheduled
+    # deletion is the same thing with a date attached - nothing is destroyed
+    # while it runs, because other people's tournament results, disputes and
+    # wallet history point at this row.
+    is_deactivated = models.BooleanField(default=False)
+    deactivated_at = models.DateTimeField(null=True, blank=True)
+    deletion_requested_at = models.DateTimeField(null=True, blank=True)
     login_session_token = models.CharField(max_length=16, null=True)
     login_session_created_at = models.DateTimeField(null=True, blank=True)
     signup_type = models.CharField(max_length=32, default='normal', null=True)  # normal, google, facebook
@@ -852,6 +860,25 @@ class AdminTOTP(models.Model):
 
     def __str__(self):
         return f"TOTP<{self.user_id} confirmed={self.confirmed}>"
+
+
+class UserTOTP(models.Model):
+    """An ordinary account's authenticator.
+
+    Separate from AdminTOTP on purpose: an admin's second factor protects the
+    dashboard, a member's protects their own account, and revoking one should
+    never touch the other.
+    """
+
+    user = models.OneToOneField(Users, on_delete=models.CASCADE, related_name='user_totp')
+    secret = models.CharField(max_length=64)
+    confirmed = models.BooleanField(default=False)
+    last_used_step = models.BigIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f'UserTOTP<{self.user_id} confirmed={self.confirmed}>'
 
 
 # ---------------------------------------------------------------------------

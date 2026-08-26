@@ -7,6 +7,7 @@ from django.urls import path
 
 from . import views_settings as v
 from . import views_profile as prof
+from . import views_account_security as sec
 from . import views_rankings as rank
 from . import views_orgs as orgs
 from . import views_community as community
@@ -80,6 +81,15 @@ urlpatterns = [
     path('setting/login-activity/', v.login_activity),
     path('setting/username/', v.change_username),
     path('setting/account/', v.account_overview),
+    # Two-factor for an ordinary account, and the danger zone.
+    path('setting/2fa/status/', sec.twofactor_status),
+    path('setting/2fa/begin/', sec.twofactor_begin),
+    path('setting/2fa/confirm/', sec.twofactor_confirm),
+    path('setting/2fa/disable/', sec.twofactor_disable),
+    path('setting/export/', sec.export_data),
+    path('setting/deactivate/', sec.deactivate_account),
+    path('setting/delete/', sec.delete_account),
+    path('setting/cancel-deletion/', sec.cancel_deletion),
     path('device/list/', v.list_devices),
     path('device/<str:device_id>/revoke/', v.revoke_device),
 ]
