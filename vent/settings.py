@@ -110,6 +110,9 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     'allauth.account.middleware.AccountMiddleware',
+    # Keeps a session alive while it is being used. Last, so it only runs for
+    # requests that made it through everything above.
+    'vent_auth.middleware_session.SessionActivityMiddleware',
 ]
 
 CORS_ALLOW_CREDENTIALS = True

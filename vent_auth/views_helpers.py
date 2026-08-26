@@ -158,7 +158,14 @@ def download_image_from_url(url):
 
 
 def session_timeout_minutes():
-    """Minutes a login_session_token stays valid.
+    """Minutes of INACTIVITY before a login_session_token stops being valid.
+
+    Inactivity, not age. `login_session_created_at` is moved forward while
+    somebody is using the account (see
+    `vent_auth.middleware_session.SessionActivityMiddleware`), so this window
+    measures the gap since they were last here rather than the time since they
+    signed in. Before that change, a person working steadily was signed out
+    mid-task the moment the window elapsed, which is what it was reported as.
 
     Centralised so the window is one setting rather than the same literal
     repeated in eighteen places, which is how it ended up meaning "two hours"

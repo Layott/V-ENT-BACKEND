@@ -7,6 +7,7 @@ promise.
 import json
 
 from django.test import TestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from vent_auth import totp as totp_lib
@@ -187,3 +188,93 @@ class DangerZoneTests(TestCase):
         self.user.refresh_from_db()
         self.assertIsNone(self.user.deletion_requested_at)
         self.assertFalse(self.user.is_deactivated)
+
+
+class SessionInactivityTests(TestCase):
+    """A session in use must not expire; an idle one still must.
+
+    Reported by the CEO 2026-08-26: people were being signed out mid-task with
+    "Your session expired". The stamp was written once at login and never
+    touched, so the window counted down from sign-in whether or not the account
+    was being used.
+    """
+
+    def setUp(self):
+        from vent_auth.models import Users
+
+        self.user = Users.objects.create(username='idle_user', email='idle@example.com')
+        self.user.login_session_token = 'idletoken1234567'[:16]
+        self.user.login_session_created_at = timezone.now()
+        self.user.save()
+        self.headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user.login_session_token}'}
+
+    def _stamp(self):
+        self.user.refresh_from_db()
+        return self.user.login_session_created_at
+
+    def test_using_the_account_moves_the_stamp_forward(self):
+        from datetime import timedelta
+
+        was = timezone.now() - timedelta(minutes=30)
+        self.user.login_session_created_at = was
+        self.user.save(update_fields=['login_session_created_at'])
+
+        self.client.get('/setting/', **self.headers)
+
+        self.assertGreater(self._stamp(), was, 'activity should restart the countdown')
+
+    def test_a_session_older_than_the_window_but_active_keeps_working(self):
+        """The actual reported symptom: signed in a long time, working, thrown out."""
+        from datetime import timedelta
+        from vent_auth.views_helpers import session_timeout_minutes
+
+        window = session_timeout_minutes()
+        # Signed in well over a window ago, but used ten minutes ago.
+        self.user.login_session_created_at = timezone.now() - timedelta(minutes=10)
+        self.user.save(update_fields=['login_session_created_at'])
+
+        res = self.client.get('/setting/', **self.headers)
+        self.assertEqual(res.status_code, 200)
+        self.assertGreater(window, 10)
+
+    def test_an_idle_session_still_expires(self):
+        from datetime import timedelta
+        from vent_auth.views_helpers import session_timeout_minutes
+
+        self.user.login_session_created_at = (
+            timezone.now() - timedelta(minutes=session_timeout_minutes() + 60)
+        )
+        self.user.save(update_fields=['login_session_created_at'])
+
+        res = self.client.get('/setting/', **self.headers)
+        self.assertEqual(res.status_code, 401)
+
+    def test_an_expired_session_is_not_revived_by_the_touch(self):
+        """The middleware runs before the view refuses the request. If it moved
+        the stamp anyway it would hand back an account the timeout had closed."""
+        from datetime import timedelta
+        from vent_auth.views_helpers import session_timeout_minutes
+
+        stale = timezone.now() - timedelta(minutes=session_timeout_minutes() + 60)
+        self.user.login_session_created_at = stale
+        self.user.save(update_fields=['login_session_created_at'])
+
+        self.client.get('/setting/', **self.headers)
+        self.assertEqual(self._stamp(), stale, 'an expired session must stay expired')
+
+    def test_a_fresh_stamp_is_not_rewritten_on_every_request(self):
+        """A write per request would be several per page rendered."""
+        from datetime import timedelta
+
+        recent = timezone.now() - timedelta(minutes=1)
+        self.user.login_session_created_at = recent
+        self.user.save(update_fields=['login_session_created_at'])
+
+        self.client.get('/setting/', **self.headers)
+        self.assertEqual(self._stamp(), recent, 'a recent stamp should be left alone')
+
+    def test_an_unknown_token_touches_nothing(self):
+        res = self.client.get(
+            '/setting/', HTTP_AUTHORIZATION='Bearer notarealtoken00',
+        )
+        self.assertEqual(res.status_code, 401)

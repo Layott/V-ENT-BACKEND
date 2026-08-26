@@ -89,11 +89,13 @@ def _person(request, user):
 def serialize_post(request, post, viewer=None, with_comments=False):
     data = {
         'id': post.id,
+        'slug': post.slug,
         'body': post.body,
         'content': post.body,          # the feed renders post.content
         'image': _abs(request, post.image),
         'game': post.game.game_title if post.game else None,
-        'club': {'id': post.club_id, 'name': post.club.name} if post.club_id else None,
+        'club': ({'id': post.club_id, 'slug': post.club.slug, 'name': post.club.name}
+                 if post.club_id else None),
         'author': _person(request, post.author),
         'created_at': post.created_at,
         'like_count': post.likes.count(),
@@ -253,6 +255,7 @@ def post_comment(request, post_id):
 def serialize_club(request, club, viewer=None):
     return {
         'id': club.id,
+        'slug': club.slug,
         'name': club.name,
         'description': club.description,
         'game': club.game.game_title if club.game else None,
@@ -369,11 +372,13 @@ def club_join(request, club_id):
 def serialize_thread(request, t, with_replies=False, viewer=None):
     data = {
         'id': t.id,
+        'slug': t.slug,
         'title': t.title,
         'body': t.body,
         'category': t.category,
         'author': _person(request, t.author),
-        'club': {'id': t.club_id, 'name': t.club.name} if t.club_id else None,
+        'club': ({'id': t.club_id, 'slug': t.club.slug, 'name': t.club.name}
+                 if t.club_id else None),
         'reply_count': t.replies.count(),
         'upvotes': t.upvotes.count(),
         'upvoted': bool(viewer and t.upvotes.filter(user=viewer).exists()),
@@ -546,6 +551,7 @@ def serialize_scrim(request, s, viewer=None):
     opponent = {'id': s.opponent_id, 'name': s.opponent.team_name, 'tag': None} if s.opponent_id else None
     return {
         'id': s.id,
+        'slug': s.slug,
         'team': team,
         'opponent': opponent,
         # The scrims table renders team_a / team_b / scheduled_at / format.

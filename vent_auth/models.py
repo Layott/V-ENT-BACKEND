@@ -37,6 +37,10 @@ class Users(AbstractUser):
     deactivated_at = models.DateTimeField(null=True, blank=True)
     deletion_requested_at = models.DateTimeField(null=True, blank=True)
     login_session_token = models.CharField(max_length=16, null=True)
+    # When this session was last USED, not when it was created. Moved forward
+    # by SessionActivityMiddleware while somebody is working, so the timeout
+    # measures inactivity. The name is historical; renaming it would have meant
+    # touching 67 comparison sites at once for no behavioural gain.
     login_session_created_at = models.DateTimeField(null=True, blank=True)
     signup_type = models.CharField(max_length=32, default='normal', null=True)  # normal, google, facebook
     provider_id = models.CharField(max_length=256, null=True, blank=True)  # Social provider ID

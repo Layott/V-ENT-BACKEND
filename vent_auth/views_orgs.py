@@ -91,6 +91,7 @@ def serialize_org(request, org, viewer=None, detail=False):
     data = {
         'id': org.org_id,
         'org_id': org.org_id,
+        'slug': org.slug,
         'name': org.org_name,
         'tag': org.tag or None,
         'bio': org.bio,
