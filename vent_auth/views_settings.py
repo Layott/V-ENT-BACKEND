@@ -158,7 +158,7 @@ def update_user_account(request, user_id):
         return err
     # A user may only edit their own account here.
     if str(user.user_id) != str(user_id) and user_id not in ('me', str(user.pk)):
-        return Response({'status': 'error', 'message': 'Forbidden.'},
+        return Response({ 'code': 'FORBIDDEN','status': 'error', 'message': 'Forbidden.'},
                         status=status.HTTP_403_FORBIDDEN)
     changed = []
     for f in _ACCOUNT_FIELDS:
@@ -296,7 +296,7 @@ def change_username(request):
                          'message': 'That is already your username.'})
 
     if username_taken(name, exclude_user=user):
-        return Response({'status': 'error', 'message': 'That username is taken.'},
+        return Response({ 'code': 'USERNAME_TAKEN','status': 'error', 'message': 'That username is taken.'},
                         status=status.HTTP_409_CONFLICT)
 
     user.username = name

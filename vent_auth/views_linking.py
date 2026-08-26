@@ -122,7 +122,7 @@ def link_start(request, provider):
     if provider == 'discord':
         client_id, secret = _discord_credentials()
         if not (client_id and secret):
-            return Response({
+            return Response({ 'code': 'DISCORD_LINKING_NOT_SET',
                 'status': 'error',
                 'configured': False,
                 'message': 'Discord linking is not set up yet.',
@@ -280,7 +280,7 @@ def link_disconnect(request, provider):
 
     provider = provider.lower()
     if provider == 'google':
-        return Response({
+        return Response({ 'code': 'GOOGLE_HOW_ACCOUNT_SIGNS',
             'status': 'error',
             'message': 'Google is how this account signs in and cannot be unlinked here.',
         }, status=status.HTTP_400_BAD_REQUEST)

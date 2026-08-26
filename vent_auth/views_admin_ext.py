@@ -121,12 +121,12 @@ def admin_bulk_user_action(request):
 
     if action not in ('ban', 'unban'):
         return Response(
-            {'status': 'error', 'message': 'action must be "ban" or "unban"'},
+            { 'code': 'ACTION_MUST_BAN_UNBAN','status': 'error', 'message': 'action must be "ban" or "unban"'},
             status=status.HTTP_400_BAD_REQUEST,
         )
     if not isinstance(ids, list) or not ids:
         return Response(
-            {'status': 'error', 'message': 'ids must be a non-empty list'},
+            { 'code': 'IDS_MUST_NON_EMPTY','status': 'error', 'message': 'ids must be a non-empty list'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -179,13 +179,13 @@ def admin_disqualify_registration(request, tournament_id):
             tournament=tournament, team__team_name=team_name).first()
     else:
         return Response(
-            {'status': 'error', 'message': 'registration_id or team_name is required'},
+            { 'code': 'REGISTRATION_ID_TEAM_NAME','status': 'error', 'message': 'registration_id or team_name is required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     if reg is None:
         return Response(
-            {'status': 'error', 'message': 'Registration not found for this tournament'},
+            { 'code': 'REGISTRATION_NOT_FOUND_TOURNAMENT','status': 'error', 'message': 'Registration not found for this tournament'},
             status=status.HTTP_404_NOT_FOUND,
         )
 
@@ -215,7 +215,7 @@ def admin_bulk_approve_payouts(request):
 
     if not isinstance(ids, list) or not ids:
         return Response(
-            {'status': 'error', 'message': 'ids must be a non-empty list'},
+            { 'code': 'IDS_MUST_NON_EMPTY','status': 'error', 'message': 'ids must be a non-empty list'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -334,7 +334,7 @@ def admin_resolve_dispute_by_id(request, dispute_id):
 
     if resolution not in ('resolved', 'dismissed'):
         return Response(
-            {'status': 'error', 'message': 'resolution must be "resolved" or "dismissed"'},
+            { 'code': 'RESOLUTION_MUST_RESOLVED_DISMISSED','status': 'error', 'message': 'resolution must be "resolved" or "dismissed"'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
