@@ -870,11 +870,24 @@ def public_profile(request, user_id):
     from .models import SocialLink, UserInterests
 
     user = Users.objects.filter(user_id=user_id, is_active=True).first()
-    if user is None:
+    if user is None or getattr(user, 'is_deactivated', False):
         return Response(
             {'status': 'error', 'message': 'No such profile'},
             status=status.HTTP_404_NOT_FOUND,
         )
+
+    # A private profile is private. A followers-only profile is private to
+    # anybody who is not following. Both were stored and neither was read.
+    viewer, _ignored = _user_from_bearer(request)
+    if not can_view_profile(viewer if not _ignored else None, user):
+        return Response({
+            'status': 'error',
+            'code': 'PRIVATE_PROFILE',
+            'message': f'{user.username} keeps their profile private.',
+            'data': {'username': user.username, 'profile_visibility': 'restricted'},
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    privacy = privacy_of(user)
 
     profile = UserProfile.objects.filter(user=user).first()
     interests = list(UserInterests.objects.filter(user=user).values_list('interests', flat=True))
@@ -888,8 +901,9 @@ def public_profile(request, user_id):
             'user_id': user.user_id,
             'username': user.username,
             'full_name': user.full_name,
-            'country': user.country,
-            'state': user.state,
+            'country': user.country if privacy.get('show_location', True) else None,
+            'state': user.state if privacy.get('show_location', True) else None,
+            'email': user.email if privacy.get('show_email') else None,
             'description': profile.description if profile else None,
             'profile_picture': request.build_absolute_uri(profile.profile_picture.url) if profile and profile.profile_picture else None,
             'banner': request.build_absolute_uri(profile.banner.url) if profile and profile.banner else None,
@@ -902,3 +916,48 @@ def public_profile(request, user_id):
             'date_joined': user.date_joined,
         },
     }, status=status.HTTP_200_OK)
+
+
+def privacy_of(user):
+    """This account's privacy preferences, with the defaults filled in.
+
+    Stored preferences were being written and never read, so "Private" was a
+    radio button that changed nothing. Everything that serves a profile asks
+    here first.
+    """
+    from .models import UserSetting
+
+    defaults = {
+        'profile_visibility': 'public',
+        'show_email': False,
+        'show_location': True,
+        'show_birthday': False,
+        'allow_direct_messages': 'anyone',
+        'indexable': True,
+    }
+    setting = UserSetting.objects.filter(user=user).first()
+    if setting is None:
+        return defaults
+    stored = (setting.data or {}).get('privacy') or {}
+    return {**defaults, **{k: v for k, v in stored.items() if k in defaults}}
+
+
+def can_view_profile(viewer, owner):
+    """Whether `viewer` may see `owner`'s full profile."""
+    if viewer is not None and viewer.pk == owner.pk:
+        return True
+
+    visibility = privacy_of(owner).get('profile_visibility', 'public')
+    if visibility == 'public':
+        return True
+    if visibility == 'private':
+        return False
+    if visibility == 'followers':
+        if viewer is None:
+            return False
+        # There is no follow table on this platform yet, so followers-only
+        # resolves to private for everybody but the owner. Closed is the right
+        # way to be wrong here: falling open would publish a profile the person
+        # asked to restrict.
+        return False
+    return True
