@@ -485,6 +485,7 @@ def remove_member(request):
 @api_view(['POST'])
 def request_join(request, team_id):
     """POST /team/request-join/<team_id>/ body {} optional {message}."""
+
     user, error = _authenticate(request)
     if error:
         return error
@@ -499,6 +500,24 @@ def request_join(request, team_id):
         return _error('You are already a member of this team.', 'ALREADY_MEMBER', status.HTTP_400_BAD_REQUEST)
     if not team.allow_membership_requests:
         return _error('This team is not accepting join requests.', 'NOT_ACCEPTING', status.HTTP_400_BAD_REQUEST)
+    # One team per game. The PRD is explicit about it, and the reason is
+    # practical: a player on both sides of a fixture is a dispute nobody can
+    # resolve afterwards.
+    if team.game_id:
+        clash = (
+            AuthTeamMembers.objects
+            .filter(user=user, team__game_id=team.game_id)
+            .exclude(team=team)
+            .select_related('team')
+            .first()
+        )
+        if clash is not None:
+            return _error(
+                f'You are already in {clash.team.team_name} for {team.game.game_title}. '
+                'A player can only be in one team per game, so leave that one first.',
+                'ALREADY_IN_A_TEAM_FOR_THIS_GAME', status.HTTP_409_CONFLICT,
+            )
+
     if TeamJoinRequest.objects.filter(team=team, applicant=user, status='pending').exists():
         return _error('You already have a pending request for this team.',
                       'ALREADY_REQUESTED', status.HTTP_400_BAD_REQUEST)
@@ -718,6 +737,33 @@ def accept_request(request, request_id):
     if req.status != 'pending':
         return _error('This request has already been resolved.', 'ALREADY_RESOLVED', status.HTTP_400_BAD_REQUEST)
 
+    # Checked again here, not only when the request was made. Somebody can join
+    # another team for the same game while their request sits in a queue, and
+    # accepting it then would quietly put them in two.
+    if req.team.game_id:
+        clash = (
+            AuthTeamMembers.objects
+            .filter(user=req.applicant, team__game_id=req.team.game_id)
+            .exclude(team=req.team)
+            .select_related('team')
+            .first()
+        )
+        if clash is not None:
+            return _error(
+                f'{req.applicant.username} is already in {clash.team.team_name} for this game. '
+                'A player can only be in one team per game.',
+                'ALREADY_IN_A_TEAM_FOR_THIS_GAME', status.HTTP_409_CONFLICT,
+            )
+
+    # And a team that is full stays full.
+    if req.team.max_members:
+        current = AuthTeamMembers.objects.filter(team=req.team).count()
+        if current >= req.team.max_members:
+            return _error(
+                f'{req.team.team_name} is full at {req.team.max_members} members.',
+                'TEAM_FULL', status.HTTP_409_CONFLICT,
+            )
+
     with transaction.atomic():
         AuthTeamMembers.objects.get_or_create(
             team=req.team, user=req.applicant,
@@ -824,6 +870,46 @@ def edit_team(request, team_id):
             banner_file = _decode_base64_image(data.get('banner_url'), f"{slugify(team.team_name)}-banner")
             if banner_file:
                 team.team_banner = banner_file
+
+        # Membership settings. The edit screen has offered these since it was
+        # built - max members, open to join, a join password - and this endpoint
+        # never read them, so Save changes saved everything except them.
+        if 'max_members' in data:
+            try:
+                requested = int(data.get('max_members'))
+            except (TypeError, ValueError):
+                requested = None
+            if requested:
+                current = AuthTeamMembers.objects.filter(team=team).count()
+                # Refusing rather than silently accepting: a cap below the roster
+                # would put the team permanently over its own limit.
+                if requested < max(current, 1):
+                    return _error(
+                        f'This team already has {current} members, so the limit cannot be {requested}.',
+                        'MAX_BELOW_ROSTER', status.HTTP_400_BAD_REQUEST,
+                    )
+                team.max_members = max(1, min(50, requested))
+
+        if 'open_to_join' in data or 'is_accepting_members' in data:
+            team.allow_membership_requests = bool(
+                data.get('open_to_join', data.get('is_accepting_members'))
+            )
+
+        if 'password_protected' in data:
+            team.password_protected = bool(data.get('password_protected'))
+            if not team.password_protected:
+                team.join_password = ''
+
+        if 'team_password' in data:
+            password = (data.get('team_password') or '').strip()
+            if password:
+                # Hashed, like every other password on the platform. A team
+                # password is weak by nature - it gets shared in a group chat -
+                # which is all the more reason not to store it in the clear.
+                from django.contrib.auth.hashers import make_password
+                team.join_password = make_password(password)
+                team.password_protected = True
+
         team.save()
 
         if 'region' in data or 'social_links' in data:
