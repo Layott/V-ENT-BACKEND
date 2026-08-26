@@ -8,6 +8,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
+    path('prize-rates/', prize_rates, name='prize_rates'),
     path("create-tournament/", create_tournament, name="create_tournament"),
     path("search-tournament/", search_tournament, name="search_tournament"),
     path("join-tournament/", join_tournament, name="join_tournament"),

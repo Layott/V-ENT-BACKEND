@@ -78,6 +78,13 @@ class Tournament(models.Model):
     min_number_of_teams = models.IntegerField(null=True, blank=True)
     max_number_of_teams = models.IntegerField(null=True, blank=True)
 
+    # The pool as announced, and the currency it was announced in. The
+    # per-position figures are what actually pay; this is what the organiser
+    # said the whole thing was worth.
+    prize_currency = models.CharField(max_length=3, blank=True, default='VC')
+    prize_pool_total = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    prize_pool_total_vc = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+
     prize_type = models.CharField(max_length=20, choices=PRIZE_TYPE_CHOICES, default='no_prize')
 
 
@@ -142,9 +149,20 @@ class TournamentPrizeDistribution(models.Model):
     position = models.IntegerField(null=False)
     prize = models.DecimalField(
         max_digits=10, decimal_places=2, null=False,
-        help_text='Amount in VENT COINS',
+        help_text='Amount in VENT COINS. Always the converted figure - this is what pays out.',
     )
-    extras = models.CharField(max_length=40, blank=True)  # Optional field for additional prize details
+    # What the organiser actually typed, kept beside the converted figure so a
+    # pool announced as "₦500,000" can still be displayed that way, and so a
+    # rate change later cannot silently rewrite history.
+    amount_original = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    currency = models.CharField(max_length=3, blank=True, default='VC')
+
+    extras = models.CharField(max_length=120, blank=True)
+    extras_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    extras_prize = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text='A bonus in VENT COINS, converted the same way as the prize.',
+    )
 
     def __str__(self):
         return f"{self.tournament.tournament_title} - Position {self.position}"

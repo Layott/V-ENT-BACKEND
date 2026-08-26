@@ -10,7 +10,13 @@ from .models import (
     Sponsors, Match, RegisteredTeams,
 )
 from django.db.models import Q
+from django.db import transaction
+
+from rest_framework.decorators import permission_classes
+from rest_framework.permissions import AllowAny
+
 from django.db import transaction as db_transaction
+from .money import CURRENCIES, from_coins, rates, to_coins
 from vent_auth.models import Organization
 from django.utils import timezone
 from rest_framework.decorators import api_view
@@ -501,6 +507,13 @@ def create_tournament(request):
             # Wizard sends 'winner-takes-all' (hyphen); model choice is
             # 'winner_takes_all' - normalize so the prize branch + stored value match.
             prize_type = (request.data.get('prize_type', 'no_prize') or 'no_prize').replace('-', '_')
+
+            # Which currency the organiser is thinking in, and the pool they
+            # announced in it. Both are kept; the coins are what pay out.
+            prize_currency = (request.data.get('prize_currency') or 'VC').upper()
+            if prize_currency not in CURRENCIES:
+                prize_currency = 'VC'
+            announced_total = request.data.get('prize_pool_total')
             is_draft = request.data.get('is_draft', True)
             # Locked CEO decision 2026-05-26: organizer picks how scores get confirmed.
             score_confirmation_mode = request.data.get('score_confirmation_mode', 'both_players_confirm')
@@ -570,6 +583,9 @@ def create_tournament(request):
                 score_confirmation_mode=score_confirmation_mode,
                 status='draft' if is_draft_bool else 'published',
                 prize_type=prize_type,
+                prize_currency=prize_currency,
+                prize_pool_total=announced_total or None,
+                prize_pool_total_vc=to_coins(announced_total, prize_currency) or None,
                 **social_links
             )
 
@@ -587,18 +603,36 @@ def create_tournament(request):
                 for prize_entry in prize_data:
                     if not isinstance(prize_entry, dict):
                         continue
+                    # The organiser may type in naira, dollars or coins. The
+                    # conversion happens here rather than in the browser,
+                    # because a figure worked out client-side is a figure
+                    # somebody can edit before it is sent.
+                    entry_currency = (prize_entry.get('currency') or prize_currency or 'VC').upper()
+                    typed = prize_entry.get('amount', prize_entry.get('prize'))
+                    coins = to_coins(typed, entry_currency)
+
+                    extras_typed = prize_entry.get('extras_amount')
+                    extras_coins = to_coins(extras_typed, entry_currency) if extras_typed else None
+
                     TournamentPrizeDistribution.objects.create(
                         tournament=tournament,
                         position=prize_entry['position'],
-                        prize=prize_entry['prize'],
-                        extras=prize_entry.get('extras', '')
+                        prize=coins,
+                        amount_original=typed or None,
+                        currency=entry_currency,
+                        extras=(prize_entry.get('extras') or '')[:120],
+                        extras_amount=extras_typed or None,
+                        extras_prize=extras_coins,
                     )
             elif prize_type == 'winner_takes_all':
+                typed = request.data.get('winner_prize', request.data.get('total_prize', 0))
                 TournamentPrizeDistribution.objects.create(
                     tournament=tournament,
                     position=1,
-                    prize=request.data.get('winner_prize', request.data.get('total_prize', 0.00)),
-                    extras='Winner Takes All'
+                    prize=to_coins(typed, prize_currency),
+                    amount_original=typed or None,
+                    currency=prize_currency,
+                    extras='Winner Takes All',
                 )
 
             # Add sponsors. The wizard collects a name (required) plus an optional
@@ -1000,6 +1034,9 @@ def view_tournament(request, tournament_id):
             "is_draft": tournament.is_draft,
             "format": tournament.bracket_type,
             "prize_type": tournament.prize_type,
+            "prize_currency": tournament.prize_currency or 'VC',
+            "prize_pool_total": str(tournament.prize_pool_total) if tournament.prize_pool_total else None,
+            "prize_pool_total_vc": str(tournament.prize_pool_total_vc) if tournament.prize_pool_total_vc else None,
             "prize_pool": prize_pool_total,
             "max_participants": tournament.max_number_of_teams or tournament.player_size,
             "current_participants": confirmed_count,
@@ -1539,3 +1576,13 @@ def get_tournament_brackets(request, tournament_id):
         return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def prize_rates(request):
+    """GET /tournament/prize-rates/ - the conversion the create screen shows.
+
+    Public because the create screen needs it before anything is saved, and it
+    is the same rate printed on the wallet page.
+    """
+    return Response({'status': 'success', 'data': rates(), 'message': 'Prize conversion rates'})
