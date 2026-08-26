@@ -232,6 +232,37 @@ def _parse_sponsor_list(data, key):
 #         return Response({'status': 'error', 'message': f'Error creating tournament: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
     
 
+def _overlapping_registration(user, tournament):
+    """A tournament this player is already in that runs at the same time.
+
+    Overlap is the plain reading: one starts before the other ends, and ends
+    after the other starts. A tournament with no end time is treated as ending
+    when it starts, so a single-slot fixture does not swallow the whole day.
+    """
+    if not tournament.start_date_and_time:
+        return None
+
+    starts = tournament.start_date_and_time
+    ends = tournament.end_date_and_time or starts
+
+    existing = (
+        TournamentRegistration.objects
+        .filter(user=user, status__in=('pending', 'confirmed'))
+        .exclude(tournament=tournament)
+        .select_related('tournament')
+    )
+    for registration in existing:
+        other = registration.tournament
+        if other.status in ('completed', 'cancelled'):
+            continue
+        other_starts = other.start_date_and_time
+        if not other_starts:
+            continue
+        other_ends = other.end_date_and_time or other_starts
+        if starts <= other_ends and ends >= other_starts:
+            return other
+    return None
+
 @api_view(['POST'])
 def join_tournament(request):
     """Register a user or team for a tournament."""
@@ -271,6 +302,31 @@ def join_tournament(request):
             return Response({'status': 'error', 'code': 'STATE_CONFLICT',
                              'message': 'Registration is closed for this tournament'},
                             status=status.HTTP_409_CONFLICT)
+
+        # Two tournaments at the same time is two matches somebody cannot play.
+        # The PRD asks for a warning rather than a refusal, so this answers with
+        # the clash and what it collides with, and goes ahead when the caller
+        # sends acknowledge_overlap - which is what a "yes, I know" button does.
+        clash = _overlapping_registration(user, tournament)
+        if clash is not None and not request.data.get('acknowledge_overlap'):
+            return Response({
+                'status': 'error',
+                'code': 'SCHEDULE_CONFLICT',
+                'message': (
+                    f'This runs at the same time as {clash.tournament_title}, which you are '
+                    'already registered for. Register anyway?'
+                ),
+                'data': {
+                    'conflict': {
+                        'tournament_id': clash.tournament_id,
+                        'title': clash.tournament_title,
+                        'slug': clash.slug,
+                        'starts_at': clash.start_date_and_time,
+                        'ends_at': clash.end_date_and_time,
+                    },
+                    'acknowledge_with': 'acknowledge_overlap',
+                },
+            }, status=status.HTTP_409_CONFLICT)
 
         is_paid = tournament.entry_fee == 'Paid' and int(tournament.entry_fee_price) > 0
 
