@@ -105,7 +105,7 @@ def admin_login(request):
 
     if not identifier or not password:
         return Response(
-            {'status': 'error', 'message': 'Email/username and password are required'},
+            { 'code': 'EMAIL_USERNAME_PASSWORD_REQUIRED','status': 'error', 'message': 'Email/username and password are required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -121,7 +121,7 @@ def admin_login(request):
 
     if user is None or not user.is_staff:
         return Response(
-            {'status': 'error', 'message': 'Invalid credentials or not an admin'},
+            { 'code': 'INVALID_CREDENTIALS_NOT_ADMIN','status': 'error', 'message': 'Invalid credentials or not an admin'},
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
@@ -132,7 +132,7 @@ def admin_login(request):
     # the sign-in instead, and say why.
     if not user.admin_role:
         return Response(
-            {'status': 'error',
+            { 'code': 'ACCOUNT_NO_ADMIN_ROLE','status': 'error',
              'message': 'This account has no admin role assigned. Ask a super admin to grant one.'},
             status=status.HTTP_403_FORBIDDEN,
         )
@@ -178,7 +178,7 @@ def admin_2fa_verify(request):
 
     if not pending or not code:
         return Response(
-            {'status': 'error', 'message': 'pending_token and code are required'},
+            { 'code': 'PENDING_TOKEN_CODE_REQUIRED','status': 'error', 'message': 'pending_token and code are required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -188,33 +188,33 @@ def admin_2fa_verify(request):
         )
     except signing.SignatureExpired:
         return Response(
-            {'status': 'error', 'message': 'This sign-in attempt expired. Start again.'},
+            { 'code': 'SIGN_ATTEMPT_EXPIRED_START','status': 'error', 'message': 'This sign-in attempt expired. Start again.'},
             status=status.HTTP_401_UNAUTHORIZED,
         )
     except signing.BadSignature:
         return Response(
-            {'status': 'error', 'message': 'Invalid sign-in attempt'},
+            { 'code': 'INVALID_SIGN_ATTEMPT','status': 'error', 'message': 'Invalid sign-in attempt'},
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
     user = Users.objects.filter(user_id=user_id).first()
     if user is None or not user.is_staff:
         return Response(
-            {'status': 'error', 'message': 'Invalid credentials or not an admin'},
+            { 'code': 'INVALID_CREDENTIALS_NOT_ADMIN','status': 'error', 'message': 'Invalid credentials or not an admin'},
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
     enrolment = AdminTOTP.objects.filter(user=user).first()
     if enrolment is None:
         return Response(
-            {'status': 'error', 'message': 'Two-factor is not set up for this account'},
+            { 'code': 'TWO_FACTOR_NOT_SET','status': 'error', 'message': 'Two-factor is not set up for this account'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     matched_step = totp_lib.verify(enrolment.secret, code, enrolment.last_used_step)
     if matched_step is None:
         return Response(
-            {'status': 'error', 'message': 'That code is not valid. Check your authenticator and try again.'},
+            { 'code': 'CODE_NOT_VALID_CHECK','status': 'error', 'message': 'That code is not valid. Check your authenticator and try again.'},
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
@@ -488,13 +488,13 @@ def admin_ban_user(request, user_id):
 
     if ban is None:
         return Response(
-            {'status': 'error', 'message': '"ban" (true/false) is required'},
+            { 'code': 'BAN_TRUE_FALSE_REQUIRED','status': 'error', 'message': '"ban" (true/false) is required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     if user.user_id == admin.user_id:
         return Response(
-            {'status': 'error', 'message': 'Cannot ban yourself'},
+            { 'code': 'CANNOT_BAN_YOURSELF','status': 'error', 'message': 'Cannot ban yourself'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -573,13 +573,13 @@ def admin_delete_user(request, user_id):
 
     if not confirm:
         return Response(
-            {'status': 'error', 'message': 'confirm=true is required to delete an account'},
+            { 'code': 'CONFIRM_TRUE_REQUIRED_DELETE','status': 'error', 'message': 'confirm=true is required to delete an account'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     if user.user_id == admin.user_id:
         return Response(
-            {'status': 'error', 'message': 'Cannot delete your own account'},
+            { 'code': 'CANNOT_DELETE_OWN_ACCOUNT','status': 'error', 'message': 'Cannot delete your own account'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -737,7 +737,7 @@ def admin_resolve_dispute(request, tournament_id):
 
     if not dispute_id or resolution not in ('resolved', 'dismissed'):
         return Response(
-            {'status': 'error', 'message': 'dispute_id and resolution (resolved/dismissed) are required'},
+            { 'code': 'DISPUTE_ID_RESOLUTION_RESOLVED','status': 'error', 'message': 'dispute_id and resolution (resolved/dismissed) are required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -769,7 +769,7 @@ def admin_override_match_score(request, match_id):
 
     if score_p1 is None or score_p2 is None or not winner_registration_id:
         return Response(
-            {'status': 'error', 'message': 'score_p1, score_p2, and winner_registration_id are required'},
+            { 'code': 'SCORE_P_SCORE_P','status': 'error', 'message': 'score_p1, score_p2, and winner_registration_id are required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -801,7 +801,7 @@ def admin_cancel_tournament(request, tournament_id):
 
     if tournament.is_draft:
         return Response(
-            {'status': 'error', 'message': 'Cannot cancel a draft tournament'},
+            { 'code': 'CANNOT_CANCEL_DRAFT_TOURNAMENT','status': 'error', 'message': 'Cannot cancel a draft tournament'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -1418,11 +1418,11 @@ def get_number_of_all_users(request):
 def check_username_availability(request):
     username = request.data.get("username")
     if not username:
-        return Response({"status": "error", "message": "Username is required"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'USERNAME_REQUIRED',"status": "error", "message": "Username is required"}, status=status.HTTP_400_BAD_REQUEST)
     exists = Users.objects.filter(username=username).exists()
     if exists:
         return Response({"status": "success", "message": "Username exists"}, status=status.HTTP_200_OK)
-    return Response({"status": "error", "message": "Username does not exist"}, status=status.HTTP_404_NOT_FOUND)
+    return Response({ 'code': 'USERNAME_DOES_NOT_EXIST',"status": "error", "message": "Username does not exist"}, status=status.HTTP_404_NOT_FOUND)
 
 
 @api_view(['POST'])
@@ -1430,13 +1430,13 @@ def add_email_to_waitlist(request):
     email = request.data.get("email")
 
     if not email:
-        return Response({"status": "error", "message": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'EMAIL_REQUIRED',"status": "error", "message": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
 
     if Waitlist.objects.filter(email=email).exists():
-        return Response({"status": "error", "message": "This email is already on the waitlist."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'EMAIL_ALREADY_WAITLIST',"status": "error", "message": "This email is already on the waitlist."}, status=status.HTTP_400_BAD_REQUEST)
 
     if Users.objects.filter(email=email).exists():
-        return Response({"status": "error", "message": "This email is already on the waitlist."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'EMAIL_ALREADY_WAITLIST',"status": "error", "message": "This email is already on the waitlist."}, status=status.HTTP_400_BAD_REQUEST)
 
     Waitlist.objects.create(email=email)
 

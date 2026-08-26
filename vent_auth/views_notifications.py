@@ -153,7 +153,7 @@ def mark_notification_read(request, notification_id):
     notification = Notification.objects.filter(id=notification_id, user=user).first()
     if notification is None:
         return Response(
-            {'status': 'error', 'message': 'Notification not found'},
+            { 'code': 'NOTIFICATION_NOT_FOUND','status': 'error', 'message': 'Notification not found'},
             status=status.HTTP_404_NOT_FOUND,
         )
 
@@ -203,7 +203,7 @@ def delete_notification(request, notification_id):
     notification = Notification.objects.filter(id=notification_id, user=user).first()
     if notification is None:
         return Response(
-            {'status': 'error', 'message': 'Notification not found'},
+            { 'code': 'NOTIFICATION_NOT_FOUND','status': 'error', 'message': 'Notification not found'},
             status=status.HTTP_404_NOT_FOUND,
         )
 

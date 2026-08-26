@@ -92,7 +92,7 @@ def waitlist_claim(request):
     requested_username = (request.data.get('username') or '').strip().lower()
 
     if not token or not password:
-        return Response({
+        return Response({ 'code': 'CLAIM_TOKEN_PASSWORD_REQUIRED',
             "status": "error",
             "message": "Claim token and password are required",
         }, status=status.HTTP_400_BAD_REQUEST)

@@ -278,22 +278,22 @@ def join_tournament(request):
     """Register a user or team for a tournament."""
     session_token = request.headers.get('Authorization')
     if not session_token or not session_token.startswith('Bearer '):
-        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
 
     login_session_token = session_token.split(' ', 1)[1]
 
     try:
         user = Users.objects.filter(login_session_token=login_session_token).first()
         if user is None:
-            return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({ 'code': 'INVALID_EXPIRED_SESSION_TOKEN','status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
         if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
-            return Response({'status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({ 'code': 'SESSION_TOKEN_EXPIRED','status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
 
         tournament_id = request.data.get('tournament_id')
         team_id = request.data.get('team_id')  # optional - required for team-access tournaments
 
         if not tournament_id:
-            return Response({'status': 'error', 'message': 'tournament_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({ 'code': 'TOURNAMENT_ID_REQUIRED','status': 'error', 'message': 'tournament_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
         tournament = get_object_or_404(Tournament, tournament_id=tournament_id, is_draft=False)
 
@@ -302,10 +302,10 @@ def join_tournament(request):
         # accept singular spellings too so the gate can't be silently bypassed.
         _access = (tournament.tournament_access or '').lower()
         if _access in ('team', 'teams') and not team_id:
-            return Response({'status': 'error', 'message': 'team_id is required for team-based tournaments'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({ 'code': 'TEAM_ID_REQUIRED_TEAM','status': 'error', 'message': 'team_id is required for team-based tournaments'}, status=status.HTTP_400_BAD_REQUEST)
 
         if _access in ('individual', 'individuals') and team_id:
-            return Response({'status': 'error', 'message': 'This tournament only accepts individual registrations'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({ 'code': 'TOURNAMENT_ONLY_ACCEPTS_INDIVIDUAL','status': 'error', 'message': 'This tournament only accepts individual registrations'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Don't accept registrations once the bracket is live / tournament is over.
         if tournament.status in ('live', 'completed', 'cancelled', 'registration_closed'):
@@ -473,7 +473,7 @@ def join_tournament(request):
                 entry_paid_vc=entry_fee_coins if is_paid else 0,
             )
         except Http404:
-            return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
         except Exception:
             pass
 
@@ -490,7 +490,7 @@ def join_tournament(request):
         }, status=status.HTTP_201_CREATED)
 
     except Http404:
-        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
@@ -555,7 +555,7 @@ def search_tournament(request):
         return Response({'status': 'success', 'data': tournament_list}, status=status.HTTP_200_OK)
 
     except Http404:
-        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -567,11 +567,11 @@ def create_tournament(request):
             session_token = request.headers.get('Authorization')
 
             if not session_token:
-                return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
 
             # Ensure the token is in the correct format (e.g., 'Bearer <token>')
             if not session_token.startswith("Bearer "):
-                return Response({'status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({ 'code': 'INVALID_TOKEN_FORMAT','status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
 
             # Extract the actual token
             login_session_token = session_token.split(" ")[1]
@@ -655,9 +655,9 @@ def create_tournament(request):
 
             creator = Users.objects.filter(login_session_token=login_session_token).first()
             if creator is None:
-                return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
+                return Response({ 'code': 'INVALID_EXPIRED_SESSION_TOKEN','status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
             if creator.login_session_created_at is None or timezone.now() - creator.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
-                return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
+                return Response({ 'code': 'SESSION_TOKEN_EXPIRED','status': 'error', 'message': 'Session token has expired'}, status=401)
 
 
             # Create Tournament
@@ -784,7 +784,7 @@ def create_tournament(request):
         return Response({"status": "error", "message": str(e)},
                         status=status.HTTP_400_BAD_REQUEST)
     except Http404:
-        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({"status": "error", "message": f"An error occurred: {str(e)}"},
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -1094,7 +1094,7 @@ def view_tournament(request, tournament_id):
         # readable by anybody who tried the id. Only its creator sees it until
         # it is published.
         if tournament.is_draft and not _is_creator(request, tournament):
-            return Response({'status': 'error', 'message': 'Not found'},
+            return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'},
                             status=status.HTTP_404_NOT_FOUND)
 
         # Increase interaction count
@@ -1251,7 +1251,7 @@ def view_tournament(request, tournament_id):
         return Response({"status": "success", "data": data}, status=status.HTTP_200_OK)
 
     except Tournament.DoesNotExist:
-        return Response({"status": "error", "message": "Tournament not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'TOURNAMENT_NOT_FOUND',"status": "error", "message": "Tournament not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
 @api_view(["GET"])
@@ -1261,10 +1261,10 @@ def view_user_drafted_tournaments(request):
             # Step 1: Get Authorization token
             session_header = request.headers.get("Authorization")
             if not session_header:
-                return Response({"status": "error", "message": "Authorization header is required"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED',"status": "error", "message": "Authorization header is required"}, status=status.HTTP_400_BAD_REQUEST)
             
             if not session_header.startswith("Bearer "):
-                return Response({"status": "error", "message": "Invalid token format"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({ 'code': 'INVALID_TOKEN_FORMAT',"status": "error", "message": "Invalid token format"}, status=status.HTTP_400_BAD_REQUEST)
 
             login_session_token = session_header.split(" ", 1)[1]
 
@@ -1272,7 +1272,7 @@ def view_user_drafted_tournaments(request):
             try:
                 user = Users.objects.get(login_session_token=login_session_token)
             except Users.DoesNotExist:
-                return Response({"status": "error", "message": "Invalid or expired session token"}, status=status.HTTP_401_UNAUTHORIZED)
+                return Response({ 'code': 'INVALID_EXPIRED_SESSION_TOKEN',"status": "error", "message": "Invalid or expired session token"}, status=status.HTTP_401_UNAUTHORIZED)
 
             # Step 3: Fetch user's draft tournaments
             tournaments = (
@@ -1357,7 +1357,7 @@ def view_user_drafted_tournaments(request):
             return Response({"status": "success", "data": serialized_data}, status=status.HTTP_200_OK)
 
     except Http404:
-        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -1433,7 +1433,7 @@ def get_tournament_participants(request, tournament_id):
         }, status=status.HTTP_200_OK)
 
     except Http404:
-        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -1443,21 +1443,21 @@ def update_bracket(request, tournament_id):
     """POST /tournament/update-bracket/{id}/ - organizer updates match score / advances bracket."""
     session_token = request.headers.get('Authorization')
     if not session_token or not session_token.startswith('Bearer '):
-        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
 
     login_session_token = session_token.split(' ', 1)[1]
 
     try:
         user = Users.objects.filter(login_session_token=login_session_token).first()
         if user is None:
-            return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({ 'code': 'INVALID_EXPIRED_SESSION_TOKEN','status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
         if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
-            return Response({'status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({ 'code': 'SESSION_TOKEN_EXPIRED','status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
 
         tournament = get_object_or_404(Tournament, tournament_id=tournament_id, is_draft=False)
 
         if tournament.tournament_creator_id != user.user_id:
-            return Response({'status': 'error', 'message': 'Only the tournament organizer can update brackets'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({ 'code': 'ONLY_TOURNAMENT_ORGANIZER_CAN','status': 'error', 'message': 'Only the tournament organizer can update brackets'}, status=status.HTTP_403_FORBIDDEN)
 
         match_id = request.data.get('match_id')
         score_p1 = request.data.get('score_p1')
@@ -1466,7 +1466,7 @@ def update_bracket(request, tournament_id):
 
         if not match_id or score_p1 is None or score_p2 is None or not winner_registration_id:
             return Response(
-                {'status': 'error', 'message': 'match_id, score_p1, score_p2, and winner_registration_id are required'},
+                { 'code': 'MATCH_ID_SCORE_P','status': 'error', 'message': 'match_id, score_p1, score_p2, and winner_registration_id are required'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1483,7 +1483,7 @@ def update_bracket(request, tournament_id):
         return Response({'status': 'success', 'message': 'Match updated'}, status=status.HTTP_200_OK)
 
     except Http404:
-        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -1493,16 +1493,16 @@ def get_organizer_tournaments(request):
     """GET /tournament/get-organizer-tournaments/ - organizer's published + draft tournaments."""
     session_token = request.headers.get('Authorization')
     if not session_token or not session_token.startswith('Bearer '):
-        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
 
     login_session_token = session_token.split(' ', 1)[1]
 
     try:
         user = Users.objects.filter(login_session_token=login_session_token).first()
         if user is None:
-            return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({ 'code': 'INVALID_EXPIRED_SESSION_TOKEN','status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
         if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
-            return Response({'status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({ 'code': 'SESSION_TOKEN_EXPIRED','status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
 
         tournaments = (
             Tournament.objects
@@ -1538,7 +1538,7 @@ def get_organizer_tournaments(request):
         return Response({'status': 'success', 'data': data}, status=status.HTTP_200_OK)
 
     except Http404:
-        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -1548,22 +1548,22 @@ def delete_draft(request, tournament_id):
     """DELETE /tournament/delete-draft/{id}/ - delete a draft tournament."""
     session_token = request.headers.get('Authorization')
     if not session_token or not session_token.startswith('Bearer '):
-        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
 
     login_session_token = session_token.split(' ', 1)[1]
 
     try:
         user = Users.objects.filter(login_session_token=login_session_token).first()
         if user is None:
-            return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({ 'code': 'INVALID_EXPIRED_SESSION_TOKEN','status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
         if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
-            return Response({'status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({ 'code': 'SESSION_TOKEN_EXPIRED','status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
 
         tournament = get_object_or_404(Tournament, tournament_id=tournament_id, tournament_creator=user)
 
         if not tournament.is_draft:
             return Response(
-                {'status': 'error', 'message': 'Only draft tournaments can be deleted this way. Use admin cancel for published tournaments.'},
+                { 'code': 'ONLY_DRAFT_TOURNAMENTS_CAN','status': 'error', 'message': 'Only draft tournaments can be deleted this way. Use admin cancel for published tournaments.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1571,7 +1571,7 @@ def delete_draft(request, tournament_id):
         return Response({'status': 'success', 'message': 'Draft deleted'}, status=status.HTTP_200_OK)
 
     except Http404:
-        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -1581,21 +1581,21 @@ def edit_tournament(request, tournament_id):
     """PUT /tournament/edit-tournament/{id}/ - edit a published or draft tournament."""
     session_token = request.headers.get('Authorization')
     if not session_token or not session_token.startswith('Bearer '):
-        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
 
     login_session_token = session_token.split(' ', 1)[1]
 
     try:
         user = Users.objects.filter(login_session_token=login_session_token).first()
         if user is None:
-            return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({ 'code': 'INVALID_EXPIRED_SESSION_TOKEN','status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
         if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
-            return Response({'status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({ 'code': 'SESSION_TOKEN_EXPIRED','status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
 
         tournament = get_object_or_404(Tournament, tournament_id=tournament_id)
 
         if tournament.tournament_creator_id != user.user_id:
-            return Response({'status': 'error', 'message': 'Only the tournament organizer can edit this tournament'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({ 'code': 'ONLY_TOURNAMENT_ORGANIZER_CAN','status': 'error', 'message': 'Only the tournament organizer can edit this tournament'}, status=status.HTTP_403_FORBIDDEN)
 
         # Editable fields (partial update - only update what's provided)
         editable_text = [
@@ -1670,7 +1670,7 @@ def edit_tournament(request, tournament_id):
         }, status=status.HTTP_200_OK)
 
     except Http404:
-        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -1736,7 +1736,7 @@ def get_tournament_brackets(request, tournament_id):
         }, status=status.HTTP_200_OK)
 
     except Http404:
-        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

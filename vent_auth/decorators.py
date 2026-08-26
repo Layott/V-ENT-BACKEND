@@ -97,7 +97,7 @@ def resolve_admin(request):
     header = request.headers.get('Authorization')
     if not header or not header.startswith('Bearer '):
         return None, Response(
-            {'status': 'error', 'message': 'Authorization header is required'},
+            { 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
     token = header.split(' ', 1)[1]
@@ -105,7 +105,7 @@ def resolve_admin(request):
         user = Users.objects.get(login_session_token=token)
     except Users.DoesNotExist:
         return None, Response(
-            {'status': 'error', 'message': 'Invalid or expired session token'},
+            { 'code': 'INVALID_EXPIRED_SESSION_TOKEN','status': 'error', 'message': 'Invalid or expired session token'},
             status=status.HTTP_401_UNAUTHORIZED,
         )
     if (
@@ -113,12 +113,12 @@ def resolve_admin(request):
         or timezone.now() - user.login_session_created_at > timedelta(minutes=SESSION_TIMEOUT_MINUTES)
     ):
         return None, Response(
-            {'status': 'error', 'message': 'Session token has expired'},
+            { 'code': 'SESSION_TOKEN_EXPIRED','status': 'error', 'message': 'Session token has expired'},
             status=status.HTTP_401_UNAUTHORIZED,
         )
     if not user.is_staff:
         return None, Response(
-            {'status': 'error', 'message': 'Admin access required'},
+            { 'code': 'ADMIN_ACCESS_REQUIRED','status': 'error', 'message': 'Admin access required'},
             status=status.HTTP_403_FORBIDDEN,
         )
     return user, None
@@ -138,7 +138,7 @@ def admin_role_required(allowed_roles):
             role = effective_admin_role(user)
             if role not in allowed:
                 return Response(
-                    {
+                    { 'code': 'DO_NOT_PERMISSION_PERFORM',
                         'status': 'error',
                         'message': 'You do not have permission to perform this action',
                         'data': {'your_role': role, 'required': sorted(allowed)},

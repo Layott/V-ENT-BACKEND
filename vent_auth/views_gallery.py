@@ -17,23 +17,23 @@ def upload_images(request):
     session_token = request.headers.get('Authorization')
 
     if not session_token:
-        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
 
     if not session_token.startswith("Bearer "):
-        return Response({'status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'INVALID_TOKEN_FORMAT','status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
 
     login_session_token = session_token.split(" ")[1]
 
     try:
         user = Users.objects.filter(login_session_token=login_session_token).first()
         if user is None:
-            return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({ 'code': 'INVALID_EXPIRED_SESSION_TOKEN','status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
         if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
-            return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
+            return Response({ 'code': 'SESSION_TOKEN_EXPIRED','status': 'error', 'message': 'Session token has expired'}, status=401)
 
         images = request.FILES.getlist('images')
         if not images:
-            return Response({'status': 'error', 'message': 'No images provided'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({ 'code': 'NO_IMAGES_PROVIDED','status': 'error', 'message': 'No images provided'}, status=status.HTTP_400_BAD_REQUEST)
 
         current_image_count = UserGallery.objects.filter(user=user).count()
         total_after_upload = current_image_count + len(images)
@@ -51,11 +51,11 @@ def upload_images(request):
         return Response({'status': 'success', 'message': 'Images uploaded successfully'}, status=status.HTTP_200_OK)
 
     except Http404:
-        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         logger = logging.getLogger(__name__)
         logger.error(f"Unexpected error: {str(e)}")
-        return Response({'status': 'error', 'message': 'An unexpected error occurred. Please try again later.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({ 'code': 'UNEXPECTED_ERROR_OCCURRED_PLEASE','status': 'error', 'message': 'An unexpected error occurred. Please try again later.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['GET'])
@@ -63,19 +63,19 @@ def get_user_gallery(request):
     session_token = request.headers.get('Authorization')
 
     if not session_token:
-        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
 
     if not session_token.startswith("Bearer "):
-        return Response({'status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'INVALID_TOKEN_FORMAT','status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
 
     login_session_token = session_token.split(" ")[1]
 
     try:
         user = Users.objects.filter(login_session_token=login_session_token).first()
         if user is None:
-            return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({ 'code': 'INVALID_EXPIRED_SESSION_TOKEN','status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
         if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
-            return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
+            return Response({ 'code': 'SESSION_TOKEN_EXPIRED','status': 'error', 'message': 'Session token has expired'}, status=401)
 
         gallery_items = UserGallery.objects.filter(user=user)
 
@@ -91,11 +91,11 @@ def get_user_gallery(request):
         return Response({'status': 'success', 'data': gallery_data}, status=status.HTTP_200_OK)
 
     except Http404:
-        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         logger = logging.getLogger(__name__)
         logger.error(f"Unexpected error: {str(e)}")
-        return Response({'status': 'error', 'message': 'An unexpected error occurred. Please try again later.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({ 'code': 'UNEXPECTED_ERROR_OCCURRED_PLEASE','status': 'error', 'message': 'An unexpected error occurred. Please try again later.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['POST'])
@@ -104,19 +104,19 @@ def delete_gallery_image(request):
     image_id = request.data.get('image_id')
 
     if not session_token:
-        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
 
     if not session_token.startswith("Bearer "):
-        return Response({'status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'INVALID_TOKEN_FORMAT','status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
 
     login_session_token = session_token.split(" ")[1]
 
     try:
         user = Users.objects.filter(login_session_token=login_session_token).first()
         if user is None:
-            return Response({'status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({ 'code': 'INVALID_EXPIRED_SESSION_TOKEN','status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
         if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
-            return Response({'status': 'error', 'message': 'Session token has expired'}, status=401)
+            return Response({ 'code': 'SESSION_TOKEN_EXPIRED','status': 'error', 'message': 'Session token has expired'}, status=401)
 
         gallery_item = get_object_or_404(UserGallery, id=image_id, user=user)
         gallery_item.delete()
@@ -124,11 +124,11 @@ def delete_gallery_image(request):
         return Response({'status': 'success', 'message': 'Image deleted successfully'}, status=status.HTTP_200_OK)
 
     except UserGallery.DoesNotExist:
-        return Response({'status': 'error', 'message': 'Image not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'IMAGE_NOT_FOUND','status': 'error', 'message': 'Image not found'}, status=status.HTTP_404_NOT_FOUND)
 
     except Http404:
-        return Response({'status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         logger = logging.getLogger(__name__)
         logger.error(f"Unexpected error: {str(e)}")
-        return Response({'status': 'error', 'message': 'An unexpected error occurred. Please try again later.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({ 'code': 'UNEXPECTED_ERROR_OCCURRED_PLEASE','status': 'error', 'message': 'An unexpected error occurred. Please try again later.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

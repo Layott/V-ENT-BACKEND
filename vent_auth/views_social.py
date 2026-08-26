@@ -35,7 +35,7 @@ def social_auth(request):
     profile_picture_url = request.data.get('profile_picture_url')
 
     if not all([provider, provider_id, email]):
-        return Response({
+        return Response({ 'code': 'MISSING_REQUIRED_FIELDS',
             "status": "error",
             "message": "Missing required fields."
         }, status=status.HTTP_400_BAD_REQUEST)
@@ -65,7 +65,7 @@ def social_auth(request):
             }, status=status.HTTP_200_OK)
 
         if not full_name:
-            return Response({
+            return Response({ 'code': 'FULL_NAME_REQUIRED_NEW',
                 "status": "error",
                 "message": "Full name is required for new signups."
             }, status=status.HTTP_400_BAD_REQUEST)

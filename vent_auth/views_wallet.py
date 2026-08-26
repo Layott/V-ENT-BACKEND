@@ -78,7 +78,7 @@ def _get_user_from_token(request):
     header = request.headers.get('Authorization')
     if not header or not header.startswith('Bearer '):
         return None, Response(
-            {'status': 'error', 'message': 'Authorization header is required'},
+            { 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -86,7 +86,7 @@ def _get_user_from_token(request):
     user = Users.objects.filter(login_session_token=token).first() if token else None
     if user is None:
         return None, Response(
-            {'status': 'error', 'message': 'Invalid or expired session token'},
+            { 'code': 'INVALID_EXPIRED_SESSION_TOKEN','status': 'error', 'message': 'Invalid or expired session token'},
             status=status.HTTP_401_UNAUTHORIZED,
         )
     if (
@@ -94,7 +94,7 @@ def _get_user_from_token(request):
         or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes())
     ):
         return None, Response(
-            {'status': 'error', 'message': 'Session token has expired'},
+            { 'code': 'SESSION_TOKEN_EXPIRED','status': 'error', 'message': 'Session token has expired'},
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
@@ -191,7 +191,7 @@ def topup_initiate(request):
     amount_ngn = request.data.get('amount_ngn')
     if not amount_ngn:
         return Response(
-            {'status': 'error', 'message': 'amount_ngn is required'},
+            { 'code': 'AMOUNT_NGN_REQUIRED','status': 'error', 'message': 'amount_ngn is required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -199,7 +199,7 @@ def topup_initiate(request):
         amount_ngn = int(amount_ngn)
     except (ValueError, TypeError):
         return Response(
-            {'status': 'error', 'message': 'amount_ngn must be an integer'},
+            { 'code': 'AMOUNT_NGN_MUST_INTEGER','status': 'error', 'message': 'amount_ngn must be an integer'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -280,7 +280,7 @@ def topup_verify(request):
     reference = request.data.get('reference')
     if not reference:
         return Response(
-            {'status': 'error', 'message': 'reference is required'},
+            { 'code': 'REFERENCE_REQUIRED','status': 'error', 'message': 'reference is required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -298,7 +298,7 @@ def topup_verify(request):
             )
         except Transaction.DoesNotExist:
             return Response(
-                {'status': 'error', 'message': 'Transaction not found'},
+                { 'code': 'TRANSACTION_NOT_FOUND','status': 'error', 'message': 'Transaction not found'},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -339,7 +339,7 @@ def topup_verify(request):
             txn.status = 'failed'
             txn.save(update_fields=['status'])
             return Response(
-                {'status': 'error', 'message': 'Payment not successful'},
+                { 'code': 'PAYMENT_NOT_SUCCESSFUL','status': 'error', 'message': 'Payment not successful'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -396,7 +396,7 @@ def send_funds(request):
 
     if not all([recipient_username, amount, pin]):
         return Response(
-            {'status': 'error', 'message': 'recipient_username, amount, and pin are required'},
+            { 'code': 'RECIPIENT_USERNAME_AMOUNT_PIN','status': 'error', 'message': 'recipient_username, amount, and pin are required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -404,19 +404,19 @@ def send_funds(request):
         amount = int(amount)
     except (ValueError, TypeError):
         return Response(
-            {'status': 'error', 'message': 'amount must be an integer'},
+            { 'code': 'AMOUNT_MUST_INTEGER','status': 'error', 'message': 'amount must be an integer'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     if amount <= 0:
         return Response(
-            {'status': 'error', 'message': 'amount must be positive'},
+            { 'code': 'AMOUNT_MUST_POSITIVE','status': 'error', 'message': 'amount must be positive'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     if not wallet.pin_hash or not check_password(str(pin), wallet.pin_hash):
         return Response(
-            {'status': 'error', 'message': 'Invalid PIN'},
+            { 'code': 'INVALID_PIN','status': 'error', 'message': 'Invalid PIN'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -426,13 +426,13 @@ def send_funds(request):
         )
     except UserWallet.DoesNotExist:
         return Response(
-            {'status': 'error', 'message': 'Recipient not found'},
+            { 'code': 'RECIPIENT_NOT_FOUND','status': 'error', 'message': 'Recipient not found'},
             status=status.HTTP_404_NOT_FOUND,
         )
 
     if recipient_wallet.user_wallet_id == wallet.user_wallet_id:
         return Response(
-            {'status': 'error', 'message': 'Cannot send to yourself'},
+            { 'code': 'CANNOT_SEND_YOURSELF','status': 'error', 'message': 'Cannot send to yourself'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -453,7 +453,7 @@ def send_funds(request):
 
         if sender.wallet_balance < amount:
             return Response(
-                {'status': 'error', 'message': 'Insufficient balance'},
+                { 'code': 'INSUFFICIENT_BALANCE','status': 'error', 'message': 'Insufficient balance'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -513,13 +513,13 @@ def verify_wallet_pin(request):
 
     pin = request.data.get('pin')
     if not pin:
-        return Response({'status': 'error', 'message': 'pin is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'PIN_REQUIRED','status': 'error', 'message': 'pin is required'}, status=status.HTTP_400_BAD_REQUEST)
 
     if not wallet.pin_hash:
-        return Response({'status': 'error', 'message': 'No PIN set on this wallet'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'NO_PIN_SET_WALLET','status': 'error', 'message': 'No PIN set on this wallet'}, status=status.HTTP_400_BAD_REQUEST)
 
     if not check_password(str(pin), wallet.pin_hash):
-        return Response({'status': 'error', 'message': 'Invalid PIN'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'INVALID_PIN','status': 'error', 'message': 'Invalid PIN'}, status=status.HTTP_400_BAD_REQUEST)
 
     return Response({'status': 'success', 'message': 'PIN verified'}, status=status.HTTP_200_OK)
 
@@ -540,13 +540,13 @@ def set_wallet_pin(request):
 
     if not new_pin:
         return Response(
-            {'status': 'error', 'message': 'new_pin is required'},
+            { 'code': 'NEW_PIN_REQUIRED','status': 'error', 'message': 'new_pin is required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     if len(str(new_pin)) != 4 or not str(new_pin).isdigit():
         return Response(
-            {'status': 'error', 'message': 'PIN must be exactly 4 digits'},
+            { 'code': 'PIN_MUST_EXACTLY_DIGITS','status': 'error', 'message': 'PIN must be exactly 4 digits'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -554,12 +554,12 @@ def set_wallet_pin(request):
     if wallet.pin_hash:
         if not current_pin:
             return Response(
-                {'status': 'error', 'message': 'current_pin is required to change an existing PIN'},
+                { 'code': 'CURRENT_PIN_REQUIRED_CHANGE','status': 'error', 'message': 'current_pin is required to change an existing PIN'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if not check_password(str(current_pin), wallet.pin_hash):
             return Response(
-                {'status': 'error', 'message': 'Current PIN is incorrect'},
+                { 'code': 'CURRENT_PIN_INCORRECT','status': 'error', 'message': 'Current PIN is incorrect'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -587,26 +587,26 @@ def wallet_deduct(request):
 
     if not amount or not tournament_id:
         return Response(
-            {'status': 'error', 'message': 'amount and tournament_id are required'},
+            { 'code': 'AMOUNT_TOURNAMENT_ID_REQUIRED','status': 'error', 'message': 'amount and tournament_id are required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     try:
         amount = int(amount)
     except (ValueError, TypeError):
-        return Response({'status': 'error', 'message': 'amount must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'AMOUNT_MUST_INTEGER','status': 'error', 'message': 'amount must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
 
     if amount <= 0:
-        return Response({'status': 'error', 'message': 'amount must be positive'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'AMOUNT_MUST_POSITIVE','status': 'error', 'message': 'amount must be positive'}, status=status.HTTP_400_BAD_REQUEST)
 
     if not wallet.pin_hash or not check_password(str(pin), wallet.pin_hash):
-        return Response({'status': 'error', 'message': 'Invalid PIN'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'INVALID_PIN','status': 'error', 'message': 'Invalid PIN'}, status=status.HTTP_400_BAD_REQUEST)
 
     from vent_tournament.models import Tournament
     try:
         tournament = Tournament.objects.get(tournament_id=tournament_id)
     except Tournament.DoesNotExist:
-        return Response({'status': 'error', 'message': 'Tournament not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'TOURNAMENT_NOT_FOUND','status': 'error', 'message': 'Tournament not found'}, status=status.HTTP_404_NOT_FOUND)
 
     # Lock the wallet so a concurrent debit (e.g. two tabs registering) can't
     # overdraw the balance (F12). Balance is re-checked under the lock.
@@ -614,7 +614,7 @@ def wallet_deduct(request):
         locked_wallet = UserWallet.objects.select_for_update().get(pk=wallet.pk)
 
         if locked_wallet.wallet_balance < amount:
-            return Response({'status': 'error', 'message': 'Insufficient balance'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({ 'code': 'INSUFFICIENT_BALANCE','status': 'error', 'message': 'Insufficient balance'}, status=status.HTTP_400_BAD_REQUEST)
 
         locked_wallet.wallet_balance -= amount
         locked_wallet.save(update_fields=['wallet_balance'])
@@ -654,26 +654,26 @@ def withdraw_initiate(request):
 
     if not all([amount, bank_name, account_number, account_name, pin]):
         return Response(
-            {'status': 'error', 'message': 'amount, bank_name, account_number, account_name, and pin are required'},
+            { 'code': 'AMOUNT_BANK_NAME_ACCOUNT','status': 'error', 'message': 'amount, bank_name, account_number, account_name, and pin are required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     try:
         amount = int(amount)
     except (ValueError, TypeError):
-        return Response({'status': 'error', 'message': 'amount must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'AMOUNT_MUST_INTEGER','status': 'error', 'message': 'amount must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
 
     if amount <= 0:
-        return Response({'status': 'error', 'message': 'amount must be positive'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'AMOUNT_MUST_POSITIVE','status': 'error', 'message': 'amount must be positive'}, status=status.HTTP_400_BAD_REQUEST)
 
     if not wallet.kyc_verified:
         return Response(
-            {'status': 'error', 'message': 'KYC verification required before withdrawing'},
+            { 'code': 'KYC_VERIFICATION_REQUIRED_BEFORE','status': 'error', 'message': 'KYC verification required before withdrawing'},
             status=status.HTTP_403_FORBIDDEN,
         )
 
     if not wallet.pin_hash or not check_password(str(pin), wallet.pin_hash):
-        return Response({'status': 'error', 'message': 'Invalid PIN'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'INVALID_PIN','status': 'error', 'message': 'Invalid PIN'}, status=status.HTTP_400_BAD_REQUEST)
 
     # Lock the wallet so the balance check and request creation are consistent
     # against concurrent debits/approvals (F12). Funds are debited at admin
@@ -682,7 +682,7 @@ def withdraw_initiate(request):
         locked_wallet = UserWallet.objects.select_for_update().get(pk=wallet.pk)
 
         if locked_wallet.wallet_balance < amount:
-            return Response({'status': 'error', 'message': 'Insufficient balance'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({ 'code': 'INSUFFICIENT_BALANCE','status': 'error', 'message': 'Insufficient balance'}, status=status.HTTP_400_BAD_REQUEST)
 
         wr = WithdrawalRequest.objects.create(
             wallet=locked_wallet,
@@ -766,7 +766,7 @@ def kyc_submit(request):
 
     if not document_image:
         return Response(
-            {'status': 'error', 'message': 'document_image is required'},
+            { 'code': 'DOCUMENT_IMAGE_REQUIRED','status': 'error', 'message': 'document_image is required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 

@@ -52,7 +52,7 @@ def signup(request):
         state = state or (geo_region or '')
 
     if not all([email, username, password]):
-        return Response({"status": "error", "message": "Email, username and password are required"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'EMAIL_USERNAME_PASSWORD_REQUIRED',"status": "error", "message": "Email, username and password are required"}, status=status.HTTP_400_BAD_REQUEST)
 
     # One rule for what a handle may be, wherever it is chosen.
     problem = username_problem(username)
@@ -64,7 +64,7 @@ def signup(request):
 
     if existing_user:
         if existing_user.is_active:
-            return Response({
+            return Response({ 'code': 'ACTIVE_ACCOUNT_WITH_EMAIL',
                 "status": "error",
                 "message": "An active account with this email already exists. Please log in."
             }, status=status.HTTP_400_BAD_REQUEST)
@@ -81,7 +81,7 @@ def signup(request):
                 existing_user.is_active = False
                 user = existing_user
             else:
-                return Response({
+                return Response({ 'code': 'SIGNUP_WITH_USERNAME_SAVED',
                     "status": "error",
                     "message": "Signup with the username you saved on the waitlist"
                 }, status=status.HTTP_400_BAD_REQUEST)
@@ -114,7 +114,7 @@ def signup(request):
                 is_active=False
             )
         else:
-            return Response({
+            return Response({ 'code': 'USERNAME_ALREADY_TAKEN',
                 "status": "error",
                 "message": "Username already taken"
             }, status=status.HTTP_400_BAD_REQUEST)
@@ -153,7 +153,7 @@ def signup(request):
         return Response({"status": "success", "message": "Verification link sent to email"}, status=status.HTTP_200_OK)
     except Exception as e:
         logger.error(f"Failed to send email to {email}: {str(e)}")
-        return Response({"status": "error", "message": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({ 'code': 'FAILED_SEND_VERIFICATION_EMAIL',"status": "error", "message": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['GET'])
@@ -184,10 +184,10 @@ def verify_token_3(request, *args, **kwargs):
 
                 return Response({"status": "success", "message": "Verification successful! Your account is now activated."}, status=status.HTTP_200_OK)
         else:
-            return Response({"status": "error", "message": "Invalid or expired token."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({ 'code': 'INVALID_EXPIRED_TOKEN',"status": "error", "message": "Invalid or expired token."}, status=status.HTTP_400_BAD_REQUEST)
 
     except (TypeError, ValueError, OverflowError, Users.DoesNotExist):
-        return Response({"status": "error", "message": "Invalid verification link."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'INVALID_VERIFICATION_LINK',"status": "error", "message": "Invalid verification link."}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @api_view(['POST'])
@@ -195,13 +195,13 @@ def get_username_with_email(request):
     email = request.data.get('email')
 
     if not email:
-        return Response({"status": "error", "message": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'EMAIL_REQUIRED',"status": "error", "message": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
         user = Users.objects.get(email=email)
         return Response({"status": "success", "username": user.username}, status=status.HTTP_200_OK)
     except Users.DoesNotExist:
-        return Response({"status": "error", "message": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'USER_NOT_FOUND',"status": "error", "message": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
 @api_view(['POST'])
@@ -213,7 +213,7 @@ def login(request):
 
     if user is not None:
         if not user.is_active:
-            return Response({
+            return Response({ 'code': 'ACCOUNT_NOT_CONFIRMED_PLEASE',
                 'message': 'Your account is not confirmed. Please verify your email address.'
             }, status=status.HTTP_403_FORBIDDEN)
 
@@ -276,7 +276,7 @@ def login(request):
             "is_staff": bool(user.is_staff or user.is_superuser),
         }, status=status.HTTP_200_OK)
     else:
-        return Response({
+        return Response({ 'code': 'INVALID_USERNAME_EMAIL_PASSWORD',
             'message': 'Invalid username/email or password'
         }, status=status.HTTP_401_UNAUTHORIZED)
 
@@ -286,10 +286,10 @@ def logout(request):
     session_token = request.headers.get('Authorization')
 
     if not session_token:
-        return Response({'status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
 
     if not session_token.startswith("Bearer "):
-        return Response({'status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'INVALID_TOKEN_FORMAT','status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
 
     session_token = session_token.split(" ")[1]
 
@@ -301,7 +301,7 @@ def logout(request):
         return Response({'status': 'success', 'message': 'Logout successful'}, status=status.HTTP_200_OK)
 
     except Users.DoesNotExist:
-        return Response({'status': 'error', 'message': 'Invalid session token'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'INVALID_SESSION_TOKEN','status': 'error', 'message': 'Invalid session token'}, status=status.HTTP_404_NOT_FOUND)
 
 
 @api_view(['POST'])
@@ -344,7 +344,7 @@ def verify_forgot_password_token(request):
     token = request.data.get('token')
 
     if not email or not token:
-        return Response({"status": "error", "message": "Email and token are required"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'EMAIL_TOKEN_REQUIRED',"status": "error", "message": "Email and token are required"}, status=status.HTTP_400_BAD_REQUEST)
 
     import hmac
     import secrets
@@ -354,7 +354,7 @@ def verify_forgot_password_token(request):
 
         if verification_token.attempts >= VerificationToken.MAX_ATTEMPTS:
             verification_token.delete()
-            return Response({"status": "error", "message": "Too many attempts. Request a new code."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({ 'code': 'TOO_MANY_ATTEMPTS_REQUEST',"status": "error", "message": "Too many attempts. Request a new code."}, status=status.HTTP_400_BAD_REQUEST)
 
         code_ok = hmac.compare_digest(str(verification_token.token), str(token))
         # A reset code lives 15 minutes, not the two weeks the shared session
@@ -376,10 +376,10 @@ def verify_forgot_password_token(request):
         else:
             verification_token.attempts += 1
             verification_token.save(update_fields=['attempts'])
-            return Response({"status": "error", "message": "Invalid or expired token"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({ 'code': 'INVALID_EXPIRED_TOKEN',"status": "error", "message": "Invalid or expired token"}, status=status.HTTP_400_BAD_REQUEST)
 
     except VerificationToken.DoesNotExist:
-        return Response({"status": "error", "message": "Token does not exist"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'TOKEN_DOES_NOT_EXIST',"status": "error", "message": "Token does not exist"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @api_view(['POST'])
@@ -389,10 +389,10 @@ def change_password_fp(request):
     ticket = request.data.get('ticket')
 
     if not email or not new_password:
-        return Response({"status": "error", "message": "Email and new password are required"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'EMAIL_NEW_PASSWORD_REQUIRED',"status": "error", "message": "Email and new password are required"}, status=status.HTTP_400_BAD_REQUEST)
 
     if not ticket:
-        return Response({"status": "error", "message": "This reset link is incomplete. Start again from Forgot Password."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'RESET_LINK_INCOMPLETE_START',"status": "error", "message": "This reset link is incomplete. Start again from Forgot Password."}, status=status.HTTP_400_BAD_REQUEST)
 
     email = email.strip().lower()
 
@@ -402,10 +402,10 @@ def change_password_fp(request):
     try:
         record = VerificationToken.objects.get(user_email=email)
     except VerificationToken.DoesNotExist:
-        return Response({"status": "error", "message": "This reset has expired. Start again from Forgot Password."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'RESET_EXPIRED_START_AGAIN',"status": "error", "message": "This reset has expired. Start again from Forgot Password."}, status=status.HTTP_400_BAD_REQUEST)
 
     if not record.ticket_is_valid(ticket):
-        return Response({"status": "error", "message": "This reset has expired. Start again from Forgot Password."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'RESET_EXPIRED_START_AGAIN',"status": "error", "message": "This reset has expired. Start again from Forgot Password."}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
         validate_password(new_password)
@@ -425,10 +425,10 @@ def change_password_fp(request):
         return Response({"status": "success", "message": "Password changed successfully"}, status=status.HTTP_200_OK)
 
     except Users.DoesNotExist:
-        return Response({"status": "error", "message": "User does not exist"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'USER_DOES_NOT_EXIST',"status": "error", "message": "User does not exist"}, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
         logger.error(f"Failed to change password for {email}: {str(e)}")
-        return Response({"status": "error", "message": "An error occurred while changing the password"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({ 'code': 'ERROR_OCCURRED_WHILE_CHANGING',"status": "error", "message": "An error occurred while changing the password"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['POST'])
@@ -467,15 +467,15 @@ def resend_link(request):
     email = request.data.get('email')
 
     if not email:
-        return Response({"status": "error", "message": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'EMAIL_REQUIRED',"status": "error", "message": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
         user = Users.objects.get(email=email, signup_type='normal')
     except Users.DoesNotExist:
-        return Response({"status": "error", "message": "No account found with this email"}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'NO_ACCOUNT_FOUND_WITH',"status": "error", "message": "No account found with this email"}, status=status.HTTP_404_NOT_FOUND)
 
     if user.is_active:
-        return Response({"status": "error", "message": "Account already verified. Please log in."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'ACCOUNT_ALREADY_VERIFIED_PLEASE',"status": "error", "message": "Account already verified. Please log in."}, status=status.HTTP_400_BAD_REQUEST)
 
     token = default_token_generator.make_token(user)
     uid = urlsafe_base64_encode(force_bytes(user.pk))
@@ -490,7 +490,7 @@ def resend_link(request):
         return Response({"status": "success", "message": "Verification link resent to your email"}, status=status.HTTP_200_OK)
     except Exception as e:
         logger.error(f"Failed to resend verification email to {email}: {str(e)}")
-        return Response({"status": "error", "message": "Failed to resend verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({ 'code': 'FAILED_RESEND_VERIFICATION_EMAIL',"status": "error", "message": "Failed to resend verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(["POST"])
@@ -499,10 +499,10 @@ def send_code(request):
     email = request.data.get('email')
 
     if not email:
-        return Response({"status": "error", "message": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'EMAIL_REQUIRED',"status": "error", "message": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
 
     if Users.objects.filter(email=email.strip().lower()).exists():
-        return Response({"status": "error", "message": "Account already exists with this email"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'ACCOUNT_ALREADY_EXISTS_WITH',"status": "error", "message": "Account already exists with this email"}, status=status.HTTP_400_BAD_REQUEST)
 
     token = ''.join(random.choices('0123456789', k=6))
 
@@ -516,7 +516,7 @@ def send_code(request):
     if emails.send_verify_email(email.strip().lower(), name='there', code=token):
         return Response({"status": "success", "message": "Verification token sent to email"}, status=status.HTTP_200_OK)
     else:
-        return Response({"status": "error", "message": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({ 'code': 'FAILED_SEND_VERIFICATION_EMAIL',"status": "error", "message": "Failed to send verification email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(["POST"])
@@ -527,17 +527,17 @@ def save_username(request):
     token = request.data.get("token")
 
     if not email or not username or not token:
-        return Response({"status": "error", "message": "Email, Username, and Token are required"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'EMAIL_USERNAME_TOKEN_REQUIRED',"status": "error", "message": "Email, Username, and Token are required"}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
         verification_token = VerificationToken.objects.get(user_email=email.strip().lower())
         if verification_token.token != token:
-            return Response({"status": "error", "message": "Invalid token"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({ 'code': 'INVALID_TOKEN',"status": "error", "message": "Invalid token"}, status=status.HTTP_400_BAD_REQUEST)
     except VerificationToken.DoesNotExist:
-        return Response({"status": "error", "message": "No verification token found for this email"}, status=status.HTTP_404_NOT_FOUND)
+        return Response({ 'code': 'NO_VERIFICATION_TOKEN_FOUND',"status": "error", "message": "No verification token found for this email"}, status=status.HTTP_404_NOT_FOUND)
 
     if Users.objects.filter(username=username.strip().lower()).exists():
-        return Response({"status": "error", "message": "Username already taken"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'USERNAME_ALREADY_TAKEN',"status": "error", "message": "Username already taken"}, status=status.HTTP_400_BAD_REQUEST)
 
     user = Users.objects.create(email=email.strip().lower(), username=username.strip().lower())
     user.save()
@@ -548,4 +548,4 @@ def save_username(request):
     if emails.send_welcome(email.strip().lower(), name=username):
         return Response({"status": "success", "message": "Username saved successfully"}, status=status.HTTP_200_OK)
     else:
-        return Response({"status": "error", "message": "Failed to send welcome email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({ 'code': 'FAILED_SEND_WELCOME_EMAIL',"status": "error", "message": "Failed to send welcome email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
