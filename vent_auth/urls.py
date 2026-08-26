@@ -5,7 +5,7 @@ from django.conf.urls.static import static
 
 
 from .views_rankings import games_list
-from .views_admin import admin_2fa_verify
+from .views_admin import admin_2fa_verify, admin_step_up
 from .views_kyc_files import kyc_document
 from .views_waitlist import waitlist_claim, waitlist_claim_preview
 from . import views_linking as linking
@@ -101,6 +101,7 @@ urlpatterns = [
     path("resend-forgot-password-token/", resend_forgot_password_token, name="resend_forgot_password_token"),
     path("upload-images/", upload_images, name="upload_images"),
     path("games/", games_list, name="games_list"),
+    path("admin/step-up/", admin_step_up, name="admin_step_up"),
     path("admin/2fa/verify/", admin_2fa_verify, name="admin_2fa_verify"),
     path("get-user-gallery/", get_user_gallery, name="get_user_gallery"),
     path("delete-gallery-image/", delete_gallery_image, name="delete_gallery_image"),
