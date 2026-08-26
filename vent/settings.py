@@ -84,6 +84,7 @@ INSTALLED_APPS = [
     "vent_anime",
     "vent_marketplace",
     "vent_tournament",
+    "vent_partners",
     'django.contrib.sites',
     'allauth',
     'allauth.account',
