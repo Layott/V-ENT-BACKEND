@@ -16,11 +16,11 @@ urlpatterns = [
     path("get-all-teams/", team_list, name="get_all_teams"),
     path("list-teams/", team_list, name="list_teams"),          # alias (spec name)
     path("my-teams/", my_teams, name="my_teams"),
-    path("view-team/<int:team_id>/", view_team, name="view_team"),
+    path("view-team/<str:team_id>/", view_team, name="view_team"),
     # Team profile activity tabs
     path("tournaments/<int:team_id>/", team_tournaments, name="team_tournaments"),
     path("events/<int:team_id>/", team_events, name="team_events"),
-    path("get-team-details/<int:team_id>/", view_team, name="get_team_details"),  # alias (legacy name)
+    path("get-team-details/<str:team_id>/", view_team, name="get_team_details"),  # alias (legacy name)
 
     # WRITE (existing - repointed to unified membership table)
     path("create-team/", create_team, name="create_team"),

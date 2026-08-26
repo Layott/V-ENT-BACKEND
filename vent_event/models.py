@@ -6,6 +6,7 @@ from django.utils import timezone
 class Event(models.Model):
     event_id = models.AutoField(primary_key=True)  # Event ID
     name = models.CharField(max_length=40)  # Name of the event
+    slug = models.SlugField(max_length=160, unique=True, null=True, blank=True, db_index=True)
     game = models.ForeignKey(Games, on_delete=models.SET_NULL, null=True, blank=True, related_name="events")
     creator = models.ForeignKey(Users, on_delete=models.CASCADE)  # Creator of the event
     created_at = models.DateTimeField(auto_now_add=True)
@@ -40,6 +41,14 @@ class Event(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from vent_auth.slugs import build_slug
+            self.slug = build_slug(
+                self.name, model=type(self), instance_pk=self.pk, pk_field='pk',
+            )
+        super().save(*args, **kwargs)
 
 
 class TicketTier(models.Model):

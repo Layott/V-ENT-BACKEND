@@ -271,6 +271,7 @@ class PlatformAccount(models.Model):
 class Teams(models.Model):
     team_id = models.AutoField(primary_key=True)
     team_name = models.CharField(unique=True, max_length=60)
+    slug = models.SlugField(max_length=160, unique=True, null=True, blank=True, db_index=True)
     # A team may be fielded by an organization (org profiles list their rosters).
     organization = models.ForeignKey(
         'Organization', on_delete=models.SET_NULL, null=True, blank=True, related_name='teams',
@@ -312,6 +313,14 @@ class Teams(models.Model):
 
     def __str__(self):
         return self.team_name
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from vent_auth.slugs import build_slug
+            self.slug = build_slug(
+                self.team_name, model=type(self), instance_pk=self.pk, pk_field='pk',
+            )
+        super().save(*args, **kwargs)
 
 
 class TeamProfile(models.Model):

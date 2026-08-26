@@ -220,7 +220,14 @@ def my_teams(request):
 @api_view(['GET'])
 def view_team(request, team_id):
     """GET /team/view-team/<id>/ (alias /team/get-team-details/<id>/) - full detail."""
-    team = Teams.objects.select_related('team_owner', 'game').filter(pk=team_id).first()
+    from vent_auth.slugs import lookup_kwargs
+
+    team = (
+        Teams.objects
+        .select_related('team_owner', 'game')
+        .filter(**lookup_kwargs(team_id, id_field='team_id'))
+        .first()
+    )
     if not team:
         return _error('Team not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
