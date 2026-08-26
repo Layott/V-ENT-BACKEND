@@ -145,7 +145,7 @@ def events_list(request):
 def event_detail(request, event_id):
     e = Event.objects.select_related('game').filter(pk=event_id, is_active=True).first()
     if e is None:
-        return Response({'status': 'error', 'code': 'NOT_FOUND', 'message': 'No such event.',
+        return Response({'status': 'error', 'code': 'EVENT_NOT_FOUND', 'message': 'No such event.',
                          'data': None}, status=status.HTTP_404_NOT_FOUND)
     return _ok(_event_row(request, e), 'Event')
 
@@ -207,7 +207,7 @@ def tournaments_list(request):
 def tournament_detail(request, tournament_id):
     t = _public_tournaments().filter(pk=tournament_id).first()
     if t is None:
-        return Response({'status': 'error', 'code': 'NOT_FOUND', 'message': 'No such tournament.',
+        return Response({'status': 'error', 'code': 'TOURNAMENT_NOT_FOUND', 'message': 'No such tournament.',
                          'data': None}, status=status.HTTP_404_NOT_FOUND)
     row = _tournament_row(request, t)
     row['description'] = t.tournament_description
@@ -224,7 +224,7 @@ def tournament_detail(request, tournament_id):
 def tournament_participants(request, tournament_id):
     t = _public_tournaments().filter(pk=tournament_id).first()
     if t is None:
-        return Response({'status': 'error', 'code': 'NOT_FOUND', 'message': 'No such tournament.',
+        return Response({'status': 'error', 'code': 'TOURNAMENT_NOT_FOUND', 'message': 'No such tournament.',
                          'data': None}, status=status.HTTP_404_NOT_FOUND)
 
     qs = (
@@ -251,7 +251,7 @@ def tournament_participants(request, tournament_id):
 def tournament_bracket(request, tournament_id):
     t = _public_tournaments().filter(pk=tournament_id).first()
     if t is None:
-        return Response({'status': 'error', 'code': 'NOT_FOUND', 'message': 'No such tournament.',
+        return Response({'status': 'error', 'code': 'TOURNAMENT_NOT_FOUND', 'message': 'No such tournament.',
                          'data': None}, status=status.HTTP_404_NOT_FOUND)
 
     def name_of(reg):
@@ -325,7 +325,7 @@ def teams_list(request):
 def team_detail(request, team_id):
     team = Teams.objects.select_related('game').filter(pk=team_id).first()
     if team is None:
-        return Response({'status': 'error', 'code': 'NOT_FOUND', 'message': 'No such team.',
+        return Response({'status': 'error', 'code': 'TEAM_NOT_FOUND', 'message': 'No such team.',
                          'data': None}, status=status.HTTP_404_NOT_FOUND)
 
     members = (
@@ -351,7 +351,7 @@ def team_detail(request, team_id):
 def player_detail(request, username):
     user = Users.objects.filter(username__iexact=username, is_active=True).first()
     if user is None:
-        return Response({'status': 'error', 'code': 'NOT_FOUND', 'message': 'No such player.',
+        return Response({'status': 'error', 'code': 'PLAYER_NOT_FOUND', 'message': 'No such player.',
                          'data': None}, status=status.HTTP_404_NOT_FOUND)
 
     profile = getattr(user, 'userprofile', None)

@@ -388,7 +388,7 @@ def join_tournament(request):
         if is_paid or needs_kyc:
             user_wallet = UserWallet.objects.filter(user=user).first()
             if user_wallet is None:
-                return Response({'status': 'error', 'code': 'NOT_FOUND', 'message': 'Wallet not found'},
+                return Response({'status': 'error', 'code': 'WALLET_NOT_FOUND', 'message': 'Wallet not found'},
                                 status=status.HTTP_404_NOT_FOUND)
 
         # KYC required at registration for paid / prize tournaments.
@@ -400,7 +400,7 @@ def join_tournament(request):
         # PIN check for the coin deduction (does not need the row lock).
         if is_paid:
             if not pin:
-                return Response({'status': 'error', 'code': 'VALIDATION_FAILED',
+                return Response({'status': 'error', 'code': 'PIN_REQUIRED',
                                  'message': 'pin is required for paid tournament registration'},
                                 status=status.HTTP_400_BAD_REQUEST)
             if not user_wallet.pin_hash or not check_pw(str(pin), user_wallet.pin_hash):
@@ -411,7 +411,7 @@ def join_tournament(request):
             if team_id:
                 team = get_object_or_404(Teams, team_id=team_id)
                 if TournamentRegistration.objects.filter(tournament=tournament, team=team).exists():
-                    return Response({'status': 'error', 'code': 'ALREADY_REGISTERED',
+                    return Response({'status': 'error', 'code': 'TEAM_ALREADY_REGISTERED',
                                      'message': 'This team is already registered'},
                                     status=status.HTTP_409_CONFLICT)
                 registration = TournamentRegistration.objects.create(
@@ -1457,7 +1457,7 @@ def update_bracket(request, tournament_id):
         tournament = get_object_or_404(Tournament, tournament_id=tournament_id, is_draft=False)
 
         if tournament.tournament_creator_id != user.user_id:
-            return Response({ 'code': 'ONLY_TOURNAMENT_ORGANIZER_CAN','status': 'error', 'message': 'Only the tournament organizer can update brackets'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({ 'code': 'ONLY_ORGANIZER_CAN_UPDATE_BRACKETS','status': 'error', 'message': 'Only the tournament organizer can update brackets'}, status=status.HTTP_403_FORBIDDEN)
 
         match_id = request.data.get('match_id')
         score_p1 = request.data.get('score_p1')

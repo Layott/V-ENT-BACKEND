@@ -821,7 +821,7 @@ def lookup_user(request):
 
     query = (request.GET.get('q') or request.GET.get('username') or '').strip().lstrip('@')
     if len(query) < 3:
-        return Response({'status': 'error', 'code': 'VALIDATION_FAILED',
+        return Response({'status': 'error', 'code': 'QUERY_TOO_SHORT',
                          'message': 'Enter at least 3 characters.'},
                         status=status.HTTP_400_BAD_REQUEST)
 
@@ -833,7 +833,7 @@ def lookup_user(request):
     user = (Users.objects.filter(username__iexact=query).first()
             or Users.objects.filter(email__iexact=query).first())
     if user is None or not user.is_active:
-        return Response({'status': 'error', 'code': 'NOT_FOUND',
+        return Response({'status': 'error', 'code': 'ACCOUNT_NOT_FOUND',
                          'message': 'No V-ENT account with that username.'},
                         status=status.HTTP_404_NOT_FOUND)
 
