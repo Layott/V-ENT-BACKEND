@@ -120,7 +120,10 @@ CORS_ALLOW_CREDENTIALS = True
 _DEV_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    # Alt dev ports (used when 3000 is occupied by another local project)
+    # Alt dev ports (used when 3000 is occupied by another local project,
+    # which on the main dev machine it permanently is)
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
     "http://localhost:3100",
     "http://127.0.0.1:3100",
 ]

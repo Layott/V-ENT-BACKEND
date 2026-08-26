@@ -71,6 +71,10 @@ def confirmed_registrations(tournament):
 def seed_registrations(regs, strategy, manual_order=None):
     """Return registrations ordered best-seed-first per the chosen strategy."""
     strategy = strategy or 'random'
+    if strategy == 'registration':
+        # confirmed_registrations() already reads in registered_at order, so
+        # first come really is first seeded.
+        return list(regs)
     if strategy == 'manual_order':
         by_id = {r.id: r for r in regs}
         ordered = [by_id[i] for i in (manual_order or []) if i in by_id]
@@ -147,7 +151,7 @@ def generate(tournament, generated_by, seed_strategy='random', manual_order=None
     gen = BracketGeneration.objects.create(
         tournament=tournament,
         generated_by=generated_by,
-        seed_strategy=seed_strategy if seed_strategy in ('random', 'ranked', 'manual_order') else 'random',
+        seed_strategy=seed_strategy if seed_strategy in ('random', 'ranked', 'manual_order', 'registration') else 'random',
         seed_payload={'registration_ids': [r.id for r in ordered]},
         match_count=summary['matches_created'],
         rounds_count=summary['rounds_count'],
@@ -230,9 +234,30 @@ def _generate_single_elimination(tournament, ordered):
         advance.cascade(match)
 
     matches_created = sum(len(mr) for mr in per_round)
+
+    # Third-place match. The two semi-final losers play for the bronze, which
+    # is how a prize table with a third position gets a third place at all.
+    # Only meaningful once there is a semi-final to lose, so two rounds up.
+    from ..options import clean as clean_options
+    third_place = None
+    if clean_options(tournament.options).get('third_place_match') and rounds >= 2:
+        semis = per_round[rounds - 2]
+        third_place = BracketMatch.objects.create(
+            tournament=tournament,
+            round_number=rounds,
+            match_number=2,                 # sits beside the final
+            bracket_side='winners',
+        )
+        for m, semi in enumerate(semis[:2]):
+            semi.loser_to_match = third_place
+            semi.loser_to_slot = m + 1
+            semi.save(update_fields=['loser_to_match', 'loser_to_slot'])
+        matches_created += 1
+
     return {
         'rounds_count': rounds,
         'matches_created': matches_created,
+        'third_place_match_id': third_place.id if third_place else None,
         'structure_summary': [
             {'round_number': r + 1, 'match_count': len(per_round[r])}
             for r in range(rounds)

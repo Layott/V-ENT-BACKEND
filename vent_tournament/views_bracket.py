@@ -111,7 +111,26 @@ def generate_bracket(request, tournament_id):
     if tournament.status in ('completed', 'cancelled'):
         return _err(f'Cannot generate a bracket for a {tournament.status} tournament', 'STATE_CONFLICT', http.HTTP_409_CONFLICT)
 
-    seed_strategy = request.data.get('seed_strategy') or request.data.get('seeding') or 'random'
+    # A check-in window that nobody closes is a check-in window that does
+    # nothing. If entrants have not checked in and the window has passed, say
+    # so rather than seeding a bracket full of people who are not there.
+    from . import options as tournament_options
+    window = tournament_options.check_in_state(tournament, timezone.now())
+    if window and window['closed'] and window['forfeit_without_check_in']:
+        missing = tournament.registrations.filter(
+            status__in=('pending', 'confirmed'), checked_in_at__isnull=True,
+        ).count()
+        if missing and not request.data.get('ignore_check_in'):
+            return _err(
+                f'{missing} entrants never checked in. Close check-in first so they are '
+                'forfeited, or send ignore_check_in to seed them anyway.',
+                'CHECK_IN_OPEN', http.HTTP_409_CONFLICT,
+            )
+
+    # The organiser already chose a seeding method when they built the
+    # tournament. Honour it, and let an explicit request override it.
+    stored = tournament_options.clean(tournament.options)['seeding_method']
+    seed_strategy = request.data.get('seed_strategy') or request.data.get('seeding') or stored
     if seed_strategy == 'seed_field':
         seed_strategy = 'ranked'
     manual_order = request.data.get('manual_order')

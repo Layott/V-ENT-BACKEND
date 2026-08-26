@@ -131,6 +131,19 @@ class Tournament(models.Model):
     cancelled_at = models.DateTimeField(null=True, blank=True)
     cancelled_reason = models.TextField(blank=True, default='')
 
+    # Everything an organiser configures beyond the headline fields: who may
+    # enter, how seeding is drawn, whether there is a check-in window, how long
+    # a match is, whether there is a group stage. One column because these are
+    # read and written together and the set keeps growing; see options.py for
+    # the shape and the validation.
+    options = models.JSONField(default=dict, blank=True)
+
+    # When the organiser drew the line under check-in. Once this is set the
+    # window is shut regardless of the clock: an entrant checking in after the
+    # no-shows were forfeited would change a roster the organiser had already
+    # signed off.
+    check_in_closed_at = models.DateTimeField(null=True, blank=True)
+
     def __str__(self):
         return self.tournament_title
 
@@ -236,6 +249,11 @@ class TournamentRegistration(models.Model):
     # Seed set during bracket generation; final_position set when tournament completes (1 = winner).
     seed = models.PositiveIntegerField(null=True, blank=True)
     final_position = models.PositiveIntegerField(null=True, blank=True)
+    # When this entrant confirmed they were actually there. Null after the
+    # window closes means a no-show, which is what the forfeit reads.
+    checked_in_at = models.DateTimeField(null=True, blank=True)
+    # Set when a no-show is forfeited, so the reason survives on the record.
+    forfeited_reason = models.CharField(max_length=120, blank=True, default='')
 
     class Meta:
         unique_together = [
