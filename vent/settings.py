@@ -110,6 +110,9 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     'allauth.account.middleware.AccountMiddleware',
+    # Keeps a session alive while it is being used. Last, so it only runs for
+    # requests that made it through everything above.
+    'vent_auth.middleware_session.SessionActivityMiddleware',
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -124,6 +127,8 @@ _DEV_ORIGINS = [
     # which on the main dev machine it permanently is)
     "http://localhost:3001",
     "http://127.0.0.1:3001",
+    "http://localhost:3002",
+    "http://127.0.0.1:3002",
     "http://localhost:3100",
     "http://127.0.0.1:3100",
 ]

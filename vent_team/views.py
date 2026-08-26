@@ -220,14 +220,19 @@ def my_teams(request):
 @api_view(['GET'])
 def view_team(request, team_id):
     """GET /team/view-team/<id>/ (alias /team/get-team-details/<id>/) - full detail."""
-    from vent_auth.slugs import lookup_kwargs
+    from vent_auth.slugs import resolve_or_redirect
 
-    team = (
-        Teams.objects
-        .select_related('team_owner', 'game')
-        .filter(**lookup_kwargs(team_id, id_field='team_id'))
-        .first()
+    team, moved_to = resolve_or_redirect(
+        team_id, entity_type='team', id_field='team_id', model=Teams,
+        queryset=Teams.objects.select_related('team_owner', 'game'),
     )
+    if moved_to:
+        return Response({
+            'status': 'moved',
+            'code': 'SLUG_CHANGED',
+            'message': 'This team has been renamed.',
+            'data': {'slug': moved_to, 'url': f'/teams/{moved_to}'},
+        }, status=status.HTTP_200_OK)
     if not team:
         return _error('Team not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 

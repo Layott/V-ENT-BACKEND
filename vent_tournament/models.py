@@ -160,11 +160,17 @@ class Tournament(models.Model):
         return self.entry_fee == 'Paid' and entry > 0 or self.prize_pool_coins > 0
 
     def save(self, *args, **kwargs):
-        if not self.slug:
-            from vent_auth.slugs import build_slug
-            self.slug = build_slug(
-                self.tournament_title, model=type(self), instance_pk=self.pk, pk_field='pk',
-            )
+        # The slug follows the name. Whatever it replaces is kept in SlugHistory
+        # and redirects here, so a renamed tournament keeps every link ever shared.
+        from vent_auth.slugs import sync_slug
+
+        changed = sync_slug(
+            self, self.tournament_title, entity_type='tournament', id_attr='tournament_id',
+        )
+        # A caller that named its fields (edit_tournament does) would otherwise
+        # compute the new slug and never write it, which is the whole rename path.
+        if changed and kwargs.get('update_fields') is not None:
+            kwargs['update_fields'] = list(set(kwargs['update_fields']) | {'slug'})
         super().save(*args, **kwargs)
 
 

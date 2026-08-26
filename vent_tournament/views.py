@@ -146,6 +146,15 @@ def serialize_tournament_card(t, confirmed_count=0, prize_pool=0):
         "tournament_access": t.tournament_access,
         "entry_fee": t.entry_fee,
         "entry_fee_price": str(t.entry_fee_price),
+        # The organiser settings, on the card as well as the detail page.
+        #
+        # One model per thing means one shape per thing: a field that decides
+        # whether somebody can enter, or whether they will be forfeited for not
+        # checking in, belongs everywhere a tournament is shown. Putting it only
+        # on the detail payload is how a card ends up quietly describing a
+        # different tournament from the page it links to.
+        "options": tournament_options.clean(t.options),
+        "check_in": _check_in_summary(t),
     }
 
 
@@ -1062,9 +1071,23 @@ def view_tournament(request, tournament_id):
     try:
         # The address may be an id or a slug, so a link carrying the name and a
         # link somebody bookmarked last month both resolve.
-        from vent_auth.slugs import lookup_kwargs
+        from vent_auth.slugs import resolve_or_redirect
 
-        tournament = Tournament.objects.get(**lookup_kwargs(tournament_id, id_field='tournament_id'))
+        tournament, moved_to = resolve_or_redirect(
+            tournament_id, entity_type='tournament',
+            id_field='tournament_id', model=Tournament,
+        )
+        if moved_to:
+            # This tournament was renamed. Say where it lives now rather than
+            # 404ing a link somebody shared before the rename.
+            return Response({
+                'status': 'moved',
+                'code': 'SLUG_CHANGED',
+                'message': 'This tournament has been renamed.',
+                'data': {'slug': moved_to, 'url': f'/tournaments/{moved_to}'},
+            }, status=status.HTTP_200_OK)
+        if tournament is None:
+            raise Tournament.DoesNotExist
 
         # A draft is an unpublished plan: half-written rules, a prize pool the
         # organizer is still arguing about, a date that will move. It was

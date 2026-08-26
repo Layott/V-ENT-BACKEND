@@ -79,6 +79,14 @@ def _person(request, user):
         'username': user.username,
         'full_name': user.full_name,
         'avatar': _avatar(request, user),
+        # The founder mark, wherever a name appears. It was only ever reported
+        # by the profile endpoint, so the badge showed on a profile and nowhere
+        # else - not on a post, a comment, a thread or a conversation. This is
+        # the one builder every community author goes through.
+        #
+        # Only reported when the person is wearing it: switching it off in
+        # settings has to switch it off everywhere, not just on the profile.
+        'founder_badge': bool(getattr(user, 'is_founder', False) and user.show_founder_badge),
     }
 
 
@@ -89,11 +97,13 @@ def _person(request, user):
 def serialize_post(request, post, viewer=None, with_comments=False):
     data = {
         'id': post.id,
+        'slug': post.slug,
         'body': post.body,
         'content': post.body,          # the feed renders post.content
         'image': _abs(request, post.image),
         'game': post.game.game_title if post.game else None,
-        'club': {'id': post.club_id, 'name': post.club.name} if post.club_id else None,
+        'club': ({'id': post.club_id, 'slug': post.club.slug, 'name': post.club.name}
+                 if post.club_id else None),
         'author': _person(request, post.author),
         'created_at': post.created_at,
         'like_count': post.likes.count(),
@@ -175,7 +185,13 @@ def post_create(request):
 
 @api_view(['GET'])
 def post_detail(request, post_id):
-    post = Post.objects.select_related('author', 'game', 'club').filter(id=post_id).first()
+    from vent_auth.slugs import lookup_kwargs
+
+    post = (
+        Post.objects.select_related('author', 'game', 'club')
+        .filter(**lookup_kwargs(post_id, id_field='id'))
+        .first()
+    )
     if post is None:
         return _error('Post not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     return _ok({'post': serialize_post(request, post, _optional_user(request), with_comments=True)},
@@ -247,6 +263,7 @@ def post_comment(request, post_id):
 def serialize_club(request, club, viewer=None):
     return {
         'id': club.id,
+        'slug': club.slug,
         'name': club.name,
         'description': club.description,
         'game': club.game.game_title if club.game else None,
@@ -305,7 +322,18 @@ def club_create(request):
 
 @api_view(['GET'])
 def club_detail(request, club_id):
-    club = Club.objects.select_related('game', 'owner').filter(id=club_id).first()
+    from vent_auth.slugs import resolve_or_redirect
+
+    club, moved_to = resolve_or_redirect(
+        club_id, entity_type='club', id_field='id', model=Club,
+        queryset=Club.objects.select_related('game', 'owner'),
+    )
+    if moved_to:
+        return Response({
+            'status': 'moved', 'code': 'SLUG_CHANGED',
+            'message': 'This club has been renamed.',
+            'data': {'slug': moved_to, 'url': f'/community/club/{moved_to}'},
+        }, status=status.HTTP_200_OK)
     if club is None:
         return _error('Club not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
@@ -352,11 +380,13 @@ def club_join(request, club_id):
 def serialize_thread(request, t, with_replies=False, viewer=None):
     data = {
         'id': t.id,
+        'slug': t.slug,
         'title': t.title,
         'body': t.body,
         'category': t.category,
         'author': _person(request, t.author),
-        'club': {'id': t.club_id, 'name': t.club.name} if t.club_id else None,
+        'club': ({'id': t.club_id, 'slug': t.club.slug, 'name': t.club.name}
+                 if t.club_id else None),
         'reply_count': t.replies.count(),
         'upvotes': t.upvotes.count(),
         'upvoted': bool(viewer and t.upvotes.filter(user=viewer).exists()),
@@ -424,7 +454,18 @@ def thread_create(request):
 
 @api_view(['GET'])
 def thread_detail(request, thread_id):
-    thread = Thread.objects.select_related('author', 'club').filter(id=thread_id).first()
+    from vent_auth.slugs import resolve_or_redirect
+
+    thread, moved_to = resolve_or_redirect(
+        thread_id, entity_type='thread', id_field='id', model=Thread,
+        queryset=Thread.objects.select_related('author', 'club'),
+    )
+    if moved_to:
+        return Response({
+            'status': 'moved', 'code': 'SLUG_CHANGED',
+            'message': 'This thread has been renamed.',
+            'data': {'slug': moved_to, 'url': f'/community/thread/{moved_to}'},
+        }, status=status.HTTP_200_OK)
     if thread is None:
         return _error('Thread not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
@@ -518,6 +559,7 @@ def serialize_scrim(request, s, viewer=None):
     opponent = {'id': s.opponent_id, 'name': s.opponent.team_name, 'tag': None} if s.opponent_id else None
     return {
         'id': s.id,
+        'slug': s.slug,
         'team': team,
         'opponent': opponent,
         # The scrims table renders team_a / team_b / scheduled_at / format.
@@ -743,6 +785,16 @@ def dm_send(request, conversation_id):
             return _error('No user with that username.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
         if other.user_id == user.user_id:
             return _error('You cannot message yourself.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+        # `allow_direct_messages` was written by the Privacy panel and read by
+        # nothing, so somebody who had turned messages off still received them.
+        # Checked here rather than only in the client, because a setting only
+        # the client honours is not a setting.
+        from .views_usersearch import may_message
+        if not may_message(user, other):
+            return _error(
+                f'@{other.username} does not accept direct messages.',
+                'DM_NOT_ALLOWED', status.HTTP_403_FORBIDDEN,
+            )
         convo = _conversation_for(user, other)
     else:
         convo = Conversation.objects.filter(id=conversation_id).first()

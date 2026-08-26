@@ -91,6 +91,7 @@ def serialize_org(request, org, viewer=None, detail=False):
     data = {
         'id': org.org_id,
         'org_id': org.org_id,
+        'slug': org.slug,
         'name': org.org_name,
         'tag': org.tag or None,
         'bio': org.bio,
@@ -222,7 +223,17 @@ def org_create(request):
 
 @api_view(['GET'])
 def org_detail(request, org_id):
-    org = Organization.objects.filter(org_id=org_id).first()
+    from vent_auth.slugs import resolve_or_redirect
+
+    org, moved_to = resolve_or_redirect(
+        org_id, entity_type='organization', id_field='org_id', model=Organization,
+    )
+    if moved_to:
+        return Response({
+            'status': 'moved', 'code': 'SLUG_CHANGED',
+            'message': 'This organization has been renamed.',
+            'data': {'slug': moved_to, 'url': f'/organizations/{moved_to}'},
+        }, status=status.HTTP_200_OK)
     if org is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     viewer = _optional_user(request)

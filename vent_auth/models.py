@@ -37,6 +37,10 @@ class Users(AbstractUser):
     deactivated_at = models.DateTimeField(null=True, blank=True)
     deletion_requested_at = models.DateTimeField(null=True, blank=True)
     login_session_token = models.CharField(max_length=16, null=True)
+    # When this session was last USED, not when it was created. Moved forward
+    # by SessionActivityMiddleware while somebody is working, so the timeout
+    # measures inactivity. The name is historical; renaming it would have meant
+    # touching 67 comparison sites at once for no behavioural gain.
     login_session_created_at = models.DateTimeField(null=True, blank=True)
     signup_type = models.CharField(max_length=32, default='normal', null=True)  # normal, google, facebook
     provider_id = models.CharField(max_length=256, null=True, blank=True)  # Social provider ID
@@ -329,11 +333,17 @@ class Teams(models.Model):
         return self.team_name
 
     def save(self, *args, **kwargs):
-        if not self.slug:
-            from vent_auth.slugs import build_slug
-            self.slug = build_slug(
-                self.team_name, model=type(self), instance_pk=self.pk, pk_field='pk',
-            )
+        # The slug follows the name. Whatever it replaces is kept in SlugHistory
+        # and redirects here, so a renamed team keeps every link ever shared.
+        from vent_auth.slugs import sync_slug
+
+        changed = sync_slug(
+            self, self.team_name, entity_type='team', id_attr='team_id',
+        )
+        # A caller that named its fields (edit_team does) would otherwise
+        # compute the new slug and never write it, which is the whole rename path.
+        if changed and kwargs.get('update_fields') is not None:
+            kwargs['update_fields'] = list(set(kwargs['update_fields']) | {'slug'})
         super().save(*args, **kwargs)
 
 
@@ -405,6 +415,7 @@ class Organization(models.Model):
 
     org_id = models.AutoField(primary_key=True)
     org_name = models.CharField(max_length=148, unique=True)
+    slug = models.SlugField(max_length=160, unique=True, null=True, blank=True, db_index=True)
     org_creator = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='created_organizations')
     org_owner = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='owned_organizations')
 
@@ -434,7 +445,16 @@ class Organization(models.Model):
     def __str__(self):
         return self.org_name
 
+    def save(self, *args, **kwargs):
+        # Addresses carry the name, and every name it has had keeps working.
+        from vent_auth.slugs import sync_slug
 
+        changed = sync_slug(
+            self, self.org_name, entity_type='organization', id_attr='org_id',
+        )
+        if changed and kwargs.get('update_fields') is not None:
+            kwargs['update_fields'] = list(set(kwargs['update_fields']) | {'slug'})
+        super().save(*args, **kwargs)
 class OrgMember(models.Model):
     ROLE_CHOICES = [
         ('owner', 'Owner'),
@@ -930,6 +950,7 @@ class UserTOTP(models.Model):
 class Post(models.Model):
     """A feed post. Text plus an optional image, attributed to a real user."""
 
+    slug = models.SlugField(max_length=160, unique=True, null=True, blank=True, db_index=True)
     author = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='posts')
     body = models.TextField()
     image = models.ImageField(upload_to='post_images/', null=True, blank=True)
@@ -943,7 +964,15 @@ class Post(models.Model):
     def __str__(self):
         return f"post {self.pk} by {self.author_id}"
 
+    def save(self, *args, **kwargs):
+        # No name to build an address from, so it carries an opaque token
+        # instead of the primary key - a sequential id in a URL lets anybody
+        # walk the whole table by counting.
+        from vent_auth.slugs import ensure_token
 
+        if ensure_token(self, 'p') and kwargs.get('update_fields') is not None:
+            kwargs['update_fields'] = list(set(kwargs['update_fields']) | {'slug'})
+        super().save(*args, **kwargs)
 class PostLike(models.Model):
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='likes')
     user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='post_likes')
@@ -966,6 +995,7 @@ class PostComment(models.Model):
 class Club(models.Model):
     """A community group - usually built around a game."""
 
+    slug = models.SlugField(max_length=160, unique=True, null=True, blank=True, db_index=True)
     name = models.CharField(max_length=120, unique=True)
     description = models.TextField(blank=True, default='')
     game = models.ForeignKey(Games, on_delete=models.SET_NULL, null=True, blank=True, related_name='clubs')
@@ -981,7 +1011,16 @@ class Club(models.Model):
     def __str__(self):
         return self.name
 
+    def save(self, *args, **kwargs):
+        # Addresses carry the name, and every name it has had keeps working.
+        from vent_auth.slugs import sync_slug
 
+        changed = sync_slug(
+            self, self.name, entity_type='club', id_attr='id',
+        )
+        if changed and kwargs.get('update_fields') is not None:
+            kwargs['update_fields'] = list(set(kwargs['update_fields']) | {'slug'})
+        super().save(*args, **kwargs)
 class ClubMember(models.Model):
     club = models.ForeignKey(Club, on_delete=models.CASCADE, related_name='members')
     user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='club_memberships')
@@ -994,6 +1033,7 @@ class ClubMember(models.Model):
 class Thread(models.Model):
     """A discussion thread - longer-form than a feed post."""
 
+    slug = models.SlugField(max_length=160, unique=True, null=True, blank=True, db_index=True)
     CATEGORY_CHOICES = [
         ('general', 'General'),
         ('lfg', 'Looking for group'),
@@ -1016,7 +1056,16 @@ class Thread(models.Model):
     class Meta:
         ordering = ['-is_pinned', '-last_activity_at']
 
+    def save(self, *args, **kwargs):
+        # Addresses carry the name, and every name it has had keeps working.
+        from vent_auth.slugs import sync_slug
 
+        changed = sync_slug(
+            self, self.title, entity_type='thread', id_attr='id',
+        )
+        if changed and kwargs.get('update_fields') is not None:
+            kwargs['update_fields'] = list(set(kwargs['update_fields']) | {'slug'})
+        super().save(*args, **kwargs)
 class ThreadReply(models.Model):
     thread = models.ForeignKey(Thread, on_delete=models.CASCADE, related_name='replies')
     author = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='thread_replies')
@@ -1052,6 +1101,7 @@ class ThreadReplyUpvote(models.Model):
 class Scrim(models.Model):
     """A practice-match request posted by one team, accepted by another."""
 
+    slug = models.SlugField(max_length=160, unique=True, null=True, blank=True, db_index=True)
     STATUS_CHOICES = [
         ('open', 'Open'),
         ('accepted', 'Accepted'),
@@ -1079,7 +1129,15 @@ class Scrim(models.Model):
     class Meta:
         ordering = ['-created_at']
 
+    def save(self, *args, **kwargs):
+        # No name to build an address from, so it carries an opaque token
+        # instead of the primary key - a sequential id in a URL lets anybody
+        # walk the whole table by counting.
+        from vent_auth.slugs import ensure_token
 
+        if ensure_token(self, 's') and kwargs.get('update_fields') is not None:
+            kwargs['update_fields'] = list(set(kwargs['update_fields']) | {'slug'})
+        super().save(*args, **kwargs)
 class Conversation(models.Model):
     """A direct-message thread between exactly two people."""
 
@@ -1102,3 +1160,9 @@ class DirectMessage(models.Model):
 
     class Meta:
         ordering = ['created_at']
+
+
+# Every address a thing has ever had, so a rename never kills a shared link.
+# Defined in its own module and re-exported here so Django picks it up as a
+# model of this app without models.py growing another table nobody reads.
+from .models_slughistory import SlugHistory  # noqa: E402,F401

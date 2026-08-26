@@ -612,3 +612,74 @@ class OptionsRoundTripTests(TestCase):
         self.assertEqual(t.options['check_in_minutes'], 60)
         self.assertEqual(t.options['restrict_country'], 'Nigeria')
         self.assertEqual(t.options['min_age'], 18)
+
+
+class OneShapeTests(TestCase):
+    """One model per thing means one shape per thing.
+
+    The fault this guards against: a field is added for one audience, so the
+    card and the page it links to quietly describe different tournaments, and
+    nobody notices until somebody asks why their tournament looks different from
+    everybody else's.
+    """
+
+    def setUp(self):
+        self.game = Games.objects.create(game_title='Shape Game')
+        self.organiser = Users.objects.create(username='shape_org', email='so@example.com')
+        self.t = Tournament.objects.create(
+            tournament_title='Shape test', tournament_game=self.game,
+            tournament_creator=self.organiser,
+            start_date_and_time=timezone.now() + timedelta(days=1),
+            end_date_and_time=timezone.now() + timedelta(days=2),
+            tournament_type='online', tournament_access='individual',
+            entry_fee='Free', is_draft=False, status='published',
+            options=opts.clean({'check_in_minutes': 30, 'restrict_country': 'Nigeria'}),
+        )
+
+    def test_the_card_and_the_detail_agree_on_the_settings(self):
+        from vent_tournament.views import serialize_tournament_card
+
+        card = serialize_tournament_card(self.t)
+        detail = self.client.get(
+            reverse('view_tournament', args=[str(self.t.tournament_id)])
+        ).json()['data']
+
+        self.assertEqual(card['options'], detail['options'])
+        self.assertEqual(card['options']['check_in_minutes'], 30)
+        self.assertEqual(card['options']['restrict_country'], 'Nigeria')
+
+    def test_the_card_carries_the_check_in_window_too(self):
+        from vent_tournament.views import serialize_tournament_card
+
+        card = serialize_tournament_card(self.t)
+        self.assertIsNotNone(card['check_in'])
+        self.assertTrue(card['check_in']['required'])
+
+    def test_the_list_endpoint_carries_them_as_well(self):
+        """Whatever surface a tournament appears on, it is the same tournament."""
+        res = self.client.get(reverse('get_all_tournaments'))
+        data = res.json()['data']
+        found = None
+        for value in data.values():
+            if isinstance(value, list):
+                for item in value:
+                    if item.get('tournament_id') == self.t.tournament_id:
+                        found = item
+        self.assertIsNotNone(found, 'the tournament should be in the list')
+        self.assertIn('options', found)
+        self.assertEqual(found['options']['check_in_minutes'], 30)
+
+    def test_every_surface_uses_the_same_key_for_the_address(self):
+        """id, tournament_id and slug mean the same thing everywhere, or links
+        built on one surface break on another."""
+        from vent_tournament.views import serialize_tournament_card
+
+        card = serialize_tournament_card(self.t)
+        detail = self.client.get(
+            reverse('view_tournament', args=[str(self.t.tournament_id)])
+        ).json()['data']
+
+        for key in ('id', 'tournament_id', 'slug', 'name', 'title', 'status'):
+            self.assertIn(key, card, f'card is missing {key}')
+            self.assertIn(key, detail, f'detail is missing {key}')
+            self.assertEqual(card[key], detail[key], f'{key} differs between card and detail')

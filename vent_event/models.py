@@ -43,11 +43,17 @@ class Event(models.Model):
         return self.name
 
     def save(self, *args, **kwargs):
-        if not self.slug:
-            from vent_auth.slugs import build_slug
-            self.slug = build_slug(
-                self.name, model=type(self), instance_pk=self.pk, pk_field='pk',
-            )
+        # The slug follows the name. Whatever it replaces is kept in SlugHistory
+        # and redirects here, so a renamed event keeps every link ever shared.
+        from vent_auth.slugs import sync_slug
+
+        changed = sync_slug(
+            self, self.name, entity_type='event', id_attr='event_id',
+        )
+        # A caller that named its fields (edit_event does) would otherwise
+        # compute the new slug and never write it, which is the whole rename path.
+        if changed and kwargs.get('update_fields') is not None:
+            kwargs['update_fields'] = list(set(kwargs['update_fields']) | {'slug'})
         super().save(*args, **kwargs)
 
 
