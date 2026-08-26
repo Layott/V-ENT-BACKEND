@@ -1,5 +1,6 @@
 from django.urls import path, include
 from .views import *
+from .views_checkin import check_in, check_in_status, close_check_in, extend_check_in
 from .views_bracket import (
     generate_bracket, report_match_score, confirm_match_score, raise_dispute,
     match_detail, distribute_prizes, cancel_tournament, my_disputes,
@@ -33,4 +34,10 @@ urlpatterns = [
     path("match/<int:match_id>/raise-dispute/", raise_dispute, name="raise_dispute"),
     path("match/<int:match_id>/dispute/", raise_dispute, name="raise_dispute_alias"),  # contract-table alias
     path("my-disputes/", my_disputes, name="my_disputes"),
+
+    # --- check-in ---------------------------------------------------------
+    path("<int:tournament_id>/check-in/", check_in, name="check_in"),
+    path("<int:tournament_id>/check-in/status/", check_in_status, name="check_in_status"),
+    path("<int:tournament_id>/close-check-in/", close_check_in, name="close_check_in"),
+    path("<int:tournament_id>/extend-check-in/", extend_check_in, name="extend_check_in"),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

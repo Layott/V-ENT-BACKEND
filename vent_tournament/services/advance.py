@@ -192,10 +192,31 @@ def _positions_elimination(tournament):
     if final_loser:
         ordered[final_loser.id] = 2
 
-    # Everyone else: the later they were eliminated, the better the placing.
+    # When a third-place match was played, it decides third and fourth outright.
+    # Without this the loop below would hand third to whoever lost it, which is
+    # the opposite of what the match was for.
     next_pos = 3
+    third_place = next(
+        (m for m in matches
+         if m is not final
+         and m.round_number == final.round_number
+         and m.bracket_side == final.bracket_side
+         and m.status == 'completed'),
+        None,
+    )
+    skip = {final}
+    if third_place is not None:
+        skip.add(third_place)
+        if third_place.winner_id:
+            ordered.setdefault(third_place.winner_id, 3)
+        bronze_loser = _loser_of(third_place)
+        if bronze_loser:
+            ordered.setdefault(bronze_loser.id, 4)
+        next_pos = 5
+
+    # Everyone else: the later they were eliminated, the better the placing.
     losers_by_round = sorted(
-        (m for m in matches if m is not final and m.status == 'completed'),
+        (m for m in matches if m not in skip and m.status == 'completed'),
         key=lambda m: (-m.round_number, m.bracket_side, m.match_number),
     )
     for m in losers_by_round:

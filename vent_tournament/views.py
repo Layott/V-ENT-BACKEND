@@ -17,6 +17,7 @@ from rest_framework.permissions import AllowAny
 
 from django.db import transaction as db_transaction
 from .money import CURRENCIES, from_coins, rates, to_coins
+from . import options as tournament_options
 from vent_auth.models import Organization
 from django.utils import timezone
 from rest_framework.decorators import api_view
@@ -303,6 +304,32 @@ def join_tournament(request):
                              'message': 'Registration is closed for this tournament'},
                             status=status.HTTP_409_CONFLICT)
 
+        # A cap that nothing enforces is a number on a page. Count what is
+        # already in before letting anybody else through the door.
+        capacity = tournament.max_number_of_teams or tournament.player_size or 0
+        if capacity:
+            taken = tournament.registrations.filter(
+                status__in=('pending', 'confirmed'),
+            ).count()
+            if taken >= capacity:
+                return Response({
+                    'status': 'error',
+                    'code': 'TOURNAMENT_FULL',
+                    'message': f'This tournament is full. All {capacity} places have been taken.',
+                    'data': {'capacity': capacity, 'registered': taken},
+                }, status=status.HTTP_409_CONFLICT)
+
+        # The entry restrictions the organiser set: verified email, age, country,
+        # identity. Refusing here rather than at the bracket means nobody pays an
+        # entry fee for a tournament they were never eligible for.
+        refusal = tournament_options.entry_refusal(tournament, user)
+        if refusal:
+            return Response({
+                'status': 'error',
+                'code': 'NOT_ELIGIBLE',
+                'message': refusal,
+            }, status=status.HTTP_403_FORBIDDEN)
+
         # Two tournaments at the same time is two matches somebody cannot play.
         # The PRD asks for a warning rather than a refusal, so this answers with
         # the clash and what it collides with, and goes ahead when the caller
@@ -579,6 +606,18 @@ def create_tournament(request):
                 score_confirmation_mode = 'both_players_confirm'
             is_draft_bool = str(is_draft) not in ('0', 'false', 'False')
 
+            # The organiser settings that decide who may enter, how the draw is
+            # made and whether there is a check-in window. The wizard sends them
+            # as one JSON object, and clean() is what makes it safe to store:
+            # unknown keys dropped, numbers clamped, every key present.
+            raw_options = request.data.get('options')
+            if isinstance(raw_options, str):
+                try:
+                    raw_options = json.loads(raw_options) if raw_options.strip() else {}
+                except (json.JSONDecodeError, ValueError):
+                    raw_options = {}
+            cleaned_options = tournament_options.clean(raw_options)
+
 
             # Sponsor data - the create wizard sends these as JSON-stringified
             # arrays in multipart FormData; sponsor logos are not uploaded yet.
@@ -643,6 +682,7 @@ def create_tournament(request):
                 prize_currency=prize_currency,
                 prize_pool_total=announced_total or None,
                 prize_pool_total_vc=to_coins(announced_total, prize_currency) or None,
+                options=cleaned_options,
                 **social_links
             )
 
@@ -867,6 +907,25 @@ def create_tournament(request):
 # it. `protected` stays listed on purpose: it restricts registration, not
 # discovery.
 PUBLICLY_LISTED = {'is_draft': False, 'tournament_visibility__in': ['public', 'protected']}
+
+
+def _check_in_summary(tournament):
+    """The check-in window as the detail page needs it, or None when unused."""
+    window = tournament_options.check_in_state(tournament, timezone.now())
+    if window is None:
+        return None
+    return {
+        'required': True,
+        'opens_at': window['opens_at'],
+        'closes_at': window['closes_at'],
+        'open_now': window['open_now'],
+        'closed': window['closed'],
+        'closed_by_organiser': window['closed_by_organiser'],
+        'forfeit_without_check_in': window['forfeit_without_check_in'],
+        'checked_in_count': tournament.registrations.filter(
+            status__in=('pending', 'confirmed'), checked_in_at__isnull=False,
+        ).count(),
+    }
 
 
 def _is_creator(request, tournament):
@@ -1102,6 +1161,10 @@ def view_tournament(request, tournament_id):
             "prize_pool": prize_pool_total,
             "max_participants": tournament.max_number_of_teams or tournament.player_size,
             "current_participants": confirmed_count,
+            # What the organiser configured, so the page can show the rules it
+            # will be held to rather than discovering them at registration.
+            "options": tournament_options.clean(tournament.options),
+            "check_in": _check_in_summary(tournament),
             "tournament_creator": creator_obj,
             "prize_distribution": prize_list,
             "tournament_logo": tournament.tournament_logo.url if tournament.tournament_logo else None,
@@ -1549,6 +1612,21 @@ def edit_tournament(request, tournament_id):
             if tournament.status in ('draft', 'published', 'registration_open'):
                 tournament.status = 'draft' if tournament.is_draft else 'registration_open'
                 updated_fields.append('status')
+
+        # Organiser settings. Merged onto what is already stored rather than
+        # replacing it, so an edit screen that only sends the check-in window
+        # cannot silently wipe the region restriction.
+        raw_options = request.data.get('options')
+        if isinstance(raw_options, str):
+            try:
+                raw_options = json.loads(raw_options) if raw_options.strip() else None
+            except (json.JSONDecodeError, ValueError):
+                raw_options = None
+        if isinstance(raw_options, dict):
+            merged = dict(tournament_options.clean(tournament.options))
+            merged.update(raw_options)
+            tournament.options = tournament_options.clean(merged)
+            updated_fields.append('options')
 
         # Validate game if provided
         game_title = request.data.get('game')
