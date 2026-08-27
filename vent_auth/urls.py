@@ -48,6 +48,7 @@ urlpatterns = [
     path("admin/tournaments/", admin_list_tournaments, name="admin_list_tournaments"),
     path("admin/events/", admin_list_events, name="admin_list_events"),
     path("platform/modules/", public_platform_modules, name="public_platform_modules"),
+    path("me/admin/", my_admin_capabilities, name="my_admin_capabilities"),
     path("admin/tournaments/<int:tournament_id>/", admin_get_tournament, name="admin_get_tournament"),
     path("admin/tournaments/<int:tournament_id>/dispute/resolve/", admin_resolve_dispute, name="admin_resolve_dispute"),
     path("admin/tournaments/<int:tournament_id>/cancel/", admin_cancel_tournament, name="admin_cancel_tournament"),

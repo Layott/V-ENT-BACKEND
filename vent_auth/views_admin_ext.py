@@ -398,3 +398,39 @@ def public_platform_modules(request):
             },
         },
     }, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+def my_admin_capabilities(request):
+    """GET /auth/me/admin/ - what the caller may administer, for the website.
+
+    Answers for whichever session the request carries. A visitor who is not
+    staff gets `is_admin: false` and an empty permission set rather than a 401,
+    because every page asks this and a page is not an error for being read by an
+    ordinary person.
+    """
+    from .actors import actor_from_request
+    from .decorators import ROLE_PERMISSIONS, effective_admin_role
+
+    user, _auth_error = actor_from_request(request)
+
+    if user is None or not getattr(user, 'is_staff', False):
+        return Response({
+            'status': 'success',
+            'message': 'OK',
+            'data': {'is_admin': False, 'role': None, 'permissions': {}},
+        }, status=status.HTTP_200_OK)
+
+    role = effective_admin_role(user)
+    permissions = {
+        name: (role in roles) for name, roles in ROLE_PERMISSIONS.items()
+    }
+
+    return Response({
+        'status': 'success',
+        'message': 'OK',
+        'data': {
+            'is_admin': True,
+            'role': role,
+            'permissions': permissions,
+        },
+    }, status=status.HTTP_200_OK)
