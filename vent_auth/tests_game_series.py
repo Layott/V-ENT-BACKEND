@@ -17,10 +17,11 @@ def an_admin(role='mod_admin', token='game-admin-grant'):
         username='adm_%s' % uuid.uuid4().hex[:6],
         email='adm_%s@vent.test' % uuid.uuid4().hex[:6],
         is_staff=True, admin_role=role,
-        admin_session_token=token,
+        login_session_token=token,
     )
-    user.admin_session_created_at = timezone.now()
-    user.save(update_fields=['admin_session_created_at'])
+    user.login_session_created_at = timezone.now()
+    user.login_session_2fa_at = timezone.now()
+    user.save(update_fields=['login_session_created_at', 'login_session_2fa_at'])
     return user, {'HTTP_AUTHORIZATION': 'Bearer %s' % token}
 
 
@@ -131,7 +132,8 @@ class AdminGameCatalogueTests(TestCase):
             login_session_token='member-token',
         )
         member.login_session_created_at = timezone.now()
-        member.save(update_fields=['login_session_created_at'])
+        member.login_session_2fa_at = timezone.now()
+        member.save(update_fields=['login_session_created_at', 'login_session_2fa_at'])
         res = self.client.post('/auth/admin/games/', data={'name': 'Nope'},
                                content_type='application/json',
                                HTTP_AUTHORIZATION='Bearer member-token')

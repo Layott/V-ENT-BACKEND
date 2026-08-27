@@ -5,7 +5,6 @@ from django.conf.urls.static import static
 
 
 from .views_rankings import games_list
-from .views_admin import admin_2fa_verify, admin_step_up
 from .views_admin_rates import (
     admin_rates, admin_rate_detail, admin_refresh_rates,
 )
@@ -22,6 +21,7 @@ urlpatterns = [
     path('signup/', signup, name='signup'),
     path('verify/<uidb64>/<token>/', verify_token_3, name='verify_token_3'),
     path('login/', login, name='login'),
+    path('login/2fa/verify/', login_2fa_verify, name='login_2fa_verify'),
     path('logout/', logout, name='logout'),
     path('dj-rest-auth/', include('dj_rest_auth.urls')),
     path('dj-rest-auth/registration/', include('dj_rest_auth.registration.urls')),
@@ -35,7 +35,6 @@ urlpatterns = [
     path("forgot-password/change-password/", change_password_fp, name="change_password_fp"),
     path("send-code/", send_code, name="send_code"),
     path("save-username/", save_username, name="save_username"),
-    path("admin/login/", admin_login, name="admin_login"),
     path("admin/me/", admin_me, name="admin_me"),
     path("admin/get-all-username-and-email/", get_all_username_and_email, name="get_all_username_and_email"),
     path("admin/user-count/", get_number_of_all_users, name="get_number_of_all_users"),
@@ -118,8 +117,6 @@ urlpatterns = [
     path("resend-forgot-password-token/", resend_forgot_password_token, name="resend_forgot_password_token"),
     path("upload-images/", upload_images, name="upload_images"),
     path("games/", games_list, name="games_list"),
-    path("admin/step-up/", admin_step_up, name="admin_step_up"),
-    path("admin/2fa/verify/", admin_2fa_verify, name="admin_2fa_verify"),
     path("get-user-gallery/", get_user_gallery, name="get_user_gallery"),
     path("delete-gallery-image/", delete_gallery_image, name="delete_gallery_image"),
     # Wallet

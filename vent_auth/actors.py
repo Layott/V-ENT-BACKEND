@@ -5,10 +5,10 @@ until a second module needs the same answer. Events need it now, and a second
 copy of authentication logic is how two endpoints quietly start disagreeing
 about who is signed in.
 
-The console and the website hold SEPARATE sessions on purpose
-(`admin_session_token` vs `login_session_token`), so signing out of one does not
-sign you out of the other. That separation stays. What lives here is only the
-recognition that a request carrying either one is somebody.
+There is one session now. The console used to hold a grant of its own, from a
+sign-in of its own; it reads the site session instead, and what makes that
+session an admin session is the authenticator code taken at the front door. So
+this recognises one token, not two.
 """
 from datetime import timedelta
 
@@ -75,5 +75,11 @@ def may_override(user, permission):
     from .decorators import ROLE_PERMISSIONS, effective_admin_role
 
     if not getattr(user, 'is_staff', False):
+        return False
+    # The same bar the console door asks for. Overruling an owner is an admin
+    # act wherever it is done from, so a session that never met the
+    # authenticator does not get to do it just because it arrived through an
+    # ordinary endpoint rather than through /auth/admin/.
+    if getattr(user, 'login_session_2fa_at', None) is None:
         return False
     return effective_admin_role(user) in ROLE_PERMISSIONS.get(permission, set())

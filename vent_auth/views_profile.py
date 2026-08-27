@@ -12,6 +12,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
+from . import login_2fa
 from .models import (
     Users, UserProfile, UserInterests, UserCommunity, UserWallet,
     Games, GameAccount, FavoriteGames, Teams, TeamProfile, SocialLink,
@@ -353,6 +354,15 @@ def get_user_informations(request):
             'full_name': user.full_name,
             'username': user.username,
             'email': user.email,
+            # Whether this account can reach the console, and whether this
+            # session is allowed to. Two different questions: the first is what
+            # the account is, the second is whether the sign-in behind this
+            # session carried the authenticator code. The frontend needs both -
+            # one to decide where to send somebody after they sign in, the
+            # other to know whether the console will actually open.
+            'is_staff': bool(user.is_staff or user.is_superuser),
+            'is_admin': login_2fa.is_admin(user),
+            'session_passed_2fa': user.login_session_2fa_at is not None,
             # A founder looking at their own profile saw no badge, because this
             # payload never carried the flag - only the public profile view did.
             # So the mark appeared to everybody except the person who earned it,

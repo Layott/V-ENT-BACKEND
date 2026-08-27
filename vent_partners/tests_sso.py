@@ -27,10 +27,11 @@ def signed_in(username, **extra):
     # website session. The two used to be one field, which is why this fixture
     # only ever minted a site token.
     if extra.get('is_staff'):
-        user.admin_session_token = f'adm{username}'[:16]
-        user.admin_session_created_at = timezone.now()
-        user.save(update_fields=['admin_session_token', 'admin_session_created_at'])
-        return user, {'HTTP_AUTHORIZATION': f'Bearer {user.admin_session_token}'}
+        user.login_session_token = f'adm{username}'[:16]
+        user.login_session_created_at = timezone.now()
+        user.login_session_2fa_at = timezone.now()
+        user.save(update_fields=['login_session_token', 'login_session_created_at', 'login_session_2fa_at'])
+        return user, {'HTTP_AUTHORIZATION': f'Bearer {user.login_session_token}'}
     return user, {'HTTP_AUTHORIZATION': f'Bearer {user.login_session_token}'}
 
 

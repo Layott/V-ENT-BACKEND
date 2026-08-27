@@ -27,17 +27,23 @@ def a_user(name, **extra):
         **extra,
     )
     user.login_session_created_at = timezone.now()
-    user.save(update_fields=['login_session_created_at'])
+    user.login_session_2fa_at = timezone.now()
+    user.save(update_fields=['login_session_created_at', 'login_session_2fa_at'])
     return user, {'HTTP_AUTHORIZATION': 'Bearer %s' % user.login_session_token}
 
 
 def console_auth(user, token):
-    """An admin signed into the console but not into the website."""
-    user.admin_session_token = token
-    user.admin_session_created_at = timezone.now()
-    user.login_session_token = None
-    user.save(update_fields=['admin_session_token', 'admin_session_created_at',
-                             'login_session_token'])
+    """An admin whose session passed the authenticator challenge.
+
+    This used to mean "signed into the console but not the website", back when
+    those were two sessions with two tokens. There is one now, and what makes it
+    an admin session is the second factor taken at the front door.
+    """
+    user.login_session_token = token
+    user.login_session_created_at = timezone.now()
+    user.login_session_2fa_at = timezone.now()
+    user.save(update_fields=['login_session_token', 'login_session_created_at',
+                             'login_session_2fa_at'])
     return {'HTTP_AUTHORIZATION': 'Bearer %s' % token}
 
 

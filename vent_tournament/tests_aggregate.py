@@ -316,8 +316,9 @@ class StandingsApiTests(TestCase):
         self.admin = make_user('an_admin')
         self.admin.is_staff = True
         self.admin.admin_role = 'super_admin'
-        self.admin.admin_session_token = 'league-admin-grant'
-        self.admin.admin_session_created_at = timezone.now()
+        self.admin.login_session_token = 'league-admin-grant'
+        self.admin.login_session_created_at = timezone.now()
+        self.admin.login_session_2fa_at = timezone.now()
         self.admin.save()
         self.auth = {'HTTP_AUTHORIZATION': 'Bearer league-admin-grant'}
 

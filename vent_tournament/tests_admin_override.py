@@ -29,7 +29,8 @@ def a_user(name, **extra):
         **extra,
     )
     user.login_session_created_at = timezone.now()
-    user.save(update_fields=['login_session_created_at'])
+    user.login_session_2fa_at = timezone.now()
+    user.save(update_fields=['login_session_created_at', 'login_session_2fa_at'])
     return user, {'HTTP_AUTHORIZATION': f'Bearer {user.login_session_token}'}
 
 
@@ -121,18 +122,19 @@ class AdminOverrideTests(TestCase):
         self.assertEqual(self.t.tournament_description, 'Rewritten by an admin')
 
 def console_auth(user):
-    """Headers for an admin signed into the console but NOT into the site.
+    """Headers for an admin whose session passed the authenticator challenge.
 
-    The console session is a different token with a different clock. Blanking
-    the site token is the whole point of the test: it reproduces the real case,
-    an admin who never signed in to the website at all.
+    This used to build an admin signed into the console but NOT into the site,
+    because those were two sessions. There is one now: an admin is a signed-in
+    member who typed a code from their authenticator to get in, and that mark is
+    what the console reads.
     """
-    user.admin_session_token = 'adm-%s' % user.pk
-    user.admin_session_created_at = timezone.now()
-    user.login_session_token = None
+    user.login_session_token = 'adm-%s' % user.pk
+    user.login_session_created_at = timezone.now()
+    user.login_session_2fa_at = timezone.now()
     user.save(update_fields=[
-        'admin_session_token', 'admin_session_created_at', 'login_session_token'])
-    return {'HTTP_AUTHORIZATION': 'Bearer %s' % user.admin_session_token}
+        'login_session_token', 'login_session_created_at', 'login_session_2fa_at'])
+    return {'HTTP_AUTHORIZATION': 'Bearer %s' % user.login_session_token}
 
 
 class AdminConsoleSessionTests(TestCase):
@@ -188,8 +190,8 @@ class AdminConsoleSessionTests(TestCase):
 
     def test_an_expired_console_session_is_refused(self):
         headers = console_auth(self.admin)
-        self.admin.admin_session_created_at = timezone.now() - timedelta(days=90)
-        self.admin.save(update_fields=['admin_session_created_at'])
+        self.admin.login_session_created_at = timezone.now() - timedelta(days=90)
+        self.admin.save(update_fields=['login_session_created_at', 'login_session_2fa_at'])
         res = self.client.put(
             '/tournament/edit-tournament/%s/' % self.draft.tournament_id,
             data={'tournament_title': 'Should Not Land'},
@@ -198,12 +200,24 @@ class AdminConsoleSessionTests(TestCase):
         self.draft.refresh_from_db()
         self.assertEqual(self.draft.tournament_title, 'Half Written Draft')
 
-    def test_the_two_sessions_stay_independent(self):
-        """PR #39's mistake, guarded: one token must never be the other."""
+    def test_a_session_without_the_second_factor_reaches_nothing(self):
+        """What replaced the two-token guard.
+
+        There used to be two sessions here, and the thing worth guarding was
+        that one token never became the other. There is one token now, so the
+        thing worth guarding is the mark on it: a session that never met the
+        authenticator is an ordinary session and overrules nobody.
+        """
         headers = console_auth(self.admin)
         self.admin.refresh_from_db()
-        self.assertIsNotNone(self.admin.admin_session_token)
-        self.assertNotEqual(
-            self.admin.admin_session_token, self.admin.login_session_token)
-        self.assertEqual(headers['HTTP_AUTHORIZATION'],
-                         'Bearer %s' % self.admin.admin_session_token)
+        self.assertIsNotNone(self.admin.login_session_2fa_at)
+
+        self.admin.login_session_2fa_at = None
+        self.admin.save(update_fields=['login_session_2fa_at'])
+        res = self.client.put(
+            '/tournament/edit-tournament/%s/' % self.draft.tournament_id,
+            data={'tournament_title': 'Should Not Land'},
+            content_type='application/json', **headers)
+        self.assertNotEqual(res.status_code, 200, res.content)
+        self.draft.refresh_from_db()
+        self.assertEqual(self.draft.tournament_title, 'Half Written Draft')
