@@ -179,3 +179,27 @@ class ScopeTests(TestCase):
     def test_pagination_is_bounded(self):
         res = self.client.get('/api/v1/tournaments/?page_size=5000', **self.auth)
         self.assertLessEqual(res.json()['data']['page_size'], 100)
+
+
+class BrandTests(TestCase):
+    """A partner showing V-ENT data needs something to show it as.
+
+    Without this they take a logo off the website at whatever size they find it,
+    or they show nothing and the data reads as theirs.
+    """
+
+    def test_the_index_carries_the_marks_and_how_to_use_them(self):
+        res = self.client.get('/api/v1/')
+        self.assertEqual(res.status_code, 200, res.content)
+        brand = res.json()['data']['brand']
+        self.assertEqual(brand['name'], 'V-ENT')
+        self.assertTrue(brand['logo'].endswith('.png'))
+        self.assertTrue(brand['logo_svg'].endswith('.svg'))
+        self.assertTrue(brand['attribution'])
+        self.assertTrue(brand['usage'])
+
+    def test_the_marks_need_no_key(self):
+        """Somebody deciding whether to integrate has not got a key yet."""
+        res = self.client.get('/api/v1/')
+        self.assertEqual(res.status_code, 200)
+        self.assertIn('brand', res.json()['data'])
