@@ -53,10 +53,17 @@ def serialize_ticket_tier(tier):
 
 
 def serialize_sponsor(request, sponsor):
+    """A sponsor or a partner, with somewhere to send whoever clicks the logo."""
     return {
         'id': sponsor.sponsor_id,
         'name': sponsor.name,
+        'kind': sponsor.kind,
         'logo': absolute_media_url(request, sponsor.logo, sponsor.logo_url),
+        'website': sponsor.website,
+        'links': [
+            {'platform': link.platform, 'url': link.url}
+            for link in sponsor.links.all()
+        ],
     }
 
 
@@ -136,7 +143,10 @@ def serialize_event_detail(request, event):
             'username': creator.username,
             'full_name': creator.full_name,
         } if creator else None,
-        'sponsors': [serialize_sponsor(request, s) for s in event.sponsors.all()],
+        'sponsors': [serialize_sponsor(request, s) for s in event.sponsors.all()
+                     if s.kind == 'sponsor'],
+        'partners': [serialize_sponsor(request, s) for s in event.sponsors.all()
+                     if s.kind == 'partner'],
         'social_links': social_links_dict(event),
         'linked_tournaments': _linked_tournaments(request, event),
         'vendors_count': event.vendor_invites.count(),

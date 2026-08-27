@@ -61,6 +61,11 @@ class Tournament(models.Model):
     # has already shared.
     slug = models.SlugField(max_length=160, unique=True, null=True, blank=True, db_index=True)
     tournament_game = models.ForeignKey(Games, on_delete=models.SET_NULL, null=True, blank=True)
+    # Which edition of that game. Optional: plenty of titles have no editions,
+    # and an older tournament predates the list existing.
+    tournament_series = models.ForeignKey(
+        'vent_auth.GameSeries', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='tournaments')
     game_mode = models.CharField(max_length=50, null=True, blank=True)  # Game Mode
     tournament_logo = models.ImageField(upload_to='tournament_logos/', null=True, blank=True)
     tournament_banner = models.ImageField(upload_to='tournament_banners/', null=True, blank=True)

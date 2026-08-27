@@ -216,9 +216,53 @@ class Games(models.Model):
     game_title = models.CharField(max_length=40, unique=True)
     description = models.TextField(null=True)
     logo = models.ImageField(upload_to='game_logos/', null=True, blank=True)  # Add the logo field
+    # A game that is no longer run leaves the pickers without being deleted.
+    # Deleting is not an option: tournaments point at it, and some of those FKs
+    # cascade.
+    is_active = models.BooleanField(default=True)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['sort_order', 'game_title']
 
     def __str__(self):
         return self.game_title
+
+
+class GameSeries(models.Model):
+    """One edition of a game: EA FC 25, CODM Season 4, Street Fighter 6.
+
+    Annual titles were being added as whole new games, so nothing tied this
+    year's EA FC to last year's. An organiser picks the game, then the edition.
+    """
+    series_id = models.AutoField(primary_key=True)
+    game = models.ForeignKey(Games, on_delete=models.CASCADE, related_name='series')
+    name = models.CharField(max_length=60)
+    slug = models.SlugField(max_length=160, unique=True, null=True, blank=True, db_index=True)
+    release_year = models.PositiveIntegerField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name_plural = 'Game series'
+        ordering = ['sort_order', '-release_year', 'name']
+        # Two editions of the SAME game cannot share a name. Two different games
+        # can both have a "2025", which is why this is not unique on its own.
+        unique_together = ('game', 'name')
+
+    def save(self, *args, **kwargs):
+        from vent_auth.slugs import sync_slug
+
+        changed = sync_slug(
+            self, '%s %s' % (self.game.game_title if self.game_id else '', self.name),
+            entity_type='game_series', id_attr='series_id',
+        )
+        if changed and kwargs.get('update_fields') is not None:
+            kwargs['update_fields'] = list(set(kwargs['update_fields']) | {'slug'})
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return '%s %s' % (self.game.game_title, self.name)
 
 
 class Achievement(models.Model):

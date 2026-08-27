@@ -6,6 +6,9 @@ from django.conf.urls.static import static
 
 from .views_rankings import games_list
 from .views_admin import admin_2fa_verify, admin_step_up
+from .views_admin_games import (
+    admin_games, admin_game_detail, admin_game_series, admin_series_detail,
+)
 from .views_kyc_files import kyc_document
 from .views_waitlist import waitlist_claim, waitlist_claim_preview
 from . import views_linking as linking
@@ -47,6 +50,10 @@ urlpatterns = [
     path("admin/users/<int:user_id>/delete/", admin_delete_user, name="admin_delete_user"),
     path("admin/tournaments/", admin_list_tournaments, name="admin_list_tournaments"),
     path("admin/events/", admin_list_events, name="admin_list_events"),
+    path("admin/games/", admin_games, name="admin_games"),
+    path("admin/games/<int:game_id>/", admin_game_detail, name="admin_game_detail"),
+    path("admin/games/<int:game_id>/series/", admin_game_series, name="admin_game_series"),
+    path("admin/series/<int:series_id>/", admin_series_detail, name="admin_series_detail"),
     path("platform/modules/", public_platform_modules, name="public_platform_modules"),
     path("me/admin/", my_admin_capabilities, name="my_admin_capabilities"),
     path("admin/tournaments/<int:tournament_id>/", admin_get_tournament, name="admin_get_tournament"),
