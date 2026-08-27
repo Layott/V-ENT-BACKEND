@@ -17,6 +17,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from vent_auth.decorators import resolve_admin
+from vent_auth.models import AdminAction
 from vent_auth.views_profile import _user_from_bearer
 from vent_auth import emails
 
@@ -422,3 +423,122 @@ def admin_sso_review(request, partner_id):
     partner.reviewed_at = timezone.now()
     partner.save()
     return _ok(_partner_row(partner, include_private=True), 'SSO refused.')
+
+
+# ---------------------------------------------------------------------------
+# Admin: change what a partner may read, and rotate a key
+# ---------------------------------------------------------------------------
+
+@api_view(['POST'])
+def admin_set_scopes(request, partner_id):
+    """POST /partners/admin/<id>/scopes/ - change the grant without re-approving.
+
+    Taking a scope away is not a re-approval, and dressing it up as one rewrites
+    the review note and the reviewer, which is exactly the history somebody will
+    later want to read.
+
+    Live keys are trimmed to match. A key carrying a scope the partner no longer
+    holds would otherwise keep working: `requires_scope` checks the key AND the
+    partner, so it would in fact be refused - but leaving the key claiming a
+    scope it cannot use makes every debugging session start with a lie.
+    """
+    admin, err = _admin(request)
+    if err:
+        return err
+
+    partner = Partner.objects.filter(pk=partner_id).first()
+    if partner is None:
+        return _err('No such partner.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+
+    scopes = request.data.get('scopes')
+    if scopes is None:
+        return _err('Send the scopes this partner should hold.', 'MISSING_FIELDS')
+
+    granted = valid_scopes(scopes)
+
+    with transaction.atomic():
+        partner.approved_scopes = granted
+        partner.save(update_fields=['approved_scopes'])
+
+        for key in partner.api_keys.filter(revoked_at__isnull=True):
+            trimmed = [s for s in (key.scopes or []) if s in granted]
+            if trimmed != list(key.scopes or []):
+                key.scopes = trimmed
+                key.save(update_fields=['scopes'])
+
+    AdminAction.objects.create(
+        admin=admin,
+        action_type='set_partner_scopes',
+        target_model='Partner',
+        target_id=str(partner.pk),
+        reason=(request.data.get('reason') or '')[:2000],
+        metadata={'scopes': granted},
+    )
+
+    return _ok(_partner_row(partner, include_private=True), 'Scopes updated.')
+
+
+@api_view(['POST'])
+def admin_rotate_key(request, partner_id, key_id):
+    """POST /partners/admin/<id>/keys/<key id>/rotate/ - replace a key now.
+
+    Revoke and issue in one transaction, so there is never a moment with two
+    live keys for the same purpose, and never a moment with none.
+
+    The new secret is returned once and is not stored in readable form, so it
+    has to be handed to the partner from this response. That is the same
+    contract as issuing a key, and it is why the answer says so.
+    """
+    admin, err = _admin(request)
+    if err:
+        return err
+
+    partner = Partner.objects.filter(pk=partner_id).first()
+    if partner is None:
+        return _err('No such partner.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+
+    old = partner.api_keys.filter(pk=key_id, revoked_at__isnull=True).first()
+    if old is None:
+        return _err('No such live key on this partner.', 'NOT_FOUND',
+                    status.HTTP_404_NOT_FOUND)
+
+    if not partner.is_active:
+        return _err('This partner is not active, so it may not hold a key.',
+                    'NOT_APPROVED', status.HTTP_403_FORBIDDEN)
+
+    # The replacement carries what the old one carried, minus anything the
+    # partner has since lost.
+    scopes = [s for s in (old.scopes or []) if partner.allows(s)]
+    if not scopes:
+        return _err('That key carries no scope this partner still holds. '
+                    'Set the scopes first.', 'NO_SCOPES')
+
+    with transaction.atomic():
+        old.revoked_at = timezone.now()
+        old.save(update_fields=['revoked_at'])
+        key, plaintext = PartnerApiKey.issue(
+            partner,
+            name=old.name,
+            scopes=scopes,
+            created_by=admin,
+        )
+
+    AdminAction.objects.create(
+        admin=admin,
+        action_type='rotate_partner_key',
+        target_model='PartnerApiKey',
+        target_id=str(old.pk),
+        reason=(request.data.get('reason') or '')[:2000],
+        metadata={'partner': partner.pk, 'replaced_by': key.pk},
+    )
+
+    return _ok(
+        {
+            'key': {'id': key.id, 'name': key.name, 'key_id': key.key_id,
+                    'scopes': key.scopes},
+            'secret': plaintext,
+            'revoked': {'id': old.id, 'key_id': old.key_id},
+        },
+        'Key rotated. The secret is shown once - send it to the partner now.',
+        status.HTTP_201_CREATED,
+    )
