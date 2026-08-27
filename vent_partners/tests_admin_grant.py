@@ -61,3 +61,65 @@ class PartnersAdminGrantTests(TestCase):
                                    HTTP_AUTHORIZATION='Bearer not-an-admin-grant')
 
         self.assertIn(response.status_code, (401, 403))
+
+class PartnersAreSuperAdminOnlyTests(TestCase):
+    """Only a super admin may see or decide partner access.
+
+    The guard used to be "is this any admin at all", so a support or finance
+    admin could list every partner with its scopes and key count, and could call
+    the review endpoints to approve a partner and grant it SSO. The console hid
+    the section from them, which stops nobody who types the URL.
+    """
+
+    def _admin_of_role(self, role, token):
+        return make_admin(
+            username='adm_%s' % role,
+            email='adm_%s@example.com' % role,
+            admin_role=role,
+            login_session_token=None,
+            admin_session_token=token,
+        )
+
+    def test_a_support_admin_cannot_list_partners(self):
+        self._admin_of_role('support_admin', 'support-grant')
+        response = self.client.get('/partners/admin/list/',
+                                   HTTP_AUTHORIZATION='Bearer support-grant')
+        self.assertEqual(response.status_code, 403, response.content)
+
+    def test_a_finance_admin_cannot_list_partners(self):
+        self._admin_of_role('finance_admin', 'finance-grant')
+        response = self.client.get('/partners/admin/list/',
+                                   HTTP_AUTHORIZATION='Bearer finance-grant')
+        self.assertEqual(response.status_code, 403, response.content)
+
+    def test_a_moderator_cannot_list_partners(self):
+        self._admin_of_role('mod_admin', 'mod-grant')
+        response = self.client.get('/partners/admin/list/',
+                                   HTTP_AUTHORIZATION='Bearer mod-grant')
+        self.assertEqual(response.status_code, 403, response.content)
+
+    def test_a_super_admin_still_can(self):
+        make_admin(admin_session_token='super-grant')
+        response = self.client.get('/partners/admin/list/',
+                                   HTTP_AUTHORIZATION='Bearer super-grant')
+        self.assertEqual(response.status_code, 200, response.content)
+
+    def test_a_support_admin_cannot_approve_a_partner(self):
+        """The one that matters: granting scopes to an outside party."""
+        self._admin_of_role('support_admin', 'support-grant-2')
+        response = self.client.post(
+            '/partners/admin/1/review/',
+            data={'decision': 'approved'},
+            content_type='application/json',
+            HTTP_AUTHORIZATION='Bearer support-grant-2')
+        self.assertEqual(response.status_code, 403, response.content)
+
+    def test_a_support_admin_cannot_approve_sso(self):
+        """SSO hands a partner people's identities."""
+        self._admin_of_role('support_admin', 'support-grant-3')
+        response = self.client.post(
+            '/partners/admin/1/sso-review/',
+            data={'decision': 'approved'},
+            content_type='application/json',
+            HTTP_AUTHORIZATION='Bearer support-grant-3')
+        self.assertEqual(response.status_code, 403, response.content)
