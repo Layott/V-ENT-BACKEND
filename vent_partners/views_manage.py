@@ -542,3 +542,63 @@ def admin_rotate_key(request, partner_id, key_id):
         'Key rotated. The secret is shown once - send it to the partner now.',
         status.HTTP_201_CREATED,
     )
+
+
+@api_view(['POST'])
+def admin_issue_key(request, partner_id):
+    """POST /partners/admin/<id>/keys/ - issue a key on a partner's behalf.
+
+    Rotation could only replace a key that already existed, and the live partner
+    had none: nothing had ever issued one, because issuing was self-service and
+    the partner had not done it. So the console offered nothing to rotate and no
+    way to get there.
+
+    The secret is returned once and is not stored in readable form, so it has to
+    be handed over from this response.
+    """
+    admin, err = _admin(request)
+    if err:
+        return err
+
+    partner = Partner.objects.filter(pk=partner_id).first()
+    if partner is None:
+        return _err('No such partner.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+
+    if not partner.is_active:
+        return _err('This partner is not active, so it may not hold a key.',
+                    'NOT_APPROVED', status.HTTP_403_FORBIDDEN)
+
+    if partner.api_keys.filter(revoked_at__isnull=True).count() >= 5:
+        return _err('Five live keys is the limit. Revoke one first.', 'TOO_MANY_KEYS')
+
+    wanted = valid_scopes(request.data.get('scopes')) or list(partner.approved_scopes or [])
+    granted = [s for s in wanted if partner.allows(s)]
+    if not granted:
+        return _err('This partner holds no scopes to put on a key. Set them first.',
+                    'NO_SCOPES')
+
+    key, plaintext = PartnerApiKey.issue(
+        partner,
+        name=(request.data.get('name') or 'Issued by an admin')[:120],
+        scopes=granted,
+        created_by=admin,
+    )
+
+    AdminAction.objects.create(
+        admin=admin,
+        action_type='issue_partner_key',
+        target_model='PartnerApiKey',
+        target_id=str(key.pk),
+        reason=(request.data.get('reason') or '')[:2000],
+        metadata={'partner': partner.pk, 'scopes': granted},
+    )
+
+    return _ok(
+        {
+            'key': {'id': key.id, 'name': key.name, 'key_id': key.key_id,
+                    'scopes': key.scopes},
+            'secret': plaintext,
+        },
+        'Key issued. The secret is shown once - send it to the partner now.',
+        status.HTTP_201_CREATED,
+    )
