@@ -46,6 +46,7 @@ urlpatterns = [
     path("admin/users/<int:user_id>/role/", admin_set_user_role, name="admin_set_user_role"),
     path("admin/users/<int:user_id>/delete/", admin_delete_user, name="admin_delete_user"),
     path("admin/tournaments/", admin_list_tournaments, name="admin_list_tournaments"),
+    path("admin/events/", admin_list_events, name="admin_list_events"),
     path("admin/tournaments/<int:tournament_id>/", admin_get_tournament, name="admin_get_tournament"),
     path("admin/tournaments/<int:tournament_id>/dispute/resolve/", admin_resolve_dispute, name="admin_resolve_dispute"),
     path("admin/tournaments/<int:tournament_id>/cancel/", admin_cancel_tournament, name="admin_cancel_tournament"),

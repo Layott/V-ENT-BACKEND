@@ -2,7 +2,7 @@ from django.urls import path
 from django.conf import settings
 from django.conf.urls.static import static
 
-from .views import create_event, get_all_events, view_event
+from .views import create_event, get_all_events, view_event, edit_event
 from .views_tickets import (
     ticket_types, buy_ticket, my_tickets, check_in_ticket, event_attendees,
 )
@@ -20,6 +20,7 @@ urlpatterns = [
     path("create-event/", create_event, name="create_event"),
     path("get-all-events/", get_all_events, name="get_all_events"),
     path("view-event/<str:event_id>/", view_event, name="view_event"),
+    path("edit-event/<int:event_id>/", edit_event, name="edit_event"),
     # Vendor shops
     path("<int:event_id>/vendors/", event_vendors, name="event_vendors"),
     path("<int:event_id>/vendors/create/", create_vendor, name="create_vendor"),

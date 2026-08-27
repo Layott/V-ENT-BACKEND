@@ -1588,63 +1588,22 @@ def delete_draft(request, tournament_id):
         return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-def _actor_from_request(request):
-    """The account behind this request, by site token or admin token.
-
-    Returns (user, error_response). Exactly one is not None.
-
-    The site token is tried first because that is the ordinary case; the admin
-    token is the console calling the organiser's own endpoint. Both are checked
-    for expiry against their own clock, because they are separate sessions and
-    always were.
-    """
-    header = request.headers.get('Authorization')
-    if not header or not header.startswith('Bearer '):
-        return None, Response(
-            {'code': 'AUTHORIZATION_HEADER_REQUIRED', 'status': 'error',
-             'message': 'Authorization header is required'},
-            status=status.HTTP_400_BAD_REQUEST)
-
-    token = header.split(' ', 1)[1]
-
-    user = Users.objects.filter(login_session_token=token).first()
-    if user is not None:
-        if user.login_session_created_at is None or \
-                timezone.now() - user.login_session_created_at > timedelta(
-                    minutes=session_timeout_minutes()):
-            return None, Response(
-                {'code': 'SESSION_TOKEN_EXPIRED', 'status': 'error',
-                 'message': 'Session token has expired'},
-                status=status.HTTP_401_UNAUTHORIZED)
-        return user, None
-
-    # Not a site session. The admin console holds its own, and a request that
-    # carries it is that admin whether or not they are signed in to the site.
-    from vent_auth.decorators import resolve_admin
-    admin, _admin_error = resolve_admin(request)
-    if admin is not None:
-        return admin, None
-
-    return None, Response(
-        {'code': 'INVALID_EXPIRED_SESSION_TOKEN', 'status': 'error',
-         'message': 'Invalid or expired session token'},
-        status=status.HTTP_401_UNAUTHORIZED)
+# Both helpers now live in vent_auth.actors, because events need the same two
+# answers and a second copy of authentication logic is how two endpoints start
+# disagreeing about who is signed in. The local names are kept so the call sites
+# below read the same as before.
+from vent_auth.actors import actor_from_request as _actor_from_request
 
 
 def _may_override(user):
     """Whether this account may edit somebody else's tournament.
 
-    The same roles that may already cancel one. An admin who can call off a
-    tournament outright can certainly correct its start time, and tying the two
-    together means there is one answer to "who may touch a tournament they do
-    not own" rather than two that can disagree.
+    The same roles that may already cancel one: an admin who can call off a
+    tournament outright can certainly correct its start time.
     """
-    from vent_auth.decorators import ROLE_PERMISSIONS, effective_admin_role
+    from vent_auth.actors import may_override
 
-    if not getattr(user, 'is_staff', False):
-        return False
-    role = effective_admin_role(user)
-    return role in ROLE_PERMISSIONS.get('cancel_tournament', set())
+    return may_override(user, 'cancel_tournament')
 
 
 @api_view(['PUT'])

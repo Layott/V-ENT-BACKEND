@@ -461,3 +461,116 @@ def buy_ticket(request, event_id):
         'Ticket purchasing launches with the Events phase. This feature is not available yet.',
         'FEATURE_NOT_AVAILABLE', status.HTTP_503_SERVICE_UNAVAILABLE,
     )
+
+@api_view(['PUT'])
+def edit_event(request, event_id):
+    """PUT /event/edit-event/{id}/ - correct an event.
+
+    The organiser edits their own; an admin holding `manage_events` may correct
+    somebody else's, which is written to the audit log. Partial: a field that is
+    not sent is not touched, so a screen showing five fields cannot blank the
+    other twenty by omission.
+    """
+    from vent_auth.actors import actor_from_request, may_override
+
+    user, auth_error = actor_from_request(request)
+    if auth_error is not None:
+        return auth_error
+
+    event = get_object_or_404(Event, event_id=event_id)
+
+    is_owner = event.creator_id == user.user_id
+    acting_as_admin = (not is_owner) and may_override(user, 'manage_events')
+    if not is_owner and not acting_as_admin:
+        return _error('Only the event organizer can edit this event.',
+                      'ONLY_EVENT_ORGANIZER_CAN', status.HTTP_403_FORBIDDEN)
+
+    data = request.data
+    updated = []
+
+    text_fields = [
+        'name', 'desc', 'event_type', 'category', 'location', 'event_link',
+        'banner_url',
+    ]
+    for field in text_fields:
+        value = data.get(field)
+        if value is not None:
+            setattr(event, field, value)
+            updated.append(field)
+
+    # Numbers, guarded: a capacity of "soon" must not reach the column.
+    for field in ('entry_fee', 'capacity'):
+        value = data.get(field)
+        if value in (None, ''):
+            continue
+        try:
+            setattr(event, field, int(float(value)) if field == 'capacity' else value)
+        except (TypeError, ValueError):
+            return _error('%s must be a number.' % field, 'INVALID_NUMBER',
+                          status.HTTP_400_BAD_REQUEST)
+        updated.append(field)
+
+    for field in ('start_date', 'end_date'):
+        value = data.get(field)
+        if value in (None, ''):
+            continue
+        parsed = parse_datetime(value) if isinstance(value, str) else value
+        if parsed is None:
+            return _error('%s must be a date and time.' % field, 'INVALID_DATETIME',
+                          status.HTTP_400_BAD_REQUEST)
+        # A browser's datetime-local field sends "2026-07-26T23:30" with no zone,
+        # and the stored dates are timezone aware. Comparing the two raises, so
+        # the naive one is read as local time before it goes anywhere near a
+        # comparison or the column.
+        if timezone.is_naive(parsed):
+            parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+        setattr(event, field, parsed)
+        updated.append(field)
+
+    # An event that ends before it starts is the one ordering mistake worth
+    # catching here, because nothing downstream can make sense of it.
+    if event.start_date and event.end_date and event.end_date < event.start_date:
+        return _error('The event cannot end before it starts.',
+                      'END_BEFORE_START', status.HTTP_400_BAD_REQUEST)
+
+    if 'is_active' in data:
+        event.is_active = str(data.get('is_active')).lower() in ('1', 'true', 'yes')
+        updated.append('is_active')
+
+    if request.FILES.get('logo'):
+        event.logo = request.FILES['logo']
+        updated.append('logo')
+    if request.FILES.get('banner'):
+        event.banner = request.FILES['banner']
+        updated.append('banner')
+
+    if not updated:
+        return _error('Nothing to change.', 'NO_FIELDS_TO_UPDATE',
+                      status.HTTP_400_BAD_REQUEST)
+
+    # save() adds `slug` itself when the name changed, so a rename keeps every
+    # link ever shared instead of silently dropping the new slug.
+    event.save(update_fields=updated + ['last_updated'])
+
+    if acting_as_admin:
+        # An organiser who finds their venue changed deserves to be able to find
+        # out who changed it.
+        from vent_auth.models import AdminAction
+
+        AdminAction.objects.create(
+            admin=user,
+            action_type='edit_event',
+            target_model='Event',
+            target_id=str(event.event_id),
+            metadata={'updated_fields': updated, 'owner_id': event.creator_id},
+        )
+
+    return Response({
+        'status': 'success',
+        'message': 'Event updated.',
+        'data': {
+            'event': serialize_event_detail(request, event),
+            'updated_fields': updated,
+            'edited_as_admin': acting_as_admin,
+        },
+    }, status=status.HTTP_200_OK)
