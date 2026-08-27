@@ -28,6 +28,12 @@ from .decorators import (
 
 # Pending-2FA tokens are signed, not stored: they carry only the user id and
 # expire on their own.
+# Whether a payout needs a KYC-verified wallet. Off since 2026-08-27: the review
+# queue is not in use, so nobody can become verified, and leaving this on made
+# every payout permanently unapprovable. One name, so turning KYC back on is a
+# single edit here rather than a hunt through the withdrawal logic.
+REQUIRE_KYC_FOR_PAYOUT = False
+
 PENDING_2FA_SALT = 'vent.admin.2fa'
 PENDING_2FA_MAX_AGE = 300  # seconds
 
@@ -1060,7 +1066,13 @@ def _approve_payout_core(admin, withdrawal_id, note=''):
         except UserWallet.DoesNotExist:
             return False, 'Wallet not found'
 
-        if not wallet.kyc_verified:
+        # KYC is switched off for now (CEO, 2026-08-27), and this gate made every
+        # payout unapprovable: nobody can become verified while the review queue
+        # is not in use, so every Approve answered 400 and the whole payouts flow
+        # was dead. The flag is still on the wallet and still reported to the
+        # console, so turning KYC back on is restoring this check, not rebuilding
+        # anything.
+        if REQUIRE_KYC_FOR_PAYOUT and not wallet.kyc_verified:
             return False, 'Cannot approve - user is not KYC verified'
 
         if wallet.wallet_balance < w.amount:
