@@ -1552,3 +1552,92 @@ def add_email_to_waitlist(request):
     # platform moved, so the very first thing a signup saw was a broken image.
     emails.send_waitlist_welcome(email)
     return Response({"status": "success", "message": "Email added to waitlist successfully."}, status=status.HTTP_201_CREATED)
+
+def _event_status(e, now):
+    """What an event is doing right now, in the console's vocabulary."""
+    if not e.is_active:
+        return 'cancelled'
+    if e.start_date and now < e.start_date:
+        return 'upcoming'
+    if e.end_date and now > e.end_date:
+        return 'completed'
+    if e.start_date and e.end_date:
+        return 'ongoing'
+    return 'upcoming'
+
+
+@api_view(['GET'])
+@admin_role_required(ADMIN_ROLES)
+def admin_list_events(request):
+    """GET /auth/admin/events/ - paginated, same contract as the tournament list.
+
+    Params: page, page_size (20), ordering, search, status.
+    Response data = {results:[EROW], count, page, page_size}.
+    """
+    from vent_event.models import Event, Ticket
+    from django.db.models import Count, Sum
+
+    now = timezone.now()
+
+    qs = (
+        Event.objects
+        .select_related('creator', 'game')
+        .annotate(_tickets=Count('tickets', distinct=True))
+    )
+
+    search = request.GET.get('search')
+    if search:
+        qs = qs.filter(name__icontains=search)
+
+    status_filter = request.GET.get('status')
+    if status_filter == 'upcoming':
+        qs = qs.filter(is_active=True, start_date__gt=now)
+    elif status_filter == 'ongoing':
+        qs = qs.filter(is_active=True, start_date__lte=now, end_date__gte=now)
+    elif status_filter == 'completed':
+        qs = qs.filter(is_active=True, end_date__lt=now)
+    elif status_filter == 'cancelled':
+        qs = qs.filter(is_active=False)
+
+    ordering_map = {
+        '-created_at': '-created_at',
+        'created_at': 'created_at',
+        'name': 'name',
+        '-tickets_sold': '-_tickets',
+    }
+    ordering = ordering_map.get(request.GET.get('ordering'), '-created_at')
+    qs = qs.order_by(ordering)
+
+    page, page_size, offset = _paginate(request, default_size=20)
+    total = qs.count()
+    rows = qs[offset: offset + page_size]
+
+    results = [
+        {
+            'id': e.event_id,
+            'slug': e.slug,
+            'name': e.name,
+            'game': e.game.game_title if e.game else None,
+            'category': e.category,
+            'event_type': e.event_type,
+            'location': e.location,
+            'organizer_username': e.creator.username if e.creator else None,
+            'status': _event_status(e, now),
+            'tickets_sold': e._tickets or 0,
+            'capacity': e.capacity,
+            'start_date': e.start_date,
+            'created_at': e.created_at,
+        }
+        for e in rows
+    ]
+
+    return Response({
+        'status': 'success',
+        'message': 'OK',
+        'data': {
+            'results': results,
+            'count': total,
+            'page': page,
+            'page_size': page_size,
+        },
+    }, status=status.HTTP_200_OK)

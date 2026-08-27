@@ -63,6 +63,7 @@ ROLE_PERMISSIONS = {
     'approve_kyc':           {'super_admin', 'finance_admin', 'mod_admin'},
     'reject_kyc':            {'super_admin', 'finance_admin', 'mod_admin'},
     'cancel_tournament':     {'super_admin', 'mod_admin'},
+    'manage_events':         {'super_admin', 'mod_admin'},
     'resolve_dispute':       {'super_admin', 'mod_admin'},
     'override_match_score':  {'super_admin', 'mod_admin'},
     'distribute_prizes':     {'super_admin', 'finance_admin'},

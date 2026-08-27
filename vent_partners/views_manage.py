@@ -295,8 +295,18 @@ def _admin(request):
     user, err = resolve_admin(request)
     if err:
         return None, err
-    if not user.admin_role:
-        return None, _err('Admins only.', 'FORBIDDEN', status.HTTP_403_FORBIDDEN)
+
+    # Not merely "an admin". Approving a partner hands an outside party a key to
+    # read platform data, and approving their SSO hands them people's identities.
+    # `manage_admins` is super_admin only, and is exactly what the console's
+    # Partner access nav entry already declares - so the two agree rather than
+    # the screen hiding what the server would still have allowed.
+    from vent_auth.decorators import ROLE_PERMISSIONS, effective_admin_role
+
+    role = effective_admin_role(user)
+    if role not in ROLE_PERMISSIONS.get('manage_admins', set()):
+        return None, _err('Partner administration is restricted to super admins.',
+                          'PARTNER_ADMIN_SUPER_ONLY', status.HTTP_403_FORBIDDEN)
     return user, None
 
 
