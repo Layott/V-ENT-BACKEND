@@ -6,6 +6,9 @@ from django.conf.urls.static import static
 
 from .views_rankings import games_list
 from .views_admin import admin_2fa_verify, admin_step_up
+from .views_admin_rates import (
+    admin_rates, admin_rate_detail, admin_refresh_rates,
+)
 from .views_admin_games import (
     admin_games, admin_game_detail, admin_game_series, admin_series_detail,
 )
@@ -56,6 +59,9 @@ urlpatterns = [
     path("admin/series/<int:series_id>/", admin_series_detail, name="admin_series_detail"),
     path("platform/modules/", public_platform_modules, name="public_platform_modules"),
     path("currencies/", public_currencies, name="public_currencies"),
+    path("admin/rates/", admin_rates, name="admin_rates"),
+    path("admin/rates/refresh/", admin_refresh_rates, name="admin_refresh_rates"),
+    path("admin/rates/<str:code>/", admin_rate_detail, name="admin_rate_detail"),
     path("me/admin/", my_admin_capabilities, name="my_admin_capabilities"),
     path("admin/tournaments/<int:tournament_id>/", admin_get_tournament, name="admin_get_tournament"),
     path("admin/tournaments/<int:tournament_id>/dispute/resolve/", admin_resolve_dispute, name="admin_resolve_dispute"),
