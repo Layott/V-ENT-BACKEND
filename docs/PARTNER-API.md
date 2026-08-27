@@ -143,6 +143,32 @@ Only published, public records are ever returned. Drafts, private tournaments
 and anything belonging to a suspended account are not in these results, and no
 scope opens them.
 
+### Showing that the data came from V-ENT
+
+`GET /api/v1/` carries a `brand` block, so you do not have to go and take a logo
+off the website at whatever size you find it:
+
+```json
+"brand": {
+  "name": "V-ENT",
+  "legal_name": "Vermillion Encore",
+  "url": "https://v-ent.co",
+  "logo": "https://v-ent.co/images/logo_mark_red.png",
+  "logo_svg": "https://v-ent.co/images/logo_mark_red.svg",
+  "colour": "#ED1C24",
+  "attribution": "Data from V-ENT",
+  "attribution_url": "https://v-ent.co"
+}
+```
+
+Use the mark to say where the data came from, at its own proportions and no
+smaller than 24px tall. Do not recolour it, stretch it, or use it in a way that
+suggests V-ENT endorses your product. Prefer the SVG; it stays sharp at every
+size, which the PNG will not.
+
+No key is needed to read this, because somebody deciding whether to integrate
+has not got one yet.
+
 ### Rate limit
 
 **60 requests a minute per key** by default. Ask if you need more and say what

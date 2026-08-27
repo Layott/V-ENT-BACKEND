@@ -6,6 +6,8 @@ V-ENT data cannot change V-ENT data, which keeps the blast radius of a leaked ke
 to "somebody read what we publish".
 """
 from django.utils import timezone
+import os
+
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
@@ -68,9 +70,31 @@ def _absolute(request, field):
 @permission_classes([AllowAny])
 def api_index(request):
     """What this API offers, and what each scope opens. No key needed."""
+    site = os.environ.get('FRONTEND_PUBLIC_URL', 'https://v-ent.co').rstrip('/')
     return _ok({
         'version': 'v1',
         'documentation': 'https://v-ent.co/partners/docs',
+        # A partner showing V-ENT data on their own site has to render it as
+        # coming from somewhere. Without this they either go and take a logo off
+        # the website at whatever size they find it, or they show nothing and the
+        # data reads as theirs. Neither is what anybody wants, so the marks and
+        # the one line of guidance ship with the API rather than being asked for.
+        'brand': {
+            'name': 'V-ENT',
+            'legal_name': 'Vermillion Encore',
+            'url': site,
+            'logo': f'{site}/images/logo_mark_red.png',
+            'logo_svg': f'{site}/images/logo_mark_red.svg',
+            'colour': '#ED1C24',
+            'attribution': 'Data from V-ENT',
+            'attribution_url': site,
+            'usage': (
+                'Use the mark to say where the data came from, at its own '
+                'proportions and no smaller than 24px tall. Do not recolour it, '
+                'stretch it, or use it in a way that suggests V-ENT endorses '
+                'your product.'
+            ),
+        },
         'scopes': SCOPES,
         'endpoints': {
             'events': '/api/v1/events/',
