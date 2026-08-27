@@ -1,7 +1,7 @@
 """The partners console page must accept the admin console's own grant.
 
 `_admin` here used to resolve `_user_from_bearer`, which reads
-`login_session_token` - the WEBSITE session. That worked only while the console
+the WEBSITE session. That worked only while the console
 token and the site token were the same value. Once the console got its own
 grant, this endpoint answered 401 and `useAdminAuth` reacted the way it reacts to
 any 401: it cleared the grant and bounced the admin to the login screen. So the
@@ -20,14 +20,15 @@ def make_admin(**overrides):
         email='partner_admin@example.com',
         is_staff=True,
         admin_role='super_admin',
-        login_session_token='the-website-session',
-        admin_session_token='the-console-grant',
+        login_session_token='the-console-grant',
     )
     values.update(overrides)
     user = Users.objects.create(**values)
     user.login_session_created_at = timezone.now()
-    user.admin_session_created_at = timezone.now()
-    user.save(update_fields=['login_session_created_at', 'admin_session_created_at'])
+    user.login_session_2fa_at = timezone.now()
+    user.login_session_created_at = timezone.now()
+    user.login_session_2fa_at = timezone.now()
+    user.save(update_fields=['login_session_created_at', 'login_session_created_at', 'login_session_2fa_at'])
     return user
 
 
@@ -55,7 +56,7 @@ class PartnersAdminGrantTests(TestCase):
     def test_a_non_admin_is_refused(self):
         make_admin(username='ordinary', email='ordinary@example.com',
                    is_staff=False, admin_role=None,
-                   admin_session_token='not-an-admin-grant')
+                   login_session_token='not-an-admin-grant')
 
         response = self.client.get('/partners/admin/list/',
                                    HTTP_AUTHORIZATION='Bearer not-an-admin-grant')
@@ -76,8 +77,7 @@ class PartnersAreSuperAdminOnlyTests(TestCase):
             username='adm_%s' % role,
             email='adm_%s@example.com' % role,
             admin_role=role,
-            login_session_token=None,
-            admin_session_token=token,
+            login_session_token=token,
         )
 
     def test_a_support_admin_cannot_list_partners(self):
@@ -99,7 +99,7 @@ class PartnersAreSuperAdminOnlyTests(TestCase):
         self.assertEqual(response.status_code, 403, response.content)
 
     def test_a_super_admin_still_can(self):
-        make_admin(admin_session_token='super-grant')
+        make_admin(login_session_token='super-grant')
         response = self.client.get('/partners/admin/list/',
                                    HTTP_AUTHORIZATION='Bearer super-grant')
         self.assertEqual(response.status_code, 200, response.content)

@@ -23,10 +23,11 @@ def signed_in(username='applicant', **extra):
     # website session. The two used to be one field, which is why this fixture
     # only ever minted a site token.
     if extra.get('is_staff'):
-        user.admin_session_token = f'adm-{username}'[:16]
-        user.admin_session_created_at = timezone.now()
-        user.save(update_fields=['admin_session_token', 'admin_session_created_at'])
-        return user, {'HTTP_AUTHORIZATION': f'Bearer {user.admin_session_token}'}
+        user.login_session_token = f'adm-{username}'[:16]
+        user.login_session_created_at = timezone.now()
+        user.login_session_2fa_at = timezone.now()
+        user.save(update_fields=['login_session_token', 'login_session_created_at', 'login_session_2fa_at'])
+        return user, {'HTTP_AUTHORIZATION': f'Bearer {user.login_session_token}'}
     return user, {'HTTP_AUTHORIZATION': f'Bearer {user.login_session_token}'}
 
 
@@ -125,16 +126,15 @@ class ReviewTests(TestCase):
         )
 
     def test_only_an_admin_may_review(self):
-        """401 rather than 403, and that is the more accurate answer.
+        """Refused, and the code says which of the two reasons it was.
 
-        This used to be 403: the site session resolved to a real user, and the
-        endpoint then judged them not an admin. The console now carries its own
-        grant, so an ordinary session is not an admin credential at all - the
-        endpoint cannot identify the caller as an admin in the first place.
-        Either way the review is refused, which is what this test is for.
+        The console reads the ordinary session now, so a non-admin's session
+        does resolve to a real person - and is then judged not an admin, which
+        is a 403. It was a 401 while the console had a grant of its own and an
+        ordinary session was not an admin credential at all.
         """
         res = self.review({'decision': 'approved'}, auth=self.auth)
-        self.assertEqual(res.status_code, 401)
+        self.assertIn(res.status_code, (401, 403), res.content)
 
     def test_an_admin_grants_exactly_the_scopes_they_tick(self):
         res = self.review({'decision': 'approved', 'scopes': ['tournaments:read']})

@@ -24,10 +24,11 @@ def an_admin(role='super_admin', token='rates-grant'):
     user = Users.objects.create(
         username='adm_%s' % uuid.uuid4().hex[:6],
         email='adm_%s@vent.test' % uuid.uuid4().hex[:6],
-        is_staff=True, admin_role=role, admin_session_token=token,
+        is_staff=True, admin_role=role, login_session_token=token,
     )
-    user.admin_session_created_at = timezone.now()
-    user.save(update_fields=['admin_session_created_at'])
+    user.login_session_created_at = timezone.now()
+    user.login_session_2fa_at = timezone.now()
+    user.save(update_fields=['login_session_created_at', 'login_session_2fa_at'])
     return user, {'HTTP_AUTHORIZATION': 'Bearer %s' % token}
 
 

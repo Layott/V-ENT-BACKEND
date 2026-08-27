@@ -22,10 +22,11 @@ def admin_with(role, name):
     user = Users.objects.create(
         username=f'{name}_admin', email=f'{name}@example.com',
         is_staff=True, admin_role=role,
-        admin_session_token=f'{name}-grant',
+        login_session_token=f'{name}-grant',
     )
-    user.admin_session_created_at = timezone.now()
-    user.save(update_fields=['admin_session_created_at'])
+    user.login_session_created_at = timezone.now()
+    user.login_session_2fa_at = timezone.now()
+    user.save(update_fields=['login_session_created_at', 'login_session_2fa_at'])
     return user, {'HTTP_AUTHORIZATION': f'Bearer {name}-grant'}
 
 

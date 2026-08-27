@@ -100,54 +100,17 @@ def _paginate(request, default_size=20, max_size=200):
 # Admin Login
 # ---------------------------------------------------------------------------
 
-@api_view(['POST'])
-def admin_login(request):
-    """Authenticate an admin user. Returns login_session_token on success.
-
-    Accepts `email` OR `username` in the body (the FE sends `email`). The
-    EmailOrUsernameModelBackend resolves either against the same `username`
-    kwarg, so we just pass whichever identifier was supplied."""
-    identifier = request.data.get('email') or request.data.get('username')
-    password = request.data.get('password')
-
-    if not identifier or not password:
-        return Response(
-            { 'code': 'EMAIL_USERNAME_PASSWORD_REQUIRED','status': 'error', 'message': 'Email/username and password are required'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    user = authenticate(username=identifier, password=password)
-    if user is None:
-        # Fallback: resolve by email then authenticate by username (belt-and-braces
-        # in case a non-email-aware backend is first in the chain).
-        try:
-            u = Users.objects.get(email=identifier)
-            user = authenticate(username=u.username, password=password)
-        except Users.DoesNotExist:
-            pass
-
-    if user is None or not user.is_staff:
-        return Response(
-            { 'code': 'INVALID_CREDENTIALS_NOT_ADMIN','status': 'error', 'message': 'Invalid credentials or not an admin'},
-            status=status.HTTP_401_UNAUTHORIZED,
-        )
-
-    # is_staff opens the door; admin_role decides what is behind it. They are
-    # separate fields and can disagree: an account with is_staff and no role
-    # signed in fine and then got 403 from every endpoint, so the dashboard
-    # loaded as a grid of dashes under "Failed to load dashboard data." Refuse
-    # the sign-in instead, and say why. Shared with the step-up door so the two
-    # cannot answer this differently.
-    refusal = _admin_refusal(user)
-    if refusal is not None:
-        return refusal
-
-    return Response({
-        'status': 'success',
-        'message': 'Credentials accepted - two-factor code required',
-        'data': _pending_2fa_payload(user),
-    }, status=status.HTTP_200_OK)
-
+# The console's own sign-in lived here: a password door, a step-up door for a
+# session that was already signed in, and the code exchange behind both.
+#
+# All three are gone as of 2026-08-27. An admin proves the second factor at the
+# ordinary sign-in now, and the console reads that session
+# (`vent_auth/login_2fa.py`, and `resolve_admin` in `decorators.py`). The second
+# factor did not get weaker for moving: it used to be reachable only by going
+# looking for the dashboard, and it is now unavoidable for every admin sign-in.
+#
+# `_admin_refusal` stays: it still says why an account may not be an admin, and
+# `admin_me` answers with it.
 
 def _admin_refusal(user):
     """Why this account may not open the console, or None if it may.
@@ -171,176 +134,9 @@ def _admin_refusal(user):
     return None
 
 
-def _pending_2fa_payload(user, keep_session=False):
-    """The short-lived token a TOTP code exchanges for a session token.
-
-    Never a session token itself. Both the password path and the step-up path
-    end here, so they cannot drift apart - the first version of this was copied
-    into the second door and the copy forgot the provisioning URI, which is the
-    only time the enrolling admin is ever shown their secret.
-    """
-    enrolment, _ = AdminTOTP.objects.get_or_create(
-        user=user, defaults={'secret': totp_lib.generate_secret()}
-    )
-
-    # `keep` rides along so the verify step knows this came from a session that
-    # is already signed in, and must not rotate the token out from under it.
-    subject = '%s:keep' % user.user_id if keep_session else str(user.user_id)
-    pending = signing.TimestampSigner(salt=PENDING_2FA_SALT).sign(subject)
-    data = {
-        'requires_2fa': True,
-        'pending_token': pending,
-        'expires_in': PENDING_2FA_MAX_AGE,
-        'username': user.username,
-        'email': user.email,
-    }
-
-    if not enrolment.confirmed:
-        # First sign-in (or a reset): hand over the secret once so the admin can
-        # add it to their authenticator, then confirm with a live code.
-        data['enrollment_required'] = True
-        data['secret'] = enrolment.secret
-        data['provisioning_uri'] = totp_lib.provisioning_uri(
-            enrolment.secret, user.email or user.username)
-
-    return data
-
-
 # ---------------------------------------------------------------------------
 # POST /auth/admin/step-up/ - the second factor alone, for a live session
 # ---------------------------------------------------------------------------
-
-@api_view(['POST'])
-def admin_step_up(request):
-    """Trade a live site session for a pending-2FA token.
-
-    An admin who has just signed in on the site was sent to /admin, bounced to
-    /admin/login, and asked for the username and password they had typed a
-    moment earlier. The session already carries that proof, so the only thing
-    the second prompt added was friction.
-
-    This does not weaken the door. The password authenticated the session; this
-    endpoint refuses anyone whose session is not a staff account with a role,
-    and still issues nothing but a pending token - the session token for the
-    console comes from /auth/admin/2fa/verify/ after a real TOTP code, exactly
-    as it does on the password path.
-    """
-    header = request.headers.get('Authorization') or ''
-    if not header.startswith('Bearer '):
-        return Response(
-            {'code': 'AUTHORIZATION_HEADER_REQUIRED', 'status': 'error',
-             'message': 'Authorization header is required'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    token = header.split(' ', 1)[1].strip()
-    user = Users.objects.filter(login_session_token=token).first() if token else None
-    if user is None:
-        return Response(
-            {'code': 'INVALID_EXPIRED_SESSION_TOKEN', 'status': 'error',
-             'message': 'Invalid or expired session token'},
-            status=status.HTTP_401_UNAUTHORIZED,
-        )
-
-    refusal = _admin_refusal(user)
-    if refusal is not None:
-        return refusal
-
-    return Response({
-        'status': 'success',
-        'message': 'Signed in already - two-factor code required',
-        'data': _pending_2fa_payload(user, keep_session=True),
-    }, status=status.HTTP_200_OK)
-
-
-# ---------------------------------------------------------------------------
-# POST /auth/admin/2fa/verify/ - step two of admin login
-# ---------------------------------------------------------------------------
-
-@api_view(['POST'])
-def admin_2fa_verify(request):
-    """Exchange a pending-2FA token plus a valid TOTP code for a session token."""
-    pending = request.data.get('pending_token')
-    code = request.data.get('code')
-
-    if not pending or not code:
-        return Response(
-            { 'code': 'PENDING_TOKEN_CODE_REQUIRED','status': 'error', 'message': 'pending_token and code are required'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    try:
-        subject = signing.TimestampSigner(salt=PENDING_2FA_SALT).unsign(
-            pending, max_age=PENDING_2FA_MAX_AGE
-        )
-        # `<user_id>` from the password door, `<user_id>:keep` from the step-up
-        # door, where the caller already holds a session that must survive.
-        user_id, _, marker = subject.partition(':')
-        keep_session = marker == 'keep'
-    except signing.SignatureExpired:
-        return Response(
-            { 'code': 'SIGN_ATTEMPT_EXPIRED_START','status': 'error', 'message': 'This sign-in attempt expired. Start again.'},
-            status=status.HTTP_401_UNAUTHORIZED,
-        )
-    except signing.BadSignature:
-        return Response(
-            { 'code': 'INVALID_SIGN_ATTEMPT','status': 'error', 'message': 'Invalid sign-in attempt'},
-            status=status.HTTP_401_UNAUTHORIZED,
-        )
-
-    user = Users.objects.filter(user_id=user_id).first()
-    if user is None or not user.is_staff:
-        return Response(
-            { 'code': 'INVALID_CREDENTIALS_NOT_ADMIN','status': 'error', 'message': 'Invalid credentials or not an admin'},
-            status=status.HTTP_401_UNAUTHORIZED,
-        )
-
-    enrolment = AdminTOTP.objects.filter(user=user).first()
-    if enrolment is None:
-        return Response(
-            { 'code': 'TWO_FACTOR_NOT_SET','status': 'error', 'message': 'Two-factor is not set up for this account'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    matched_step = totp_lib.verify(enrolment.secret, code, enrolment.last_used_step)
-    if matched_step is None:
-        return Response(
-            { 'code': 'CODE_NOT_VALID_CHECK','status': 'error', 'message': 'That code is not valid. Check your authenticator and try again.'},
-            status=status.HTTP_401_UNAUTHORIZED,
-        )
-
-    enrolment.last_used_step = matched_step
-    if not enrolment.confirmed:
-        enrolment.confirmed = True
-        enrolment.confirmed_at = timezone.now()
-    enrolment.save(update_fields=['last_used_step', 'confirmed', 'confirmed_at'])
-
-    # The console gets its own token, always. It used to be minted into
-    # `login_session_token`, which the website also reads, so the two grants
-    # invalidated each other in both directions. `keep_session` was a patch over
-    # one direction of that and is no longer needed: the website session is
-    # never touched here, whichever door was used.
-    token = generate_session_token()
-    user.admin_session_token = token
-    user.admin_session_created_at = timezone.now()
-    user.save(update_fields=['admin_session_token', 'admin_session_created_at'])
-
-    return Response({
-        'status': 'success',
-        'message': 'Admin login successful',
-        'data': {
-            'session_token': token,
-            # The console stores this token in a cookie, and the cookie's
-            # lifetime has to be the grant's lifetime. Publishing it means the
-            # two cannot drift: a 7 day cookie over a 120 minute grant is what
-            # produced "Failed to load dashboard data" after a long lunch.
-            'expires_in': ADMIN_SESSION_MINUTES * 60,
-            'username': user.username,
-            'email': user.email,
-            'admin': admin_identity(user),
-        }
-    }, status=status.HTTP_200_OK)
-
 
 # ---------------------------------------------------------------------------
 # GET /auth/admin/me/ - current admin identity + permission map

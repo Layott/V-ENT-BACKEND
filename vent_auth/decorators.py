@@ -20,14 +20,10 @@ from .models import Users
 
 SESSION_TIMEOUT_MINUTES = 120
 
-# How long an admin grant lasts. This is the ONE number: the view that sets the
-# adminToken cookie reads it too, so the cookie and the grant behind it cannot
-# disagree. They used to - a 7 day cookie over a 120 minute session - and the
-# console broke on its own after a long lunch.
-#
-# Seven days is what the CEO chose on 2026-08-27 when asked how often the
-# console should demand the authenticator code.
-ADMIN_SESSION_MINUTES = 7 * 24 * 60
+# Retired 2026-08-27 along with the console's own door. The console now lives
+# for exactly as long as the site session that opened it, so there is one
+# number again rather than two that could disagree.
+ADMIN_SESSION_MINUTES = SESSION_TIMEOUT_MINUTES
 
 ADMIN_ROLES = ('super_admin', 'finance_admin', 'mod_admin', 'support_admin')
 
@@ -103,27 +99,42 @@ def admin_identity(user):
 
 
 def resolve_admin(request):
-    """(user, error_response). Bearer + is_staff + non-expired session. No role check."""
+    """(user, error_response). The site session, if it is an admin one.
+
+    The console has no sign-in of its own any more. It used to: an admin signed
+    in to the site, then signed in again with a password and a code to reach the
+    dashboard, and the second door asked for a password the session had proved a
+    moment earlier.
+
+    The second factor moved to the front door instead, so it is now unavoidable
+    rather than optional-until-you-go-looking-for-the-dashboard. This reads the
+    ordinary session and asks three things of it:
+
+      1. it exists and has not expired
+      2. the account is staff and holds an admin role
+      3. **the person typed a code from their authenticator to get it**
+
+    Three is the whole point. A session that skipped the challenge is a normal
+    session and reaches nothing here, so a password alone still opens no part of
+    the console. `login_session_2fa_at` is set only by the code path and cleared
+    by anything else, including logout.
+    """
     header = request.headers.get('Authorization')
     if not header or not header.startswith('Bearer '):
         return None, Response(
             { 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
-    token = header.split(' ', 1)[1]
-    # The console has its own grant. It used to share `login_session_token` with
-    # the website, so each door invalidated the other: opening the console
-    # signed you out of the site, and signing in on the site broke the console.
-    try:
-        user = Users.objects.get(admin_session_token=token)
-    except Users.DoesNotExist:
+    token = header.split(' ', 1)[1].strip()
+    user = Users.objects.filter(login_session_token=token).first() if token else None
+    if user is None:
         return None, Response(
             { 'code': 'INVALID_EXPIRED_SESSION_TOKEN','status': 'error', 'message': 'Invalid or expired session token'},
             status=status.HTTP_401_UNAUTHORIZED,
         )
     if (
-        user.admin_session_created_at is None
-        or timezone.now() - user.admin_session_created_at > timedelta(minutes=ADMIN_SESSION_MINUTES)
+        user.login_session_created_at is None
+        or timezone.now() - user.login_session_created_at > timedelta(minutes=SESSION_TIMEOUT_MINUTES)
     ):
         return None, Response(
             { 'code': 'SESSION_TOKEN_EXPIRED','status': 'error', 'message': 'Session token has expired'},
@@ -132,6 +143,22 @@ def resolve_admin(request):
     if not user.is_staff:
         return None, Response(
             { 'code': 'ADMIN_ACCESS_REQUIRED','status': 'error', 'message': 'Admin access required'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    if not effective_admin_role(user):
+        return None, Response(
+            { 'code': 'ACCOUNT_NO_ADMIN_ROLE','status': 'error',
+              'message': 'This account has no admin role assigned. Ask a super admin to grant one.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    if user.login_session_2fa_at is None:
+        # Signed in, genuinely an admin, but with a password alone. The answer
+        # names what is missing, because "access denied" on an account that is
+        # plainly an admin reads as a broken permission rather than as a
+        # sign-in that has to be done again.
+        return None, Response(
+            { 'code': 'TWO_FACTOR_REQUIRED','status': 'error',
+              'message': 'Sign in again with your authenticator code to open the console.'},
             status=status.HTTP_403_FORBIDDEN,
         )
     return user, None

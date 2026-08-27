@@ -19,9 +19,10 @@ class PayoutApprovalWithoutKycTests(TestCase):
         self.admin = Users.objects.create(
             username='payout_admin', email='payout_admin@example.com',
             is_staff=True, admin_role='super_admin',
-            admin_session_token='payout-admin-grant')
-        self.admin.admin_session_created_at = timezone.now()
-        self.admin.save(update_fields=['admin_session_created_at'])
+            login_session_token='payout-admin-grant')
+        self.admin.login_session_created_at = timezone.now()
+        self.admin.login_session_2fa_at = timezone.now()
+        self.admin.save(update_fields=['login_session_created_at', 'login_session_2fa_at'])
 
         self.player = Users.objects.create(username='cashing_out',
                                            email='cashing_out@example.com')

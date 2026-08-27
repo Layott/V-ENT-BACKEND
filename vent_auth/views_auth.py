@@ -15,6 +15,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from vent.settings import FRONTEND_URL
+from . import login_2fa
 from .models import Users, UserProfile, UserWallet, VerificationToken, WaitlistReservation
 from .serializers import UserSerializer
 from . import emails
@@ -228,57 +229,114 @@ def login(request):
                 'is_deactivated', 'deactivated_at', 'deletion_requested_at',
             ])
 
-        # Reuse a session that is still valid instead of minting a new one.
-        #
-        # Every login used to overwrite login_session_token, so signing in on a
-        # second device - or the same person opening a second tab - silently
-        # killed the first session and the app bounced them to the login screen.
-        # Keeping the live token means the other device stays signed in.
-        existing = user.login_session_token
-        created = user.login_session_created_at
-        still_valid = (
-            bool(existing)
-            and created is not None
-            and timezone.now() - created <= timedelta(minutes=session_timeout_minutes())
-        )
+        # The password is only half of it for anybody who has a second factor,
+        # and for every admin whether they set one up or not. Nothing is issued
+        # here: the session comes from login_2fa_verify, after a real code.
+        if login_2fa.challenge_required(user):
+            return Response({
+                'status': 'success',
+                'message': 'Password accepted - two-factor code required',
+                'data': login_2fa.pending_payload(user),
+            }, status=status.HTTP_200_OK)
 
-        session_token = existing if still_valid else generate_session_token()
-        user.login_session_token = session_token
-        user.login_session_created_at = timezone.now()   # sliding expiry
-        user.save()
-
-        # First sign-in of the day sets the profile's location from where the
-        # request actually came from, so nobody has to pick their own city off a
-        # list and no profile quietly says Lagos two years after a move.
-        refresh_daily_location(user, request)
-
-        # And every sign-in is written to the account's own history, which is
-        # what the Security page reads instead of the invented list it shipped
-        # with. A first-time address also triggers the alert, if it is on.
-        is_new_place = record_login(user, request, method='password')
-        if is_new_place:
-            emails.send_login_alert(user, request)
-
-        return Response({
-            "status": "success",
-            "message": "User logged in successfully",
-            "session_token": session_token,
-            # Identity so the FE session (NextAuth) carries who the user is -
-            # owner/self detection (e.g. team ownership) compares against these.
-            "user_id": user.user_id,
-            "username": user.username,
-            "email": user.email,
-            # Whether this account can reach the admin console. Not a
-            # permission - the console has its own token and its own 2FA, and
-            # this grants none of it. It is here so the frontend can take a
-            # staff member to the admin sign-in after they log in, instead of
-            # expecting them to know the address and type it.
-            "is_staff": bool(user.is_staff or user.is_superuser),
-        }, status=status.HTTP_200_OK)
+        return issue_session(user, request, method='password', with_2fa=False)
     else:
         return Response({ 'code': 'INVALID_USERNAME_EMAIL_PASSWORD',
             'message': 'Invalid username/email or password'
         }, status=status.HTTP_401_UNAUTHORIZED)
+
+
+def issue_session(user, request, method='password', with_2fa=False):
+    """Mint or extend this account's session and answer the sign-in.
+
+    Both doors end here - straight in, and in by way of a code - so the two
+    cannot drift apart. Copying this into the second door instead would be how
+    one of them quietly stops recording the login, which is what the Security
+    page reads.
+    """
+    # Reuse a session that is still valid instead of minting a new one.
+    #
+    # Every login used to overwrite login_session_token, so signing in on a
+    # second device - or the same person opening a second tab - silently killed
+    # the first session and the app bounced them to the login screen. Keeping
+    # the live token means the other device stays signed in.
+    existing = user.login_session_token
+    created = user.login_session_created_at
+    still_valid = (
+        bool(existing)
+        and created is not None
+        and timezone.now() - created <= timedelta(minutes=session_timeout_minutes())
+    )
+
+    session_token = existing if still_valid else generate_session_token()
+    user.login_session_token = session_token
+    user.login_session_created_at = timezone.now()   # sliding expiry
+    # The console reads this and nothing else. A sign-in that skipped the
+    # challenge must not leave yesterday's mark standing, or somebody who got in
+    # with a password alone would inherit an admin session.
+    user.login_session_2fa_at = timezone.now() if with_2fa else None
+    user.save()
+
+    # First sign-in of the day sets the profile's location from where the
+    # request actually came from, so nobody has to pick their own city off a
+    # list and no profile quietly says Lagos two years after a move.
+    refresh_daily_location(user, request)
+
+    # And every sign-in is written to the account's own history, which is what
+    # the Security page reads instead of the invented list it shipped with. A
+    # first-time address also triggers the alert, if it is on.
+    is_new_place = record_login(user, request, method=method)
+    if is_new_place:
+        emails.send_login_alert(user, request)
+
+    return Response({
+        'status': 'success',
+        'message': 'User logged in successfully',
+        'session_token': session_token,
+        # Identity so the FE session (NextAuth) carries who the user is -
+        # owner/self detection (e.g. team ownership) compares against these.
+        'user_id': user.user_id,
+        'username': user.username,
+        'email': user.email,
+        # Whether this account can reach the console. The console no longer has
+        # a sign-in of its own, so this is what tells the frontend to offer it.
+        'is_staff': bool(user.is_staff or user.is_superuser),
+        'is_admin': login_2fa.is_admin(user),
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+def login_2fa_verify(request):
+    """POST /auth/login/2fa/verify/ - the code half of the sign-in.
+
+    Also the moment a first-time enrolment is confirmed, so an admin who has
+    just been given the role sets up their authenticator and uses it in one
+    step, and holds no session until they have.
+    """
+    user, err = login_2fa.user_from_pending(request.data.get('pending_token'))
+    if err:
+        reasons = {
+            'PENDING_TOKEN_REQUIRED': 'pending_token and code are required',
+            'SIGN_ATTEMPT_EXPIRED_START': 'This sign-in attempt expired. Start again.',
+            'INVALID_SIGN_ATTEMPT': 'Invalid sign-in attempt',
+        }
+        return Response(
+            {'code': err, 'status': 'error', 'message': reasons[err]},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    ok, code_err = login_2fa.spend_code(user, request.data.get('code'))
+    if not ok:
+        reasons = {
+            'TWO_FACTOR_NOT_SET_UP': 'Two-factor is not set up on this account.',
+            'BAD_CODE': 'That code is not right, or it has already been used.',
+        }
+        return Response(
+            {'code': code_err, 'status': 'error', 'message': reasons[code_err]},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    return issue_session(user, request, method='password+2fa', with_2fa=True)
 
 
 @api_view(["POST"])

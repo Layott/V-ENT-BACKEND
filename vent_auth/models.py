@@ -67,15 +67,26 @@ class Users(AbstractUser):
     # A founder can carry a badge beside their name, and can switch it off.
     # Being a founder is a fact; wearing it is a choice, and somebody who does
     # not want a mark on every post they make should not have to have one.
-    # The admin console gets its own grant rather than sharing the website's
-    # single session token. Sharing one field meant each door invalidated the
-    # other: opening the console signed you out of the site, and signing in on
-    # the site broke the console with "Failed to load dashboard data". One
-    # extra field, not a session table - the website is still one session per
-    # user, which is deliberate.
+    # Retired 2026-08-27. The console used to hold its own grant, because the
+    # admin signed in a second time at its own door. It no longer has a door:
+    # an admin proves the second factor at the ordinary sign-in, and the
+    # console reads the same session as the rest of the site. Kept as columns
+    # so the change is a code change rather than a data migration; nothing
+    # reads them.
     admin_session_token = models.CharField(max_length=256, null=True, blank=True,
                                            db_index=True)
     admin_session_created_at = models.DateTimeField(null=True, blank=True)
+
+    # When this session last passed a second-factor challenge.
+    #
+    # This is what the console checks. An admin's session is only an admin
+    # session if the person holding it typed a code from their authenticator to
+    # get it, so the second factor is not weaker for having moved to the front
+    # door - it is now unavoidable rather than being asked for once the site
+    # session already existed.
+    #
+    # Cleared on logout, and never set by a sign-in that skipped the challenge.
+    login_session_2fa_at = models.DateTimeField(null=True, blank=True)
 
     is_founder = models.BooleanField(default=False)
     show_founder_badge = models.BooleanField(default=True)
