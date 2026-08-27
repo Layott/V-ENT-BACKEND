@@ -201,3 +201,19 @@ class TicketingSetupTests(TestCase):
                                data=json.dumps({'code': 'MGR', 'value': 5}),
                                content_type='application/json', **self.other_auth)
         self.assertEqual(res.status_code, 201, res.content)
+
+    # ------------------------------------------------------- addressed by name
+    def test_the_organiser_routes_work_by_slug(self):
+        """The named address is the one the project rule requires.
+
+        /events/three-day-con/manage passes the slug through, and these routes
+        were int-only, so every named URL answered 404 while ?id= worked.
+        """
+        self.assertTrue(self.event.slug)
+        res = self.client.get('/event/%s/promos/' % self.event.slug, **self.owner_auth)
+        self.assertEqual(res.status_code, 200, res.content)
+
+    def test_the_numeric_address_still_works(self):
+        """Links shared before the slug rule have to keep opening."""
+        res = self.client.get('/event/%s/promos/' % self.event.event_id, **self.owner_auth)
+        self.assertEqual(res.status_code, 200, res.content)

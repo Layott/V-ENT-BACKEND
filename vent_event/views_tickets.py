@@ -337,7 +337,11 @@ def event_attendees(request, event_id):
     if auth_error:
         return auth_error
 
-    event = Event.objects.filter(event_id=event_id).first()
+    # The named address (/events/naija-anime-con/attendees) passes the slug
+    # through, and this route was int-only, so every slug URL answered 404.
+    event = (Event.objects.filter(event_id=int(event_id)).first()
+             if str(event_id).isdigit()
+             else Event.objects.filter(slug=str(event_id)).first())
     if event is None:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if event.creator_id != user.user_id:
