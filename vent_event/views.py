@@ -249,14 +249,18 @@ def create_event(request):
                     quantity=max(quantity, 0), perks=(tier.get('perks') or '').strip(),
                 )
 
-            for sponsor in _as_list(data.get('sponsors')):
+            for index, sponsor in enumerate(_as_list(data.get('sponsors'))):
                 if not isinstance(sponsor, dict):
                     continue
                 sponsor_name = (sponsor.get('name') or '').strip()
                 if not sponsor_name:
                     continue
+                # The wizard uploads a file per sponsor, keyed by its position in
+                # the list, because a sponsor has no id until this loop runs.
+                # logo_url stays accepted for anything still sending one.
                 Sponsor.objects.create(
                     event=event, name=sponsor_name,
+                    logo=request.FILES.get('sponsor_logo_%s' % index),
                     logo_url=(sponsor.get('logo_url') or '').strip() or None,
                 )
 

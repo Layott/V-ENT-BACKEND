@@ -1,3 +1,4 @@
+import pathlib
 """Tournament lifecycle endpoints: bracket generation, participant-driven match
 scoring (report/confirm), disputes, prize distribution, and organizer cancel.
 
@@ -94,6 +95,37 @@ def _notify_dispute_raised(tournament):
 # N1 - Generate bracket
 # ---------------------------------------------------------------------------
 
+# Kept in step with the frontend's uploadSpecs: PNG, JPG or WebP, up to 5 MB.
+EVIDENCE_MAX_BYTES = 5 * 1024 * 1024
+EVIDENCE_TYPES = {'image/png', 'image/jpeg', 'image/webp'}
+
+
+def _check_evidence_file(upload):
+    """None when the file is fine, otherwise the sentence to send back."""
+    if upload.content_type and upload.content_type not in EVIDENCE_TYPES:
+        return 'The screenshot must be a PNG, JPG or WebP image.'
+    if upload.size > EVIDENCE_MAX_BYTES:
+        return 'The screenshot must be 5 MB or smaller.'
+    return None
+
+
+def _store_evidence(upload):
+    """Save the screenshot and return the URL that will be stored on the score.
+
+    Everything downstream reads `evidence_url`, so an uploaded file becomes a
+    URL here and nothing else has to change.
+    """
+    import uuid as _uuid
+
+    from django.conf import settings
+    from django.core.files.storage import default_storage
+
+    suffix = pathlib.Path(upload.name or '').suffix.lower() or '.png'
+    name = 'match_evidence/%s%s' % (_uuid.uuid4().hex, suffix)
+    saved = default_storage.save(name, upload)
+    return '%s%s' % (settings.MEDIA_URL, saved)
+
+
 @api_view(['POST'])
 def generate_bracket(request, tournament_id):
     """POST /tournament/<id>/generate-bracket/ - organizer closes registration and
@@ -184,6 +216,17 @@ def report_match_score(request, match_id):
     score_p1 = request.data.get('score_p1')
     score_p2 = request.data.get('score_p2')
     evidence_url = (request.data.get('screenshot_url') or request.data.get('evidence_url') or '').strip()
+
+    # An uploaded screenshot beats a pasted link: the player has the picture on
+    # the device they just played on, and a link they host themselves is the one
+    # that stops resolving before the dispute it was meant to settle is read.
+    upload = request.FILES.get('screenshot') or request.FILES.get('evidence')
+    if upload is not None:
+        problem = _check_evidence_file(upload)
+        if problem:
+            return _err(problem, 'VALIDATION_FAILED', http.HTTP_400_BAD_REQUEST,
+                        field_errors={'screenshot': [problem]})
+        evidence_url = _store_evidence(upload)
 
     if score_p1 is None or score_p2 is None:
         return _err('score_p1 and score_p2 are required', 'VALIDATION_FAILED', http.HTTP_400_BAD_REQUEST)
