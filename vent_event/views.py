@@ -204,12 +204,23 @@ def create_event(request):
     elif game_title and str(game_title).strip():
         game = Games.objects.filter(game_title__iexact=str(game_title).strip()).first()
 
+    # Which edition of that game, for an annual title. Ignored when it does not
+    # belong to the game that was chosen, because an edition of a different
+    # game is somebody's stale form rather than an instruction.
+    series = None
+    series_id = data.get('series_id')
+    if series_id and game is not None:
+        from vent_auth.models import GameSeries
+
+        series = GameSeries.objects.filter(series_id=series_id, game=game).first()
+
     try:
         with transaction.atomic():
             event = Event.objects.create(
                 name=name,
                 creator=user,
                 game=game,
+                series=series,
                 event_type=event_type,
                 category=category,
                 desc=description,
