@@ -244,9 +244,19 @@ def create_event(request):
                     quantity = int(tier.get('quantity') or 0)
                 except (ValueError, TypeError):
                     quantity = 0
+                # A tier may be for one day of a multi-day event. Anything
+                # outside the event's own dates is dropped rather than stored,
+                # because a ticket for a day the event does not run is a door
+                # nobody can walk through.
+                day = parse_date((tier.get('day') or '').strip()) if tier.get('day') else None
+                if day and event.start_date and event.end_date:
+                    if not (event.start_date.date() <= day <= event.end_date.date()):
+                        day = None
+
                 TicketTier.objects.create(
                     event=event, name=tier_name, price=price,
                     quantity=max(quantity, 0), perks=(tier.get('perks') or '').strip(),
+                    day=day, day_label=(tier.get('day_label') or '').strip(),
                 )
 
             # Sponsors and partners are the same list with a different `kind`,
