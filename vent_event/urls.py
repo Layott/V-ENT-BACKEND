@@ -10,6 +10,10 @@ from .views_vendors import (
     event_vendors, vendor_detail, create_vendor, create_product,
     create_order, my_vendor_orders, vendor_orders, collect_order,
 )
+from .views_promos import (
+    event_referrals, event_referral_detail, event_promos, event_promo_detail,
+    event_managers, event_manager_detail,
+)
 from .views_linking import (
     event_tournaments, linkable_tournaments, link_tournament, unlink_tournament,
     set_shared_ticketing,
@@ -37,6 +41,14 @@ urlpatterns = [
     path("<int:event_id>/ticket-types/", ticket_types, name="ticket_types"),
     path("<int:event_id>/buy-ticket/", buy_ticket, name="buy_ticket"),
     path("<int:event_id>/attendees/", event_attendees, name="event_attendees"),
+
+    # Influencer links, promo codes, and who else may run the event
+    path("<int:event_id>/referrals/", event_referrals, name="event_referrals"),
+    path("<int:event_id>/referrals/<int:referral_id>/", event_referral_detail, name="event_referral_detail"),
+    path("<int:event_id>/promos/", event_promos, name="event_promos"),
+    path("<int:event_id>/promos/<int:promo_id>/", event_promo_detail, name="event_promo_detail"),
+    path("<int:event_id>/managers/", event_managers, name="event_managers"),
+    path("<int:event_id>/managers/<int:manager_id>/", event_manager_detail, name="event_manager_detail"),
 
     # Tournament linking
     path("<int:event_id>/tournaments/", event_tournaments, name="event_tournaments"),

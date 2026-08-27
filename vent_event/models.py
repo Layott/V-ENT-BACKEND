@@ -8,6 +8,11 @@ class Event(models.Model):
     name = models.CharField(max_length=40)  # Name of the event
     slug = models.SlugField(max_length=160, unique=True, null=True, blank=True, db_index=True)
     game = models.ForeignKey(Games, on_delete=models.SET_NULL, null=True, blank=True, related_name="events")
+    # An event may belong to an organisation rather than to one person. Only
+    # then may the creator hand management of it to somebody else.
+    organization = models.ForeignKey(
+        'vent_auth.Organization', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='events')
     series = models.ForeignKey(
         'vent_auth.GameSeries', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='events')
@@ -69,8 +74,157 @@ class TicketTier(models.Model):
     sold = models.PositiveIntegerField(default=0)  # Tickets sold (Phase 2 ticketing increments this)
     perks = models.CharField(max_length=255, blank=True, default='')  # Comma / bullet separated perks
 
+    # Which day of the event this admits you to. Null means the whole run, which
+    # is what a single-day event and a full-festival pass both want. A dated
+    # tier is what lets a three-day convention price Friday and Sunday
+    # differently and count each door separately.
+    day = models.DateField(null=True, blank=True)
+    day_label = models.CharField(max_length=60, blank=True, default='')  # "Day 1", "Finals day"
+
+    class Meta:
+        ordering = ['day', 'id']
+
     def __str__(self):
         return f"{self.name} - {self.event.name}"
+
+
+class EventReferral(models.Model):
+    """An influencer or a link that sells tickets, and what they are owed credit for.
+
+    Separate from the promo code because the person and the code are different
+    things: one influencer may run several codes over a campaign, and a code can
+    exist with nobody to credit. Folded together, half the columns would be
+    empty in both directions.
+    """
+    id = models.AutoField(primary_key=True)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='referrals')
+    name = models.CharField(max_length=120)  # the person or outlet
+    code = models.CharField(max_length=40)  # what goes in the link: /events/x?ref=CODE
+    url = models.URLField(max_length=500, blank=True, default='')  # their channel, for the organiser's own records
+    sponsor = models.ForeignKey('Sponsor', on_delete=models.SET_NULL, null=True, blank=True,
+                                related_name='referrals')
+
+    # How many tickets are set aside for them. 0 means no cap, which is the
+    # ordinary case: most links are tracking, not an allocation.
+    allocation = models.PositiveIntegerField(default=0)
+    sold = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('event', 'code')
+        ordering = ['name']
+
+    @property
+    def remaining(self):
+        """None when uncapped, otherwise how many are left to sell."""
+        if not self.allocation:
+            return None
+        return max(self.allocation - self.sold, 0)
+
+    def __str__(self):
+        return f"{self.name} ({self.code})"
+
+
+class EventPromo(models.Model):
+    """A discount code, optionally credited to a referral.
+
+    `max_tickets` is the number of TICKETS the code may be used on, not the
+    number of times it may be redeemed, because one order can carry several
+    tickets and the organiser is budgeting seats rather than transactions.
+    """
+    PERCENT = 'percent'
+    AMOUNT = 'amount'
+    KIND_CHOICES = [(PERCENT, 'Percent off'), (AMOUNT, 'Amount off')]
+
+    id = models.AutoField(primary_key=True)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='promos')
+    code = models.CharField(max_length=40)
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES, default=PERCENT)
+    value = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    referral = models.ForeignKey(EventReferral, on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='promos')
+    tier = models.ForeignKey(TicketTier, on_delete=models.CASCADE, null=True, blank=True,
+                             related_name='promos')  # null = every tier
+
+    max_tickets = models.PositiveIntegerField(default=0)  # 0 = no limit
+    used_tickets = models.PositiveIntegerField(default=0)
+    starts_at = models.DateTimeField(null=True, blank=True)
+    ends_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('event', 'code')
+        ordering = ['code']
+
+    @property
+    def remaining(self):
+        if not self.max_tickets:
+            return None
+        return max(self.max_tickets - self.used_tickets, 0)
+
+    def is_usable(self, when=None, quantity=1):
+        """Whether the code may be applied right now, and why not if it cannot.
+
+        Returns (True, None) or (False, reason). The reason is a code rather
+        than a sentence, so the answer can be translated on the way out.
+        """
+        from django.utils import timezone as _tz
+
+        when = when or _tz.now()
+        if not self.is_active:
+            return False, 'PROMO_INACTIVE'
+        if self.starts_at and when < self.starts_at:
+            return False, 'PROMO_NOT_STARTED'
+        if self.ends_at and when > self.ends_at:
+            return False, 'PROMO_EXPIRED'
+        if self.max_tickets and self.used_tickets + quantity > self.max_tickets:
+            return False, 'PROMO_EXHAUSTED'
+        return True, None
+
+    def discount_for(self, unit_price, quantity=1):
+        """What comes off the total. Never more than the total itself."""
+        from decimal import Decimal
+
+        total = Decimal(unit_price) * quantity
+        if self.kind == self.PERCENT:
+            off = total * (Decimal(self.value) / Decimal(100))
+        else:
+            off = Decimal(self.value) * quantity
+        return min(off, total)
+
+    def __str__(self):
+        return f"{self.code} on {self.event.name}"
+
+
+class EventManager(models.Model):
+    """Somebody the organiser has let help run the event.
+
+    Only allowed when the event belongs to an organisation. A personal event is
+    one person's, and handing a stranger the door list, the attendee data and
+    the promo codes on a personal event is not something to allow by accident.
+    """
+    ROLE_CHOICES = [
+        ('manager', 'Manager'),      # everything except deleting the event
+        ('door', 'Door staff'),      # check tickets in, nothing else
+    ]
+
+    id = models.AutoField(primary_key=True)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='managers')
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='managed_events')
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='manager')
+    added_by = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='event_managers_added')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('event', 'user')
+        ordering = ['user__username']
+
+    def __str__(self):
+        return f"{self.user.username} on {self.event.name} ({self.role})"
 
 
 class Sponsor(models.Model):
