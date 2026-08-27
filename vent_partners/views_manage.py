@@ -16,6 +16,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from vent_auth.decorators import resolve_admin
 from vent_auth.views_profile import _user_from_bearer
 from vent_auth import emails
 
@@ -280,10 +281,21 @@ def update_partner(request, partner_id):
 # ---------------------------------------------------------------------------
 
 def _admin(request):
-    user, err = _user_from_bearer(request)
+    """The admin console's own grant, not the website session.
+
+    This used to resolve `_user_from_bearer`, which reads `login_session_token`
+    - the WEBSITE session. It worked only because the console token and the site
+    token were once the same value. The console now carries its own grant, so
+    reading the site session here returned 401 and the partners page bounced the
+    admin out to the login screen while every other admin page loaded.
+
+    `resolve_admin` also checks is_staff and the admin session's own clock, so
+    the local `_is_admin` shape check is no longer needed here.
+    """
+    user, err = resolve_admin(request)
     if err:
         return None, err
-    if not _is_admin(user):
+    if not user.admin_role:
         return None, _err('Admins only.', 'FORBIDDEN', status.HTTP_403_FORBIDDEN)
     return user, None
 

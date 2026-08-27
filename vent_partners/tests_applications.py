@@ -18,6 +18,15 @@ def signed_in(username='applicant', **extra):
         login_session_token=f'tok-{username}'[:16],
         login_session_created_at=timezone.now(), is_active=True, **extra,
     )
+    # A staff user in these suites exists to call the admin console's
+    # endpoints, and those resolve the console's own grant rather than the
+    # website session. The two used to be one field, which is why this fixture
+    # only ever minted a site token.
+    if extra.get('is_staff'):
+        user.admin_session_token = f'adm-{username}'[:16]
+        user.admin_session_created_at = timezone.now()
+        user.save(update_fields=['admin_session_token', 'admin_session_created_at'])
+        return user, {'HTTP_AUTHORIZATION': f'Bearer {user.admin_session_token}'}
     return user, {'HTTP_AUTHORIZATION': f'Bearer {user.login_session_token}'}
 
 
@@ -116,8 +125,16 @@ class ReviewTests(TestCase):
         )
 
     def test_only_an_admin_may_review(self):
+        """401 rather than 403, and that is the more accurate answer.
+
+        This used to be 403: the site session resolved to a real user, and the
+        endpoint then judged them not an admin. The console now carries its own
+        grant, so an ordinary session is not an admin credential at all - the
+        endpoint cannot identify the caller as an admin in the first place.
+        Either way the review is refused, which is what this test is for.
+        """
         res = self.review({'decision': 'approved'}, auth=self.auth)
-        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.status_code, 401)
 
     def test_an_admin_grants_exactly_the_scopes_they_tick(self):
         res = self.review({'decision': 'approved', 'scopes': ['tournaments:read']})
