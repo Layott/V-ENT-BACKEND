@@ -1099,7 +1099,13 @@ def view_tournament(request, tournament_id):
         # organizer is still arguing about, a date that will move. It was
         # readable by anybody who tried the id. Only its creator sees it until
         # it is published.
-        if tournament.is_draft and not _is_creator(request, tournament):
+        # An admin who may edit a tournament has to be able to read it first,
+        # or the console's Edit control opens a blank form over a real draft.
+        may_read_draft = (
+            _is_creator(request, tournament)
+            or _may_override(_actor_from_request(request)[0])
+        )
+        if tournament.is_draft and not may_read_draft:
             return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'},
                             status=status.HTTP_404_NOT_FOUND)
 
@@ -1582,25 +1588,88 @@ def delete_draft(request, tournament_id):
         return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+def _actor_from_request(request):
+    """The account behind this request, by site token or admin token.
+
+    Returns (user, error_response). Exactly one is not None.
+
+    The site token is tried first because that is the ordinary case; the admin
+    token is the console calling the organiser's own endpoint. Both are checked
+    for expiry against their own clock, because they are separate sessions and
+    always were.
+    """
+    header = request.headers.get('Authorization')
+    if not header or not header.startswith('Bearer '):
+        return None, Response(
+            {'code': 'AUTHORIZATION_HEADER_REQUIRED', 'status': 'error',
+             'message': 'Authorization header is required'},
+            status=status.HTTP_400_BAD_REQUEST)
+
+    token = header.split(' ', 1)[1]
+
+    user = Users.objects.filter(login_session_token=token).first()
+    if user is not None:
+        if user.login_session_created_at is None or \
+                timezone.now() - user.login_session_created_at > timedelta(
+                    minutes=session_timeout_minutes()):
+            return None, Response(
+                {'code': 'SESSION_TOKEN_EXPIRED', 'status': 'error',
+                 'message': 'Session token has expired'},
+                status=status.HTTP_401_UNAUTHORIZED)
+        return user, None
+
+    # Not a site session. The admin console holds its own, and a request that
+    # carries it is that admin whether or not they are signed in to the site.
+    from vent_auth.decorators import resolve_admin
+    admin, _admin_error = resolve_admin(request)
+    if admin is not None:
+        return admin, None
+
+    return None, Response(
+        {'code': 'INVALID_EXPIRED_SESSION_TOKEN', 'status': 'error',
+         'message': 'Invalid or expired session token'},
+        status=status.HTTP_401_UNAUTHORIZED)
+
+
+def _may_override(user):
+    """Whether this account may edit somebody else's tournament.
+
+    The same roles that may already cancel one. An admin who can call off a
+    tournament outright can certainly correct its start time, and tying the two
+    together means there is one answer to "who may touch a tournament they do
+    not own" rather than two that can disagree.
+    """
+    from vent_auth.decorators import ROLE_PERMISSIONS, effective_admin_role
+
+    if not getattr(user, 'is_staff', False):
+        return False
+    role = effective_admin_role(user)
+    return role in ROLE_PERMISSIONS.get('cancel_tournament', set())
+
+
 @api_view(['PUT'])
 def edit_tournament(request, tournament_id):
     """PUT /tournament/edit-tournament/{id}/ - edit a published or draft tournament."""
-    session_token = request.headers.get('Authorization')
-    if not session_token or not session_token.startswith('Bearer '):
-        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
-
-    login_session_token = session_token.split(' ', 1)[1]
-
     try:
-        user = Users.objects.filter(login_session_token=login_session_token).first()
-        if user is None:
-            return Response({ 'code': 'INVALID_EXPIRED_SESSION_TOKEN','status': 'error', 'message': 'Invalid or expired session token'}, status=status.HTTP_401_UNAUTHORIZED)
-        if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
-            return Response({ 'code': 'SESSION_TOKEN_EXPIRED','status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
+        # Either session proves who you are here: the organiser arrives with a
+        # website session, an admin correcting somebody else's tournament
+        # arrives from the console with its own. The two tokens stay separate
+        # values with separate expiry - only the question "who is this" has one
+        # answer instead of two.
+        user, auth_error = _actor_from_request(request)
+        if auth_error is not None:
+            return auth_error
 
         tournament = get_object_or_404(Tournament, tournament_id=tournament_id)
 
-        if tournament.tournament_creator_id != user.user_id:
+        # The organiser, or an admin overruling them. Same path, same fields,
+        # same validation: an admin edit that went through a separate endpoint
+        # would drift from the organiser's until the two screens disagreed about
+        # what a tournament even has.
+        is_owner = tournament.tournament_creator_id == user.user_id
+        acting_as_admin = (not is_owner) and _may_override(user)
+
+        if not is_owner and not acting_as_admin:
             return Response({ 'code': 'ONLY_TOURNAMENT_ORGANIZER_CAN','status': 'error', 'message': 'Only the tournament organizer can edit this tournament'}, status=status.HTTP_403_FORBIDDEN)
 
         # Editable fields (partial update - only update what's provided)
@@ -1669,10 +1738,34 @@ def edit_tournament(request, tournament_id):
         if updated_fields:
             tournament.save(update_fields=updated_fields)
 
+            # An organiser who finds their start time changed deserves to be
+            # able to find out who changed it. Only recorded when somebody other
+            # than the owner did it - an organiser editing their own tournament
+            # is not an admin action.
+            if acting_as_admin:
+                from vent_auth.models import AdminAction
+                AdminAction.objects.create(
+                    admin=user,
+                    action_type='edit_tournament',
+                    target_model='Tournament',
+                    target_id=str(tournament.tournament_id),
+                    reason=str(request.data.get('reason') or '')[:500],
+                    metadata={
+                        'updated_fields': updated_fields,
+                        'owner_id': tournament.tournament_creator_id,
+                    },
+                )
+
         return Response({
             'status': 'success',
             'message': 'Tournament updated',
-            'data': {'tournament_id': tournament.tournament_id, 'updated_fields': updated_fields}
+            'data': {
+                'tournament_id': tournament.tournament_id,
+                'updated_fields': updated_fields,
+                # So the screen can say "you edited this as an admin" rather
+                # than letting somebody believe they own it.
+                'edited_as_admin': acting_as_admin,
+            }
         }, status=status.HTTP_200_OK)
 
     except Http404:
