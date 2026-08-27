@@ -8,6 +8,9 @@ class Event(models.Model):
     name = models.CharField(max_length=40)  # Name of the event
     slug = models.SlugField(max_length=160, unique=True, null=True, blank=True, db_index=True)
     game = models.ForeignKey(Games, on_delete=models.SET_NULL, null=True, blank=True, related_name="events")
+    series = models.ForeignKey(
+        'vent_auth.GameSeries', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='events')
     creator = models.ForeignKey(Users, on_delete=models.CASCADE)  # Creator of the event
     created_at = models.DateTimeField(auto_now_add=True)
     last_updated = models.DateTimeField(auto_now=True)  # Last updated timestamp

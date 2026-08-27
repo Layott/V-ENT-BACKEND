@@ -193,7 +193,13 @@ def games_list(request):
     """
     from .models import Games
 
-    games = Games.objects.all().order_by('game_title')
+    # Retired titles stay in the database because tournaments point at them, but
+    # they have no business in a picker. `all=1` is for the console, which has to
+    # show a retired game in order to bring it back.
+    games = Games.objects.prefetch_related('series')
+    if request.GET.get('all') not in ('1', 'true'):
+        games = games.filter(is_active=True)
+    games = games.order_by('sort_order', 'game_title')
     data = [
         {
             'id': g.game_id,
@@ -201,7 +207,23 @@ def games_list(request):
             'name': g.game_title,
             'game_title': g.game_title,
             'description': g.description,
+            'is_active': g.is_active,
             'logo': request.build_absolute_uri(g.logo.url) if g.logo else None,
+            # The editions of an annual title, newest first. Empty for a game
+            # that does not have editions, which is most of them.
+            'series': [
+                {
+                    'id': sr.series_id,
+                    'name': sr.name,
+                    'slug': sr.slug,
+                    'release_year': sr.release_year,
+                    'is_active': sr.is_active,
+                }
+                for sr in sorted(
+                    [x for x in g.series.all()
+                     if x.is_active or request.GET.get('all') in ('1', 'true')],
+                    key=lambda x: (x.sort_order, -(x.release_year or 0), x.name))
+            ],
         }
         for g in games
     ]
