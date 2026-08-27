@@ -143,6 +143,9 @@ def serialize_event_detail(request, event):
             'username': creator.username,
             'full_name': creator.full_name,
         } if creator else None,
+        # What the organiser typed the prices in. The page converts for the
+        # reader; the charge is still settled in naira.
+        'currency': getattr(event, 'currency', 'NGN') or 'NGN',
         'sponsors': [serialize_sponsor(request, s) for s in event.sponsors.all()
                      if s.kind == 'sponsor'],
         'partners': [serialize_sponsor(request, s) for s in event.sponsors.all()

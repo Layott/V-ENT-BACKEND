@@ -666,11 +666,22 @@ def create_tournament(request):
                 return Response({ 'code': 'SESSION_TOKEN_EXPIRED','status': 'error', 'message': 'Session token has expired'}, status=401)
 
 
+            # Which edition of that game the bracket is played on. Ignored when
+            # it belongs to a different game, because that pairing is somebody's
+            # stale form rather than an instruction.
+            series = None
+            series_id = request.data.get('series_id')
+            if series_id and game is not None:
+                from vent_auth.models import GameSeries
+
+                series = GameSeries.objects.filter(series_id=series_id, game=game).first()
+
             # Create Tournament
             tournament = Tournament.objects.create(
                 tournament_title=tournament_title,
                 tournament_creator=creator,
                 tournament_game=game,
+                tournament_series=series,
                 game_mode=game_mode,
                 tournament_logo=tournament_logo,
                 tournament_banner=tournament_banner,

@@ -229,6 +229,47 @@ class Games(models.Model):
         return self.game_title
 
 
+class Currency(models.Model):
+    """A currency people read prices in, and what it is worth against the naira.
+
+    V-ENT prices in naira because that is what Paystack settles and what a VENT
+    COIN is worth. Somebody in Accra still thinks in cedis, and should not have
+    to do arithmetic to find out what a ticket costs.
+
+    The rate lives here rather than being fetched per page load: the platform
+    runs itself, and a price that changes between the page and the checkout
+    because a third party moved is worse than one a day stale.
+
+    **Display only.** Money moves in naira. A converted figure tells somebody
+    roughly what they are paying; it never bills them in another currency.
+    """
+    code = models.CharField(max_length=3, primary_key=True)  # ISO 4217
+    name = models.CharField(max_length=60)
+    symbol = models.CharField(max_length=8)
+    rate_from_ngn = models.DecimalField(
+        max_digits=18, decimal_places=8, default=1,
+        help_text='How many of this currency one naira buys.')
+    rate_updated = models.DateTimeField(default=timezone.now)
+    is_active = models.BooleanField(default=True)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name_plural = 'Currencies'
+        ordering = ['sort_order', 'code']
+
+    def from_ngn(self, amount):
+        """A naira amount in this currency. Rounded for reading, not for billing."""
+        from decimal import Decimal, ROUND_HALF_UP
+
+        if amount is None:
+            return None
+        converted = Decimal(amount) * Decimal(self.rate_from_ngn)
+        return converted.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    def __str__(self):
+        return self.code
+
+
 class GameSeries(models.Model):
     """One edition of a game: EA FC 25, CODM Season 4, Street Fighter 6.
 

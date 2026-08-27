@@ -21,6 +21,24 @@ from rest_framework import status
 from vent_auth.models import Users
 from .models import Event, EventTournamentLink, Ticket
 
+
+def _event_by_ref(ref, **extra):
+    """An event by slug or by id.
+
+    The named address is what the slug rule requires, and the numeric one still
+    has to resolve because links were shared before that rule existed.
+    """
+    from .models import Event
+
+    ref = str(ref)
+    if ref.isdigit():
+        found = Event.objects.filter(event_id=int(ref), **extra).first()
+        if found:
+            return found
+    return Event.objects.filter(slug=ref, **extra).first()
+
+
+
 SESSION_TIMEOUT_MINUTES = 120
 
 # A ticket that has been refunded or cancelled does not pay for anything.
@@ -121,7 +139,7 @@ def _organizer_gate(request, event_id):
     user, err = _authenticate(request)
     if err:
         return None, None, err
-    event = Event.objects.filter(event_id=event_id).first()
+    event = _event_by_ref(event_id)
     if event is None:
         return None, None, _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if event.creator_id != user.user_id:
@@ -133,7 +151,7 @@ def _organizer_gate(request, event_id):
 @api_view(['GET'])
 def event_tournaments(request, event_id):
     """Public: every tournament running inside this event."""
-    event = Event.objects.filter(event_id=event_id).first()
+    event = _event_by_ref(event_id)
     if event is None:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
