@@ -434,3 +434,35 @@ def my_admin_capabilities(request):
             'permissions': permissions,
         },
     }, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+def public_currencies(request):
+    """GET /auth/currencies/ - the currencies prices can be read in.
+
+    Public, because a signed-out visitor reads prices too. Each row carries the
+    rate and when it was set, so a page can say how fresh the conversion is
+    rather than presenting a stale number as fact.
+
+    These are for reading. Money moves in naira through Paystack, and a VENT
+    COIN is a naira amount; nothing here bills anybody in another currency.
+    """
+    from .models import Currency
+
+    rows = Currency.objects.filter(is_active=True)
+    return Response({
+        'status': 'success',
+        'message': 'OK',
+        'data': {
+            'results': [
+                {
+                    'code': c.code,
+                    'name': c.name,
+                    'symbol': c.symbol,
+                    'rate_from_ngn': str(c.rate_from_ngn),
+                    'rate_updated': c.rate_updated,
+                }
+                for c in rows
+            ],
+            'base': 'NGN',
+        },
+    }, status=status.HTTP_200_OK)

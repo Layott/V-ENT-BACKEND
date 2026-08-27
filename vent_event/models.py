@@ -23,6 +23,10 @@ class Event(models.Model):
     category = models.CharField(max_length=20, null=True, blank=True)  # esports | anime | concert | convention | other
     desc = models.TextField(null=True, blank=True)  # Description of the event
     entry_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0, null=True, blank=True)  # Entry fee
+    # Which currency the organiser typed the prices in. Everything is still
+    # settled in naira; this says what the numbers on the form meant, so a
+    # reader elsewhere can be shown the same price in their own money.
+    currency = models.CharField(max_length=3, default='NGN')
 
     # Canonical event schedule (the FE sends a single start/end datetime).
     start_date = models.DateTimeField(null=True, blank=True)  # Event start (canonical)

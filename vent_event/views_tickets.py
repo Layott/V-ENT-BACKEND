@@ -20,6 +20,24 @@ from rest_framework import status
 from vent_auth.models import Users, UserWallet, Transaction
 from .models import Event, TicketTier, Ticket
 
+
+def _event_by_ref(ref, **extra):
+    """An event by slug or by id.
+
+    The named address is what the slug rule requires, and the numeric one still
+    has to resolve because links were shared before that rule existed.
+    """
+    from .models import Event
+
+    ref = str(ref)
+    if ref.isdigit():
+        found = Event.objects.filter(event_id=int(ref), **extra).first()
+        if found:
+            return found
+    return Event.objects.filter(slug=ref, **extra).first()
+
+
+
 SESSION_TIMEOUT_MINUTES = 120
 CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'  # no look-alikes
 MAX_PER_PURCHASE = 10
@@ -116,7 +134,7 @@ def serialize_ticket(ticket):
 
 @api_view(['GET'])
 def ticket_types(request, event_id):
-    event = Event.objects.filter(event_id=event_id, is_active=True).first()
+    event = _event_by_ref(event_id, is_active=True)
     if event is None:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
@@ -144,7 +162,7 @@ def buy_ticket(request, event_id):
     if auth_error:
         return auth_error
 
-    event = Event.objects.filter(event_id=event_id, is_active=True).first()
+    event = _event_by_ref(event_id, is_active=True)
     if event is None:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 

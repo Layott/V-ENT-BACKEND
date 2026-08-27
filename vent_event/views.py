@@ -18,6 +18,24 @@ from vent_auth.models import Games, Users
 from .models import Event, TicketTier, Sponsor, SponsorLink, SocialLink, VendorInvite
 from .serializers import serialize_event_card, serialize_event_detail
 
+
+def _event_by_ref(ref, **extra):
+    """An event by slug or by id.
+
+    The named address is what the slug rule requires, and the numeric one still
+    has to resolve because links were shared before that rule existed.
+    """
+    from .models import Event
+
+    ref = str(ref)
+    if ref.isdigit():
+        found = Event.objects.filter(event_id=int(ref), **extra).first()
+        if found:
+            return found
+    return Event.objects.filter(slug=ref, **extra).first()
+
+
+
 logger = logging.getLogger(__name__)
 
 SESSION_TIMEOUT_MINUTES = 120
@@ -221,6 +239,7 @@ def create_event(request):
                 creator=user,
                 game=game,
                 series=series,
+                currency=(str(data.get('currency') or 'NGN').upper()[:3]),
                 event_type=event_type,
                 category=category,
                 desc=description,
@@ -522,7 +541,11 @@ def edit_event(request, event_id):
     if auth_error is not None:
         return auth_error
 
-    event = get_object_or_404(Event, event_id=event_id)
+    event = _event_by_ref(event_id)
+    if event is None:
+        from django.http import Http404
+
+        raise Http404('No event matches %s' % event_id)
 
     is_owner = event.creator_id == user.user_id
     acting_as_admin = (not is_owner) and may_override(user, 'manage_events')

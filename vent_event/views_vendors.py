@@ -18,6 +18,24 @@ from .models import Event, Vendor, VendorProduct, VendorOrder, VendorOrderItem
 from .views_tickets import _authenticate, _error, _ok, _ngn_to_coins, CODE_ALPHABET
 
 
+def _event_by_ref(ref, **extra):
+    """An event by slug or by id.
+
+    The named address is what the slug rule requires, and the numeric one still
+    has to resolve because links were shared before that rule existed.
+    """
+    from .models import Event
+
+    ref = str(ref)
+    if ref.isdigit():
+        found = Event.objects.filter(event_id=int(ref), **extra).first()
+        if found:
+            return found
+    return Event.objects.filter(slug=ref, **extra).first()
+
+
+
+
 def _new_order_code():
     while True:
         code = 'VS-' + ''.join(secrets.choice(CODE_ALPHABET) for _ in range(8))
@@ -78,7 +96,7 @@ def serialize_vendor(request, v, include_products=False):
 
 @api_view(['GET'])
 def event_vendors(request, event_id):
-    event = Event.objects.filter(event_id=event_id, is_active=True).first()
+    event = _event_by_ref(event_id, is_active=True)
     if event is None:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
@@ -122,7 +140,7 @@ def create_vendor(request, event_id):
     if auth_error:
         return auth_error
 
-    event = Event.objects.filter(event_id=event_id).first()
+    event = _event_by_ref(event_id)
     if event is None:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if event.creator_id != user.user_id:

@@ -55,6 +55,7 @@ urlpatterns = [
     path("admin/games/<int:game_id>/series/", admin_game_series, name="admin_game_series"),
     path("admin/series/<int:series_id>/", admin_series_detail, name="admin_series_detail"),
     path("platform/modules/", public_platform_modules, name="public_platform_modules"),
+    path("currencies/", public_currencies, name="public_currencies"),
     path("me/admin/", my_admin_capabilities, name="my_admin_capabilities"),
     path("admin/tournaments/<int:tournament_id>/", admin_get_tournament, name="admin_get_tournament"),
     path("admin/tournaments/<int:tournament_id>/dispute/resolve/", admin_resolve_dispute, name="admin_resolve_dispute"),
