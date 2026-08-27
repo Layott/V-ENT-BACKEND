@@ -19,6 +19,25 @@ from vent_auth.models import Users
 from .models import Event, EventManager, EventPromo, EventReferral, TicketTier
 
 
+def event_by_ref(ref):
+    """An event by slug or by id, so an organiser URL can carry either.
+
+    Numbers are still accepted because `?id=` links were shared before the slug
+    rule, and the rule is that every address an event ever had keeps working.
+    """
+    from django.http import Http404
+
+    ref = str(ref)
+    if ref.isdigit():
+        event = Event.objects.filter(event_id=int(ref)).first()
+        if event:
+            return event
+    event = Event.objects.filter(slug=ref).first()
+    if event:
+        return event
+    raise Http404('No event matches %s' % ref)
+
+
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
     return Response({'status': 'success', 'data': data, 'message': message},
                     status=http_status)
@@ -92,7 +111,7 @@ def _manager_row(m):
 @api_view(['GET', 'POST'])
 def event_referrals(request, event_id):
     """GET / POST /event/{id}/referrals/ - the influencer links on this event."""
-    event = get_object_or_404(Event, event_id=event_id)
+    event = event_by_ref(event_id)
     user, err = _actor_for_event(request, event)
     if err:
         return err
@@ -130,7 +149,7 @@ def event_referrals(request, event_id):
 @api_view(['PATCH', 'DELETE'])
 def event_referral_detail(request, event_id, referral_id):
     """PATCH / DELETE /event/{id}/referrals/{rid}/"""
-    event = get_object_or_404(Event, event_id=event_id)
+    event = event_by_ref(event_id)
     user, err = _actor_for_event(request, event)
     if err:
         return err
@@ -191,7 +210,7 @@ def event_referral_detail(request, event_id, referral_id):
 @api_view(['GET', 'POST'])
 def event_promos(request, event_id):
     """GET / POST /event/{id}/promos/ - the discount codes on this event."""
-    event = get_object_or_404(Event, event_id=event_id)
+    event = event_by_ref(event_id)
     user, err = _actor_for_event(request, event)
     if err:
         return err
@@ -248,7 +267,7 @@ def event_promos(request, event_id):
 @api_view(['PATCH', 'DELETE'])
 def event_promo_detail(request, event_id, promo_id):
     """PATCH / DELETE /event/{id}/promos/{pid}/"""
-    event = get_object_or_404(Event, event_id=event_id)
+    event = event_by_ref(event_id)
     user, err = _actor_for_event(request, event)
     if err:
         return err
@@ -341,7 +360,7 @@ def event_managers(request, event_id):
 
     POST is refused unless the event belongs to an organisation.
     """
-    event = get_object_or_404(Event, event_id=event_id)
+    event = event_by_ref(event_id)
     user, err = _actor_for_event(request, event)
     if err:
         return err
@@ -390,7 +409,7 @@ def event_managers(request, event_id):
 @api_view(['DELETE'])
 def event_manager_detail(request, event_id, manager_id):
     """DELETE /event/{id}/managers/{mid}/ - take management back."""
-    event = get_object_or_404(Event, event_id=event_id)
+    event = event_by_ref(event_id)
     user, err = _actor_for_event(request, event)
     if err:
         return err
