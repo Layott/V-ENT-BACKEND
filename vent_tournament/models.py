@@ -174,6 +174,62 @@ class Tournament(models.Model):
         super().save(*args, **kwargs)
 
 
+# What can separate two teams level on points. The organiser picks the order;
+# these are the names they pick from.
+#
+# `head_to_head` is deliberately available but not a default: it is undefined
+# for three-way ties and for teams that have not met yet, so a league that leans
+# on it early has a table that cannot be computed. Goal difference always can be.
+TIEBREAKERS = {
+    'goal_difference': 'Goal difference',
+    'goals_for': 'Goals scored',
+    'goals_against': 'Fewest goals conceded',
+    'wins': 'Most wins',
+    'head_to_head': 'Result between the tied teams',
+    'fixtures_won': 'Individual games won',
+}
+
+DEFAULT_TIEBREAKERS = ['goal_difference', 'goals_for', 'wins']
+
+
+class LeagueRules(models.Model):
+    """How a league table is scored, per tournament.
+
+    One row per tournament rather than columns on Tournament, so a tournament
+    that is not a league carries nothing, and so the defaults live in one place
+    rather than being repeated at every read site.
+    """
+
+    tournament = models.OneToOneField(
+        'Tournament', on_delete=models.CASCADE, related_name='league_rules',
+    )
+
+    points_win = models.IntegerField(default=3)
+    points_draw = models.IntegerField(default=1)
+    points_loss = models.IntegerField(default=0)
+
+    # Ordered. The first one that separates two teams decides them.
+    tiebreakers = models.JSONField(default=list, blank=True)
+
+    # How many players each team fields in a tie. 2 for the EAFC format asked
+    # for; the maths does not care, so a 3v3 or 5v5 league needs no code change.
+    players_per_team = models.PositiveSmallIntegerField(default=2)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Rules for tournament {self.tournament_id}: {self.points_win}/{self.points_draw}/{self.points_loss}"
+
+    def ordered_tiebreakers(self):
+        """The organiser's order, ignoring anything unrecognised.
+
+        An unknown name is dropped rather than raising: a tiebreaker removed in
+        a later version must not make every existing league table uncomputable.
+        """
+        chosen = [t for t in (self.tiebreakers or []) if t in TIEBREAKERS]
+        return chosen or list(DEFAULT_TIEBREAKERS)
+
+
 class TournamentPrizeDistribution(models.Model):
     id = models.AutoField(primary_key=True)
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='prize_distributions')
@@ -390,6 +446,77 @@ class MatchScore(models.Model):
 
     def __str__(self):
         return f"Score {self.score_p1}-{self.score_p2} on match {self.match_id} by {self.submitted_by_id}"
+
+
+class TieFixture(models.Model):
+    """One player-versus-player game inside a team tie.
+
+    The aggregate format the CEO described: a tie between two teams is not one
+    game, it is one game per player slot, and the tie is decided by the TOTAL
+    goals across them rather than by who won more of them.
+
+        team A player 1 beats team B player 1     3-0
+        team A player 2 loses to team B player 2  0-2
+        aggregate                                 A 3-2 B, A wins
+
+    Each team won a fixture, and A still wins the tie. Counting fixtures won
+    would call that a draw, which is why the aggregate is stored rather than
+    derived from the individual results.
+
+    `slot` pairs the players: slot 1 of one team plays slot 1 of the other. It
+    is the roster position, not a seeding.
+    """
+
+    STATUS_CHOICES = [
+        ('scheduled', 'Scheduled'),
+        ('in_progress', 'In Progress'),
+        ('completed', 'Completed'),
+        ('disputed', 'Disputed'),
+        ('forfeit', 'Forfeit'),
+    ]
+
+    tie = models.ForeignKey(
+        BracketMatch, on_delete=models.CASCADE, related_name='fixtures',
+    )
+    slot = models.PositiveSmallIntegerField()
+
+    # The two people actually playing. Nullable because a tie is scheduled
+    # before both rosters are necessarily locked, and a forfeited slot has a
+    # score with nobody behind it.
+    player_1 = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='tie_fixtures_as_p1',
+    )
+    player_2 = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='tie_fixtures_as_p2',
+    )
+
+    goals_1 = models.IntegerField(default=0)
+    goals_2 = models.IntegerField(default=0)
+
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default='scheduled')
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['tie_id', 'slot']
+        constraints = [
+            models.UniqueConstraint(fields=['tie', 'slot'], name='one_fixture_per_slot'),
+        ]
+
+    def __str__(self):
+        return f"Tie {self.tie_id} slot {self.slot}: {self.goals_1}-{self.goals_2}"
+
+    @property
+    def decided(self):
+        return self.status == 'completed'
+
+    @property
+    def winner_slot(self):
+        """1, 2, or None for a draw. About this fixture only, not the tie."""
+        if not self.decided or self.goals_1 == self.goals_2:
+            return None
+        return 1 if self.goals_1 > self.goals_2 else 2
 
 
 class BracketGeneration(models.Model):

@@ -43,6 +43,12 @@ BRACKET_FORMATS = {
     'battle_royale': 'battle_royale',
     'swiss_system': 'swiss',
     'free_for_all': 'battle_royale',
+    # A league of team ties, each decided by the total goals across its
+    # per-player fixtures. The scheduling is round robin; what differs is how a
+    # tie is scored and that a table, not a bracket, decides the winner.
+    'aggregate_league': 'aggregate_league',
+    'aggregate': 'aggregate_league',
+    'league': 'aggregate_league',
 }
 
 
