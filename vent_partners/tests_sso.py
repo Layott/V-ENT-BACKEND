@@ -104,6 +104,12 @@ class SsoFlowTests(TestCase):
         )
         self.secret = self.partner.issue_sso_credentials()
 
+        # One PKCE pair for the whole class, so each test says what it is
+        # testing rather than re-deriving a hash.
+        self.verifier = 'a-verifier-long-enough-to-be-worth-something'
+        self.challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(self.verifier.encode()).digest()).rstrip(b'=').decode()
+
     def approve(self, **overrides):
         body = {
             'client_id': self.partner.sso_client_id,
@@ -202,19 +208,61 @@ class SsoFlowTests(TestCase):
         res = self.token(code=code, redirect_uri='http://localhost:3000/callback')
         self.assertEqual(res.json()['code'], 'BAD_REDIRECT')
 
-    def test_pkce_replaces_the_secret_and_must_verify(self):
-        verifier = 'a-verifier-long-enough-to-be-worth-something'
-        digest = hashlib.sha256(verifier.encode()).digest()
-        challenge = base64.urlsafe_b64encode(digest).rstrip(b'=').decode()
+    # This test used to be called "pkce replaces the secret" and asserted exactly
+    # that: a partner WITH a secret on file sent a verifier, sent no secret, and
+    # got a token. It encoded the bug, which is why it never caught it.
+    #
+    # PKCE proves the caller is the same party that started the flow. It does not
+    # prove WHICH application is calling, and a confidential client has to prove
+    # both. RFC 6749 4.1.3 wants the client authenticated, with PKCE on top.
 
-        code = self.code_from(self.approve(code_challenge=challenge, code_challenge_method='S256'))
-        bad = self.token(code=code, client_secret='', code_verifier='wrong-verifier')
+    def test_a_bad_verifier_is_refused(self):
+        code = self.code_from(
+            self.approve(code_challenge=self.challenge, code_challenge_method='S256'))
+        bad = self.token(code=code, client_secret=self.secret, code_verifier='wrong-verifier')
         self.assertEqual(bad.status_code, 401)
         self.assertEqual(bad.json()['code'], 'BAD_VERIFIER')
 
-        code2 = self.code_from(self.approve(code_challenge=challenge, code_challenge_method='S256'))
-        good = self.token(code=code2, client_secret='', code_verifier=verifier)
-        self.assertEqual(good.status_code, 200)
+    def test_a_confidential_client_must_send_both(self):
+        """A verifier alone is not enough when the partner holds a secret."""
+        code = self.code_from(
+            self.approve(code_challenge=self.challenge, code_challenge_method='S256'))
+        res = self.token(code=code, client_secret='', code_verifier=self.verifier)
+        self.assertEqual(res.status_code, 401, res.content)
+        self.assertEqual(res.json()['code'], 'BAD_SECRET')
+
+        code2 = self.code_from(
+            self.approve(code_challenge=self.challenge, code_challenge_method='S256'))
+        good = self.token(code=code2, client_secret=self.secret, code_verifier=self.verifier)
+        self.assertEqual(good.status_code, 200, good.content)
+
+    def test_a_public_client_is_authenticated_by_pkce_alone(self):
+        """A browser or a mobile app holds no secret and cannot be made to."""
+        self.partner.sso_client_secret_hash = ''
+        self.partner.save(update_fields=['sso_client_secret_hash'])
+        code = self.code_from(
+            self.approve(code_challenge=self.challenge, code_challenge_method='S256'))
+        res = self.token(code=code, client_secret='', code_verifier=self.verifier)
+        self.assertEqual(res.status_code, 200, res.content)
+
+    def test_a_public_client_with_no_challenge_is_refused(self):
+        """Nothing at all identifies that caller."""
+        self.partner.sso_client_secret_hash = ''
+        self.partner.save(update_fields=['sso_client_secret_hash'])
+        res = self.token(code=self.code_from(self.approve()), client_secret='')
+        self.assertEqual(res.status_code, 401, res.content)
+
+    def test_a_code_can_only_be_spent_once_even_under_a_race(self):
+        """The check was outside the transaction and the write was a plain save,
+        so two requests arriving together both passed and both minted a token
+        from one code."""
+        code = self.code_from(self.approve())
+        first = self.token(code=code, client_secret=self.secret)
+        second = self.token(code=code, client_secret=self.secret)
+        self.assertEqual(first.status_code, 200, first.content)
+        self.assertEqual(second.status_code, 400, second.content)
+        self.assertEqual(second.json()['code'], 'BAD_CODE')
+        self.assertEqual(OAuthAccessToken.objects.count(), 1)
 
     def test_plain_pkce_is_refused(self):
         res = self.approve(code_challenge='something', code_challenge_method='plain')

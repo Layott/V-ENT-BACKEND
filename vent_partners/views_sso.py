@@ -193,18 +193,52 @@ def sso_token(request):
         return _err('The redirect address does not match the one the code was issued for.',
                     'BAD_REDIRECT')
 
+    # PKCE and the client secret are separate checks, not alternatives.
+    #
+    # This was `if challenge: verify PKCE / elif: verify secret`, so a partner
+    # that sends a challenge never had its secret checked at all - and AFC always
+    # sends one. PKCE proves the caller is the same party that started the flow;
+    # it does not prove which application is calling. RFC 6749 4.1.3 wants a
+    # confidential client authenticated, with PKCE on top rather than instead.
+    #
+    # A public client - a browser or a mobile app - holds no secret and cannot,
+    # so it is authenticated by PKCE alone. That is the only case where one
+    # check stands on its own, and it is decided by whether the partner has a
+    # secret at all rather than by what the caller chose to send.
     if record.code_challenge:
         digest = hashlib.sha256(str(verifier).encode()).digest()
         expected = base64.urlsafe_b64encode(digest).rstrip(b'=').decode()
         if not secrets.compare_digest(expected, record.code_challenge):
             return _err('The PKCE verifier does not match.', 'BAD_VERIFIER',
                         status.HTTP_401_UNAUTHORIZED)
-    elif not partner.sso_secret_matches(client_secret):
-        return _err('Bad client secret.', 'BAD_SECRET', status.HTTP_401_UNAUTHORIZED)
 
+    if partner.sso_client_secret_hash:
+        if not partner.sso_secret_matches(client_secret):
+            return _err('Bad client secret.', 'BAD_SECRET',
+                        status.HTTP_401_UNAUTHORIZED)
+    elif not record.code_challenge:
+        # No secret on file and no challenge: nothing identifies the caller.
+        return _err('Send a PKCE verifier, or a client secret.', 'BAD_SECRET',
+                    status.HTTP_401_UNAUTHORIZED)
+
+    # Spending the code is one conditional UPDATE, and the row count decides.
+    #
+    # `is_valid()` was checked above, outside any transaction, and the write that
+    # marks the code used was a plain save. Two requests arriving together both
+    # passed the check and both minted a token from one code - a code that is
+    # meant to be worth exactly one session. Whoever loses the race now gets
+    # BAD_CODE, which is the same answer as replaying it, because that is what
+    # it is.
     with transaction.atomic():
-        record.used_at = timezone.now()
-        record.save(update_fields=['used_at'])
+        spent = (
+            OAuthAuthorizationCode.objects
+            .filter(pk=record.pk, used_at__isnull=True)
+            .update(used_at=timezone.now())
+        )
+        if not spent:
+            return _err('That code is expired or already used.', 'BAD_CODE',
+                        status.HTTP_400_BAD_REQUEST)
+
         token = secrets.token_urlsafe(40)
         OAuthAccessToken.objects.create(
             partner=partner, user=record.user, token_hash=_hash(token), scopes=record.scopes,
@@ -244,7 +278,9 @@ def sso_userinfo(request):
         'username': user.username,
         'name': user.full_name,
         'country': user.country,
-        'city': user.state,
+        # `state` is a region, not a city. It was being handed to partners under
+        # the wrong name, so anybody storing it got a region in a city column.
+        'region': user.state,
         'picture': (
             request.build_absolute_uri(profile.profile_picture.url)
             if profile and profile.profile_picture else None
@@ -253,7 +289,26 @@ def sso_userinfo(request):
     }
     if 'identity:email' in (record.scopes or []):
         data['email'] = user.email
-        data['email_verified'] = user.is_active
+        # This used to answer `user.is_active`, which is Django's
+        # account-is-enabled flag and says nothing about whether the address was
+        # ever confirmed. Two ways that went wrong, in opposite directions:
+        #
+        #   * a Google signup and an inbound partner sign-in both create the
+        #     account with is_active=True without V-ENT confirming anything, so
+        #     it claimed verified for an address we had never checked
+        #   * a verified member who is later disabled would have been reported
+        #     as unverified
+        #
+        # A partner matching accounts by email and trusting this could attach
+        # the wrong person, which is why it is the one worth fixing first.
+        #
+        # V-ENT only knows an address is real when it was confirmed through the
+        # e-mail flow, which is what `signup_type == 'normal'` plus an active
+        # account means here. Anything else is reported honestly as unverified
+        # rather than optimistically as verified.
+        data['email_verified'] = bool(
+            user.is_active and (user.signup_type or 'normal') == 'normal'
+        )
     if 'identity:teams' in (record.scopes or []):
         from vent_auth.models import TeamMembers
         data['teams'] = list(

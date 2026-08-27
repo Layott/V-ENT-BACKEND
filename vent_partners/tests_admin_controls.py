@@ -163,3 +163,65 @@ class PartnerControlTests(TestCase):
         self.assertEqual(res.status_code, 200, res.content)
         self.assertEqual(
             self.partner.api_keys.filter(revoked_at__isnull=True).count(), 0)
+
+
+class IssueKeyTests(TestCase):
+    """Rotation could only replace a key that already existed, and the live
+    partner had none - nothing had ever issued one, because issuing was
+    self-service and the partner had not done it. The console offered nothing to
+    rotate and no way to get there."""
+
+    def setUp(self):
+        self.admin, self.auth = an_admin()
+        owner = Users.objects.create(username='afc_owner', email='afc@partner.test')
+        self.partner = Partner.objects.create(
+            name='African Free Fire Community', owner=owner, status='approved',
+            requested_scopes=['tournaments:read'], approved_scopes=['tournaments:read'],
+        )
+
+    def test_an_admin_can_issue_the_first_key(self):
+        self.assertEqual(self.partner.api_keys.count(), 0)
+        res = self.client.post('/partners/admin/%s/keys/' % self.partner.pk,
+                               data={'name': 'Live key'},
+                               content_type='application/json', **self.auth)
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertTrue(res.json()['data']['secret'])
+        self.assertEqual(
+            self.partner.api_keys.filter(revoked_at__isnull=True).count(), 1)
+
+    def test_the_key_carries_only_what_the_partner_holds(self):
+        res = self.client.post('/partners/admin/%s/keys/' % self.partner.pk,
+                               data={'scopes': ['tournaments:read', 'teams:read']},
+                               content_type='application/json', **self.auth)
+        self.assertEqual(res.json()['data']['key']['scopes'], ['tournaments:read'])
+
+    def test_a_partner_with_no_scopes_gets_no_key(self):
+        self.partner.approved_scopes = []
+        self.partner.save(update_fields=['approved_scopes'])
+        res = self.client.post('/partners/admin/%s/keys/' % self.partner.pk,
+                               content_type='application/json', **self.auth)
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.json()['code'], 'NO_SCOPES')
+
+    def test_a_suspended_partner_gets_no_key(self):
+        self.partner.status = 'suspended'
+        self.partner.save(update_fields=['status'])
+        res = self.client.post('/partners/admin/%s/keys/' % self.partner.pk,
+                               content_type='application/json', **self.auth)
+        self.assertEqual(res.status_code, 403, res.content)
+
+    def test_issuing_is_written_to_the_audit_log(self):
+        self.client.post('/partners/admin/%s/keys/' % self.partner.pk,
+                         content_type='application/json', **self.auth)
+        self.assertTrue(AdminAction.objects.filter(
+            action_type='issue_partner_key').exists())
+
+    def test_five_live_keys_is_still_the_limit(self):
+        for i in range(5):
+            self.client.post('/partners/admin/%s/keys/' % self.partner.pk,
+                             data={'name': 'k%s' % i},
+                             content_type='application/json', **self.auth)
+        res = self.client.post('/partners/admin/%s/keys/' % self.partner.pk,
+                               content_type='application/json', **self.auth)
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.json()['code'], 'TOO_MANY_KEYS')
