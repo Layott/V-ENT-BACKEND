@@ -134,9 +134,19 @@ class AdminEntryKeepsTheSiteSessionTests(TestCase):
         self.user.refresh_from_db()
         # The token the website is still holding must keep working.
         self.assertEqual(self.user.login_session_token, 'a-live-session-token')
-        self.assertEqual(response.json()['data']['session_token'], 'a-live-session-token')
+        # And the console gets its own, which is NOT the site's.
+        issued = response.json()['data']['session_token']
+        self.assertEqual(self.user.admin_session_token, issued)
+        self.assertNotEqual(issued, 'a-live-session-token')
 
-    def test_password_entry_still_mints_a_fresh_session(self):
+    def test_password_entry_also_leaves_the_site_session_alone(self):
+        """Rewritten 2026-08-27, deliberately.
+
+        It used to assert that the password door minted a fresh
+        `login_session_token`, which was true and was the bug: the console and
+        the website shared one field, so entering one signed you out of the
+        other. Neither door touches the website session now.
+        """
         self.user.set_password('a-real-password')
         self.user.save()
 
@@ -150,9 +160,33 @@ class AdminEntryKeepsTheSiteSessionTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.user.refresh_from_db()
-        # No session was being preserved here, so a new one is correct.
-        self.assertNotEqual(self.user.login_session_token, 'a-live-session-token')
-        self.assertTrue(self.user.login_session_token)
+        self.assertEqual(self.user.login_session_token, 'a-live-session-token')
+        self.assertTrue(self.user.admin_session_token)
+        self.assertNotEqual(self.user.admin_session_token, self.user.login_session_token)
+
+    def test_signing_in_on_the_site_does_not_break_the_console(self):
+        """The reported "Failed to load dashboard data".
+
+        A new website session used to overwrite the field the console resolved
+        against, so an admin who signed in again found the console dead while
+        its cookie still had days to run.
+        """
+        step_up = self.client.post(
+            reverse('admin_step_up'), content_type='application/json',
+            HTTP_AUTHORIZATION='Bearer a-live-session-token')
+        self._verify(step_up.json()['data']['pending_token'])
+        self.user.refresh_from_db()
+        admin_token = self.user.admin_session_token
+
+        # Somebody signs in on the website again: a fresh site session.
+        self.user.login_session_token = 'a-brand-new-site-session'
+        self.user.login_session_created_at = timezone.now()
+        self.user.save(update_fields=['login_session_token', 'login_session_created_at'])
+
+        metrics = self.client.get(reverse('admin_metrics'),
+                                  HTTP_AUTHORIZATION=f'Bearer {admin_token}')
+
+        self.assertNotEqual(metrics.status_code, 401)
 
 
 class FounderBadgeReachesItsOwnerTests(TestCase):
