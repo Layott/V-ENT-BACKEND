@@ -353,6 +353,13 @@ def get_user_informations(request):
             'full_name': user.full_name,
             'username': user.username,
             'email': user.email,
+            # A founder looking at their own profile saw no badge, because this
+            # payload never carried the flag - only the public profile view did.
+            # So the mark appeared to everybody except the person who earned it,
+            # which is how it was reported. Same expression as the public view
+            # and the community payloads; keep the three in step.
+            'founder_badge': bool(getattr(user, 'is_founder', False)
+                                  and user.show_founder_badge),
             'country': user.country,
             # The city, so a profile can read "Lagos, Nigeria". Both halves are
             # set by the daily location refresh at sign-in.

@@ -9,6 +9,7 @@ the step-up door issues a pending token and never a session token, and it
 refuses anybody whose session is not a staff account with a role.
 """
 from django.test import TestCase
+from django.utils import timezone
 from django.urls import reverse
 
 from . import totp as totp_lib
@@ -152,3 +153,46 @@ class AdminEntryKeepsTheSiteSessionTests(TestCase):
         # No session was being preserved here, so a new one is correct.
         self.assertNotEqual(self.user.login_session_token, 'a-live-session-token')
         self.assertTrue(self.user.login_session_token)
+
+
+class FounderBadgeReachesItsOwnerTests(TestCase):
+    """A founder must see their own badge.
+
+    `get_user_informations` feeds the owner's view of their profile and the
+    public profile view feeds everybody else's. Only the second carried
+    `founder_badge`, so the mark appeared to every visitor and never to the
+    person who earned it - which is exactly how it was reported.
+    """
+
+    def test_the_owner_payload_carries_the_founder_flag(self):
+        user = make_user(username='a_founder', email='a_founder@example.com',
+                         is_staff=False, admin_role=None,
+                         login_session_token='founder-session')
+        user.is_founder = True
+        user.show_founder_badge = True
+        user.login_session_created_at = timezone.now()
+        user.save(update_fields=['is_founder', 'show_founder_badge',
+                                 'login_session_created_at'])
+
+        response = self.client.get(
+            reverse('get_user_informations'),
+            HTTP_AUTHORIZATION='Bearer founder-session')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['data']['founder_badge'])
+
+    def test_a_founder_who_switched_it_off_does_not_get_it(self):
+        user = make_user(username='shy_founder', email='shy@example.com',
+                         is_staff=False, admin_role=None,
+                         login_session_token='shy-session')
+        user.is_founder = True
+        user.show_founder_badge = False
+        user.login_session_created_at = timezone.now()
+        user.save(update_fields=['is_founder', 'show_founder_badge',
+                                 'login_session_created_at'])
+
+        response = self.client.get(
+            reverse('get_user_informations'),
+            HTTP_AUTHORIZATION='Bearer shy-session')
+
+        self.assertFalse(response.json()['data']['founder_badge'])
