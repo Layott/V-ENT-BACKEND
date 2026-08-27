@@ -22,6 +22,15 @@ def signed_in(username, **extra):
         login_session_token=f'tok{username}'[:16], login_session_created_at=timezone.now(),
         is_active=True, country='Nigeria', state='Lagos', **extra,
     )
+    # A staff user in these suites exists to call the admin console's
+    # endpoints, and those resolve the console's own grant rather than the
+    # website session. The two used to be one field, which is why this fixture
+    # only ever minted a site token.
+    if extra.get('is_staff'):
+        user.admin_session_token = f'adm{username}'[:16]
+        user.admin_session_created_at = timezone.now()
+        user.save(update_fields=['admin_session_token', 'admin_session_created_at'])
+        return user, {'HTTP_AUTHORIZATION': f'Bearer {user.admin_session_token}'}
     return user, {'HTTP_AUTHORIZATION': f'Bearer {user.login_session_token}'}
 
 
