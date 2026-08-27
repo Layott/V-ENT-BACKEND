@@ -1,5 +1,8 @@
 from django.urls import path, include
 from .views import *
+from .views_standings import (
+    record_fixture, set_league_rules, standings, tie_detail,
+)
 from .views_checkin import check_in, check_in_status, close_check_in, extend_check_in
 from .views_bracket import (
     generate_bracket, report_match_score, confirm_match_score, raise_dispute,
@@ -40,4 +43,12 @@ urlpatterns = [
     path("<int:tournament_id>/check-in/status/", check_in_status, name="check_in_status"),
     path("<int:tournament_id>/close-check-in/", close_check_in, name="close_check_in"),
     path("<int:tournament_id>/extend-check-in/", extend_check_in, name="extend_check_in"),
+
+    # --- league: both tables, and the games inside a tie ------------------
+    # Public, because a league table is the most shareable thing a tournament
+    # produces and putting it behind a sign-in keeps the competition invisible.
+    path("<int:tournament_id>/standings/", standings, name="tournament_standings"),
+    path("tie/<int:tie_id>/", tie_detail, name="tie_detail"),
+    path("tie/<int:tie_id>/record/", record_fixture, name="record_tie_fixture"),
+    path("<int:tournament_id>/league-rules/", set_league_rules, name="set_league_rules"),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
