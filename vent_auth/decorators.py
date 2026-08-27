@@ -20,6 +20,15 @@ from .models import Users
 
 SESSION_TIMEOUT_MINUTES = 120
 
+# How long an admin grant lasts. This is the ONE number: the view that sets the
+# adminToken cookie reads it too, so the cookie and the grant behind it cannot
+# disagree. They used to - a 7 day cookie over a 120 minute session - and the
+# console broke on its own after a long lunch.
+#
+# Seven days is what the CEO chose on 2026-08-27 when asked how often the
+# console should demand the authenticator code.
+ADMIN_SESSION_MINUTES = 7 * 24 * 60
+
 ADMIN_ROLES = ('super_admin', 'finance_admin', 'mod_admin', 'support_admin')
 
 # canonical -> short alias consumed by the FE AdminNav / adminUser
@@ -101,16 +110,19 @@ def resolve_admin(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
     token = header.split(' ', 1)[1]
+    # The console has its own grant. It used to share `login_session_token` with
+    # the website, so each door invalidated the other: opening the console
+    # signed you out of the site, and signing in on the site broke the console.
     try:
-        user = Users.objects.get(login_session_token=token)
+        user = Users.objects.get(admin_session_token=token)
     except Users.DoesNotExist:
         return None, Response(
             { 'code': 'INVALID_EXPIRED_SESSION_TOKEN','status': 'error', 'message': 'Invalid or expired session token'},
             status=status.HTTP_401_UNAUTHORIZED,
         )
     if (
-        user.login_session_created_at is None
-        or timezone.now() - user.login_session_created_at > timedelta(minutes=SESSION_TIMEOUT_MINUTES)
+        user.admin_session_created_at is None
+        or timezone.now() - user.admin_session_created_at > timedelta(minutes=ADMIN_SESSION_MINUTES)
     ):
         return None, Response(
             { 'code': 'SESSION_TOKEN_EXPIRED','status': 'error', 'message': 'Session token has expired'},

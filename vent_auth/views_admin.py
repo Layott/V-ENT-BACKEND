@@ -21,6 +21,7 @@ from . import totp as totp_lib
 from .views_helpers import send_email, generate_session_token
 from .views_kyc_files import kyc_document_url
 from .decorators import (
+    ADMIN_SESSION_MINUTES,
     ADMIN_ROLES, ROLE_PERMISSIONS, admin_role_required, resolve_admin, admin_identity,
 )
 
@@ -308,23 +309,26 @@ def admin_2fa_verify(request):
         enrolment.confirmed_at = timezone.now()
     enrolment.save(update_fields=['last_used_step', 'confirmed', 'confirmed_at'])
 
-    # Reuse the session the person already holds when they came in through the
-    # step-up door. Minting here would overwrite `login_session_token`, which is
-    # the single field the website session reads, so opening the console logged
-    # them out of the site - the exact thing the step-up door was added to stop.
-    if keep_session and user.login_session_token:
-        token = user.login_session_token
-    else:
-        token = generate_session_token()
-        user.login_session_token = token
-        user.login_session_created_at = timezone.now()
-        user.save(update_fields=['login_session_token', 'login_session_created_at'])
+    # The console gets its own token, always. It used to be minted into
+    # `login_session_token`, which the website also reads, so the two grants
+    # invalidated each other in both directions. `keep_session` was a patch over
+    # one direction of that and is no longer needed: the website session is
+    # never touched here, whichever door was used.
+    token = generate_session_token()
+    user.admin_session_token = token
+    user.admin_session_created_at = timezone.now()
+    user.save(update_fields=['admin_session_token', 'admin_session_created_at'])
 
     return Response({
         'status': 'success',
         'message': 'Admin login successful',
         'data': {
             'session_token': token,
+            # The console stores this token in a cookie, and the cookie's
+            # lifetime has to be the grant's lifetime. Publishing it means the
+            # two cannot drift: a 7 day cookie over a 120 minute grant is what
+            # produced "Failed to load dashboard data" after a long lunch.
+            'expires_in': ADMIN_SESSION_MINUTES * 60,
             'username': user.username,
             'email': user.email,
             'admin': admin_identity(user),
