@@ -12,7 +12,7 @@ from .views_vendors import (
 )
 from .views_promos import (
     event_referrals, event_referral_detail, event_promos, event_promo_detail,
-    event_managers, event_manager_detail,
+    event_managers, event_manager_detail, my_events,
 )
 from .views_linking import (
     event_tournaments, linkable_tournaments, link_tournament, unlink_tournament,
@@ -37,6 +37,7 @@ urlpatterns = [
 
     # Ticketing
     path("my-tickets/", my_tickets, name="my_tickets"),
+    path("my-events/", my_events, name="my_events"),
     path("ticket/<str:code>/check-in/", check_in_ticket, name="check_in_ticket"),
     path("<int:event_id>/ticket-types/", ticket_types, name="ticket_types"),
     path("<int:event_id>/buy-ticket/", buy_ticket, name="buy_ticket"),

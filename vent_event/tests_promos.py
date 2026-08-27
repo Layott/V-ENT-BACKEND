@@ -217,3 +217,55 @@ class TicketingSetupTests(TestCase):
         """Links shared before the slug rule have to keep opening."""
         res = self.client.get('/event/%s/promos/' % self.event.event_id, **self.owner_auth)
         self.assertEqual(res.status_code, 200, res.content)
+
+
+class MyEventsTests(TestCase):
+    """The events you run - there was no way to see your own at all."""
+
+    def setUp(self):
+        self.owner, self.owner_auth = a_user('owner')
+        self.helper, self.helper_auth = a_user('helper')
+        self.stranger, self.stranger_auth = a_user('nosy')
+        now = timezone.now()
+        self.mine = Event.objects.create(
+            name='My Own Event', creator=self.owner, event_type='physical',
+            desc='Mine.', location='Lagos',
+            start_date=now + timedelta(days=5), end_date=now + timedelta(days=6),
+        )
+        self.theirs = Event.objects.create(
+            name='Somebody Elses', creator=self.stranger, event_type='physical',
+            desc='Not mine.', location='Abuja',
+            start_date=now + timedelta(days=7), end_date=now + timedelta(days=8),
+        )
+
+    def test_it_lists_what_you_created(self):
+        res = self.client.get('/event/my-events/', **self.owner_auth)
+        self.assertEqual(res.status_code, 200, res.content)
+        names = [e['name'] for e in res.json()['data']['results']]
+        self.assertEqual(names, ['My Own Event'])
+
+    def test_it_does_not_list_somebody_elses(self):
+        res = self.client.get('/event/my-events/', **self.owner_auth)
+        names = [e['name'] for e in res.json()['data']['results']]
+        self.assertNotIn('Somebody Elses', names)
+
+    def test_an_event_you_help_run_is_listed_too(self):
+        """From the organiser's side both are events you must act on."""
+        EventManager.objects.create(event=self.theirs, user=self.helper, role='manager')
+        res = self.client.get('/event/my-events/', **self.helper_auth)
+        rows = res.json()['data']['results']
+        self.assertEqual([e['name'] for e in rows], ['Somebody Elses'])
+        self.assertEqual(rows[0]['role'], 'manager')
+        self.assertFalse(rows[0]['is_owner'])
+
+    def test_a_retired_event_is_still_listed(self):
+        """This is the only screen that can show it, and it may need fixing."""
+        self.mine.is_active = False
+        self.mine.save(update_fields=['is_active'])
+        res = self.client.get('/event/my-events/', **self.owner_auth)
+        self.assertEqual([e['name'] for e in res.json()['data']['results']],
+                         ['My Own Event'])
+
+    def test_a_signed_out_visitor_is_refused(self):
+        res = self.client.get('/event/my-events/')
+        self.assertIn(res.status_code, (400, 401), res.content)

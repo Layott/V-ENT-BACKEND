@@ -421,3 +421,52 @@ def event_manager_detail(request, event_id, manager_id):
     manager = get_object_or_404(EventManager, id=manager_id, event=event)
     manager.delete()
     return _ok({}, 'Removed.')
+
+@api_view(['GET'])
+def my_events(request):
+    """GET /event/my-events/ - the events this person runs.
+
+    Yours first, then the ones you were added to. Drafts and retired events are
+    included on purpose: this is the only screen that can show them, and an
+    event nobody can find again is an event nobody can fix.
+    """
+    from django.db.models import Count, Q
+
+    user, auth_error = actor_from_request(request)
+    if auth_error is not None:
+        return auth_error
+
+    managed_ids = list(
+        EventManager.objects.filter(user=user).values_list('event_id', flat=True))
+
+    events = (Event.objects
+              .filter(Q(creator=user) | Q(event_id__in=managed_ids))
+              .select_related('game', 'series', 'organization')
+              .annotate(tickets_sold=Count('tickets', distinct=True))
+              .order_by('-start_date', '-event_id')
+              .distinct())
+
+    rows = []
+    for e in events:
+        rows.append({
+            'id': e.event_id,
+            'slug': e.slug,
+            'name': e.name,
+            'game': e.game.game_title if e.game else None,
+            'series': e.series.name if e.series_id else None,
+            'event_type': e.event_type,
+            'location': e.location,
+            'start_date': e.start_date,
+            'end_date': e.end_date,
+            'capacity': e.capacity,
+            'tickets_sold': e.tickets_sold,
+            'is_active': e.is_active,
+            'banner': e.banner.url if e.banner else (e.banner_url or None),
+            'organization': e.organization.org_name if e.organization_id else None,
+            # What this person may do with it, so the screen does not have to
+            # guess and then be refused.
+            'is_owner': e.creator_id == user.user_id,
+            'role': 'owner' if e.creator_id == user.user_id else 'manager',
+        })
+
+    return _ok({'results': rows, 'count': len(rows)})
