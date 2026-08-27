@@ -74,14 +74,48 @@ class TicketTier(models.Model):
 
 
 class Sponsor(models.Model):
+    """An organisation behind the event: a sponsor, or a partner.
+
+    One model rather than two, because a partner is a sponsor with a different
+    word on it. Splitting them would mean writing every screen, serializer and
+    admin control twice, and the first field added to one would silently be
+    missing from the other.
+    """
+    KIND_CHOICES = [
+        ('sponsor', 'Sponsor'),
+        ('partner', 'Partner'),
+    ]
+
     sponsor_id = models.AutoField(primary_key=True)
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="sponsors")
     name = models.CharField(max_length=100)
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES, default='sponsor')
     logo = models.ImageField(upload_to='sponsor_logos/', null=True, blank=True)  # Sponsor logo upload path
     logo_url = models.URLField(max_length=500, null=True, blank=True)  # External sponsor logo URL
+    website = models.URLField(max_length=500, null=True, blank=True)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['kind', 'sort_order', 'sponsor_id']
 
     def __str__(self):
-        return self.name
+        return '%s (%s)' % (self.name, self.kind)
+
+
+class SponsorLink(models.Model):
+    """Where a sponsor's logo sends you. Mirrors the event's own SocialLink.
+
+    A table rather than a column per platform: most organisations use two or
+    three of them, and a fixed row of columns would be mostly empty and still
+    missing whichever one somebody actually has.
+    """
+    sponsor_link_id = models.AutoField(primary_key=True)
+    sponsor = models.ForeignKey(Sponsor, on_delete=models.CASCADE, related_name='links')
+    platform = models.CharField(max_length=50)  # e.g., twitter, instagram, youtube
+    url = models.URLField(max_length=500)
+
+    def __str__(self):
+        return f"{self.platform} - {self.url}"
 
 
 class SocialLink(models.Model):

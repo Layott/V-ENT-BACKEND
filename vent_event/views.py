@@ -15,7 +15,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from vent_auth.models import Games, Users
-from .models import Event, TicketTier, Sponsor, SocialLink, VendorInvite
+from .models import Event, TicketTier, Sponsor, SponsorLink, SocialLink, VendorInvite
 from .serializers import serialize_event_card, serialize_event_detail
 
 logger = logging.getLogger(__name__)
@@ -249,20 +249,40 @@ def create_event(request):
                     quantity=max(quantity, 0), perks=(tier.get('perks') or '').strip(),
                 )
 
-            for index, sponsor in enumerate(_as_list(data.get('sponsors'))):
+            # Sponsors and partners are the same list with a different `kind`,
+            # so one loop handles both and neither can drift from the other.
+            supporters = list(_as_list(data.get('sponsors')))
+            supporters += [
+                dict(row, kind='partner') if isinstance(row, dict) else row
+                for row in _as_list(data.get('partners'))
+            ]
+
+            for index, sponsor in enumerate(supporters):
                 if not isinstance(sponsor, dict):
                     continue
                 sponsor_name = (sponsor.get('name') or '').strip()
                 if not sponsor_name:
                     continue
-                # The wizard uploads a file per sponsor, keyed by its position in
-                # the list, because a sponsor has no id until this loop runs.
-                # logo_url stays accepted for anything still sending one.
-                Sponsor.objects.create(
-                    event=event, name=sponsor_name,
+
+                kind = sponsor.get('kind')
+                kind = kind if kind in ('sponsor', 'partner') else 'sponsor'
+
+                # The wizard uploads a file per supporter, keyed by its position
+                # in the combined list, because a row has no id until this loop
+                # runs. logo_url stays accepted for anything still sending one.
+                created = Sponsor.objects.create(
+                    event=event, name=sponsor_name, kind=kind,
                     logo=request.FILES.get('sponsor_logo_%s' % index),
                     logo_url=(sponsor.get('logo_url') or '').strip() or None,
+                    website=(sponsor.get('website') or '').strip() or None,
+                    sort_order=index,
                 )
+
+                for platform, url in _as_dict(sponsor.get('links')).items():
+                    url = (url or '').strip()
+                    if url:
+                        SponsorLink.objects.create(
+                            sponsor=created, platform=platform, url=url)
 
             for vendor in _as_list(data.get('vendor_invites')):
                 if not isinstance(vendor, dict):
@@ -390,7 +410,7 @@ def view_event(request, event_id):
         queryset=(
             Event.objects
             .select_related('game', 'creator')
-            .prefetch_related('ticket_tiers', 'sponsors', 'social_links', 'vendor_invites')
+            .prefetch_related('ticket_tiers', 'sponsors', 'sponsors__links', 'social_links', 'vendor_invites')
             .filter(is_active=True)
         ),
     )
