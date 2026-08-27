@@ -164,7 +164,7 @@ def _admin_refusal(user):
     return None
 
 
-def _pending_2fa_payload(user):
+def _pending_2fa_payload(user, keep_session=False):
     """The short-lived token a TOTP code exchanges for a session token.
 
     Never a session token itself. Both the password path and the step-up path
@@ -176,7 +176,10 @@ def _pending_2fa_payload(user):
         user=user, defaults={'secret': totp_lib.generate_secret()}
     )
 
-    pending = signing.TimestampSigner(salt=PENDING_2FA_SALT).sign(str(user.user_id))
+    # `keep` rides along so the verify step knows this came from a session that
+    # is already signed in, and must not rotate the token out from under it.
+    subject = '%s:keep' % user.user_id if keep_session else str(user.user_id)
+    pending = signing.TimestampSigner(salt=PENDING_2FA_SALT).sign(subject)
     data = {
         'requires_2fa': True,
         'pending_token': pending,
@@ -239,7 +242,7 @@ def admin_step_up(request):
     return Response({
         'status': 'success',
         'message': 'Signed in already - two-factor code required',
-        'data': _pending_2fa_payload(user),
+        'data': _pending_2fa_payload(user, keep_session=True),
     }, status=status.HTTP_200_OK)
 
 
@@ -260,9 +263,13 @@ def admin_2fa_verify(request):
         )
 
     try:
-        user_id = signing.TimestampSigner(salt=PENDING_2FA_SALT).unsign(
+        subject = signing.TimestampSigner(salt=PENDING_2FA_SALT).unsign(
             pending, max_age=PENDING_2FA_MAX_AGE
         )
+        # `<user_id>` from the password door, `<user_id>:keep` from the step-up
+        # door, where the caller already holds a session that must survive.
+        user_id, _, marker = subject.partition(':')
+        keep_session = marker == 'keep'
     except signing.SignatureExpired:
         return Response(
             { 'code': 'SIGN_ATTEMPT_EXPIRED_START','status': 'error', 'message': 'This sign-in attempt expired. Start again.'},
@@ -301,10 +308,17 @@ def admin_2fa_verify(request):
         enrolment.confirmed_at = timezone.now()
     enrolment.save(update_fields=['last_used_step', 'confirmed', 'confirmed_at'])
 
-    token = generate_session_token()
-    user.login_session_token = token
-    user.login_session_created_at = timezone.now()
-    user.save(update_fields=['login_session_token', 'login_session_created_at'])
+    # Reuse the session the person already holds when they came in through the
+    # step-up door. Minting here would overwrite `login_session_token`, which is
+    # the single field the website session reads, so opening the console logged
+    # them out of the site - the exact thing the step-up door was added to stop.
+    if keep_session and user.login_session_token:
+        token = user.login_session_token
+    else:
+        token = generate_session_token()
+        user.login_session_token = token
+        user.login_session_created_at = timezone.now()
+        user.save(update_fields=['login_session_token', 'login_session_created_at'])
 
     return Response({
         'status': 'success',

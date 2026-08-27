@@ -11,6 +11,7 @@ refuses anybody whose session is not a staff account with a role.
 from django.test import TestCase
 from django.urls import reverse
 
+from . import totp as totp_lib
 from .models import AdminTOTP, Users
 
 
@@ -89,3 +90,65 @@ class AdminStepUpTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()['code'], 'ACCOUNT_NO_ADMIN_ROLE')
+
+
+class AdminEntryKeepsTheSiteSessionTests(TestCase):
+    """Opening the console must not sign you out of the website.
+
+    `admin_2fa_verify` used to mint a fresh token into `login_session_token` -
+    the single field the website session reads - so the moment the TOTP code was
+    accepted, every authed call from the site answered 401 and the admin had to
+    sign in again. The step-up door alone did not fix that; it only removed the
+    password prompt.
+
+    One session per user stays deliberate. When the pending token came from a
+    live session, that session is the proof, so the console reuses the token the
+    person already holds rather than rotating it.
+    """
+
+    def setUp(self):
+        self.user = make_user()
+        AdminTOTP.objects.create(user=self.user, secret=totp_lib.generate_secret(),
+                                 confirmed=True)
+
+    def _code(self):
+        secret = AdminTOTP.objects.get(user=self.user).secret
+        return totp_lib._code_for_step(secret, totp_lib.current_step())
+
+    def _verify(self, pending):
+        return self.client.post(
+            reverse('admin_2fa_verify'),
+            {'pending_token': pending, 'code': self._code()},
+            content_type='application/json')
+
+    def test_step_up_entry_leaves_the_site_session_alone(self):
+        step_up = self.client.post(
+            reverse('admin_step_up'), content_type='application/json',
+            HTTP_AUTHORIZATION='Bearer a-live-session-token')
+        pending = step_up.json()['data']['pending_token']
+
+        response = self._verify(pending)
+
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        # The token the website is still holding must keep working.
+        self.assertEqual(self.user.login_session_token, 'a-live-session-token')
+        self.assertEqual(response.json()['data']['session_token'], 'a-live-session-token')
+
+    def test_password_entry_still_mints_a_fresh_session(self):
+        self.user.set_password('a-real-password')
+        self.user.save()
+
+        login = self.client.post(
+            reverse('admin_login'),
+            {'email': self.user.username, 'password': 'a-real-password'},
+            content_type='application/json')
+        pending = login.json()['data']['pending_token']
+
+        response = self._verify(pending)
+
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        # No session was being preserved here, so a new one is correct.
+        self.assertNotEqual(self.user.login_session_token, 'a-live-session-token')
+        self.assertTrue(self.user.login_session_token)
