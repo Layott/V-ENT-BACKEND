@@ -362,3 +362,39 @@ def admin_resolve_dispute_by_id(request, dispute_id):
         'data': {'dispute_id': dispute.id, 'status': dispute.status},
         'message': f'Dispute {resolution}',
     }, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+def public_platform_modules(request):
+    """GET /auth/platform/modules/ - what is switched on, for anybody.
+
+    No authentication: a signed-out visitor's page depends on this too, and
+    there is nothing private in whether the shop is open. Only the switches and
+    the notices are published, never the fee percentages or anything else on the
+    settings record.
+    """
+    from .models import AdminSetting
+
+    settings_blob = AdminSetting.load().merged()
+    flags = settings_blob.get('feature_flags', {}) or {}
+    banner = settings_blob.get('banner', {}) or {}
+    maintenance = settings_blob.get('maintenance', {}) or {}
+
+    return Response({
+        'status': 'success',
+        'message': 'OK',
+        'data': {
+            'feature_flags': {k: bool(v) for k, v in flags.items()},
+            # The banner and the maintenance notice are shown to visitors, so
+            # they travel with the flags rather than needing a second request.
+            'banner': {
+                'enabled': bool(banner.get('enabled')),
+                'title': banner.get('title') or '',
+                'message': banner.get('message') or '',
+                'type': banner.get('type') or 'info',
+            },
+            'maintenance': {
+                'enabled': bool(maintenance.get('enabled')),
+                'message': maintenance.get('message') or '',
+            },
+        },
+    }, status=status.HTTP_200_OK)
