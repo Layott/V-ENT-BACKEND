@@ -317,6 +317,49 @@ class GameSeries(models.Model):
         return '%s %s' % (self.game.game_title, self.name)
 
 
+class GameMode(models.Model):
+    """A way a game is played: Battle Royale, Clash Squad, 5v5 Bomb, Ultimate Team.
+
+    The wizard had a Game Mode select fed by a fixed list, so it offered Free
+    Fire's modes to somebody running EA FC. A mode belongs to a game, and to an
+    edition where the edition changed it - Clash Squad is Free Fire's, Ultimate
+    Team is EA FC's, and neither should appear under the other.
+
+    `default_format` and `default_placement_table` are what this mode is
+    normally run as, so picking Battle Royale pre-selects points scoring with
+    the right placement table instead of leaving an organiser to work it out.
+    They are defaults, not constraints: an organiser can still choose otherwise.
+    """
+
+    mode_id = models.AutoField(primary_key=True)
+    game = models.ForeignKey(Games, on_delete=models.CASCADE, related_name='modes')
+    # Null means it applies to every edition of the game, which is the usual case.
+    series = models.ForeignKey(
+        GameSeries, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='modes',
+    )
+    name = models.CharField(max_length=60)
+    description = models.CharField(max_length=200, blank=True, default='')
+
+    # How many a side, when the mode fixes it. 0 means the organiser decides.
+    team_size = models.PositiveIntegerField(default=0)
+
+    default_format = models.CharField(max_length=40, blank=True, default='')
+    default_placement_table = models.CharField(max_length=40, blank=True, default='')
+
+    is_active = models.BooleanField(default=True)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['sort_order', 'name']
+        # The same game cannot have two modes with one name. Two games can both
+        # have a "Ranked", which is why this is not unique on its own.
+        unique_together = ('game', 'name')
+
+    def __str__(self):
+        return f'{self.game.game_title}: {self.name}'
+
+
 class Achievement(models.Model):
     name = models.CharField(max_length=100)
     description = models.TextField(null=True)

@@ -24,8 +24,8 @@ def signed_in(username):
 
 class OneTeamPerGameTests(TestCase):
     def setUp(self):
-        self.free_fire = Games.objects.create(game_title='Free Fire')
-        self.codm = Games.objects.create(game_title='Call of Duty: Mobile')
+        self.free_fire = Games.objects.get_or_create(game_title='Free Fire')[0]
+        self.codm = Games.objects.get_or_create(game_title='Call of Duty: Mobile')[0]
         self.owner, self.owner_auth = signed_in('teamowner')
         self.player, self.player_auth = signed_in('player')
 
@@ -79,7 +79,7 @@ class OneTeamPerGameTests(TestCase):
 
 class MembershipSettingsTests(TestCase):
     def setUp(self):
-        self.game = Games.objects.create(game_title='Free Fire')
+        self.game = Games.objects.get_or_create(game_title='Free Fire')[0]
         self.owner, self.auth = signed_in('settingsowner')
         self.team = Teams.objects.create(
             team_name='V-ENT Esport', game=self.game, description='', team_creator=self.owner,
@@ -138,7 +138,7 @@ class MembershipSettingsTests(TestCase):
 
 class ScheduleClashTests(TestCase):
     def setUp(self):
-        self.game = Games.objects.create(game_title='Free Fire')
+        self.game = Games.objects.get_or_create(game_title='Free Fire')[0]
         self.organiser, _ = signed_in('clashorganiser')
         self.player, self.auth = signed_in('clashplayer')
 

@@ -11,7 +11,20 @@ from .views_bracket import (
 from django.conf import settings
 from django.conf.urls.static import static
 
+from . import views_formats
+from . import views_rules
+
 urlpatterns = [
+    # The catalogue the wizard asks its questions from. Public: somebody
+    # deciding whether to run a tournament here should see what is
+    # supported before they have an account.
+    path('formats/', views_formats.format_catalogue, name='tournament_formats'),
+    path('rule-presets/', views_rules.rule_presets, name='rule_presets'),
+    # The organiser's own rules: read them, change them, put them back.
+    path('<int:tournament_id>/rules/', views_rules.tournament_rules, name='tournament_rules'),
+    path('<int:tournament_id>/rules/set/', views_rules.set_tournament_rules, name='set_tournament_rules'),
+    path('<int:tournament_id>/rules/reset/', views_rules.reset_tournament_rules, name='reset_tournament_rules'),
+    path('games/<int:game_id>/modes/', views_formats.game_modes, name='game_modes'),
     path('prize-rates/', prize_rates, name='prize_rates'),
     path("create-tournament/", create_tournament, name="create_tournament"),
     path("search-tournament/", search_tournament, name="search_tournament"),

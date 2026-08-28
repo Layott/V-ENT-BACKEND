@@ -28,49 +28,55 @@ def an_admin(role='mod_admin', token='game-admin-grant'):
 class GameSeriesModelTests(TestCase):
     def test_two_games_may_share_an_edition_name(self):
         """"2025" is a perfectly normal edition name for more than one game."""
-        a = Games.objects.create(game_title='Game A')
-        b = Games.objects.create(game_title='Game B')
-        GameSeries.objects.create(game=a, name='2025')
-        GameSeries.objects.create(game=b, name='2025')
+        a = Games.objects.get_or_create(game_title='Game A')[0]
+        b = Games.objects.get_or_create(game_title='Game B')[0]
+        GameSeries.objects.get_or_create(game=a, name='2025')[0]
+        GameSeries.objects.get_or_create(game=b, name='2025')[0]
         self.assertEqual(GameSeries.objects.filter(name='2025').count(), 2)
 
     def test_one_game_cannot_have_the_same_edition_twice(self):
-        game = Games.objects.create(game_title='Game C')
-        GameSeries.objects.create(game=game, name='2025')
+        game = Games.objects.get_or_create(game_title='Game C')[0]
+        GameSeries.objects.get_or_create(game=game, name='2025')[0]
         with self.assertRaises(Exception):
+            # create, not get_or_create: the point is that the second one is
+            # refused, and get_or_create would quietly hand back the first.
             GameSeries.objects.create(game=game, name='2025')
 
     def test_an_edition_gets_a_slug_from_the_game_and_its_name(self):
-        game = Games.objects.create(game_title='EA FC')
-        series = GameSeries.objects.create(game=game, name='EA FC 26')
+        # Its own title: the catalogue seeds EA FC with real editions now, and
+        # a test that asserts what exists has to own what exists.
+        game = Games.objects.create(game_title='Slug Probe FC')
+        series = GameSeries.objects.create(game=game, name='Slug Probe FC 26')
         self.assertTrue(series.slug)
-        self.assertIn('ea-fc', series.slug)
+        self.assertIn('slug-probe-fc', series.slug)
 
 
 class GamesEndpointTests(TestCase):
     def setUp(self):
-        self.game = Games.objects.create(game_title='EA FC')
-        GameSeries.objects.create(game=self.game, name='EA FC 25', release_year=2024)
-        GameSeries.objects.create(game=self.game, name='EA FC 24', release_year=2023,
-                                  is_active=False)
-        Games.objects.create(game_title='Retired Title', is_active=False)
+        self.game = Games.objects.create(game_title='Catalogue Probe FC')
+        GameSeries.objects.create(
+            game=self.game, name='Catalogue Probe FC 25', release_year=2024)
+        GameSeries.objects.create(
+            game=self.game, name='Catalogue Probe FC 24', release_year=2023,
+            is_active=False)
+        Games.objects.get_or_create(game_title='Retired Title', defaults={'is_active': False})[0]
 
     def test_the_picker_only_sees_live_games(self):
         rows = self.client.get('/auth/games/').json()['data']['games']
         names = [g['name'] for g in rows]
-        self.assertIn('EA FC', names)
+        self.assertIn('Catalogue Probe FC', names)
         self.assertNotIn('Retired Title', names)
 
     def test_a_game_carries_its_editions(self):
         rows = self.client.get('/auth/games/').json()['data']['games']
-        ea = next(g for g in rows if g['name'] == 'EA FC')
+        ea = next(g for g in rows if g['name'] == 'Catalogue Probe FC')
         names = [s['name'] for s in ea['series']]
-        self.assertIn('EA FC 25', names)
+        self.assertIn('Catalogue Probe FC 25', names)
 
     def test_a_retired_edition_is_not_offered(self):
         rows = self.client.get('/auth/games/').json()['data']['games']
-        ea = next(g for g in rows if g['name'] == 'EA FC')
-        self.assertNotIn('EA FC 24', [s['name'] for s in ea['series']])
+        ea = next(g for g in rows if g['name'] == 'Catalogue Probe FC')
+        self.assertNotIn('Catalogue Probe FC 24', [s['name'] for s in ea['series']])
 
     def test_the_console_can_ask_for_everything(self):
         rows = self.client.get('/auth/games/?all=1').json()['data']['games']
@@ -95,14 +101,14 @@ class AdminGameCatalogueTests(TestCase):
         self.assertEqual([s['name'] for s in res.json()['data']['series']], ['6'])
 
     def test_a_duplicate_game_is_refused(self):
-        Games.objects.create(game_title='Tekken')
+        Games.objects.get_or_create(game_title='Tekken')[0]
         res = self.client.post('/auth/admin/games/', data={'name': 'tekken'},
                                content_type='application/json', **self.auth)
         self.assertEqual(res.status_code, 409, res.content)
 
     def test_retiring_a_game_takes_it_out_of_the_picker_without_deleting_it(self):
         """Games cascades into tournaments, so retire is the only safe removal."""
-        game = Games.objects.create(game_title='Old Title')
+        game = Games.objects.get_or_create(game_title='Old Title')[0]
         res = self.client.patch('/auth/admin/games/%s/' % game.game_id,
                                 data={'is_active': False},
                                 content_type='application/json', **self.auth)
@@ -115,11 +121,11 @@ class AdminGameCatalogueTests(TestCase):
         self.assertNotIn('Old Title', [g['name'] for g in rows])
 
     def test_renaming_an_edition_moves_its_slug(self):
-        game = Games.objects.create(game_title='EA FC')
-        series = GameSeries.objects.create(game=game, name='EA FC 25')
+        game = Games.objects.create(game_title='Rename Probe FC')
+        series = GameSeries.objects.create(game=game, name='Rename Probe FC 25')
         before = series.slug
         res = self.client.patch('/auth/admin/series/%s/' % series.series_id,
-                                data={'name': 'EA FC 26'},
+                                data={'name': 'Rename Probe FC 26'},
                                 content_type='application/json', **self.auth)
         self.assertEqual(res.status_code, 200, res.content)
         series.refresh_from_db()

@@ -235,6 +235,43 @@ class LeagueRules(models.Model):
         return chosen or list(DEFAULT_TIEBREAKERS)
 
 
+
+class TournamentRuleset(models.Model):
+    """The organiser's own rules for one tournament.
+
+    A copy of a preset, then edited. Held on the tournament rather than looked up
+    from a shared table, so changing a preset later cannot silently change the
+    rules of an event that is already being played - which is the version of this
+    that goes wrong publicly, halfway through a group stage.
+
+    Everything a result is scored by lives in `data`: points for a win, the
+    placement table, points per kill, and the tie-breakers IN ORDER. That order
+    is the setting, not an implementation detail - round robin reads the meeting
+    before the goals, and an organiser is allowed to disagree.
+
+    JSON rather than columns because the shape genuinely differs by format: a
+    battle royale has a placement table and no draw, a knockout has a best-of and
+    neither. Columns for all of it would be mostly nulls, and every new format
+    would be a migration.
+    """
+
+    tournament = models.OneToOneField(
+        'Tournament', on_delete=models.CASCADE, related_name='ruleset')
+    data = models.JSONField(default=dict)
+
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='tournament_rulesets_edited')
+
+    def __str__(self):
+        return f'Rules for tournament {self.tournament_id}'
+
+    @property
+    def format_key(self):
+        return (self.data or {}).get('format') or self.tournament.bracket_type
+
+
 class TournamentPrizeDistribution(models.Model):
     id = models.AutoField(primary_key=True)
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='prize_distributions')

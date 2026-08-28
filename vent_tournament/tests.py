@@ -546,7 +546,7 @@ class CreateTournamentWithSponsorsEndpointTests(TestCase):
 
     def test_create_with_sponsors_then_view_serializes_them(self):
         org = make_user(0)
-        Games.objects.create(game_title='Valorant')
+        Games.objects.get_or_create(game_title='Valorant')[0]
 
         resp = client_for(org).post(
             '/tournament/create-tournament/', self._create_payload(), format='multipart')
@@ -566,7 +566,7 @@ class CreateTournamentWithSponsorsEndpointTests(TestCase):
 
     def test_unresolvable_entity_sponsor_does_not_break_creation(self):
         org = make_user(0)
-        Games.objects.create(game_title='Valorant')
+        Games.objects.get_or_create(game_title='Valorant')[0]
         # A 'user' type whose username does not exist must not 500 the whole create.
         payload = self._create_payload(
             sponsor_names=json.dumps(['Ghost Sponsor']),
