@@ -189,15 +189,49 @@ def admin_disqualify_registration(request, tournament_id):
             status=status.HTTP_404_NOT_FOUND,
         )
 
+    from django.db.models import Q
+    from django.utils import timezone as tz
+    from vent_tournament.models import BracketMatch
+
     reg.status = 'disqualified'
     reg.save(update_fields=['status'])
+
+    # Disqualifying only flipped a status, so the team stayed in the bracket and
+    # its opponents were left waiting on a match that would never be played.
+    # Every match still to come is forfeited to whoever was going to face them.
+    #
+    # Completed matches are left exactly as they were: they happened, and
+    # rewriting a result somebody won is not what disqualifying is for.
+    forfeited = []
+    upcoming = BracketMatch.objects.filter(
+        tournament=tournament, status__in=('scheduled', 'in_progress'),
+    ).filter(Q(participant_1=reg) | Q(participant_2=reg))
+
+    for match in upcoming:
+        opponent = (match.participant_2 if match.participant_1_id == reg.id
+                    else match.participant_1)
+        match.winner = opponent
+        match.status = 'completed'
+        match.completed_at = tz.now()
+        if match.participant_1_id == reg.id:
+            match.score_p1, match.score_p2 = 0, (1 if opponent else 0)
+        else:
+            match.score_p1, match.score_p2 = (1 if opponent else 0), 0
+        match.save(update_fields=['winner', 'status', 'completed_at',
+                                  'score_p1', 'score_p2'])
+        forfeited.append(match.id)
 
     _log_action(admin=request.admin_user, action_type='disqualify',
                 target_model='TournamentRegistration', target_id=reg.id,
                 reason=request.data.get('reason', ''),
-                metadata={'tournament_id': tournament_id, 'team_name': team_name})
+                metadata={'tournament_id': tournament_id, 'team_name': team_name,
+                          'forfeited_matches': forfeited})
 
-    return Response({'status': 'success', 'message': 'Registration disqualified'},
+    return Response({'status': 'success',
+                     'data': {'forfeited_matches': forfeited,
+                              'registration_id': reg.id},
+                     'message': ('Disqualified. %d upcoming match(es) forfeited '
+                                 'to their opponents.' % len(forfeited))},
                     status=status.HTTP_200_OK)
 
 
