@@ -174,6 +174,21 @@ def verify_token_3(request, *args, **kwargs):
                 user.is_active = True
                 user.save()
 
+                # Anything they bought as a guest with this address becomes
+                # theirs. Buying without an account and then making one should
+                # not leave the tickets stranded in an inbox, and asking
+                # somebody to forward themselves a code is not a flow.
+                try:
+                    from vent_event.views_guest import claim_for
+                    claimed = claim_for(user)
+                    if claimed:
+                        logger.info('attached %s guest ticket(s) to %s',
+                                    claimed, user.username)
+                except Exception:
+                    # A ticket that fails to attach is a support question. A
+                    # verification that fails is somebody locked out.
+                    pass
+
                 user_prof, created = UserProfile.objects.get_or_create(user=user)
 
                 profile_pic_file = create_default_profile_picture(user.full_name)

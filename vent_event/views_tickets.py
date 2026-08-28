@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from vent_auth.models import Users, UserWallet, Transaction
+from . import checkout
 from .models import Event, TicketTier, Ticket
 
 
@@ -43,8 +44,13 @@ CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'  # no look-alikes
 MAX_PER_PURCHASE = 10
 
 
-def _error(message, code, http_status, extra=None):
+def _error(message, code, http_status, extra=None, field=None):
     body = {'status': 'error', 'data': extra or {}, 'message': message, 'code': code}
+    # Which field was refused, so the form can point at it rather than making
+    # somebody hunt the page for what they missed. Same shape the guest
+    # checkout answers with, because it is the same form.
+    if field is not None:
+        body['field'] = field
     return Response(body, status=http_status)
 
 
@@ -104,6 +110,18 @@ def serialize_tier(tier):
         'is_hidden': tier.is_hidden,
         'price_now_ngn': float(tier.price_for(1)),
     }
+
+
+def _holder(ticket):
+    """Who this ticket is for, whether or not they have an account.
+
+    A guest has no username, so anything that reached for one would 500 on the
+    first guest through the door.
+    """
+    return (ticket.attendee_name
+            or (ticket.user.username if ticket.user_id else '')
+            or ticket.attendee_email
+            or ticket.code)
 
 
 def serialize_ticket(ticket):
@@ -270,6 +288,28 @@ def buy_ticket(request, event_id):
                 return _error('That ticket type needs an access code.',
                               'CODE_REQUIRED', status.HTTP_403_FORBIDDEN)
 
+        # What the organiser asked for. A signed-in buyer answers exactly the
+        # same questions a guest does: the fields belong to the event, not to
+        # the checkout somebody happened to arrive through. Skipping them here
+        # would give the door a shirt size for half the queue and nothing for
+        # the other half, which is the same feature built for half the product.
+        #
+        # Checked before any money moves. Refusing after the wallet is debited
+        # means a refund for a question that could have been asked first.
+        try:
+            order_answers = checkout.collect(event, request.data.get('answers'))
+            per_person = [
+                checkout.collect(
+                    event,
+                    (attendees[i] or {}).get('answers')
+                    if i < len(attendees) and isinstance(attendees[i], dict) else {},
+                    per_ticket_index=i)
+                for i in range(quantity)
+            ]
+        except checkout.CheckoutError as exc:
+            return _error(str(exc), 'FIELD_REQUIRED',
+                          status.HTTP_400_BAD_REQUEST, field=exc.field)
+
         # Early bird and group rates. `price_for` decides, so the two cannot
         # drift between the screen that shows a price and the code that charges
         # one.
@@ -306,6 +346,7 @@ def buy_ticket(request, event_id):
         tickets = []
         for i in range(quantity):
             who = attendees[i] if i < len(attendees) and isinstance(attendees[i], dict) else {}
+            mine = {**order_answers, **per_person[i]}
             tickets.append(Ticket.objects.create(
                 event=event, tier=tier, user=user, code=_new_code(),
                 price_vc=unit_vc, price_ngn=unit_ngn,
@@ -314,7 +355,9 @@ def buy_ticket(request, event_id):
                 attendee_name=((who.get('name') or '').strip()
                                or user.full_name or user.username)[:120],
                 attendee_email=((who.get('email') or '').strip() or user.email or '')[:254],
-                attendee_phone=(who.get('phone') or '').strip()[:40],
+                attendee_phone=((who.get('phone') or '').strip()[:40]
+                                or checkout.phone_from(event, mine)),
+                answers=mine,
             ))
 
         TicketTier.objects.filter(id=tier.id).update(sold=F('sold') + quantity)
@@ -437,7 +480,7 @@ def check_in_ticket(request, code):
                     'at': ticket.checked_in_at,
                     'gate': where,
                     'by': who,
-                    'holder': ticket.user.username,
+                    'holder': _holder(ticket),
                     'attendee_name': ticket.attendee_name,
                 },
             },
@@ -453,10 +496,10 @@ def check_in_ticket(request, code):
                                'checked_in_gate'])
 
     return _ok({'ticket': serialize_ticket(ticket),
-                'holder': ticket.user.username,
+                'holder': _holder(ticket),
                 'attendee_name': ticket.attendee_name,
                 'gate': gate},
-               f'{ticket.user.username} checked in.')
+               '%s checked in.' % _holder(ticket))
 
 
 # ---------------------------------------------------------------------------
@@ -491,10 +534,17 @@ def event_attendees(request, event_id):
     rows = [
         {
             'code': t.code,
-            'username': t.user.username,
-            'full_name': t.user.full_name,
-            'attendee_name': t.attendee_name or t.user.full_name or t.user.username,
+            'username': t.user.username if t.user_id else '',
+            'guest': not t.user_id,
+            'full_name': t.user.full_name if t.user_id else '',
+            'attendee_name': (t.attendee_name
+                              or (t.user.full_name or t.user.username if t.user_id else '')
+                              or t.attendee_email),
             'attendee_email': t.attendee_email,
+            # The number, on the row rather than only inside the answers. A
+            # steward ringing a no-show at the gate should not have to read a
+            # labelled list to find it.
+            'attendee_phone': t.attendee_phone,
             'tier': t.tier.name,
             'status': t.status,
             'purchased_at': t.purchased_at,
@@ -503,6 +553,9 @@ def event_attendees(request, event_id):
             # than "already scanned". Without these the duplicate warning has
             # only half of what it exists to say.
             'checked_in_gate': t.checked_in_gate,
+            # What the organiser asked at checkout, with labels rather than
+            # field ids: a door list showing {"7": "Large"} helps nobody.
+            'answers': checkout.describe(event, t.answers),
             'checked_in_by': t.checked_in_by.username if t.checked_in_by_id else '',
         }
         for t in tickets

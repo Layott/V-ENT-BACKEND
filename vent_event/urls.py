@@ -2,6 +2,7 @@ from django.urls import path
 from django.conf import settings
 from django.conf.urls.static import static
 
+from . import views_guest
 from . import views_holds
 from . import views_sessions
 from . import views_waitlist
@@ -55,6 +56,11 @@ urlpatterns = [
     path("<str:event_id>/holds/<int:hold_id>/issue/", views_holds.issue_hold, name="issue_hold"),
     path("<str:event_id>/money/", views_holds.event_money, name="event_money"),
     path("<str:event_id>/tiers/", views_tiers.create_tier, name="create_tier"),
+    path("<str:event_id>/checkout-fields/", views_guest.checkout_fields, name="checkout_fields"),
+    path("<str:event_id>/checkout-fields/manage/", views_tiers.manage_checkout_fields, name="manage_checkout_fields"),
+    path("<str:event_id>/guest-buy/", views_guest.guest_buy, name="guest_buy"),
+    path("guest-verify/", views_guest.guest_verify, name="guest_verify"),
+    path("guest-lookup/", views_guest.guest_lookup, name="guest_lookup"),
     path("<str:event_id>/tiers/<int:tier_id>/", views_tiers.update_tier, name="update_tier"),
     path("<str:event_id>/tiers/<int:tier_id>/delete/", views_tiers.delete_tier, name="delete_tier"),
     path("<str:event_id>/buy-ticket/", buy_ticket, name="buy_ticket"),
