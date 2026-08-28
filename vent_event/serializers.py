@@ -87,6 +87,11 @@ def serialize_event_card(request, event):
     return {
         'id': event.event_id,
         'event_id': event.event_id,
+        # The address a person sees. Every event has had one in the database
+        # since the slug migration, and no serializer sent it, so every card on
+        # the site linked by primary key. `my-events` sent it and the public
+        # listing did not, which is why only one of the two obeyed the rule.
+        'slug': event.slug,
         'name': event.name,
         'description': event.desc,
         'desc': event.desc,
