@@ -11,6 +11,7 @@ from .views_admin_rates import (
 from .views_admin_games import (
     admin_games, admin_game_detail, admin_game_series, admin_series_detail,
 )
+from .views_admin_matches import admin_tournament_matches
 from .views_kyc_files import kyc_document
 from .views_waitlist import waitlist_claim, waitlist_claim_preview
 from . import views_linking as linking
@@ -62,6 +63,8 @@ urlpatterns = [
     path("admin/rates/refresh/", admin_refresh_rates, name="admin_refresh_rates"),
     path("admin/rates/<str:code>/", admin_rate_detail, name="admin_rate_detail"),
     path("me/admin/", my_admin_capabilities, name="my_admin_capabilities"),
+    # Every match, named, so an override picks one instead of typing an id.
+    path("admin/tournaments/<int:tournament_id>/matches/", admin_tournament_matches, name="admin_tournament_matches"),
     path("admin/tournaments/<int:tournament_id>/", admin_get_tournament, name="admin_get_tournament"),
     path("admin/tournaments/<int:tournament_id>/dispute/resolve/", admin_resolve_dispute, name="admin_resolve_dispute"),
     path("admin/tournaments/<int:tournament_id>/cancel/", admin_cancel_tournament, name="admin_cancel_tournament"),
