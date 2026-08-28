@@ -462,3 +462,56 @@ class EventTournamentLink(models.Model):
 
     def __str__(self):
         return f"{self.tournament.tournament_title} @ {self.event.name}"
+
+
+class EventSession(models.Model):
+    """One thing happening at an event, at a time, in a place.
+
+    The Schedule tab was a blueprint: a function that took the event's start
+    date and invented a two day programme around it. Every event on the platform
+    showed the same "Doors open + Vendor zone activation", "Cosplay parade",
+    "After-party + DJ set", whoever ran it and whatever it was about.
+
+    That is worse than an empty tab. An empty tab says the organiser has not
+    published a schedule; an invented one says they published this, and somebody
+    turns up at 8pm for a DJ set that was never going to happen.
+
+    Ordered by when it starts. The "day" a session belongs to is derived from
+    its start time rather than stored, because a session at 1am after a Friday
+    night belongs to Friday in every way that matters to somebody reading a
+    schedule, and asking an organiser to resolve that is asking the wrong
+    person.
+    """
+
+    session_id = models.AutoField(primary_key=True)
+    event = models.ForeignKey(
+        Event, on_delete=models.CASCADE, related_name='sessions')
+
+    title = models.CharField(max_length=140)
+    description = models.CharField(max_length=400, blank=True, default='')
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField(null=True, blank=True)
+
+    # Where in the venue. Free text because a venue's own names for its rooms
+    # are the names on its signs, and a fixed list would be wrong everywhere.
+    stage = models.CharField(max_length=100, blank=True, default='')
+
+    # A session that is part of a tournament running at the event, so the two
+    # are not maintained separately and cannot disagree about when a final is.
+    tournament = models.ForeignKey(
+        'vent_tournament.Tournament', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='event_sessions')
+
+    # Some sessions are capped separately from the event: a panel room holds 80
+    # when the venue holds 900. Zero means it is bounded by the event.
+    capacity = models.PositiveIntegerField(default=0)
+
+    is_published = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['starts_at', 'session_id']
+
+    def __str__(self):
+        return '%s: %s' % (self.event_id, self.title)

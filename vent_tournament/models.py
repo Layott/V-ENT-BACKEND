@@ -272,6 +272,77 @@ class TournamentRuleset(models.Model):
         return (self.data or {}).get('format') or self.tournament.bracket_type
 
 
+
+class EntryRequirement(models.Model):
+    """One thing an organiser demands before somebody may register.
+
+    A row rather than a column, because four booleans cannot express "follow
+    these three accounts and give me your Riot ID". `config` differs by kind -
+    a country list, a minimum age, a set of links, the label of a field the
+    organiser named - so it is JSON rather than twelve mostly-null columns and a
+    migration for every new kind.
+
+    `order` is the order they are shown and checked in, and it is the
+    organiser's to arrange.
+    """
+
+    tournament = models.ForeignKey(
+        'Tournament', on_delete=models.CASCADE, related_name='entry_requirements')
+    kind = models.CharField(max_length=40)
+    config = models.JSONField(default=dict, blank=True)
+    # A requirement that is not required is shown and collected but does not
+    # stop anybody: useful for asking a question without turning it into a gate.
+    required = models.BooleanField(default=True)
+    order = models.PositiveIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return f'{self.kind} for tournament {self.tournament_id}'
+
+
+class EntrySubmission(models.Model):
+    """What somebody gave, for a requirement a person has to check.
+
+    Kept per user rather than per registration, because the whole point is that
+    it is checked BEFORE they are registered - and for a team entry every member
+    has their own.
+    """
+
+    STATUS_CHOICES = [
+        ('pending', 'Waiting to be checked'),
+        ('approved', 'Accepted'),
+        ('refused', 'Not accepted'),
+    ]
+
+    requirement = models.ForeignKey(
+        EntryRequirement, on_delete=models.CASCADE, related_name='submissions')
+    user = models.ForeignKey(
+        Users, on_delete=models.CASCADE, related_name='entry_submissions')
+    # What they typed: a username per link, an id, an answer.
+    value = models.JSONField(default=dict, blank=True)
+
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='pending')
+    note = models.TextField(blank=True, default='')
+
+    reviewed_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='entry_submissions_reviewed')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # One answer per person per requirement. Sending it again replaces it.
+        unique_together = ('requirement', 'user')
+        ordering = ['submitted_at']
+
+    def __str__(self):
+        return f'{self.user_id} for requirement {self.requirement_id}: {self.status}'
+
+
 class TournamentPrizeDistribution(models.Model):
     id = models.AutoField(primary_key=True)
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='prize_distributions')
@@ -606,3 +677,51 @@ class PrizePayout(models.Model):
     def __str__(self):
         return f"Payout pos {self.position} - {self.amount} VC ({self.tournament.tournament_title})"
 
+
+class TournamentStage(models.Model):
+    """One phase of a tournament that runs in more than one.
+
+    A major is not one format: it is groups and then a playoff, or Swiss and
+    then a top cut. `Format.can_feed_into` recorded which combinations are
+    possible and nothing read it, so every tournament was one format start to
+    finish and anybody running a real event made two tournaments and copied the
+    names across by hand.
+
+    `rules` is the stage's own scoring. A group phase and the playoff after it
+    are frequently scored differently, and an organiser who cannot say so has to
+    pick one and be wrong for half the event. Null means the format's standard
+    rules, which is what most stages want.
+    """
+
+    STATUSES = (
+        ('pending', 'Pending'),
+        ('running', 'Running'),
+        ('complete', 'Complete'),
+    )
+
+    tournament = models.ForeignKey(
+        Tournament, on_delete=models.CASCADE, related_name='stages')
+    order = models.PositiveIntegerField(default=0)
+    label = models.CharField(max_length=60)
+    format = models.CharField(max_length=40)
+
+    # How many leave this stage. With groups it is how many leave EACH group,
+    # which is what an organiser means by "top two from each group".
+    advances = models.PositiveIntegerField(default=0)
+    groups = models.PositiveIntegerField(default=0)
+
+    rules = models.JSONField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUSES, default='pending')
+
+    # Who came out of it, recorded when the organiser advances the stage rather
+    # than recomputed later. A standing recomputed after a dispute is resolved
+    # would silently change who was already sent through.
+    advanced = models.JSONField(default=list, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['order']
+        unique_together = ('tournament', 'order')
+
+    def __str__(self):
+        return '%s: %s' % (self.tournament_id, self.label)

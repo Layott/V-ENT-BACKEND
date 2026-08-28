@@ -291,3 +291,49 @@ class SsoFlowTests(TestCase):
             content_type='application/json',
         )
         self.assertIn(res.status_code, (400, 401))
+
+
+class AuthorizeInfoThrottleTests(TestCase):
+    """The consent screen answers before anybody signs in, so it cannot be
+    gated by a key or a session - and in answering it confirms whether a
+    client_id exists. Unlimited, that is an enumeration tool with no cost."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.owner, _ = signed_in('throttleowner')
+        self.addCleanup(cache.clear)   # the bucket is per minute, not per test
+        self.partner = Partner.objects.create(
+            name='AFC', slug='afc-throttle', owner=self.owner, contact_name='AFC',
+            contact_email='p@afc.test', status='approved', sso_status='approved',
+            legal_name='AFC Ltd', privacy_policy_url='https://afc.test/privacy',
+            data_protection_contact='dpo@afc.test',
+            redirect_uris=['https://afc.test/callback'],
+        )
+        self.partner.issue_sso_credentials()
+
+    def ask(self, client_id=None):
+        return self.client.get('/partners/sso/authorize-info/', {
+            'client_id': client_id or self.partner.sso_client_id,
+            'redirect_uri': 'https://afc.test/callback',
+            'scope': 'identity',
+        })
+
+    def test_a_normal_consent_screen_is_not_touched(self):
+        """Somebody approving one sign-in makes one request, not thirty."""
+        self.assertEqual(self.ask().status_code, 200)
+
+    def test_a_sweep_is_refused_with_429(self):
+        for _ in range(30):
+            self.ask('does-not-exist')
+        res = self.ask('does-not-exist')
+        self.assertEqual(res.status_code, 429, res.content)
+        self.assertEqual(res.json()['code'], 'RATE_LIMITED')
+
+    def test_the_refusal_comes_before_the_lookup(self):
+        """Otherwise a limited caller still learns whether the id exists, from
+        the timing if nothing else."""
+        for _ in range(31):
+            self.ask('does-not-exist')
+        real = self.ask()
+        self.assertEqual(real.status_code, 429, 'a real client id answered anyway')

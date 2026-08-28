@@ -10,6 +10,7 @@ from .views_admin_rates import (
 )
 from .views_admin_games import (
     admin_games, admin_game_detail, admin_game_series, admin_series_detail,
+    admin_game_modes, admin_mode_detail,
 )
 from .views_admin_matches import admin_tournament_matches
 from .views_kyc_files import kyc_document
@@ -56,6 +57,8 @@ urlpatterns = [
     path("admin/games/", admin_games, name="admin_games"),
     path("admin/games/<int:game_id>/", admin_game_detail, name="admin_game_detail"),
     path("admin/games/<int:game_id>/series/", admin_game_series, name="admin_game_series"),
+    path("admin/games/<int:game_id>/modes/", admin_game_modes, name="admin_game_modes"),
+    path("admin/modes/<int:mode_id>/", admin_mode_detail, name="admin_mode_detail"),
     path("admin/series/<int:series_id>/", admin_series_detail, name="admin_series_detail"),
     path("platform/modules/", public_platform_modules, name="public_platform_modules"),
     path("currencies/", public_currencies, name="public_currencies"),

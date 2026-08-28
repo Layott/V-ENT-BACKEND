@@ -9,7 +9,7 @@ import uuid
 from django.test import TestCase
 from django.utils import timezone
 
-from .models import GameSeries, Games, Users
+from .models import GameMode, GameSeries, Games, Users
 
 
 def an_admin(role='mod_admin', token='game-admin-grant'):
@@ -151,3 +151,102 @@ class AdminGameCatalogueTests(TestCase):
         res = self.client.post('/auth/admin/games/', data={'name': 'Nope Either'},
                                content_type='application/json', **auth)
         self.assertEqual(res.status_code, 403, res.content)
+
+
+class AdminGameModeTests(TestCase):
+    """Adding, renaming and retiring the ways a game is played.
+
+    The modes were seeded by a migration and nothing could touch them
+    afterwards, so a game added through the console arrived with no modes and no
+    way to give it any - and the wizard then offered its organiser nothing to
+    pick.
+    """
+
+    def setUp(self):
+        self.admin, self.auth = an_admin()
+        # A title nothing seeds, so the assertions are about this test's own rows.
+        self.game = Games.objects.create(game_title='Mode Probe')
+
+    def add(self, **body):
+        return self.client.post('/auth/admin/games/%s/modes/' % self.game.game_id,
+                                data=body, content_type='application/json', **self.auth)
+
+    def test_an_admin_adds_a_mode_and_the_wizard_can_then_see_it(self):
+        res = self.add(name='5v5 Bomb', team_size=5, default_format='single_elimination')
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual([m['name'] for m in res.json()['data']['modes']], ['5v5 Bomb'])
+
+        # The endpoint the wizard reads, not the one that wrote it.
+        public = self.client.get('/tournament/games/%s/modes/' % self.game.game_id)
+        self.assertEqual(public.status_code, 200, public.content)
+        modes = public.json()['data']['modes']
+        self.assertEqual([m['name'] for m in modes], ['5v5 Bomb'])
+        self.assertEqual(modes[0]['team_size'], 5)
+
+    def test_a_mode_needs_a_name(self):
+        self.assertEqual(self.add(name='   ').status_code, 400)
+
+    def test_the_same_mode_twice_is_refused(self):
+        self.add(name='Deathmatch')
+        self.assertEqual(self.add(name='deathmatch').status_code, 409)
+
+    def test_the_same_name_under_a_different_edition_is_allowed(self):
+        """An edition that changed a mode keeps its own version of it."""
+        series = GameSeries.objects.create(game=self.game, name='2026')
+        self.add(name='Deathmatch')
+        res = self.add(name='Deathmatch', series=series.series_id)
+        self.assertEqual(res.status_code, 201, res.content)
+
+    def test_an_edition_from_another_game_is_refused(self):
+        other = Games.objects.create(game_title='Mode Probe Other')
+        series = GameSeries.objects.create(game=other, name='2026')
+        res = self.add(name='Deathmatch', series=series.series_id)
+        self.assertEqual(res.status_code, 400, res.content)
+
+    def test_a_team_size_that_is_not_a_number_is_refused(self):
+        self.assertEqual(self.add(name='Weird', team_size='five').status_code, 400)
+
+    def test_renaming_a_mode(self):
+        self.add(name='Bomb')
+        mode = GameMode.objects.get(game=self.game, name='Bomb')
+        res = self.client.patch('/auth/admin/modes/%s/' % mode.mode_id,
+                                data={'name': '5v5 Bomb'},
+                                content_type='application/json', **self.auth)
+        self.assertEqual(res.status_code, 200, res.content)
+        mode.refresh_from_db()
+        self.assertEqual(mode.name, '5v5 Bomb')
+
+    def test_retiring_a_mode_hides_it_from_the_wizard_without_deleting_it(self):
+        """A tournament records the mode it was played in by name. Deleting one
+        rewrites the history rather than ending it."""
+        self.add(name='Spike Rush')
+        mode = GameMode.objects.get(game=self.game, name='Spike Rush')
+        self.client.patch('/auth/admin/modes/%s/' % mode.mode_id,
+                          data={'is_active': False},
+                          content_type='application/json', **self.auth)
+
+        public = self.client.get('/tournament/games/%s/modes/' % self.game.game_id)
+        self.assertEqual([m['name'] for m in public.json()['data']['modes']], [])
+        self.assertTrue(GameMode.objects.filter(pk=mode.pk).exists())
+
+    def test_a_patch_that_changes_nothing_says_so(self):
+        self.add(name='Bomb')
+        mode = GameMode.objects.get(game=self.game, name='Bomb')
+        res = self.client.patch('/auth/admin/modes/%s/' % mode.mode_id, data={},
+                                content_type='application/json', **self.auth)
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.json()['code'], 'NO_FIELDS_TO_UPDATE')
+
+    def test_a_stranger_cannot_add_a_mode(self):
+        """Refused, and nothing is written.
+
+        The status is 400 rather than 401, which is this codebase's standing
+        convention for a missing Authorization header and is wrong on its own
+        terms. Asserted as "not accepted" rather than pinned to 400, so fixing
+        that convention does not break this test.
+        """
+        before = GameMode.objects.filter(game=self.game).count()
+        res = self.client.post('/auth/admin/games/%s/modes/' % self.game.game_id,
+                               data={'name': 'Nope'}, content_type='application/json')
+        self.assertGreaterEqual(res.status_code, 400, res.content)
+        self.assertEqual(GameMode.objects.filter(game=self.game).count(), before)

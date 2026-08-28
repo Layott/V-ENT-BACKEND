@@ -127,6 +127,14 @@ class Partner(models.Model):
     # SSO is a second, stricter approval. None of these are asked for unless a
     # partner wants to sign V-ENT members in on their own site.
     sso_status = models.CharField(max_length=20, choices=SSO_CHOICES, default='none')
+    # Where we ask this partner to confirm one of their own usernames, for a
+    # tournament requirement that names them. Empty means "we do not call this
+    # partner", and every such requirement falls back to a person reading it.
+    verification_url = models.URLField(max_length=300, blank=True, default='')
+    # What we send them so they can tell it is us asking. Their secret, not
+    # ours: they issue it, we store it, and rotating it is their side's job.
+    verification_secret = models.CharField(max_length=120, blank=True, default='')
+
     legal_name = models.CharField(max_length=200, blank=True, default='')
     registration_number = models.CharField(max_length=80, blank=True, default='')
     privacy_policy_url = models.URLField(blank=True, default='')

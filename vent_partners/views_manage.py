@@ -78,6 +78,8 @@ def _partner_row(p, *, include_private=False):
             'terms_url': p.terms_url,
             'data_protection_contact': p.data_protection_contact,
             'redirect_uris': p.redirect_uris,
+            'verification_url': p.verification_url,
+            'has_verification_secret': bool(p.verification_secret),
             'sso_client_id': p.sso_client_id,
             'has_sso_secret': bool(p.sso_client_secret_hash),
             'keys': [
@@ -307,8 +309,20 @@ def update_partner(request, partner_id):
             changed.append(field)
 
     if 'redirect_uris' in request.data:
-        uris = [u for u in (request.data.get('redirect_uris') or []) if _valid_redirect(u)]
-        partner.redirect_uris = uris[:10]
+        wanted = request.data.get('redirect_uris') or []
+        # Dropping the ones that do not pass and saying "Saved." is the worst of
+        # both: the partner is told it worked, the address is not there, and the
+        # sign-in they then test is refused for a reason nothing on screen
+        # explains. Name them instead.
+        rejected = [u for u in wanted if not _valid_redirect(u)]
+        if rejected:
+            return _err(
+                'These addresses are not usable: %s. They must be https, with no '
+                'wildcard and no fragment.' % ', '.join(str(r) for r in rejected),
+                'BAD_REDIRECT')
+        if len(wanted) > 10:
+            return _err('A partner may register at most 10 addresses.', 'TOO_MANY')
+        partner.redirect_uris = list(dict.fromkeys(str(u).strip() for u in wanted))
         changed.append('redirect_uris')
 
     if request.data.get('request_sso') and partner.sso_status in ('none', 'rejected'):
@@ -534,6 +548,150 @@ def admin_set_scopes(request, partner_id):
     )
 
     return _ok(_partner_row(partner, include_private=True), 'Scopes updated.')
+
+
+@api_view(['POST'])
+def admin_set_redirects(request, partner_id):
+    """POST /partners/admin/<id>/redirects/ - the addresses a partner may be sent back to.
+
+    Only the partner's own owner could edit these, and a partner integrating
+    against us cannot always reach that account. AFC could not add their
+    sign-in callback, so BAD_REDIRECT was the live answer to every attempt to
+    sign in with V-ENT, and the person able to unblock it - the one reviewing
+    the partner - had no control for it.
+
+    `add` and `remove` rather than a wholesale replace, because a partner
+    usually already has a working callback and the common job is adding a
+    second one. Sending `redirect_uris` still replaces the list outright, for
+    the case where that is genuinely what is meant.
+
+    Every address is recorded in the audit log. Where a partner may send
+    somebody after they sign in is the single most security-relevant field on
+    the record, and "who added that" is the question that gets asked.
+    """
+    admin, err = _admin(request)
+    if err:
+        return err
+
+    partner = Partner.objects.filter(pk=partner_id).first()
+    if partner is None:
+        return _err('No such partner.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+
+    before = list(partner.redirect_uris or [])
+    after = before
+
+    if 'redirect_uris' in request.data:
+        wanted = request.data.get('redirect_uris') or []
+        rejected = [u for u in wanted if not _valid_redirect(u)]
+        if rejected:
+            return _err(
+                'These addresses are not usable: %s' % ', '.join(str(r) for r in rejected),
+                'BAD_REDIRECT')
+        after = list(dict.fromkeys(str(u).strip() for u in wanted))
+    else:
+        add = request.data.get('add') or []
+        if isinstance(add, str):
+            add = [add]
+        remove = request.data.get('remove') or []
+        if isinstance(remove, str):
+            remove = [remove]
+
+        rejected = [u for u in add if not _valid_redirect(u)]
+        if rejected:
+            return _err(
+                'These addresses are not usable: %s' % ', '.join(str(r) for r in rejected),
+                'BAD_REDIRECT')
+
+        after = [u for u in before if u not in remove]
+        for uri in add:
+            uri = str(uri).strip()
+            if uri not in after:
+                after.append(uri)
+
+    if len(after) > 10:
+        return _err('A partner may register at most 10 addresses.', 'TOO_MANY')
+    if after == before:
+        return _err('Nothing to change.', 'NO_CHANGE')
+
+    partner.redirect_uris = after
+    partner.save(update_fields=['redirect_uris'])
+
+    AdminAction.objects.create(
+        admin=admin,
+        action_type='set_partner_redirects',
+        target_model='Partner',
+        target_id=str(partner.pk),
+        reason=(request.data.get('reason') or '')[:2000],
+        metadata={'before': before, 'after': after},
+    )
+
+    return _ok(_partner_row(partner, include_private=True),
+               'Sign-in addresses updated.')
+
+
+@api_view(['POST'])
+def admin_set_verification(request, partner_id):
+    """POST /partners/admin/<id>/verification/ - where we ask this partner to
+    confirm one of their own usernames.
+
+    Two fields, and the secret is write-only: it is sent to us by the partner
+    and it is theirs, so the console shows only whether one is held. Reading it
+    back would put somebody else's credential on a screen for no reason.
+
+    Clearing the URL turns the automatic check off. Nothing breaks: every
+    requirement naming this partner falls back to the organiser reading it,
+    which is what it did before they were connected.
+    """
+    admin, err = _admin(request)
+    if err:
+        return err
+
+    # Narrower than the other partner controls on purpose. This one stores
+    # somebody else's credential and points our server at an address it will
+    # call, which is a different kind of trust from approving a scope.
+    if getattr(admin, 'admin_role', '') != 'super_admin':
+        return _err('Only a super admin can set a verification endpoint.',
+                    'NOT_PERMITTED', status.HTTP_403_FORBIDDEN)
+
+    partner = Partner.objects.filter(pk=partner_id).first()
+    if partner is None:
+        return _err('No such partner.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+
+    changed = []
+
+    if 'verification_url' in request.data:
+        url = str(request.data.get('verification_url') or '').strip()
+        if url and not url.startswith('https://'):
+            # A username check carries a credential and an identifier. It does
+            # not go over plain http, and localhost is not an exception here
+            # because this call is made from our server, not a developer's.
+            return _err('The verification address must be https.', 'BAD_URL')
+        partner.verification_url = url[:300]
+        changed.append('verification_url')
+
+    if 'verification_secret' in request.data:
+        partner.verification_secret = str(
+            request.data.get('verification_secret') or '')[:120]
+        changed.append('verification_secret')
+
+    if not changed:
+        return _err('Nothing to change.', 'NO_CHANGE')
+
+    partner.save(update_fields=changed)
+
+    AdminAction.objects.create(
+        admin=admin,
+        action_type='set_partner_verification',
+        target_model='Partner',
+        target_id=str(partner.pk),
+        reason=(request.data.get('reason') or '')[:2000],
+        # The secret is never written to the log, only the fact that it changed.
+        metadata={'url': partner.verification_url,
+                  'secret_changed': 'verification_secret' in changed},
+    )
+
+    return _ok(_partner_row(partner, include_private=True),
+               'Verification endpoint updated.')
 
 
 @api_view(['POST'])

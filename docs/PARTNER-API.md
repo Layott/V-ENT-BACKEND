@@ -451,6 +451,103 @@ as our redirect address.
 
 ---
 
+## Part four: confirming your own usernames
+
+An organiser running a tournament on V-ENT can require that every entrant holds
+a real account on **your** platform - a Free Fire UID, a launcher name, a member
+number. Without this they collect the usernames and read them one at a time.
+With it, an entrant types their username and is admitted or turned away in under
+a second, and nobody at either end reads anything.
+
+This is the smallest integration in this document. One endpoint on your side.
+
+### What we send
+
+```http
+POST https://your-platform.example/verify/
+Authorization: Bearer <the secret you gave us>
+Content-Type: application/json
+User-Agent: V-ENT/1.0 (+https://v-ent.co)
+
+{
+  "field": "Free Fire UID",
+  "value": "1234567890",
+  "asked_at": "2026-08-28T21:14:03.221Z"
+}
+```
+
+`field` is the label the organiser chose, so you can tell which of your
+identifiers is being asked about if you accept more than one. `value` is exactly
+what the entrant typed, untrimmed and unvalidated - it is your identifier, so
+you are the one who knows what a valid one looks like.
+
+**That is the whole payload.** We do not send the entrant's name, their email,
+their V-ENT account id, or which tournament they are entering. A partner
+confirming a username does not need to know who is asking about whom, and a
+smaller payload is a smaller thing to be asked about under a data request.
+
+### What to answer
+
+```json
+{ "verified": true }
+```
+
+```json
+{ "verified": false, "message": "No account with that UID." }
+```
+
+`verified` is required and must be a real boolean. `message` is optional, at
+most 300 characters, and is **shown to the entrant as you wrote it** - so write
+it for them, not for a log. "No account with that UID" tells somebody what to
+do; "ERR_LOOKUP_FAILED" does not.
+
+Answer within **4 seconds**. We give up after that.
+
+### What happens when you cannot answer
+
+Every one of these leaves the entrant's submission waiting for the organiser to
+read, exactly as if you were not connected at all:
+
+| What we see | What we do |
+|---|---|
+| Timeout, connection refused, DNS failure | Falls back to the organiser |
+| `5xx` | Falls back to the organiser |
+| `401` or `403` | Falls back, and we log that our credential was refused |
+| `4xx` | Falls back to the organiser |
+| A body that is not JSON | Falls back to the organiser |
+| A `200` with no `verified` key | Falls back to the organiser |
+
+That last row is deliberate and worth understanding. A login page or a
+maintenance page served with a `200` is the most common way an integration goes
+wrong, and it must never read as approval. **We never treat an unrecognised
+answer as a yes.**
+
+The consequence for you: an outage on your side does not block anybody's
+registration. It quietly turns the automatic check back into the manual one.
+
+### What we never do
+
+- We never retry. One request per submission. An entrant who sends the same
+  username again produces one more request, and that is the only way to get one.
+- We never call you when the page is merely being viewed. The request happens
+  once, when the entrant presses Send.
+- We never cache a `false`. Somebody who fixes their account and sends again
+  gets a fresh answer.
+
+### To turn it on
+
+Send us:
+
+- the URL to POST to (https only)
+- a secret for us to send in `Authorization`, which you can rotate whenever you
+  like by sending us a new one
+
+Then organisers can add "a partner confirms the account" to a tournament and
+name you. Until you send those two things, the requirement still works - it is
+simply read by the organiser instead, which is what it does today.
+
+---
+
 ## Support and change policy
 
 - The API is versioned in the path. `v1` will not have fields removed or

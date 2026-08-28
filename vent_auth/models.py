@@ -352,9 +352,14 @@ class GameMode(models.Model):
 
     class Meta:
         ordering = ['sort_order', 'name']
-        # The same game cannot have two modes with one name. Two games can both
-        # have a "Ranked", which is why this is not unique on its own.
-        unique_together = ('game', 'name')
+        # The same game cannot have two modes with one name IN THE SAME EDITION.
+        # The edition is part of the key because the class above says a mode
+        # belongs to a game and to an edition where the edition changed it, and
+        # without it that is not expressible: a global "Battle Royale" and a
+        # 2026-specific one with a different team size could not both exist.
+        # Two games can both have a "Ranked", which is why game is in the key
+        # and name is not unique on its own.
+        unique_together = ('game', 'series', 'name')
 
     def __str__(self):
         return f'{self.game.game_title}: {self.name}'
