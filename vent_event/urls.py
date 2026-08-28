@@ -3,6 +3,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 from . import views_guest
+from . import views_sponsors
 from . import views_holds
 from . import views_sessions
 from . import views_waitlist
@@ -57,6 +58,10 @@ urlpatterns = [
     path("<str:event_id>/money/", views_holds.event_money, name="event_money"),
     path("<str:event_id>/tiers/", views_tiers.create_tier, name="create_tier"),
     path("<str:event_id>/checkout-fields/", views_guest.checkout_fields, name="checkout_fields"),
+    path("<str:event_id>/sponsors/manage/", views_sponsors.event_sponsors,
+         name="event_sponsors"),
+    path("<str:event_id>/sponsors/<int:sponsor_id>/", views_sponsors.event_sponsor,
+         name="event_sponsor"),
     path("<str:event_id>/checkout-fields/manage/", views_tiers.manage_checkout_fields, name="manage_checkout_fields"),
     path("<str:event_id>/guest-buy/", views_guest.guest_buy, name="guest_buy"),
     path("guest-verify/", views_guest.guest_verify, name="guest_verify"),
