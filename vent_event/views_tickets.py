@@ -102,6 +102,7 @@ def serialize_ticket(ticket):
         'id': ticket.id,
         'code': ticket.code,
         'status': ticket.status,
+        'checked_in_gate': ticket.checked_in_gate,
         'price_vc': ticket.price_vc,
         'price_ngn': float(ticket.price_ngn),
         'purchased_at': ticket.purchased_at,
@@ -138,15 +139,30 @@ def ticket_types(request, event_id):
     if event is None:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
-    tiers = event.ticket_tiers.all().order_by('price')
+    tiers = list(event.ticket_tiers.all().order_by('price'))
+
+    # A type with an access code is not listed until somebody types it. That is
+    # the whole feature: a members' presale that appears in the public list is
+    # not a presale.
+    code = str(request.GET.get('code') or '').strip()
+    visible = [
+        tier for tier in tiers
+        if not tier.access_code or tier.access_code.lower() == code.lower()
+    ]
+    unlocked = [t for t in visible if t.access_code]
+
     return _ok(
         {
             'event_id': event.event_id,
             'event_name': event.name,
             'entry_fee_ngn': float(event.entry_fee or 0),
-            'tiers': [serialize_tier(t) for t in tiers],
-            'ticket_types': [serialize_tier(t) for t in tiers],  # alias
-            'count': tiers.count(),
+            'tiers': [serialize_tier(t) for t in visible],
+            'ticket_types': [serialize_tier(t) for t in visible],  # alias
+            'count': len(visible),
+            # So the buy screen can say "code accepted" rather than leaving
+            # somebody wondering whether anything happened.
+            'unlocked': [t.name for t in unlocked],
+            'hidden_count': len(tiers) - len(visible),
         },
         'Ticket tiers retrieved.',
     )
@@ -199,27 +215,34 @@ def buy_ticket(request, event_id):
             return _error('That ticket type is not available for this event.',
                           'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
-        remaining = int(tier.quantity) - int(tier.sold)
+        # One function decides what is sellable, because three rules in three
+        # files could disagree about the same number - and one of them, the
+        # venue's capacity, was not enforced at all.
+        #
+        # It accounts for the type's own allocation, the venue's ceiling (a
+        # SECOND ceiling, and the lower one wins), and everything held back:
+        # guest list, press, venue, an influencer's allocation.
+        from . import availability
+
+        remaining = availability.tier_available(tier)
         if remaining <= 0:
             return _error(f'{tier.name} is sold out.', 'SOLD_OUT', status.HTTP_409_CONFLICT)
         if quantity > remaining:
             return _error(f'Only {remaining} {tier.name} ticket(s) left.',
                           'INSUFFICIENT_STOCK', status.HTTP_409_CONFLICT)
 
-        # The venue's own ceiling, which is a SECOND ceiling and the lower one
-        # wins. Nothing reconciled these: an organiser could set the venue to
-        # 200 and then sell 150 standard plus 100 VIP, because each type only
-        # ever checked itself. Eventbrite documents the same rule and the same
-        # reason - an event is sold out when its capacity is reached even if a
-        # type still has quantity left.
-        #
-        # Counted from the tickets rather than summed from `sold`, because the
-        # tickets are what somebody holds at the door and a stale counter is
-        # exactly what must not be able to oversell a room.
-        if event.capacity:
-            issued = Ticket.objects.filter(
-                event=event).exclude(status='cancelled').count()
-            room = int(event.capacity) - issued
+        # Somebody holding a waitlist offer is buying into the room their own
+        # offer is holding open, so the ceiling does not apply to them. Without
+        # this the offer is unusable: the event is sold out by definition, which
+        # is why they are in the queue.
+        from .views_waitlist import expire_stale_offers
+        expire_stale_offers(event)
+        offer = event.waitlist.filter(
+            user=user, status='offered',
+            offer_expires_at__gt=timezone.now()).first()
+
+        room = availability.event_room(event)
+        if room is not None and offer is None:
             if room <= 0:
                 return _error('This event is sold out.', 'EVENT_FULL',
                               status.HTTP_409_CONFLICT)
@@ -228,7 +251,20 @@ def buy_ticket(request, event_id):
                     f'Only {room} ticket(s) left for this event.',
                     'EVENT_FULL', status.HTTP_409_CONFLICT)
 
-        unit_vc = _ngn_to_coins(tier.price)
+        # The access code, checked at the purchase and not only at the listing.
+        # A hidden type that can be bought by anybody who guesses its id is not
+        # hidden.
+        if tier.access_code:
+            given = str(request.data.get('code') or '').strip()
+            if given.lower() != tier.access_code.lower():
+                return _error('That ticket type needs an access code.',
+                              'CODE_REQUIRED', status.HTTP_403_FORBIDDEN)
+
+        # Early bird and group rates. `price_for` decides, so the two cannot
+        # drift between the screen that shows a price and the code that charges
+        # one.
+        unit_ngn = tier.price_for(quantity)
+        unit_vc = _ngn_to_coins(unit_ngn)
         total_vc = unit_vc * quantity
 
         wallet = UserWallet.objects.select_for_update().filter(user=user).first()
@@ -262,7 +298,7 @@ def buy_ticket(request, event_id):
             who = attendees[i] if i < len(attendees) and isinstance(attendees[i], dict) else {}
             tickets.append(Ticket.objects.create(
                 event=event, tier=tier, user=user, code=_new_code(),
-                price_vc=unit_vc, price_ngn=tier.price,
+                price_vc=unit_vc, price_ngn=unit_ngn,
                 # No name given means the buyer is the attendee, which is what
                 # the door needs to see on the pass.
                 attendee_name=((who.get('name') or '').strip()
@@ -272,6 +308,14 @@ def buy_ticket(request, event_id):
             ))
 
         TicketTier.objects.filter(id=tier.id).update(sold=F('sold') + quantity)
+
+        # The offer is spent, inside the same transaction as the purchase.
+        # Leaving it standing would let one person in the queue buy every
+        # ticket that comes back.
+        if offer is not None:
+            offer.status = 'taken'
+            offer.resolved_at = timezone.now()
+            offer.save(update_fields=['status', 'resolved_at'])
 
     # Fire-and-forget: a failed notification must never undo a paid purchase.
     try:
@@ -345,15 +389,48 @@ def check_in_ticket(request, code):
     if ticket is None:
         return _error('No ticket with that code.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
-    if ticket.event.creator_id != user.user_id:
-        return _error('Only the event organizer can check tickets in.',
-                      'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
+    # The creator, or somebody they put on the door. EventManager has had a
+    # `door` role since it was written - "check tickets in, nothing else" - and
+    # this path never consulted it, so in practice one person scanned or the
+    # organiser handed over their own account.
+    from .models import EventManager
+    is_creator = ticket.event.creator_id == user.user_id
+    on_the_door = EventManager.objects.filter(
+        event=ticket.event, user=user, role__in=('manager', 'door')).exists()
+    if not is_creator and not on_the_door:
+        return _error('Only the event organizer or their door staff can check '
+                      'tickets in.', 'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
+
+    gate = str(request.data.get('gate') or '').strip()[:60]
 
     if ticket.status == 'checked_in':
+        # WHEN, WHERE and WHO. "Already scanned" sends a steward to a
+        # supervisor; this lets them decide at the gate.
+        when = timezone.localtime(ticket.checked_in_at).strftime('%H:%M') \
+            if ticket.checked_in_at else 'an unrecorded time'
+        where = ticket.checked_in_gate or ''
+        who = ticket.checked_in_by.username if ticket.checked_in_by_id else ''
+
+        detail = 'Already checked in at %s' % when
+        if where:
+            detail += ' on %s' % where
+        if who:
+            detail += ' by %s' % who
+        detail += '.'
+
         return _error(
-            f'Already checked in at {timezone.localtime(ticket.checked_in_at).strftime("%H:%M")}.',
+            detail,
             'ALREADY_CHECKED_IN', status.HTTP_409_CONFLICT,
-            extra={'ticket': serialize_ticket(ticket)},
+            extra={
+                'ticket': serialize_ticket(ticket),
+                'first_used': {
+                    'at': ticket.checked_in_at,
+                    'gate': where,
+                    'by': who,
+                    'holder': ticket.user.username,
+                    'attendee_name': ticket.attendee_name,
+                },
+            },
         )
     if ticket.status != 'valid':
         return _error(f'This ticket is {ticket.status}.', 'INVALID_TICKET', status.HTTP_409_CONFLICT)
@@ -361,9 +438,14 @@ def check_in_ticket(request, code):
     ticket.status = 'checked_in'
     ticket.checked_in_at = timezone.now()
     ticket.checked_in_by = user
-    ticket.save(update_fields=['status', 'checked_in_at', 'checked_in_by'])
+    ticket.checked_in_gate = gate
+    ticket.save(update_fields=['status', 'checked_in_at', 'checked_in_by',
+                               'checked_in_gate'])
 
-    return _ok({'ticket': serialize_ticket(ticket), 'holder': ticket.user.username},
+    return _ok({'ticket': serialize_ticket(ticket),
+                'holder': ticket.user.username,
+                'attendee_name': ticket.attendee_name,
+                'gate': gate},
                f'{ticket.user.username} checked in.')
 
 
