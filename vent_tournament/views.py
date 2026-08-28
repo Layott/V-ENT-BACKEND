@@ -653,11 +653,26 @@ def create_tournament(request):
                 "bigolive_link": request.data.get('bigolive_link')
             }
 
+            # A missing game was a 500 reading "'NoneType' object has no
+            # attribute 'title'", which tells the organiser nothing and tells
+            # whoever reads the log almost as little.
+            if not game:
+                return Response(
+                    {'code': 'GAME_REQUIRED', 'status': 'error',
+                     'message': 'Choose the game this tournament is played on.'},
+                    status=status.HTTP_400_BAD_REQUEST)
+            try:
+                game = Games.objects.get(game_title=str(game).title())
+            except Games.DoesNotExist:
+                return Response(
+                    {'code': 'GAME_NOT_FOUND', 'status': 'error',
+                     'message': 'There is no game called %s.' % game},
+                    status=status.HTTP_400_BAD_REQUEST)
+
             # Validate dates
             if start_date_and_time >= end_date_and_time:
                 raise ValueError("Start date and time must be before end date and time.")
 
-            game = Games.objects.get(game_title=game.title())
 
             creator = Users.objects.filter(login_session_token=login_session_token).first()
             if creator is None:
@@ -761,8 +776,12 @@ def create_tournament(request):
             # Add sponsors. The wizard collects a name (required) plus an optional
             # username; type defaults to 'individual' (name-only). Only resolve a
             # linked entity when the type names one and the lookup succeeds - a
-            # missing entity must not abort tournament creation. Logos are optional
-            # (the wizard does not upload sponsor logo files yet).
+            # missing entity must not abort tournament creation.
+            #
+            # Logos arrive positionally, one entry per sponsor, and an empty slot
+            # is sent as a zero-length blob so the indexes still line up with the
+            # names. Storing one of those would give a sponsor a broken image, so
+            # anything empty is treated as no logo at all.
             for index, raw_name in enumerate(sponsor_names):
                 name = raw_name.strip() if isinstance(raw_name, str) else raw_name
                 if not name:
@@ -772,6 +791,8 @@ def create_tournament(request):
                 username = sponsor_usernames[index] if index < len(sponsor_usernames) else ''
                 username = username.strip() if isinstance(username, str) else ''
                 logo = sponsor_logos[index] if index < len(sponsor_logos) else None
+                if logo is not None and not getattr(logo, 'size', 0):
+                    logo = None
 
                 sponsor_instance = None
                 if username and s_type in ('user', 'team', 'org'):

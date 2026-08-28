@@ -579,3 +579,79 @@ class CreateTournamentWithSponsorsEndpointTests(TestCase):
         t = Tournament.objects.get(tournament_title='Sponsored Cup')
         self.assertEqual(t.sponsors.count(), 1)
         self.assertIsNone(t.sponsors.first().sponsor)  # stored name-only
+
+
+class SponsorLogoTests(CreateTournamentWithSponsorsEndpointTests):
+    """Sponsor logos have never saved.
+
+    The backend has always read request.FILES.getlist('sponsor_logos') and
+    matched them by index. The wizard read each file into a base64 data URL, put
+    that in formData, and never appended a single file - so the name and the
+    type went up and the picture was dropped, every time.
+
+    Positional matching means an empty slot has to be sent as something, or the
+    second sponsor's logo lands on the first. A zero-length blob holds the place
+    and must not be stored as a file.
+
+    Inherits the payload from the class above, which is the shape the real wizard
+    sends. Writing a second one by hand is how a test comes to pass against a
+    request that nothing actually makes.
+    """
+
+    def _files(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        png = SimpleUploadedFile(
+            'logo.png',
+            b'\x89PNG\r\n\x1a\n' + b'0' * 40,
+            content_type='image/png',
+        )
+        blank = SimpleUploadedFile(
+            'blank', b'', content_type='application/octet-stream')
+        return [png, blank]
+
+    def _post(self):
+        org = make_user(9412)
+        Games.objects.get_or_create(game_title='Valorant')
+        payload = self._create_payload()
+        payload['sponsor_logos'] = self._files()
+        return client_for(org).post(
+            '/tournament/create-tournament/', payload, format='multipart')
+
+    def test_a_sponsor_logo_is_stored(self):
+        res = self._post()
+        self.assertIn(res.status_code, (200, 201), res.content)
+        t = Tournament.objects.get(tournament_title='Sponsored Cup')
+        sponsors = list(t.sponsors.all().order_by('sponsor_id'))
+        self.assertEqual(len(sponsors), 2)
+        self.assertTrue(sponsors[0].logo, 'the first sponsor lost its logo')
+
+    def test_an_empty_slot_is_not_stored_as_a_file(self):
+        """It holds the place so the indexes line up. It is not a picture."""
+        self._post()
+        t = Tournament.objects.get(tournament_title='Sponsored Cup')
+        sponsors = list(t.sponsors.all().order_by('sponsor_id'))
+        self.assertFalse(sponsors[1].logo, 'an empty slot was stored as a file')
+
+
+class MissingGameTests(TestCase):
+    """A tournament with no game answered 500 with "'NoneType' object has no
+    attribute 'title'", which tells the organiser nothing and whoever reads the
+    log almost as little."""
+
+    def setUp(self):
+        self.client_ = client_for(make_user(9411))
+
+    def test_no_game_is_a_400_that_says_so(self):
+        res = self.client_.post('/tournament/create-tournament/', {
+            'tournament_title': 'Gameless', 'tournament_type': 'online',
+        }, format='multipart')
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.json()['code'], 'GAME_REQUIRED')
+
+    def test_an_unknown_game_is_a_400_that_names_it(self):
+        res = self.client_.post('/tournament/create-tournament/', {
+            'tournament_title': 'Gameless', 'game': 'Not A Real Game',
+            'tournament_type': 'online',
+        }, format='multipart')
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.json()['code'], 'GAME_NOT_FOUND')
