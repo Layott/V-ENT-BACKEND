@@ -85,6 +85,46 @@ class TicketTier(models.Model):
     day = models.DateField(null=True, blank=True)
     day_label = models.CharField(max_length=60, blank=True, default='')  # "Day 1", "Finals day"
 
+    # ---------------------------------------------------------------- pricing
+    #
+    # Three ways a price moves, all on the tier because all three answer the
+    # same question: what does this type cost, and who may see it.
+
+    # Early bird: the price after `early_bird_quantity` have gone. Zero means
+    # the price never moves, which is what almost every type does.
+    early_bird_quantity = models.PositiveIntegerField(default=0)
+    early_bird_price = models.DecimalField(max_digits=10, decimal_places=2,
+                                           null=True, blank=True)
+
+    # Group rate: at or above `group_min`, each ticket costs `group_price`.
+    # Per ticket rather than a total, because that is how somebody buying six
+    # thinks about it and how every platform states it.
+    group_min = models.PositiveIntegerField(default=0)
+    group_price = models.DecimalField(max_digits=10, decimal_places=2,
+                                      null=True, blank=True)
+
+    # Access code: while set, this type is invisible and unbuyable until
+    # somebody types the code. For a members' presale or a sponsor's allocation.
+    access_code = models.CharField(max_length=40, blank=True, default='')
+
+    def price_for(self, quantity=1):
+        """What one ticket costs right now, at this quantity.
+
+        Group rate wins over early bird when both apply, because somebody
+        buying ten is the case the organiser most wants to reward and the two
+        discounts stacking is never what anybody meant.
+        """
+        if self.group_min and self.group_price is not None and quantity >= self.group_min:
+            return self.group_price
+        if (self.early_bird_quantity and self.early_bird_price is not None
+                and int(self.sold) >= int(self.early_bird_quantity)):
+            return self.early_bird_price
+        return self.price
+
+    @property
+    def is_hidden(self):
+        return bool(self.access_code)
+
     class Meta:
         ordering = ['day', 'id']
 
@@ -328,6 +368,10 @@ class Ticket(models.Model):
     attendee_phone = models.CharField(max_length=40, blank=True, default='')
     purchased_at = models.DateTimeField(auto_now_add=True)
     checked_in_at = models.DateTimeField(null=True, blank=True)
+    # Which door. "Already scanned" sends a steward to a supervisor; "scanned at
+    # Gate B, 19:42" lets them decide in three seconds, which is the whole
+    # difference at a busy entrance.
+    checked_in_gate = models.CharField(max_length=60, blank=True, default='')
     checked_in_by = models.ForeignKey(
         'vent_auth.Users', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='tickets_checked_in',
@@ -515,3 +559,121 @@ class EventSession(models.Model):
 
     def __str__(self):
         return '%s: %s' % (self.event_id, self.title)
+
+
+class TicketHold(models.Model):
+    """Tickets taken off sale without being sold.
+
+    Every real event has a guest list, press, the venue's own allocation and the
+    artist's family. Without holds an organiser fakes it by buying their own
+    tickets, which corrupts the sales figures they then report to a sponsor.
+
+    Eventbrite's definition is the one to build to: a hold removes tickets from
+    sale so you can release them later or give them to specific people. So a
+    hold has two exits and both matter - **release** puts them back on sale,
+    **issue** turns them into real tickets for named people.
+
+    The influencer allocation on `EventReferral` is the same mechanism seen from
+    a different angle: tickets reserved for somebody to sell. It keeps its own
+    columns because it also tracks who is owed credit, but both are counted
+    against what is sellable by the same function, rather than by two rules that
+    can disagree.
+    """
+
+    KINDS = (
+        ('guest', 'Guest list'),
+        ('press', 'Press'),
+        ('venue', 'Venue allocation'),
+        ('artist', 'Artist and crew'),
+        ('other', 'Other'),
+    )
+
+    id = models.AutoField(primary_key=True)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='holds')
+    # Null means the hold is against the event's capacity rather than one type,
+    # which is what a venue allocation usually is.
+    tier = models.ForeignKey(
+        TicketTier, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='holds')
+
+    name = models.CharField(max_length=80)
+    kind = models.CharField(max_length=20, choices=KINDS, default='guest')
+    quantity = models.PositiveIntegerField(default=0)
+    # How many of the held tickets have been turned into real ones. The rest are
+    # still held, and releasing gives back only what has not been issued.
+    issued = models.PositiveIntegerField(default=0)
+
+    note = models.CharField(max_length=200, blank=True, default='')
+    created_by = models.ForeignKey(
+        'vent_auth.Users', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='event_holds')
+    created_at = models.DateTimeField(auto_now_add=True)
+    released_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return '%s: %s x%s' % (self.event_id, self.name, self.quantity)
+
+    @property
+    def outstanding(self):
+        """Still held, so still not sellable."""
+        if self.released_at:
+            return 0
+        return max(int(self.quantity) - int(self.issued), 0)
+
+
+class WaitlistEntry(models.Model):
+    """A place in the queue for a sold-out event.
+
+    Built in the DICE shape rather than the usual one. A waitlist is normally a
+    way to capture demand you cannot serve; DICE uses it as the RETURN VALVE that
+    makes a face-value-only policy workable. Somebody whose plans change has a
+    way out that is not a resale site, and the ticket goes to the next person in
+    the queue at the price it was always sold at.
+
+    That matters more here than it would elsewhere. This audience cannot afford
+    to lose money to touts, and a platform with no return path pushes every
+    changed plan onto WhatsApp at whatever price somebody will pay.
+
+    Ordered by when somebody joined. First come, deliberately, unlike
+    Ticketmaster's randomised lottery: a lottery exists to defeat bots at a
+    scale V-ENT is nowhere near, and at this size "I was first" is both fairer
+    and easier to explain.
+    """
+
+    STATUSES = (
+        ('waiting', 'Waiting'),
+        ('offered', 'Offered'),
+        ('taken', 'Taken'),
+        ('missed', 'Missed the offer'),
+        ('left', 'Left the queue'),
+    )
+
+    id = models.AutoField(primary_key=True)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='waitlist')
+    # Null means any type. Most people want in at all, not in on one tier.
+    tier = models.ForeignKey(
+        TicketTier, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='waitlist')
+    user = models.ForeignKey(
+        'vent_auth.Users', on_delete=models.CASCADE, related_name='event_waitlist')
+
+    status = models.CharField(max_length=20, choices=STATUSES, default='waiting')
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    # An offer is a held place with a clock on it. Without the clock one person
+    # who stops reading their email freezes the queue behind them for ever.
+    offered_at = models.DateTimeField(null=True, blank=True)
+    offer_expires_at = models.DateTimeField(null=True, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['joined_at', 'id']
+        # One place per person per event. Joining twice does not get you two
+        # chances, and letting it would be the first thing anybody tried.
+        unique_together = ('event', 'user')
+
+    def __str__(self):
+        return '%s: %s (%s)' % (self.event_id, self.user_id, self.status)

@@ -2,6 +2,9 @@ from django.urls import path
 from django.conf import settings
 from django.conf.urls.static import static
 
+from . import views_holds
+from . import views_sessions
+from . import views_waitlist
 from . import views_tiers
 from .views import create_event, get_all_events, view_event, edit_event
 from .views_tickets import (
@@ -41,6 +44,16 @@ urlpatterns = [
     path("my-events/", my_events, name="my_events"),
     path("ticket/<str:code>/check-in/", check_in_ticket, name="check_in_ticket"),
     path("<str:event_id>/ticket-types/", ticket_types, name="ticket_types"),
+    path("<str:event_id>/sessions/", views_sessions.sessions, name="event_sessions"),
+    path("<str:event_id>/sessions/manage/", views_sessions.manage_sessions, name="manage_sessions"),
+    path("<str:event_id>/sessions/<int:session_id>/", views_sessions.session_detail, name="session_detail"),
+    path("<str:event_id>/waitlist/", views_waitlist.join_waitlist, name="join_waitlist"),
+    path("<str:event_id>/waitlist/mine/", views_waitlist.my_waitlist_place, name="my_waitlist_place"),
+    path("<str:event_id>/waitlist/all/", views_waitlist.event_waitlist, name="event_waitlist"),
+    path("<str:event_id>/holds/", views_holds.holds, name="event_holds"),
+    path("<str:event_id>/holds/<int:hold_id>/release/", views_holds.release_hold, name="release_hold"),
+    path("<str:event_id>/holds/<int:hold_id>/issue/", views_holds.issue_hold, name="issue_hold"),
+    path("<str:event_id>/money/", views_holds.event_money, name="event_money"),
     path("<str:event_id>/tiers/", views_tiers.create_tier, name="create_tier"),
     path("<str:event_id>/tiers/<int:tier_id>/", views_tiers.update_tier, name="update_tier"),
     path("<str:event_id>/tiers/<int:tier_id>/delete/", views_tiers.delete_tier, name="delete_tier"),

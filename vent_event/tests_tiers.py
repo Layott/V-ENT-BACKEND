@@ -163,6 +163,26 @@ class TierManagementTests(TestCase):
         self.assertEqual(res.json()['code'], 'TIER_HAS_TICKETS')
         self.assertTrue(TicketTier.objects.filter(pk=self.tier.pk).exists())
 
+    def test_the_organiser_sees_their_own_hidden_tier(self):
+        """The public list filters out a type behind an access code, which is
+        the point of a code. It also left the organiser unable to see, price or
+        retire a tier they had created."""
+        TicketTier.objects.create(
+            event=self.event, name='Members only', price=1000, quantity=10,
+            access_code='SECRET')
+
+        public = self.client.get('/event/%s/ticket-types/' % self.event.event_id)
+        self.assertNotIn('Members only',
+                         [t['name'] for t in public.json()['data']['tiers']])
+
+        mine = self.client.get(self.url(), **self.auth)
+        self.assertEqual(mine.status_code, 200, mine.content)
+        self.assertIn('Members only',
+                      [t['name'] for t in mine.json()['data']['tiers']])
+
+    def test_a_stranger_cannot_list_the_organisers_tiers(self):
+        res = self.client.get(self.url(), **self.stranger_auth)
+        self.assertEqual(res.status_code, 403, res.content)
 
 class VenueCapacityTests(TestCase):
     """The venue's ceiling, which is a SECOND ceiling and the lower one wins.
