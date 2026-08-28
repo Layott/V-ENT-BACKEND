@@ -2,6 +2,7 @@ from django.urls import path
 from django.conf import settings
 from django.conf.urls.static import static
 
+from . import views_tiers
 from .views import create_event, get_all_events, view_event, edit_event
 from .views_tickets import (
     ticket_types, buy_ticket, my_tickets, check_in_ticket, event_attendees,
@@ -40,6 +41,9 @@ urlpatterns = [
     path("my-events/", my_events, name="my_events"),
     path("ticket/<str:code>/check-in/", check_in_ticket, name="check_in_ticket"),
     path("<str:event_id>/ticket-types/", ticket_types, name="ticket_types"),
+    path("<str:event_id>/tiers/", views_tiers.create_tier, name="create_tier"),
+    path("<str:event_id>/tiers/<int:tier_id>/", views_tiers.update_tier, name="update_tier"),
+    path("<str:event_id>/tiers/<int:tier_id>/delete/", views_tiers.delete_tier, name="delete_tier"),
     path("<str:event_id>/buy-ticket/", buy_ticket, name="buy_ticket"),
     path("<str:event_id>/attendees/", event_attendees, name="event_attendees"),
 

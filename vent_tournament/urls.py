@@ -13,6 +13,7 @@ from django.conf.urls.static import static
 
 from . import views_formats
 from . import views_requirements
+from . import views_stages
 from . import views_rules
 
 urlpatterns = [
@@ -24,6 +25,9 @@ urlpatterns = [
     # The organiser's own rules: read them, change them, put them back.
     path('<int:tournament_id>/rules/', views_rules.tournament_rules, name='tournament_rules'),
     # Who may enter, what they still owe, and the queue of what a person checks.
+    path('<int:tournament_id>/stages/', views_stages.tournament_stages, name='tournament_stages'),
+    path('<int:tournament_id>/stages/set/', views_stages.set_stages, name='set_stages'),
+    path('<int:tournament_id>/stages/<int:stage_id>/advance/', views_stages.advance_stage, name='advance_stage'),
     path('<int:tournament_id>/requirements/', views_requirements.entry_requirements, name='entry_requirements'),
     path('<int:tournament_id>/requirements/set/', views_requirements.set_entry_requirements, name='set_entry_requirements'),
     path('<int:tournament_id>/requirements/mine/', views_requirements.my_entry_status, name='my_entry_status'),

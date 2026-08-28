@@ -677,3 +677,51 @@ class PrizePayout(models.Model):
     def __str__(self):
         return f"Payout pos {self.position} - {self.amount} VC ({self.tournament.tournament_title})"
 
+
+class TournamentStage(models.Model):
+    """One phase of a tournament that runs in more than one.
+
+    A major is not one format: it is groups and then a playoff, or Swiss and
+    then a top cut. `Format.can_feed_into` recorded which combinations are
+    possible and nothing read it, so every tournament was one format start to
+    finish and anybody running a real event made two tournaments and copied the
+    names across by hand.
+
+    `rules` is the stage's own scoring. A group phase and the playoff after it
+    are frequently scored differently, and an organiser who cannot say so has to
+    pick one and be wrong for half the event. Null means the format's standard
+    rules, which is what most stages want.
+    """
+
+    STATUSES = (
+        ('pending', 'Pending'),
+        ('running', 'Running'),
+        ('complete', 'Complete'),
+    )
+
+    tournament = models.ForeignKey(
+        Tournament, on_delete=models.CASCADE, related_name='stages')
+    order = models.PositiveIntegerField(default=0)
+    label = models.CharField(max_length=60)
+    format = models.CharField(max_length=40)
+
+    # How many leave this stage. With groups it is how many leave EACH group,
+    # which is what an organiser means by "top two from each group".
+    advances = models.PositiveIntegerField(default=0)
+    groups = models.PositiveIntegerField(default=0)
+
+    rules = models.JSONField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUSES, default='pending')
+
+    # Who came out of it, recorded when the organiser advances the stage rather
+    # than recomputed later. A standing recomputed after a dispute is resolved
+    # would silently change who was already sent through.
+    advanced = models.JSONField(default=list, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['order']
+        unique_together = ('tournament', 'order')
+
+    def __str__(self):
+        return '%s: %s' % (self.tournament_id, self.label)

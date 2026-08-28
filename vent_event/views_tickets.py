@@ -206,6 +206,28 @@ def buy_ticket(request, event_id):
             return _error(f'Only {remaining} {tier.name} ticket(s) left.',
                           'INSUFFICIENT_STOCK', status.HTTP_409_CONFLICT)
 
+        # The venue's own ceiling, which is a SECOND ceiling and the lower one
+        # wins. Nothing reconciled these: an organiser could set the venue to
+        # 200 and then sell 150 standard plus 100 VIP, because each type only
+        # ever checked itself. Eventbrite documents the same rule and the same
+        # reason - an event is sold out when its capacity is reached even if a
+        # type still has quantity left.
+        #
+        # Counted from the tickets rather than summed from `sold`, because the
+        # tickets are what somebody holds at the door and a stale counter is
+        # exactly what must not be able to oversell a room.
+        if event.capacity:
+            issued = Ticket.objects.filter(
+                event=event).exclude(status='cancelled').count()
+            room = int(event.capacity) - issued
+            if room <= 0:
+                return _error('This event is sold out.', 'EVENT_FULL',
+                              status.HTTP_409_CONFLICT)
+            if quantity > room:
+                return _error(
+                    f'Only {room} ticket(s) left for this event.',
+                    'EVENT_FULL', status.HTTP_409_CONFLICT)
+
         unit_vc = _ngn_to_coins(tier.price)
         total_vc = unit_vc * quantity
 
