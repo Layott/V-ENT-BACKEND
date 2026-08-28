@@ -290,6 +290,54 @@ def is_automatic(requirement):
     return KINDS.get(requirement.get('kind'), {}).get('check') == AUTOMATIC
 
 
+# Kinds that are about a person, so a team has to satisfy them once per member
+# rather than once for whoever pressed the button.
+PER_MEMBER = {
+    'country', 'min_age', 'verified_email', 'verified_identity',
+    'profile_image', 'game_account', 'game_details',
+}
+
+
+def team_members(team):
+    """Everyone who would actually play, captain included.
+
+    Returns the captain first, because when several members fail it is the most
+    useful one to name, and an empty list when the team has no members recorded
+    rather than raising - a team with nobody in it fails the size check
+    elsewhere, and failing twice for the same reason helps nobody.
+    """
+    if team is None:
+        return []
+    from vent_auth.models import TeamMembers
+
+    rows = list(
+        TeamMembers.objects.filter(team=team)
+        .select_related('user')
+        .order_by('-is_captain', 'team_member_id')
+    )
+    members = [row.user for row in rows if row.user_id]
+
+    # The owner is not always in TeamMembers, and they are certainly on the team.
+    owner = getattr(team, 'team_owner', None)
+    if owner is not None and all(m.user_id != owner.user_id for m in members):
+        members.insert(0, owner)
+    return members
+
+
+def check_for_team(requirement, team, *, tournament=None):
+    """(met, reason, detail) for a whole team, naming the member who failed."""
+    for member in team_members(team):
+        met, reason, detail = check_automatic(
+            requirement, member, tournament=tournament, team=team)
+        if not met:
+            who = member.username or member.full_name or 'A team member'
+            detail = dict(detail or {})
+            detail['params'] = dict(detail.get('params') or {}, member=who)
+            detail['code'] = 'member_%s' % detail.get('code', 'unknown')
+            return False, '%s: %s' % (who, reason), detail
+    return True, None, None
+
+
 def evaluate(requirements, user, *, tournament=None, team=None, submissions=None):
     """What this person still owes, in order.
 
@@ -322,8 +370,16 @@ def evaluate(requirements, user, *, tournament=None, team=None, submissions=None
         }
 
         if spec['check'] == AUTOMATIC:
-            met, reason, detail = check_automatic(
-                requirement, user, tournament=tournament, team=team)
+            # A team entry satisfies a per-person requirement once per member.
+            # Checking only whoever pressed the button admits a team whose
+            # fourth player never connected an account, and nobody finds out
+            # until the match.
+            if team is not None and kind in PER_MEMBER:
+                met, reason, detail = check_for_team(
+                    requirement, team, tournament=tournament)
+            else:
+                met, reason, detail = check_automatic(
+                    requirement, user, tournament=tournament, team=team)
             out.append(dict(common,
                             met=met, reason=reason,
                             needs_submission=False,

@@ -366,8 +366,15 @@ def join_tournament(request):
                     requirement__tournament=tournament, user=user
                 ).select_related('requirement')
             }
+            # The team is loaded here rather than further down, where the
+            # registration is written: a per-person requirement has to be
+            # checked against every member, and the gate runs before that point.
+            entering_team = (
+                Teams.objects.filter(team_id=team_id).first() if team_id else None
+            )
             results = entry_requirements.evaluate(
-                composed, user, tournament=tournament, submissions=submitted)
+                composed, user, tournament=tournament, team=entering_team,
+                submissions=submitted)
             outstanding = entry_requirements.blocking(results)
             if outstanding:
                 return Response({

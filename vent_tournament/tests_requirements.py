@@ -20,7 +20,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from vent_auth.models import (
-    GameAccount, Games, Teams, UserProfile, Users, UserWallet,
+    GameAccount, Games, TeamMembers, Teams, UserProfile, Users, UserWallet,
 )
 
 from . import requirements as req
@@ -535,3 +535,81 @@ class ReasonCodeTests(TestCase):
         row = self.row('custom_field', {'field_label': 'Riot ID'})
         self.assertEqual(row['code'], 'todo')
         self.assertTrue(row['needs_submission'])
+
+
+class TeamMemberTests(TestCase):
+    """A team entry is checked against every member, not just the captain.
+
+    Checking only whoever pressed the button is the version that looks like it
+    works: the captain has everything, the team is admitted, and round one is
+    played by somebody whose account was never connected. And "your team is not
+    eligible" is useless to a captain with five players.
+    """
+
+    def setUp(self):
+        self.game = Games.objects.get_or_create(game_title='Squad Probe')[0]
+        self.captain, _a = a_user('sq_captain')
+        self.second, _b = a_user('sq_second')
+        now = timezone.now()
+        self.tournament = Tournament.objects.create(
+            tournament_title='Squad Probe Cup', tournament_creator=self.captain,
+            tournament_game=self.game, tournament_type='online',
+            tournament_access='team', tournament_visibility='public',
+            entry_fee='Free', entry_fee_price=0, prize_type='no_prize',
+            bracket_type='single_elimination',
+            start_date_and_time=now + timedelta(days=2),
+            end_date_and_time=now + timedelta(days=3), is_draft=False,
+        )
+        self.team = Teams.objects.create(
+            team_name='Probe Squad', game=self.game, description='',
+            team_creator=self.captain, team_owner=self.captain,
+            penalty_points=0, number_of_members=2)
+        TeamMembers.objects.create(team=self.team, user=self.captain, is_captain=True)
+        TeamMembers.objects.create(team=self.team, user=self.second)
+
+    def evaluate(self, kind, config=None):
+        return req.evaluate(
+            [{'kind': kind, 'config': config or {}}], self.captain,
+            tournament=self.tournament, team=self.team)[0]
+
+    def test_the_captain_being_fine_is_not_enough(self):
+        GameAccount.objects.create(user=self.captain, game=self.game,
+                                   game_username='captain#1')
+        row = self.evaluate('game_account')
+        self.assertFalse(row['met'], 'the second player has no account')
+
+    def test_the_refusal_names_the_member_who_failed(self):
+        GameAccount.objects.create(user=self.captain, game=self.game,
+                                   game_username='captain#1')
+        row = self.evaluate('game_account')
+        self.assertIn('sq_second', row['reason'])
+        self.assertEqual(row['params']['member'], 'sq_second')
+        self.assertEqual(row['code'], 'member_game_account')
+
+    def test_everybody_ready_passes(self):
+        for player in (self.captain, self.second):
+            GameAccount.objects.create(user=player, game=self.game,
+                                       game_username='%s#1' % player.username)
+        self.assertTrue(self.evaluate('game_account')['met'])
+
+    def test_the_owner_counts_even_when_not_in_the_member_table(self):
+        """An owner who was never written into TeamMembers still plays."""
+        TeamMembers.objects.filter(team=self.team, user=self.captain).delete()
+        GameAccount.objects.create(user=self.second, game=self.game,
+                                   game_username='second#1')
+        row = self.evaluate('game_account')
+        self.assertFalse(row['met'])
+        self.assertIn('sq_captain', row['reason'])
+
+    def test_a_team_wide_requirement_is_not_checked_per_member(self):
+        """The logo belongs to the team, so asking each member for one is
+        nonsense."""
+        row = self.evaluate('team_logo')
+        self.assertFalse(row['met'])
+        self.assertNotIn('sq_', row['reason'] or '')
+
+    def test_an_individual_entry_is_unaffected(self):
+        row = req.evaluate([{'kind': 'game_account', 'config': {}}], self.captain,
+                           tournament=self.tournament)[0]
+        self.assertFalse(row['met'])
+        self.assertEqual(row['code'], 'game_account')
