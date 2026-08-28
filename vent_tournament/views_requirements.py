@@ -16,8 +16,13 @@ from rest_framework.response import Response
 
 from vent_auth.actors import actor_from_request, may_override
 
+import logging
+
+from . import partner_check
 from . import requirements as req
 from .models import EntryRequirement, EntrySubmission, Tournament
+
+logger = logging.getLogger(__name__)
 
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
@@ -203,7 +208,40 @@ def submit_requirement(request, tournament_id, requirement_id):
         defaults={'value': value, 'status': 'pending', 'note': '',
                   'reviewed_by': None, 'reviewed_at': None},
     )
-    return _ok({'status': submission.status}, 'Sent. The organiser will check it.')
+
+    # A requirement that names a partner is asked of the partner, once, here -
+    # not on every page render, and not by a person if the partner can answer.
+    #
+    # Every failure leaves it pending: no verification URL, a timeout, a 500, a
+    # body that is not JSON, a 200 in a shape we do not recognise. Blocking a
+    # registration because somebody else's server is down is not a trade worth
+    # making, and a login page served with a 200 must never read as approval.
+    message = 'Sent. The organiser will check it.'
+    if requirement.kind == 'partner_verified':
+        config = requirement.config or {}
+        partner = partner_check.partner_for(config.get('partner'))
+        outcome = partner_check.ask(
+            partner, config.get('field_label') or 'username',
+            value if isinstance(value, str) else str(value))
+
+        if outcome.checked:
+            submission.status = 'approved' if outcome.verified else 'refused'
+            submission.note = outcome.detail or (
+                '' if outcome.verified
+                else 'The partner does not recognise that. Check it and send it again.')
+            submission.reviewed_at = timezone.now()
+            # reviewed_by stays null: a partner is not a person, and recording
+            # one as the reviewer would put a name against a decision nobody
+            # made.
+            submission.save(update_fields=['status', 'note', 'reviewed_at'])
+            message = ('Confirmed by the partner.' if outcome.verified
+                       else 'The partner did not recognise that.')
+        elif outcome.reason != 'no_partner':
+            # Worth saying out loud. Silence here looks identical to the
+            # partner simply not being configured.
+            logger.info('partner verification fell back to review: %s', outcome.reason)
+
+    return _ok({'status': submission.status}, message)
 
 
 # --------------------------------------------------------------------------

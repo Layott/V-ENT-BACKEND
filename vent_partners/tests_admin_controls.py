@@ -338,3 +338,68 @@ class RedirectAddressTests(TestCase):
             'https://afc.test/cb%s' % i for i in range(11)]})
         self.assertEqual(res.status_code, 400, res.content)
         self.assertEqual(res.json()['code'], 'TOO_MANY')
+
+
+class VerificationEndpointTests(TestCase):
+    """Where we ask a partner to confirm one of their own usernames.
+
+    Narrower than the other partner controls: this one stores somebody else's
+    credential and points our server at an address it will call.
+    """
+
+    def setUp(self):
+        self.admin, self.auth = an_admin()
+        owner = Users.objects.create(username='ver_owner', email='v@partner.test')
+        self.partner = Partner.objects.create(
+            name='AFC', slug='afc-verify', owner=owner, status='approved')
+
+    def url(self):
+        return '/partners/admin/%s/verification/' % self.partner.pk
+
+    def post(self, body, auth=None):
+        return self.client.post(self.url(), data=body,
+                                content_type='application/json',
+                                **(auth if auth is not None else self.auth))
+
+    def test_a_super_admin_sets_the_address_and_the_secret(self):
+        res = self.post({'verification_url': 'https://afc.test/verify/',
+                         'verification_secret': 'their-secret'})
+        self.assertEqual(res.status_code, 200, res.content)
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.verification_url, 'https://afc.test/verify/')
+        self.assertEqual(self.partner.verification_secret, 'their-secret')
+
+    def test_the_secret_is_never_read_back(self):
+        """It is theirs. The console shows only that one is held."""
+        self.post({'verification_secret': 'their-secret'})
+        row = self.post({'verification_url': 'https://afc.test/verify/'}).json()['data']
+        self.assertNotIn('verification_secret', row)
+        self.assertTrue(row['has_verification_secret'])
+
+    def test_plain_http_is_refused(self):
+        """The call carries a credential and an identifier."""
+        res = self.post({'verification_url': 'http://afc.test/verify/'})
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.json()['code'], 'BAD_URL')
+
+    def test_clearing_the_address_turns_the_check_off_without_breaking_anything(self):
+        self.post({'verification_url': 'https://afc.test/verify/'})
+        res = self.post({'verification_url': ''})
+        self.assertEqual(res.status_code, 200, res.content)
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.verification_url, '')
+
+    def test_a_lesser_admin_cannot_set_it(self):
+        _lesser, lesser_auth = an_admin(role='support')
+        res = self.post({'verification_url': 'https://evil.test/'}, auth=lesser_auth)
+        self.assertEqual(res.status_code, 403, res.content)
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.verification_url, '')
+
+    def test_the_secret_never_reaches_the_audit_log(self):
+        """Only that it changed."""
+        self.post({'verification_secret': 'do-not-log-me',
+                   'verification_url': 'https://afc.test/verify/'})
+        entry = AdminAction.objects.get(action_type='set_partner_verification')
+        self.assertNotIn('do-not-log-me', str(entry.metadata))
+        self.assertTrue(entry.metadata['secret_changed'])

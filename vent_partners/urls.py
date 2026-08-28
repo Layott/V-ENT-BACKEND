@@ -47,6 +47,7 @@ partner_urlpatterns = [
     path('admin/<int:partner_id>/sso-review/', manage.admin_sso_review),
     path('admin/<int:partner_id>/scopes/', manage.admin_set_scopes),
     path('admin/<int:partner_id>/redirects/', manage.admin_set_redirects),
+    path('admin/<int:partner_id>/verification/', manage.admin_set_verification),
     path('admin/<int:partner_id>/keys/', manage.admin_issue_key),
     path('admin/<int:partner_id>/keys/<int:key_id>/rotate/', manage.admin_rotate_key),
 
