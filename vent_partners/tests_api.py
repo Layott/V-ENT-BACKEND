@@ -87,7 +87,7 @@ class ScopeTests(TestCase):
         self.key, self.secret = PartnerApiKey.issue(self.partner, scopes=['tournaments:read'])
         self.auth = {'HTTP_AUTHORIZATION': f'Bearer {self.secret}'}
 
-        game = Games.objects.create(game_title='Free Fire')
+        game = Games.objects.get_or_create(game_title='Free Fire')[0]
         creator = Users.objects.create(username='creator', email='c@vent.test')
         self.tournament = Tournament.objects.create(
             tournament_title='Open Cup', tournament_game=game, tournament_creator=creator,

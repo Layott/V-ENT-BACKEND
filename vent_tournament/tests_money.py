@@ -54,7 +54,7 @@ class ConversionTests(TestCase):
 
 class PrizeCreationTests(TestCase):
     def setUp(self):
-        self.game = Games.objects.create(game_title='Free Fire')
+        self.game = Games.objects.get_or_create(game_title='Free Fire')[0]
         self.user = Users.objects.create(
             username='organiser', email='org@vent.test',
             login_session_token='orgtoken12345678',

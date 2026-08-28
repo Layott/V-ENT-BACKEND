@@ -18,7 +18,7 @@ from vent_tournament.models import Tournament
 
 class SlugBuildingTests(TestCase):
     def setUp(self):
-        self.game = Games.objects.create(game_title='Free Fire')
+        self.game = Games.objects.get_or_create(game_title='Free Fire')[0]
         self.user = Users.objects.create(username='organiser', email='o@vent.test')
 
     def make_tournament(self, title):
@@ -97,7 +97,7 @@ class LookupTests(TestCase):
 
 class ResolutionTests(TestCase):
     def setUp(self):
-        self.game = Games.objects.create(game_title='Free Fire')
+        self.game = Games.objects.get_or_create(game_title='Free Fire')[0]
         self.user = Users.objects.create(username='organiser2', email='o2@vent.test')
         self.tournament = Tournament.objects.create(
             tournament_title='Naija Weekly', tournament_game=self.game,
@@ -141,7 +141,7 @@ class SlugHistoryTests(TestCase):
     """A link shared before a rename still has to open the right page."""
 
     def setUp(self):
-        self.game = Games.objects.create(game_title='History Game')
+        self.game = Games.objects.get_or_create(game_title='History Game')[0]
         self.user = Users.objects.create(username='hist_user', email='hist@example.com')
 
     def make_tournament(self, title):
@@ -277,7 +277,7 @@ class CommunityAndOrgSlugTests(TestCase):
     """No numeric id in any address, including the things people post."""
 
     def setUp(self):
-        self.game = Games.objects.create(game_title='Slug Game 2')
+        self.game = Games.objects.get_or_create(game_title='Slug Game 2')[0]
         self.user = Users.objects.create(username='slug_user2', email='su2@example.com')
 
     def test_a_club_gets_its_name_as_an_address(self):

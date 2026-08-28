@@ -63,7 +63,7 @@ class CleanTests(TestCase):
 
 class BestOfTests(TestCase):
     def setUp(self):
-        self.game = Games.objects.create(game_title='Bo Game')
+        self.game = Games.objects.get_or_create(game_title='Bo Game')[0]
         self.t = Tournament.objects.create(
             tournament_title='Bo test', tournament_game=self.game,
             start_date_and_time=timezone.now() + timedelta(days=1),
@@ -92,7 +92,7 @@ class EntryRestrictionTests(TestCase):
     """Refusals happen before money moves, or they are worth nothing."""
 
     def setUp(self):
-        self.game = Games.objects.create(game_title='Gate Game')
+        self.game = Games.objects.get_or_create(game_title='Gate Game')[0]
         self.organiser = Users.objects.create(username='gate_org', email='org@example.com')
         self.t = Tournament.objects.create(
             tournament_title='Gated', tournament_game=self.game,
@@ -158,7 +158,7 @@ class JoinEnforcementTests(TestCase):
     """The refusal has to arrive over HTTP, not only from the helper."""
 
     def setUp(self):
-        self.game = Games.objects.create(game_title='Join Game')
+        self.game = Games.objects.get_or_create(game_title='Join Game')[0]
         self.organiser = Users.objects.create(username='join_org', email='jo@example.com')
         self.t = Tournament.objects.create(
             tournament_title='Join test', tournament_game=self.game,
@@ -217,7 +217,7 @@ class JoinEnforcementTests(TestCase):
 
 class CheckInTests(TestCase):
     def setUp(self):
-        self.game = Games.objects.create(game_title='Check Game')
+        self.game = Games.objects.get_or_create(game_title='Check Game')[0]
         self.organiser = Users.objects.create(username='ci_org', email='cio@example.com')
         self.t = Tournament.objects.create(
             tournament_title='Check in test', tournament_game=self.game,
@@ -393,7 +393,7 @@ class ThirdPlaceTests(TestCase):
     """A prize table with a third position needs a match that decides third."""
 
     def setUp(self):
-        self.game = Games.objects.create(game_title='Bronze Game')
+        self.game = Games.objects.get_or_create(game_title='Bronze Game')[0]
         self.organiser = Users.objects.create(username='tp_org', email='tpo@example.com')
         self.t = Tournament.objects.create(
             tournament_title='Bronze test', tournament_game=self.game,
@@ -483,7 +483,7 @@ class SeedingWiringTests(TestCase):
     """The method chosen at creation is the method the draw uses."""
 
     def setUp(self):
-        self.game = Games.objects.create(game_title='Seed Game')
+        self.game = Games.objects.get_or_create(game_title='Seed Game')[0]
         self.organiser = Users.objects.create(username='sd_org', email='sdo@example.com')
         self.t = Tournament.objects.create(
             tournament_title='Seed test', tournament_game=self.game,
@@ -550,7 +550,7 @@ class OptionsRoundTripTests(TestCase):
     """What the wizard sends has to survive the trip and come back readable."""
 
     def setUp(self):
-        self.game = Games.objects.create(game_title='Trip Game')
+        self.game = Games.objects.get_or_create(game_title='Trip Game')[0]
         self.organiser = Users.objects.create(username='rt_org', email='rto@example.com')
         self.head = _token(self.organiser, 'rtorgtoken123456')
 
@@ -624,7 +624,7 @@ class OneShapeTests(TestCase):
     """
 
     def setUp(self):
-        self.game = Games.objects.create(game_title='Shape Game')
+        self.game = Games.objects.get_or_create(game_title='Shape Game')[0]
         self.organiser = Users.objects.create(username='shape_org', email='so@example.com')
         self.t = Tournament.objects.create(
             tournament_title='Shape test', tournament_game=self.game,
