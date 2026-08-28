@@ -307,8 +307,20 @@ def update_partner(request, partner_id):
             changed.append(field)
 
     if 'redirect_uris' in request.data:
-        uris = [u for u in (request.data.get('redirect_uris') or []) if _valid_redirect(u)]
-        partner.redirect_uris = uris[:10]
+        wanted = request.data.get('redirect_uris') or []
+        # Dropping the ones that do not pass and saying "Saved." is the worst of
+        # both: the partner is told it worked, the address is not there, and the
+        # sign-in they then test is refused for a reason nothing on screen
+        # explains. Name them instead.
+        rejected = [u for u in wanted if not _valid_redirect(u)]
+        if rejected:
+            return _err(
+                'These addresses are not usable: %s. They must be https, with no '
+                'wildcard and no fragment.' % ', '.join(str(r) for r in rejected),
+                'BAD_REDIRECT')
+        if len(wanted) > 10:
+            return _err('A partner may register at most 10 addresses.', 'TOO_MANY')
+        partner.redirect_uris = list(dict.fromkeys(str(u).strip() for u in wanted))
         changed.append('redirect_uris')
 
     if request.data.get('request_sso') and partner.sso_status in ('none', 'rejected'):

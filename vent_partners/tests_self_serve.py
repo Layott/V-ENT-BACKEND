@@ -128,3 +128,66 @@ class ApprovalSendsCredentialsTests(TestCase):
             content_type='application/json', **self.auth)
         self.assertEqual(
             self.partner.api_keys.filter(revoked_at__isnull=True).count(), 1)
+
+
+class OwnerRedirectTests(TestCase):
+    """A partner registering its own sign-in address after approval.
+
+    CEO: "i sent you a screenshot to show you that as a partner i couldnt edit
+    or add it."
+
+    `redirect_uris` was editable only on the APPLICATION form, and that form
+    disappears the moment the partner is approved - so the moment you actually
+    know your callback URL, while building the integration, is the moment there
+    is no field for it.
+    """
+
+    def setUp(self):
+        self.owner, self.auth = a_user('redirect_owner')
+        self.partner = Partner.objects.create(
+            name='AFC', slug='afc-owner-redirects', owner=self.owner,
+            contact_name='AFC', contact_email='p@afc.test',
+            status='approved', sso_status='approved',
+            redirect_uris=['https://afc.test/auth/connect/'],
+        )
+
+    def update(self, uris):
+        return self.client.post(
+            '/partners/%s/update/' % self.partner.pk,
+            data={'redirect_uris': uris},
+            content_type='application/json', **self.auth)
+
+    def test_the_owner_can_add_one_after_approval(self):
+        res = self.update(['https://afc.test/auth/connect/',
+                           'https://afc.test/auth/sso/callback/'])
+        self.assertEqual(res.status_code, 200, res.content)
+        self.partner.refresh_from_db()
+        self.assertEqual(len(self.partner.redirect_uris), 2)
+
+    def test_an_unusable_address_is_named_rather_than_dropped(self):
+        """It used to filter them out and answer "Saved." - the partner was told
+        it worked, the address was not there, and the sign-in they then tested
+        was refused for a reason nothing on screen explained."""
+        res = self.update(['http://afc.test/insecure/'])
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.json()['code'], 'BAD_REDIRECT')
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.redirect_uris, ['https://afc.test/auth/connect/'])
+
+    def test_a_wildcard_is_refused(self):
+        res = self.update(['https://*.afc.test/callback/'])
+        self.assertEqual(res.status_code, 400, res.content)
+
+    def test_localhost_is_allowed_so_a_partner_can_build_against_it(self):
+        res = self.update(['http://localhost:3000/auth/callback/'])
+        self.assertEqual(res.status_code, 200, res.content)
+
+    def test_a_stranger_cannot_change_them(self):
+        _other, other_auth = a_user('redirect_stranger')
+        res = self.client.post(
+            '/partners/%s/update/' % self.partner.pk,
+            data={'redirect_uris': ['https://evil.test/steal/']},
+            content_type='application/json', **other_auth)
+        self.assertGreaterEqual(res.status_code, 400, res.content)
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.redirect_uris, ['https://afc.test/auth/connect/'])
