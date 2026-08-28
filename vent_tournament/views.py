@@ -345,6 +345,38 @@ def join_tournament(request):
                 'message': refusal,
             }, status=status.HTTP_403_FORBIDDEN)
 
+        # And whatever else the organiser composed: a connected game account, an
+        # in-game name, a team logo, a social follow they had to send in.
+        #
+        # The answer names WHICH one and what to do about it. "You are not
+        # eligible" sends somebody to support; "Connect your Free Fire account on
+        # your profile first" they can fix in a minute. A tournament with no
+        # requirements produces an empty list and nobody is stopped.
+        from . import requirements as entry_requirements
+        from .models import EntrySubmission
+
+        composed = [
+            {'kind': r.kind, 'config': r.config, 'required': r.required}
+            for r in tournament.entry_requirements.all()
+        ]
+        if composed:
+            submitted = {
+                s.requirement.kind: {'status': s.status, 'note': s.note}
+                for s in EntrySubmission.objects.filter(
+                    requirement__tournament=tournament, user=user
+                ).select_related('requirement')
+            }
+            results = entry_requirements.evaluate(
+                composed, user, tournament=tournament, submissions=submitted)
+            outstanding = entry_requirements.blocking(results)
+            if outstanding:
+                return Response({
+                    'status': 'error',
+                    'code': 'REQUIREMENTS_NOT_MET',
+                    'message': outstanding[0]['reason'],
+                    'data': {'outstanding': outstanding},
+                }, status=status.HTTP_403_FORBIDDEN)
+
         # Two tournaments at the same time is two matches somebody cannot play.
         # The PRD asks for a warning rather than a refusal, so this answers with
         # the clash and what it collides with, and goes ahead when the caller

@@ -272,6 +272,77 @@ class TournamentRuleset(models.Model):
         return (self.data or {}).get('format') or self.tournament.bracket_type
 
 
+
+class EntryRequirement(models.Model):
+    """One thing an organiser demands before somebody may register.
+
+    A row rather than a column, because four booleans cannot express "follow
+    these three accounts and give me your Riot ID". `config` differs by kind -
+    a country list, a minimum age, a set of links, the label of a field the
+    organiser named - so it is JSON rather than twelve mostly-null columns and a
+    migration for every new kind.
+
+    `order` is the order they are shown and checked in, and it is the
+    organiser's to arrange.
+    """
+
+    tournament = models.ForeignKey(
+        'Tournament', on_delete=models.CASCADE, related_name='entry_requirements')
+    kind = models.CharField(max_length=40)
+    config = models.JSONField(default=dict, blank=True)
+    # A requirement that is not required is shown and collected but does not
+    # stop anybody: useful for asking a question without turning it into a gate.
+    required = models.BooleanField(default=True)
+    order = models.PositiveIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return f'{self.kind} for tournament {self.tournament_id}'
+
+
+class EntrySubmission(models.Model):
+    """What somebody gave, for a requirement a person has to check.
+
+    Kept per user rather than per registration, because the whole point is that
+    it is checked BEFORE they are registered - and for a team entry every member
+    has their own.
+    """
+
+    STATUS_CHOICES = [
+        ('pending', 'Waiting to be checked'),
+        ('approved', 'Accepted'),
+        ('refused', 'Not accepted'),
+    ]
+
+    requirement = models.ForeignKey(
+        EntryRequirement, on_delete=models.CASCADE, related_name='submissions')
+    user = models.ForeignKey(
+        Users, on_delete=models.CASCADE, related_name='entry_submissions')
+    # What they typed: a username per link, an id, an answer.
+    value = models.JSONField(default=dict, blank=True)
+
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='pending')
+    note = models.TextField(blank=True, default='')
+
+    reviewed_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='entry_submissions_reviewed')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # One answer per person per requirement. Sending it again replaces it.
+        unique_together = ('requirement', 'user')
+        ordering = ['submitted_at']
+
+    def __str__(self):
+        return f'{self.user_id} for requirement {self.requirement_id}: {self.status}'
+
+
 class TournamentPrizeDistribution(models.Model):
     id = models.AutoField(primary_key=True)
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='prize_distributions')

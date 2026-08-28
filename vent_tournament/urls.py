@@ -12,6 +12,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 from . import views_formats
+from . import views_requirements
 from . import views_rules
 
 urlpatterns = [
@@ -22,6 +23,13 @@ urlpatterns = [
     path('rule-presets/', views_rules.rule_presets, name='rule_presets'),
     # The organiser's own rules: read them, change them, put them back.
     path('<int:tournament_id>/rules/', views_rules.tournament_rules, name='tournament_rules'),
+    # Who may enter, what they still owe, and the queue of what a person checks.
+    path('<int:tournament_id>/requirements/', views_requirements.entry_requirements, name='entry_requirements'),
+    path('<int:tournament_id>/requirements/set/', views_requirements.set_entry_requirements, name='set_entry_requirements'),
+    path('<int:tournament_id>/requirements/mine/', views_requirements.my_entry_status, name='my_entry_status'),
+    path('<int:tournament_id>/requirements/<int:requirement_id>/submit/', views_requirements.submit_requirement, name='submit_requirement'),
+    path('<int:tournament_id>/requirements/queue/', views_requirements.review_queue, name='requirement_queue'),
+    path('<int:tournament_id>/requirements/queue/<int:submission_id>/', views_requirements.review_submission, name='review_submission'),
     path('<int:tournament_id>/rules/set/', views_rules.set_tournament_rules, name='set_tournament_rules'),
     path('<int:tournament_id>/rules/reset/', views_rules.reset_tournament_rules, name='reset_tournament_rules'),
     path('games/<int:game_id>/modes/', views_formats.game_modes, name='game_modes'),
