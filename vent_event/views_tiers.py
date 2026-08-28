@@ -243,3 +243,71 @@ def delete_tier(request, event_id, tier_id):
     tier.delete()
     return _ok({'tiers': [serialize_tier(t) for t in event.ticket_tiers.all()]},
                'Ticket type removed.')
+
+
+# ---------------------------------------------------------------------------
+# What the organiser asks a buyer for
+# ---------------------------------------------------------------------------
+
+@api_view(['GET', 'PUT'])
+def manage_checkout_fields(request, event_id):
+    """GET /event/<id>/checkout-fields/manage/ - what is asked for.
+       PUT /event/<id>/checkout-fields/manage/ - replace the list, in order.
+
+    Email is not in this list and cannot be. It is always collected and always
+    required, because a ticket with no way to reach the holder is not a ticket.
+    """
+    from . import checkout
+    from .models import EventCheckoutField
+
+    event, _user, err = _event_and_permission(request, event_id)
+    if err:
+        return err
+
+    def rows():
+        return [
+            {
+                'id': f.id, 'label': f.label, 'kind': f.kind,
+                'help_text': f.help_text, 'required': f.required,
+                'options': f.options, 'per_ticket': f.per_ticket,
+                'order': f.order,
+            }
+            for f in event.checkout_fields.all()
+        ]
+
+    if request.method == 'GET':
+        return _ok({'fields': rows(), 'catalogue': checkout.catalogue()},
+                   'Checkout fields')
+
+    raw = request.data.get('fields')
+    if not isinstance(raw, list):
+        return _err('Send the fields as a list, in the order they are asked.',
+                    'VALIDATION_FAILED', field='fields')
+
+    cleaned = []
+    for index, item in enumerate(raw):
+        try:
+            cleaned.append(checkout.clean_field(item))
+        except checkout.CheckoutError as exc:
+            return _err(str(exc), 'VALIDATION_FAILED',
+                        field=getattr(exc, 'field', None))
+
+    # Matched by label rather than deleted and recreated, so an answer already
+    # given against a field keeps pointing at it. Answers are stored by field
+    # id; recreating the rows would orphan every one of them.
+    existing = {f.label.lower(): f for f in event.checkout_fields.all()}
+    keep = set()
+    for order, data in enumerate(cleaned):
+        field = existing.get(data['label'].lower()) or EventCheckoutField(event=event)
+        field.label = data['label']
+        field.kind = data['kind']
+        field.help_text = data['help_text']
+        field.required = data['required']
+        field.options = data['options']
+        field.per_ticket = data['per_ticket']
+        field.order = order
+        field.save()
+        keep.add(field.pk)
+
+    event.checkout_fields.exclude(pk__in=keep).delete()
+    return _ok({'fields': rows()}, 'Saved.')

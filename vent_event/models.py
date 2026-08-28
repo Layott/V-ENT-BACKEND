@@ -356,7 +356,12 @@ class Ticket(models.Model):
     id = models.AutoField(primary_key=True)
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='tickets')
     tier = models.ForeignKey(TicketTier, on_delete=models.PROTECT, related_name='tickets')
-    user = models.ForeignKey('vent_auth.Users', on_delete=models.CASCADE, related_name='event_tickets')
+    # Null for a guest. Somebody buying a ticket to a one-off event should not
+    # have to make an account to do it, and a platform that insists loses the
+    # sale rather than gaining a member. The attendee columns below carry them
+    # instead, and `claim_for` attaches the ticket if they sign up later.
+    user = models.ForeignKey('vent_auth.Users', on_delete=models.CASCADE,
+                             related_name='event_tickets', null=True, blank=True)
     code = models.CharField(max_length=18, unique=True, db_index=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='valid')
     price_vc = models.PositiveIntegerField(default=0)
@@ -366,6 +371,16 @@ class Ticket(models.Model):
     attendee_name = models.CharField(max_length=120, blank=True, default='')
     attendee_email = models.EmailField(blank=True, default='')
     attendee_phone = models.CharField(max_length=40, blank=True, default='')
+    # What the organiser asked for at checkout, keyed by field id. Kept on the
+    # ticket rather than on an order, because the door list is per person and a
+    # dietary requirement or a jersey size belongs to the person it is about.
+    answers = models.JSONField(default=dict, blank=True)
+    # The payment this ticket came from, for a guest paying by card. It is what
+    # makes issuing idempotent: the browser returning and Paystack calling back
+    # are two arrivals for one payment, and issuing twice would put two people
+    # through one door. Empty for a wallet purchase and for a free ticket.
+    payment_reference = models.CharField(max_length=64, blank=True, default='',
+                                         db_index=True)
     purchased_at = models.DateTimeField(auto_now_add=True)
     checked_in_at = models.DateTimeField(null=True, blank=True)
     # Which door. "Already scanned" sends a steward to a supervisor; "scanned at
@@ -677,3 +692,55 @@ class WaitlistEntry(models.Model):
 
     def __str__(self):
         return '%s: %s (%s)' % (self.event_id, self.user_id, self.status)
+
+
+class EventCheckoutField(models.Model):
+    """Something the organiser asks a buyer for.
+
+    CEO: "they'll need to submit emails and Maybe full name and number. Or
+    better still, the organizer decides what fields he wants to be collected."
+
+    So: a list the organiser composes, the same shape as a tournament's entry
+    requirements, rather than three fixed columns. A five-a-side needs a shirt
+    size, a conference needs a dietary requirement, a con needs to know which
+    day - and none of those is a column anybody could have guessed in advance.
+
+    Email is not in this list. It is always collected and always required,
+    because a ticket with no way to reach the holder is not a ticket: no
+    receipt, no code to re-send, and nothing to attach to an account later.
+    Making it optional is the one setting that would break everything after the
+    sale, so it is not offered.
+    """
+
+    KINDS = (
+        ('text', 'Text'),
+        ('phone', 'Phone number'),
+        ('number', 'A number'),
+        ('choice', 'One of a list'),
+        ('checkbox', 'A yes or no'),
+    )
+
+    id = models.AutoField(primary_key=True)
+    event = models.ForeignKey(
+        Event, on_delete=models.CASCADE, related_name='checkout_fields')
+
+    label = models.CharField(max_length=80)
+    kind = models.CharField(max_length=20, choices=KINDS, default='text')
+    help_text = models.CharField(max_length=200, blank=True, default='')
+    required = models.BooleanField(default=False)
+    # For `choice`. Stored as a list so the order the organiser wrote them is
+    # the order the buyer sees.
+    options = models.JSONField(default=list, blank=True)
+
+    # Asked once for the whole order, or once per ticket. A jersey size is per
+    # person; a company name on the receipt is per order, and asking it six
+    # times is how somebody abandons a basket.
+    per_ticket = models.BooleanField(default=True)
+
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return '%s: %s' % (self.event_id, self.label)
