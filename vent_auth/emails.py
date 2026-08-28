@@ -435,6 +435,49 @@ def send_partner_application_received(partner):
         return False
 
 
+def send_partner_credentials(partner, key, secret):
+    """Send a partner the key that was just issued to them.
+
+    The secret is stored as a hash, so this is the only moment it can be handed
+    over - and doing it by hand, out of a console, is how AFC's key ended up
+    revoked ten seconds after it was created.
+
+    It goes to the contact address on the application, which is the address that
+    asked for access. Nothing else in the platform ever emails a secret, and
+    nothing else should.
+    """
+    try:
+        return _send(
+            partner.contact_email,
+            'Your V-ENT API key',
+            'partner_status.html',
+            {
+                'name': partner.contact_name or partner.name,
+                'heading': 'Your API key',
+                'intro': (
+                    'here is the key for %s. This is the only time the secret is '
+                    'shown - we store a hash of it and cannot send it again. Keep '
+                    'it on your server and never in a browser.' % partner.name
+                ),
+                'rows': [
+                    ('Key', '%s%s.%s' % (key.PREFIX, key.key_id, secret)),
+                    ('Scopes', ', '.join(key.scopes) or 'None'),
+                    ('Rate limit', '%s requests a minute' % key.rate_limit_per_minute),
+                ],
+                'body': (
+                    'Send it as: Authorization: Bearer <the key above>. '
+                    'If it is ever exposed, ask us to rotate it and the old one '
+                    'stops working immediately.'
+                ),
+                'cta_url': f'{APP_URL}/partners/docs',
+                'cta_label': 'Read the API documentation',
+            },
+        )
+    except Exception:
+        logger.exception('partner credentials email failed')
+        return False
+
+
 def send_partner_decision(partner):
     """Tell a partner what was decided, and exactly what they may read."""
     approved = partner.status == 'approved'

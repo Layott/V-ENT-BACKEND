@@ -47,6 +47,39 @@ SCOPES = {
 
 SCOPE_CHOICES = [(key, label) for key, label in SCOPES.items()]
 
+# The tier anybody gets by asking.
+#
+# Everything in it is already readable by anybody with a browser: the tournament
+# list, the event list, team profiles, public player profiles, rankings. Asking
+# for a company registration number before handing over a listing protects
+# nothing and costs every integration a week of waiting.
+#
+# What is NOT in it is the part where the answer differs per partner:
+# `tournaments:participants:read` and `tournaments:brackets:read` are about
+# identifiable people rather than listings, and SSO hands over identity.
+SELF_SERVE_SCOPES = [
+    'events:read',
+    'events:tickets:read',
+    'tournaments:read',
+    'teams:read',
+    'players:read',
+    'rankings:read',
+]
+
+REVIEWED_SCOPES = [s for s in SCOPES if s not in SELF_SERVE_SCOPES]
+
+
+def self_serve(values):
+    """The subset of a request that grants itself."""
+    wanted = {str(v).strip() for v in (values or [])}
+    return [s for s in SELF_SERVE_SCOPES if s in wanted]
+
+
+def needs_review(values):
+    """The subset that a person still has to look at."""
+    wanted = {str(v).strip() for v in (values or [])}
+    return [s for s in REVIEWED_SCOPES if s in wanted]
+
 
 def valid_scopes(values):
     """Keep only scopes that exist, in a stable order."""

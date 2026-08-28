@@ -46,7 +46,13 @@ class ApplicationTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertIn('tournaments:read', res.json()['data']['scopes'])
 
-    def test_applying_grants_nothing(self):
+    # This test used to be called "applying grants nothing" and asserted that a
+    # new application was pending with no scopes. That changed deliberately on
+    # the CEO's instruction: the base tier is everything already readable by
+    # anybody with a browser, and making a company wait a week to be told yes
+    # protected nothing.
+
+    def test_applying_grants_the_base_tier_at_once(self):
         res = self.post('/partners/apply/', {
             'name': 'African Free Fire Community',
             'contact_email': 'partners@afc.test',
@@ -54,9 +60,20 @@ class ApplicationTests(TestCase):
         })
         self.assertEqual(res.status_code, 201)
         data = res.json()['data']
+        self.assertEqual(data['status'], 'approved')
+        self.assertEqual(sorted(data['approved_scopes']),
+                         ['teams:read', 'tournaments:read'])
+
+    def test_asking_for_a_reviewed_scope_still_grants_nothing_of_it(self):
+        res = self.post('/partners/apply/', {
+            'name': 'Bracket Watchers',
+            'contact_email': 'dev@brackets.test',
+            'requested_scopes': ['tournaments:brackets:read'],
+        })
+        self.assertEqual(res.status_code, 201)
+        data = res.json()['data']
         self.assertEqual(data['status'], 'pending')
         self.assertEqual(data['approved_scopes'], [])
-        self.assertEqual(data['requested_scopes'], ['tournaments:read', 'teams:read'])
 
     def test_an_application_needs_a_name_and_an_email(self):
         res = self.post('/partners/apply/', {'name': ''})
@@ -149,11 +166,16 @@ class ReviewTests(TestCase):
         )
 
     def test_the_admin_queue_lists_and_counts(self):
+        """The queue now holds only what a person still has to decide.
+
+        A partner asking for the base tier alone is approved on application and
+        never reaches this list, which is the point of the tier.
+        """
         res = self.client.get('/partners/admin/list/', **self.admin_auth)
         self.assertEqual(res.status_code, 200)
         body = res.json()['data']
-        self.assertEqual(body['counts']['pending'], 1)
         self.assertEqual(len(body['partners']), 1)
+        self.assertEqual(body['counts']['pending'] + body['counts']['approved'], 1)
 
     def test_an_approved_partner_can_issue_a_key_shown_once(self):
         self.review({'decision': 'approved', 'scopes': ['tournaments:read']})
