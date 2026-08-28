@@ -134,3 +134,55 @@ class DoorTests(TestCase):
         res = self.check_in()
         self.assertEqual(res.status_code, 409, res.content)
         self.assertEqual(res.json()['code'], 'INVALID_TICKET')
+
+
+class DoorListTests(TestCase):
+    """What the scanner downloads before the gates open.
+
+    Two faults, both the same shape as the check-in ones: door staff could not
+    load it at all, and it did not carry where a ticket was first used - which
+    is half of what the duplicate warning exists to say.
+    """
+
+    def setUp(self):
+        self.organiser, self.organiser_auth = a_user('list_organiser')
+        self.steward, self.steward_auth = a_user('list_steward')
+        self.holder, _ = a_user('list_holder')
+        now = timezone.now()
+        self.event = Event.objects.create(
+            name='List Probe', creator=self.organiser, event_type='physical',
+            desc='x', entry_fee=0,
+            start_date=now - timedelta(hours=1),
+            end_date=now + timedelta(hours=5),
+            reg_start_date=now - timedelta(days=2),
+            reg_end_date=now + timedelta(hours=4))
+        self.tier = TicketTier.objects.create(
+            event=self.event, name='General', price=0, quantity=50)
+        self.ticket = Ticket.objects.create(
+            event=self.event, tier=self.tier, user=self.holder,
+            code='VT-LIST0001', price_vc=0, attendee_name='Amara Obi',
+            status='checked_in', checked_in_at=now - timedelta(minutes=40),
+            checked_in_gate='Gate B', checked_in_by=self.organiser)
+
+    def url(self):
+        return '/event/%s/attendees/' % self.event.event_id
+
+    def test_the_list_carries_where_and_by_whom(self):
+        """Without these the scanner can only say "already scanned"."""
+        res = self.client.get(self.url(), **self.organiser_auth)
+        self.assertEqual(res.status_code, 200, res.content)
+        row = res.json()['data']['attendees'][0]
+        self.assertEqual(row['checked_in_gate'], 'Gate B')
+        self.assertEqual(row['checked_in_by'], 'list_organiser')
+
+    def test_door_staff_can_download_it(self):
+        """A steward who cannot load the list cannot scan at all."""
+        EventManager.objects.create(
+            event=self.event, user=self.steward, role='door')
+        res = self.client.get(self.url(), **self.steward_auth)
+        self.assertEqual(res.status_code, 200, res.content)
+
+    def test_a_stranger_still_cannot(self):
+        stranger, stranger_auth = a_user('list_stranger')
+        res = self.client.get(self.url(), **stranger_auth)
+        self.assertEqual(res.status_code, 403, res.content)

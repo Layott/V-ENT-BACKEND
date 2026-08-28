@@ -93,6 +93,16 @@ def serialize_tier(tier):
         'remaining': remaining,
         'sold_out': remaining == 0,
         'perks': [p.strip() for p in (tier.perks or '').split(',') if p.strip()],
+        # What the price does, so the buy screen can say "12 left at this price"
+        # and the console can edit it rather than render an empty box.
+        'early_bird_quantity': tier.early_bird_quantity,
+        'early_bird_price': float(tier.early_bird_price) if tier.early_bird_price is not None else None,
+        'group_min': tier.group_min,
+        'group_price': float(tier.group_price) if tier.group_price is not None else None,
+        # The code itself is never sent. Whether one exists is not a secret;
+        # what it is, is.
+        'is_hidden': tier.is_hidden,
+        'price_now_ngn': float(tier.price_for(1)),
     }
 
 
@@ -466,11 +476,18 @@ def event_attendees(request, event_id):
              else Event.objects.filter(slug=str(event_id)).first())
     if event is None:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    if event.creator_id != user.user_id:
-        return _error('Only the event organizer can see the attendee list.',
-                      'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
+    # The creator, or somebody on the door. The scanner downloads this list
+    # before the gates open, so a steward who cannot load it cannot scan at all
+    # - which is the same fault the check-in path had until tonight.
+    from .models import EventManager
+    on_the_door = EventManager.objects.filter(
+        event=event, user=user, role__in=('manager', 'door')).exists()
+    if event.creator_id != user.user_id and not on_the_door:
+        return _error('Only the event organizer or their door staff can see the '
+                      'attendee list.', 'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
-    tickets = Ticket.objects.filter(event=event).select_related('tier', 'user')
+    tickets = (Ticket.objects.filter(event=event)
+               .select_related('tier', 'user', 'checked_in_by'))
     rows = [
         {
             'code': t.code,
@@ -482,6 +499,11 @@ def event_attendees(request, event_id):
             'status': t.status,
             'purchased_at': t.purchased_at,
             'checked_in_at': t.checked_in_at,
+            # Where and by whom, so an offline scanner can tell a steward more
+            # than "already scanned". Without these the duplicate warning has
+            # only half of what it exists to say.
+            'checked_in_gate': t.checked_in_gate,
+            'checked_in_by': t.checked_in_by.username if t.checked_in_by_id else '',
         }
         for t in tickets
     ]

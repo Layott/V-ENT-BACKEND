@@ -92,7 +92,7 @@ def _read_quantity(raw, current=None):
     return quantity, None
 
 
-@api_view(['POST'])
+@api_view(['GET', 'POST'])
 def create_tier(request, event_id):
     """POST /event/<id>/tiers/ - add a ticket type to an event that exists.
 
@@ -102,6 +102,14 @@ def create_tier(request, event_id):
     event, _user, err = _event_and_permission(request, event_id)
     if err:
         return err
+
+    if request.method == 'GET':
+        # The organiser's own list, including types hidden behind an access
+        # code. The public endpoint filters those out, which is the whole point
+        # of a code - but it left an organiser unable to see, price or retire a
+        # tier they had created.
+        return _ok({'tiers': [serialize_tier(t) for t in event.ticket_tiers.all()]},
+                   'Ticket types')
 
     name = str(request.data.get('name') or '').strip()
     if not name:
