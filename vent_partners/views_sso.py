@@ -37,6 +37,8 @@ from vent_auth.views_helpers import (
 )
 from vent_auth.views_profile import _user_from_bearer
 
+from vent_auth.throttle import too_many
+
 from .models import (
     ExternalIdentity,
     OAuthAccessToken,
@@ -101,6 +103,15 @@ def sso_authorize_info(request):
     client_id = request.GET.get('client_id', '')
     redirect_uri = request.GET.get('redirect_uri', '')
     scopes = valid_identity_scopes(request.GET.get('scope', 'identity'))
+
+    # This endpoint has to answer before anybody signs in, so it cannot be
+    # gated by a key or a session - and in answering it confirms whether a
+    # client_id exists. Unlimited, that is an enumeration tool with no cost.
+    # 30 a minute is far more than a consent screen ever needs and far less
+    # than a sweep wants.
+    if too_many(request, 'sso-authorize-info', 30):
+        return _err('Too many requests. Wait a minute and try again.',
+                    'RATE_LIMITED', status.HTTP_429_TOO_MANY_REQUESTS)
 
     partner = Partner.objects.filter(sso_client_id=client_id).first()
     if partner is None or not partner.sso_enabled:

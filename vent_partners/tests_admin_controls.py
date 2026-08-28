@@ -225,3 +225,116 @@ class IssueKeyTests(TestCase):
                                content_type='application/json', **self.auth)
         self.assertEqual(res.status_code, 400, res.content)
         self.assertEqual(res.json()['code'], 'TOO_MANY_KEYS')
+
+
+class RedirectAddressTests(TestCase):
+    """Where a partner may send somebody after they sign in.
+
+    Only the partner's own owner could edit these. AFC could not add their
+    sign-in callback - a different path from the connect one - so BAD_REDIRECT
+    was the live answer to every attempt to sign in with V-ENT, and the person
+    able to unblock it had no control for it.
+    """
+
+    CONNECT = 'https://api.africanfreefirecommunity.com/auth/vent/callback/'
+    SIGN_IN = 'https://api.africanfreefirecommunity.com/auth/vent/sso/callback/'
+
+    def setUp(self):
+        self.admin, self.auth = an_admin()
+        self.owner = Users.objects.create(
+            username='afc_owner', email='afc@partner.test')
+        self.partner = Partner.objects.create(
+            name='African Free Fire Community', owner=self.owner,
+            status='approved', sso_status='approved',
+            redirect_uris=[self.CONNECT],
+        )
+
+    def url(self):
+        return '/partners/admin/%s/redirects/' % self.partner.pk
+
+    def post(self, body, auth=None):
+        return self.client.post(self.url(), data=body,
+                                content_type='application/json',
+                                **(auth if auth is not None else self.auth))
+
+    def test_adding_one_keeps_the_one_already_there(self):
+        """The whole point. A partner with a working connect callback must not
+        lose it when a sign-in callback is added."""
+        res = self.post({'add': self.SIGN_IN})
+        self.assertEqual(res.status_code, 200, res.content)
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.redirect_uris, [self.CONNECT, self.SIGN_IN])
+
+    def test_the_new_address_is_then_accepted_by_the_consent_screen(self):
+        """The refusal being fixed is the only thing that matters here."""
+        self.partner.issue_sso_credentials()
+        before = self.client.get('/partners/sso/authorize-info/', {
+            'client_id': self.partner.sso_client_id,
+            'redirect_uri': self.SIGN_IN, 'scope': 'identity'})
+        self.assertEqual(before.json()['code'], 'BAD_REDIRECT')
+
+        self.post({'add': self.SIGN_IN})
+
+        after = self.client.get('/partners/sso/authorize-info/', {
+            'client_id': self.partner.sso_client_id,
+            'redirect_uri': self.SIGN_IN, 'scope': 'identity'})
+        self.assertEqual(after.status_code, 200, after.content)
+
+    def test_adding_the_same_one_twice_does_not_duplicate_it(self):
+        self.post({'add': self.SIGN_IN})
+        res = self.post({'add': self.SIGN_IN})
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.json()['code'], 'NO_CHANGE')
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.redirect_uris.count(self.SIGN_IN), 1)
+
+    def test_an_address_that_is_not_usable_is_refused_and_nothing_changes(self):
+        res = self.post({'add': 'http://afc.test/callback'})
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.json()['code'], 'BAD_REDIRECT')
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.redirect_uris, [self.CONNECT])
+
+    def test_a_wildcard_is_refused(self):
+        """An open redirect is how a sign-in provider leaks an identity."""
+        res = self.post({'add': 'https://*.afc.test/callback'})
+        self.assertEqual(res.status_code, 400, res.content)
+
+    def test_removing_one_leaves_the_rest(self):
+        self.post({'add': self.SIGN_IN})
+        self.post({'remove': self.CONNECT})
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.redirect_uris, [self.SIGN_IN])
+
+    def test_sending_the_whole_list_replaces_it(self):
+        res = self.post({'redirect_uris': [self.SIGN_IN]})
+        self.assertEqual(res.status_code, 200, res.content)
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.redirect_uris, [self.SIGN_IN])
+
+    def test_every_change_is_written_to_the_audit_log(self):
+        """"Who added that address" is the question that gets asked."""
+        self.post({'add': self.SIGN_IN, 'reason': 'AFC sign-in integration'})
+        entry = AdminAction.objects.get(action_type='set_partner_redirects')
+        self.assertEqual(entry.admin_id, self.admin.user_id)
+        self.assertEqual(entry.metadata['before'], [self.CONNECT])
+        self.assertIn(self.SIGN_IN, entry.metadata['after'])
+        self.assertIn('AFC', entry.reason)
+
+    def test_a_stranger_cannot_add_an_address(self):
+        stranger = Users.objects.create(
+            username='not_an_admin', email='no@vent.test',
+            login_session_token='strangertoken12')
+        stranger.login_session_created_at = timezone.now()
+        stranger.save()
+        res = self.post({'add': self.SIGN_IN}, auth={
+            'HTTP_AUTHORIZATION': 'Bearer strangertoken12'})
+        self.assertIn(res.status_code, (401, 403), res.content)
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.redirect_uris, [self.CONNECT])
+
+    def test_ten_is_the_ceiling(self):
+        res = self.post({'redirect_uris': [
+            'https://afc.test/cb%s' % i for i in range(11)]})
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.json()['code'], 'TOO_MANY')

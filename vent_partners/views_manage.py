@@ -537,6 +537,85 @@ def admin_set_scopes(request, partner_id):
 
 
 @api_view(['POST'])
+def admin_set_redirects(request, partner_id):
+    """POST /partners/admin/<id>/redirects/ - the addresses a partner may be sent back to.
+
+    Only the partner's own owner could edit these, and a partner integrating
+    against us cannot always reach that account. AFC could not add their
+    sign-in callback, so BAD_REDIRECT was the live answer to every attempt to
+    sign in with V-ENT, and the person able to unblock it - the one reviewing
+    the partner - had no control for it.
+
+    `add` and `remove` rather than a wholesale replace, because a partner
+    usually already has a working callback and the common job is adding a
+    second one. Sending `redirect_uris` still replaces the list outright, for
+    the case where that is genuinely what is meant.
+
+    Every address is recorded in the audit log. Where a partner may send
+    somebody after they sign in is the single most security-relevant field on
+    the record, and "who added that" is the question that gets asked.
+    """
+    admin, err = _admin(request)
+    if err:
+        return err
+
+    partner = Partner.objects.filter(pk=partner_id).first()
+    if partner is None:
+        return _err('No such partner.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+
+    before = list(partner.redirect_uris or [])
+    after = before
+
+    if 'redirect_uris' in request.data:
+        wanted = request.data.get('redirect_uris') or []
+        rejected = [u for u in wanted if not _valid_redirect(u)]
+        if rejected:
+            return _err(
+                'These addresses are not usable: %s' % ', '.join(str(r) for r in rejected),
+                'BAD_REDIRECT')
+        after = list(dict.fromkeys(str(u).strip() for u in wanted))
+    else:
+        add = request.data.get('add') or []
+        if isinstance(add, str):
+            add = [add]
+        remove = request.data.get('remove') or []
+        if isinstance(remove, str):
+            remove = [remove]
+
+        rejected = [u for u in add if not _valid_redirect(u)]
+        if rejected:
+            return _err(
+                'These addresses are not usable: %s' % ', '.join(str(r) for r in rejected),
+                'BAD_REDIRECT')
+
+        after = [u for u in before if u not in remove]
+        for uri in add:
+            uri = str(uri).strip()
+            if uri not in after:
+                after.append(uri)
+
+    if len(after) > 10:
+        return _err('A partner may register at most 10 addresses.', 'TOO_MANY')
+    if after == before:
+        return _err('Nothing to change.', 'NO_CHANGE')
+
+    partner.redirect_uris = after
+    partner.save(update_fields=['redirect_uris'])
+
+    AdminAction.objects.create(
+        admin=admin,
+        action_type='set_partner_redirects',
+        target_model='Partner',
+        target_id=str(partner.pk),
+        reason=(request.data.get('reason') or '')[:2000],
+        metadata={'before': before, 'after': after},
+    )
+
+    return _ok(_partner_row(partner, include_private=True),
+               'Sign-in addresses updated.')
+
+
+@api_view(['POST'])
 def admin_rotate_key(request, partner_id, key_id):
     """POST /partners/admin/<id>/keys/<key id>/rotate/ - replace a key now.
 
