@@ -90,8 +90,13 @@ class AutomaticCheckTests(TestCase):
         )
 
     def check(self, kind, **config):
-        return req.check_automatic(
+        met, reason, _detail = req.check_automatic(
             {'kind': kind, 'config': config}, self.user, tournament=self.tournament)
+        return met, reason
+
+    def detail(self, kind, **config):
+        return req.check_automatic(
+            {'kind': kind, 'config': config}, self.user, tournament=self.tournament)[2]
 
     def test_a_missing_game_account_says_which_game_to_connect(self):
         met, reason = self.check('game_account')
@@ -152,7 +157,7 @@ class AutomaticCheckTests(TestCase):
             team_name='Logoless', game=self.game, description='',
             team_creator=self.user, team_owner=self.user,
             penalty_points=0, number_of_members=1)
-        met, reason = req.check_automatic(
+        met, reason, _detail = req.check_automatic(
             {'kind': 'team_logo', 'config': {}}, self.user,
             tournament=self.tournament, team=team)
         self.assertFalse(met)
@@ -444,3 +449,89 @@ class JoinGateTests(TestCase):
             config={'countries': ['NIGERIA']}, order=0)
         res = self._join()
         self.assertIn(res.status_code, (200, 201), res.content)
+
+
+class ReasonCodeTests(TestCase):
+    """A sentence built in Python cannot be translated by the page.
+
+    Walking the French site showed the chrome translated and every line the
+    server wrote still in English. So each row carries a code and its
+    parameters, and the page writes the sentence. The English `reason` stays
+    as the fallback for anything reading the API directly.
+    """
+
+    def setUp(self):
+        self.game = Games.objects.get_or_create(game_title='Code Probe')[0]
+        self.user, _auth = a_user('coded')
+        now = timezone.now()
+        self.tournament = Tournament.objects.create(
+            tournament_title='Code Probe Cup', tournament_creator=self.user,
+            tournament_game=self.game, tournament_type='online',
+            tournament_access='individual', tournament_visibility='public',
+            entry_fee='Free', entry_fee_price=0, prize_type='no_prize',
+            bracket_type='single_elimination',
+            start_date_and_time=now + timedelta(days=2),
+            end_date_and_time=now + timedelta(days=3), is_draft=False,
+        )
+
+    def row(self, kind, config=None, submissions=None):
+        return req.evaluate(
+            [{'kind': kind, 'config': config or {}}], self.user,
+            tournament=self.tournament, submissions=submissions)[0]
+
+    def test_the_country_row_names_the_countries_as_a_parameter(self):
+        self.user.country = 'GH'
+        self.user.save(update_fields=['country'])
+        row = self.row('country', {'countries': ['NG', 'KE']})
+        self.assertEqual(row['code'], 'country')
+        self.assertEqual(row['params']['countries'], 'NG, KE')
+
+    def test_a_missing_birthday_and_being_too_young_are_different_codes(self):
+        """One is fixed on the profile, the other cannot be fixed at all."""
+        self.assertEqual(self.row('min_age', {'min_age': 18})['code'],
+                         'min_age_no_dob')
+        UserProfile.objects.create(
+            user=self.user, date_of_birth=date.today() - timedelta(days=365 * 10))
+        row = self.row('min_age', {'min_age': 18})
+        self.assertEqual(row['code'], 'min_age')
+        self.assertEqual(row['params']['age'], 18)
+
+    def test_the_game_row_names_the_game(self):
+        row = self.row('game_account')
+        self.assertEqual(row['code'], 'game_account')
+        self.assertEqual(row['params']['game'], 'Code Probe')
+
+    def test_a_met_row_carries_no_code(self):
+        GameAccount.objects.create(user=self.user, game=self.game,
+                                   game_username='coded#1')
+        row = self.row('game_account')
+        self.assertTrue(row['met'])
+        self.assertIsNone(row['code'])
+
+    def test_an_unmet_automatic_row_is_not_waiting_on_anybody(self):
+        """It draws as theirs to act on, not as under review, because nobody
+        is reviewing it."""
+        row = self.row('profile_image')
+        self.assertFalse(row['met'])
+        self.assertFalse(row['waiting_on_review'])
+
+    def test_a_sent_submission_is_waiting_on_review(self):
+        row = self.row('custom_field', {'field_label': 'Riot ID'},
+                       submissions={'custom_field': {'status': 'pending'}})
+        self.assertEqual(row['code'], 'pending')
+        self.assertTrue(row['waiting_on_review'])
+        self.assertFalse(row['needs_submission'])
+
+    def test_a_refusal_carries_the_organisers_own_words(self):
+        """Not translatable, and should not be: they are a person's words."""
+        row = self.row('custom_field', {'field_label': 'Riot ID'},
+                       submissions={'custom_field': {'status': 'refused',
+                                                     'note': 'That is a Steam ID.'}})
+        self.assertEqual(row['code'], 'refused')
+        self.assertEqual(row['params']['note'], 'That is a Steam ID.')
+        self.assertFalse(row['waiting_on_review'])
+
+    def test_nothing_sent_yet_is_todo(self):
+        row = self.row('custom_field', {'field_label': 'Riot ID'})
+        self.assertEqual(row['code'], 'todo')
+        self.assertTrue(row['needs_submission'])

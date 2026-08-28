@@ -205,10 +205,14 @@ def _age(birthday):
 
 
 def check_automatic(requirement, user, *, tournament=None, team=None):
-    """(met, reason). `reason` names what to do, not that they failed.
+    """(met, reason, detail). `reason` names what to do, not that they failed.
 
     "You are not eligible" sends somebody to support. "Chidi has not connected a
     Free Fire account" they can fix themselves in a minute.
+
+    `detail` carries a code and its parameters so the page can write the same
+    sentence in the reader's language. The English `reason` stays as the
+    fallback for anything reading the API directly.
     """
     kind = requirement['kind']
     config = requirement.get('config') or {}
@@ -217,7 +221,9 @@ def check_automatic(requirement, user, *, tournament=None, team=None):
         wanted = config.get('countries') or []
         theirs = (getattr(user, 'country', '') or '').strip().upper()
         if theirs not in wanted:
-            return False, 'This tournament is open to players in %s.' % ', '.join(wanted)
+            names = ', '.join(wanted)
+            return False, 'This tournament is open to players in %s.' % names, {
+                'code': 'country', 'params': {'countries': names}}
 
     elif kind == 'min_age':
         # UserProfile is a plain FK rather than a one-to-one, so `user.userprofile`
@@ -225,51 +231,59 @@ def check_automatic(requirement, user, *, tournament=None, team=None):
         # birthday they had actually filled in.
         profile = user.userprofile_set.order_by('profile_id').first()
         birthday = getattr(profile, 'date_of_birth', None)
+        age = config['min_age']
         if birthday is None:
             return False, ('This tournament is %s+, so it needs your date of birth '
-                           'on your profile first.' % config['min_age'])
-        if _age(birthday) < config['min_age']:
+                           'on your profile first.' % age), {
+                'code': 'min_age_no_dob', 'params': {'age': age}}
+        if _age(birthday) < age:
             return False, ('This tournament is open to players aged %s and over.'
-                           % config['min_age'])
+                           % age), {'code': 'min_age', 'params': {'age': age}}
 
     elif kind == 'verified_email':
         if not getattr(user, 'is_active', False):
-            return False, 'Verify your email address first.'
+            return False, 'Verify your email address first.', {
+                'code': 'verified_email', 'params': {}}
 
     elif kind == 'verified_identity':
         wallet = getattr(user, 'wallet', None)
         if not getattr(wallet, 'kyc_verified', False):
-            return False, 'This tournament needs a verified identity.'
+            return False, 'This tournament needs a verified identity.', {
+                'code': 'verified_identity', 'params': {}}
 
     elif kind == 'profile_image':
         profile = user.userprofile_set.order_by('profile_id').first()
         if not getattr(profile, 'profile_picture', None):
-            return False, 'Add a picture to your profile first.'
+            return False, 'Add a picture to your profile first.', {
+                'code': 'profile_image', 'params': {}}
 
     elif kind == 'game_account':
         game = getattr(tournament, 'tournament_game', None)
         if game is None:
-            return True, None
+            return True, None, None
         from vent_auth.models import GameAccount
         if not GameAccount.objects.filter(user=user, game=game).exists():
             return False, ('Connect your %s account on your profile first.'
-                           % game.game_title)
+                           % game.game_title), {
+                'code': 'game_account', 'params': {'game': game.game_title}}
 
     elif kind == 'game_details':
         game = getattr(tournament, 'tournament_game', None)
         if game is None:
-            return True, None
+            return True, None, None
         from vent_auth.models import GameAccount
         account = GameAccount.objects.filter(user=user, game=game).first()
         if account is None or not (account.game_username or '').strip():
             return False, ('Add your in-game name for %s on your profile first.'
-                           % game.game_title)
+                           % game.game_title), {
+                'code': 'game_details', 'params': {'game': game.game_title}}
 
     elif kind == 'team_logo':
         if team is not None and not getattr(team, 'team_logo', None):
-            return False, 'Your team needs a logo before it can enter.'
+            return False, 'Your team needs a logo before it can enter.', {
+                'code': 'team_logo', 'params': {}}
 
-    return True, None
+    return True, None, None
 
 
 def is_automatic(requirement):
@@ -279,8 +293,13 @@ def is_automatic(requirement):
 def evaluate(requirements, user, *, tournament=None, team=None, submissions=None):
     """What this person still owes, in order.
 
-    Returns a list of {kind, met, reason, needs_submission}. An empty list means
-    they may enter, and a tournament with no requirements always produces one.
+    Returns a list of rows. `met` false and `required` true is what stops a
+    registration; `blocking()` picks those out. Every row carries a `code` and
+    its `params` so the page can write the sentence in the reader's language,
+    and the English `reason` as the fallback.
+
+    A tournament with no requirements always produces an empty list, which is
+    the default and the overwhelmingly common case.
     """
     submissions = submissions or {}
     out = []
@@ -291,39 +310,58 @@ def evaluate(requirements, user, *, tournament=None, team=None, submissions=None
         if spec is None:
             continue
 
+        common = {
+            # `id` is carried through so the entrant's screen can post a
+            # submission against the right row. Without it the checklist
+            # renders a Send button with nowhere to send to.
+            'id': requirement.get('id'),
+            'kind': kind,
+            'label': spec['label'],
+            'required': requirement.get('required', True),
+            'config': requirement.get('config') or {},
+        }
+
         if spec['check'] == AUTOMATIC:
-            met, reason = check_automatic(
+            met, reason, detail = check_automatic(
                 requirement, user, tournament=tournament, team=team)
-            out.append({
-                # `id` is carried through so the entrant's screen can post a
-                # submission against the right row. Without it the checklist
-                # renders a Send button with nowhere to send to.
-                'id': requirement.get('id'),
-                'kind': kind, 'label': spec['label'], 'met': met,
-                'reason': reason, 'needs_submission': False,
-                'required': requirement.get('required', True),
-                'config': requirement.get('config') or {},
-            })
+            out.append(dict(common,
+                            met=met, reason=reason,
+                            needs_submission=False,
+                            # Nobody is reviewing an automatic check, so a row
+                            # that is not met is theirs to act on now. The page
+                            # draws that differently from one that is waiting
+                            # on a person.
+                            waiting_on_review=False,
+                            code=(detail or {}).get('code'),
+                            params=(detail or {}).get('params') or {}))
             continue
 
         # Submitted, or partner-checked and falling back to submitted. Met only
         # once a person has approved it.
         state = submissions.get(kind)
-        met = bool(state and state.get('status') == 'approved')
+        status = (state or {}).get('status')
+        met = status == 'approved'
         reason = None
+        code = None
+        params = {}
         if not met:
-            if state and state.get('status') == 'refused':
+            if status == 'refused':
+                # The organiser's own words. Not translatable, and should not be.
                 reason = state.get('note') or 'This was not accepted. Send it again.'
+                code = 'refused'
+                params = {'note': state.get('note') or ''}
             elif state:
                 reason = 'Waiting for the organiser to check this.'
+                code = 'pending'
             else:
                 reason = spec['label']
-        out.append({
-            'id': requirement.get('id'),
-            'kind': kind, 'label': spec['label'], 'met': met, 'reason': reason,
-            'needs_submission': not state, 'required': requirement.get('required', True),
-            'config': requirement.get('config') or {},
-        })
+                code = 'todo'
+
+        out.append(dict(common,
+                        met=met, reason=reason,
+                        needs_submission=not state,
+                        waiting_on_review=bool(state) and status == 'pending',
+                        code=code, params=params))
 
     return out
 
