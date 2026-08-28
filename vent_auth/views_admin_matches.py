@@ -21,6 +21,7 @@ Two kinds of thing are returned, because two kinds exist:
 They are told apart by `kind`, so a caller can never override one thinking it is
 the other.
 """
+from django.db.models import Q
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -47,7 +48,9 @@ def _side(reg):
 @admin_role_required(OVERRIDE_ROLES)
 def admin_tournament_matches(request, tournament_id):
     """GET /auth/admin/tournaments/<id>/matches/ - everything that can be overridden."""
-    from vent_tournament.models import BracketMatch, TieFixture, Tournament
+    from vent_tournament.models import (
+        BracketMatch, TieFixture, Tournament, TournamentRegistration,
+    )
 
     tournament = Tournament.objects.filter(pk=tournament_id).first()
     if tournament is None:
@@ -109,10 +112,33 @@ def admin_tournament_matches(request, tournament_id):
         for f in fixtures
     ]
 
+    # Who is registered, so disqualifying somebody is picking a name off a list
+    # rather than typing one and hoping it matches. The old form asked for a
+    # team name, free text, with "e.g. Crimson Wolves" as the hint.
+    registrations = (
+        TournamentRegistration.objects
+        .filter(tournament=tournament)
+        .select_related('team', 'user')
+        .order_by('id')
+    )
+    participants = []
+    for reg in registrations:
+        side = _side(reg)
+        if side is None:
+            continue
+        side['status'] = reg.status
+        # What disqualifying this one will actually do, worked out before the
+        # click rather than discovered after it.
+        side['live_matches'] = BracketMatch.objects.filter(
+            tournament=tournament, status__in=('scheduled', 'in_progress'),
+        ).filter(Q(participant_1=reg) | Q(participant_2=reg)).count()
+        participants.append(side)
+
     return Response({
         'status': 'success',
         'message': 'Matches',
         'data': {
+            'participants': participants,
             'tournament': {
                 'id': tournament.tournament_id,
                 'title': tournament.tournament_title,
