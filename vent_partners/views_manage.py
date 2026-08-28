@@ -21,7 +21,10 @@ from vent_auth.models import AdminAction
 from vent_auth.views_profile import _user_from_bearer
 from vent_auth import emails
 
-from .models import Partner, PartnerApiKey, SCOPES, valid_scopes
+from .models import (
+    Partner, PartnerApiKey, REVIEWED_SCOPES, SCOPES, SELF_SERVE_SCOPES,
+    needs_review, self_serve, valid_scopes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,8 +103,22 @@ def _partner_row(p, *, include_private=False):
 
 @api_view(['GET'])
 def scope_catalogue(request):
-    """Every scope and what it opens. Public: an applicant needs to read this."""
-    return _ok({'scopes': SCOPES}, 'Scopes')
+    """Every scope, what it opens, and which of them grant themselves.
+
+    The form needs the second half to stop asking a company for its registration
+    number before handing over a tournament listing that is already on the site.
+    """
+    return _ok({
+        'scopes': SCOPES,
+        'self_serve': SELF_SERVE_SCOPES,
+        'reviewed': REVIEWED_SCOPES,
+        'notes': {
+            'self_serve': 'Granted as soon as you ask. Everything in this tier '
+                          'is already readable by anybody with a browser.',
+            'reviewed': 'A person looks at these, because they are about '
+                        'identifiable people rather than listings.',
+        },
+    }, 'Scopes')
 
 
 @api_view(['POST'])
@@ -145,6 +162,32 @@ def apply_partner(request):
         data_protection_contact=(request.data.get('data_protection_contact') or '')[:254],
         redirect_uris=[u for u in (request.data.get('redirect_uris') or []) if _valid_redirect(u)][:10],
     )
+
+    # The base tier grants itself. Everything in it is already public, so a
+    # review would be a week of waiting to be told yes.
+    granted_now = self_serve(requested)
+    still_to_review = needs_review(requested)
+
+    issued_secret = None
+    if granted_now:
+        partner.approved_scopes = granted_now
+        # Approved only if there is nothing left for a person to decide. Asking
+        # for brackets as well keeps the application open, and the base tier
+        # works in the meantime.
+        if not still_to_review and not wants_sso:
+            partner.status = 'approved'
+            partner.reviewed_at = timezone.now()
+        partner.save()
+
+        key, issued_secret = PartnerApiKey.issue(
+            partner, name='Starter key', scopes=granted_now, created_by=user)
+
+        # Sent, not copied out of a console by hand. That is how AFC's key ended
+        # up revoked ten seconds after it was created.
+        try:
+            emails.send_partner_credentials(partner, key, issued_secret)
+        except Exception:
+            logger.warning('partner credentials email failed', exc_info=True)
 
     try:
         emails.send_partner_application_received(partner)
@@ -364,6 +407,21 @@ def admin_review(request, partner_id):
             partner.api_keys.filter(revoked_at__isnull=True).update(revoked_at=timezone.now())
 
         partner.save()
+
+    # On an approval that grants scopes and leaves the partner with no live key,
+    # issue one and send it. The CEO's words: "it should have automatically sent
+    # once approved" - rather than a secret being read off a screen and pasted
+    # into a chat.
+    issued = None
+    if decision == 'approved' and partner.approved_scopes:
+        if not partner.api_keys.filter(revoked_at__isnull=True).exists():
+            issued, plaintext = PartnerApiKey.issue(
+                partner, name='Approved key',
+                scopes=list(partner.approved_scopes), created_by=admin)
+            try:
+                emails.send_partner_credentials(partner, issued, plaintext)
+            except Exception:
+                logger.warning('partner credentials email failed', exc_info=True)
 
     try:
         emails.send_partner_decision(partner)
