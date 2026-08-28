@@ -76,7 +76,9 @@ urlpatterns = [
 
     # Account
     path('user/<str:user_id>/update/', v.update_user_account),
-    path('user/<int:user_id>/profile/', prof.public_profile),
+    # str, not int: a profile is addressed by username. The numeric form
+    # still resolves so links shared before this keep working.
+    path('user/<str:user_id>/profile/', prof.public_profile),
     # Finding a person by name, so a direct message can be addressed by
     # picking somebody rather than by spelling their handle correctly.
     path('user/search/', usersearch.user_search),

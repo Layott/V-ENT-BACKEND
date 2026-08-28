@@ -880,7 +880,7 @@ def _may_message(viewer, owner):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def public_profile(request, user_id):
-    """GET /user/<id>/profile/ - somebody else's profile.
+    """GET /user/<username or id>/profile/ - somebody else's profile.
 
     The frontend has called this since profiles could be opened by id, and it
     answered 404, so every link to another player - and every link the Share
@@ -892,7 +892,13 @@ def public_profile(request, user_id):
     """
     from .models import SocialLink, UserInterests
 
-    user = Users.objects.filter(user_id=user_id, is_active=True).first()
+    # By username first, because that is the address people see and share.
+    # /u/3 is against the slug rule and lets anybody walk the user table by
+    # counting; the numeric form stays only so old links keep working.
+    who = str(user_id).strip()
+    user = Users.objects.filter(username__iexact=who, is_active=True).first()
+    if user is None and who.isdigit():
+        user = Users.objects.filter(user_id=int(who), is_active=True).first()
     if user is None or getattr(user, 'is_deactivated', False):
         return Response(
             { 'code': 'NO_SUCH_PROFILE','status': 'error', 'message': 'No such profile'},
