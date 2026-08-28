@@ -1,5 +1,7 @@
 import json
 from vent_auth.views_helpers import session_timeout_minutes
+from decimal import Decimal, InvalidOperation
+
 from django.http import Http404
 from datetime import timedelta
 from django.shortcuts import render
@@ -1714,14 +1716,70 @@ def edit_tournament(request, tournament_id):
             'twitch_link', 'kick_link', 'tiktok_link', 'bigolive_link',
         ]
 
+        # These reach integer and decimal columns. The loop below used to
+        # setattr whatever arrived, so a caps field sent as "fifty" raised at
+        # save time and the organiser got a 500 with no idea which field. It
+        # matters more now the console offers all of them rather than seven.
+        numeric = {
+            'entry_fee_price': 'decimal',
+            'team_size': 'int',
+            'player_size': 'int',
+            'min_number_of_teams': 'int',
+            'max_number_of_teams': 'int',
+        }
+
         updated_fields = []
         for field in editable_text:
             val = request.data.get(field)
-            if val is not None:
-                if field == 'bracket_type':
-                    val = normalize_bracket_type(val, tournament.bracket_type)
-                setattr(tournament, field, val)
-                updated_fields.append(field)
+            if val is None:
+                continue
+            if field in numeric:
+                if val == '':
+                    # Not sent rather than sent empty: clearing a cap is a
+                    # different request from not touching it, and this endpoint
+                    # has no way to say "clear".
+                    continue
+                try:
+                    val = (Decimal(str(val)) if numeric[field] == 'decimal'
+                           else int(val))
+                except (InvalidOperation, TypeError, ValueError):
+                    return Response({
+                        'status': 'error',
+                        'code': 'INVALID_NUMBER',
+                        'field': field,
+                        'message': '%s has to be a number.' % field,
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                if val < 0:
+                    return Response({
+                        'status': 'error',
+                        'code': 'INVALID_NUMBER',
+                        'field': field,
+                        'message': '%s cannot be negative.' % field,
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            if field == 'bracket_type':
+                val = normalize_bracket_type(val, tournament.bracket_type)
+            setattr(tournament, field, val)
+            updated_fields.append(field)
+
+        # A tournament that ends before it starts is the one ordering mistake
+        # worth catching here, because nothing downstream can make sense of it.
+        if (tournament.start_date_and_time and tournament.end_date_and_time
+                and tournament.end_date_and_time < tournament.start_date_and_time):
+            return Response({
+                'status': 'error',
+                'code': 'END_BEFORE_START',
+                'message': 'The tournament cannot end before it starts.',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Likewise a floor above the ceiling: it can never be satisfied, so the
+        # tournament could never start.
+        if (tournament.min_number_of_teams and tournament.max_number_of_teams
+                and tournament.min_number_of_teams > tournament.max_number_of_teams):
+            return Response({
+                'status': 'error',
+                'code': 'MIN_ABOVE_MAX',
+                'message': 'The fewest entrants cannot be more than the most.',
+            }, status=status.HTTP_400_BAD_REQUEST)
 
         # File fields
         if request.FILES.get('tournament_logo'):
