@@ -11,7 +11,21 @@ from .views import (
     team_tournaments, team_events,
 )
 
+from . import views_membership as membership
+
 urlpatterns = [
+    # Getting people into a team, and what they may do once in.
+    # Literal routes before any single-segment catch-all.
+    path("roles/", membership.role_catalogue, name="team_roles"),
+    path("my-invites/", membership.my_invites, name="my_team_invites"),
+    path("invite/<int:invite_id>/respond/", membership.respond_to_invite, name="respond_team_invite"),
+    path("join/<str:token>/", membership.join_by_link, name="join_team_by_link"),
+    path("<str:team_id>/roster/", membership.team_roster, name="team_roster"),
+    path("<str:team_id>/invites/", membership.team_invites, name="team_invites"),
+    path("<str:team_id>/invites/<int:invite_id>/revoke/", membership.revoke_invite, name="revoke_team_invite"),
+    path("<str:team_id>/set-role/", membership.set_member_role, name="team_set_role"),
+    path("<str:team_id>/remove/", membership.remove_member, name="team_remove_member"),
+
     # READ (FE calls these names)
     path("get-all-teams/", team_list, name="get_all_teams"),
     path("list-teams/", team_list, name="list_teams"),          # alias (spec name)
