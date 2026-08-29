@@ -178,28 +178,41 @@ def _sent_today(tournament):
     return len({r.metadata.get('batch') for r in rows if r.metadata.get('batch')})
 
 
-@api_view(['POST'])
-def send_reminder(request, tournament_id):
-    """`kind=check_in|match|custom`. Answers with who it reached."""
-    tournament = _tournament(tournament_id)
-    if tournament is None:
-        return _err('Tournament not found', 'TOURNAMENT_NOT_FOUND',
-                    status.HTTP_404_NOT_FOUND)
-    user, err = _organiser(request, tournament)
-    if err:
-        return err
+class ReminderRefused(Exception):
+    """Why a reminder cannot be sent, in a form both callers can use.
 
-    kind = str(request.data.get('kind') or 'check_in').strip()
+    The button turns it into a 400 and the scheduler writes it onto the row.
+    """
+
+    def __init__(self, message, code, extra=None):
+        super().__init__(message)
+        self.message = message
+        self.code = code
+        self.extra = extra or {}
+
+
+def deliver(tournament, kind, *, subject='', body='', enforce_limit=True):
+    """Send one reminder. The single definition, used by both callers.
+
+    The button and the scheduler must not each carry their own copy of this.
+    The poll read path and vote path drifted apart exactly that way earlier
+    tonight, and the half nobody exercised was the half that was wrong.
+
+    Raises `ReminderRefused` rather than returning an error response, because
+    one caller answers over HTTP and the other writes to a database row.
+    """
     if kind not in KINDS:
-        return _err('Send a check-in reminder, a match reminder, or your own '
-                    'message.', 'VALIDATION_ERROR')
+        raise ReminderRefused(
+            'Send a check-in reminder, a match reminder, or your own message.',
+            'VALIDATION_ERROR')
 
-    already = _sent_today(tournament)
-    if already >= DAILY_LIMIT:
-        return _err('That is %d reminders today. Entrants stop reading, so the '
-                    'rest have to wait until tomorrow.' % already,
-                    'RATE_LIMITED', status.HTTP_429_TOO_MANY_REQUESTS,
-                    extra={'limit': DAILY_LIMIT, 'sent_today': already})
+    if enforce_limit:
+        already = _sent_today(tournament)
+        if already >= DAILY_LIMIT:
+            raise ReminderRefused(
+                'That is %d reminders today. Entrants stop reading, so the '
+                'rest have to wait until tomorrow.' % already, 'RATE_LIMITED',
+                {'limit': DAILY_LIMIT, 'sent_today': already})
 
     # One id shared by every row in this send, so a batch can be counted as one
     # reminder rather than as however many people are in the tournament. The
@@ -214,48 +227,71 @@ def send_reminder(request, tournament_id):
     if kind == 'check_in':
         window = check_in_state(tournament, timezone.now())
         if window is None:
-            return _err('This tournament does not use check-in.',
-                        'NOT_REQUIRED')
+            raise ReminderRefused('This tournament does not use check-in.',
+                                  'NOT_REQUIRED')
         closes = timezone.localtime(window['closes_at']).strftime('%H:%M') \
             if window.get('closes_at') else 'the start'
         title = 'Check in for %s' % tournament.tournament_title
-        body = ('Check-in closes at %s. %s' % (
+        line = ('Check-in closes at %s. %s' % (
             closes,
             'Miss it and your slot goes to a substitute.'
             if window.get('forfeit_without_check_in')
             else 'Check in so the organiser knows you are coming.'))
         for registration in _check_in_targets(tournament):
-            messages.append((registration, title, body))
+            messages.append((registration, title, line))
 
     elif kind == 'match':
         messages = _match_messages(tournament)
 
     else:
-        subject = str(request.data.get('subject') or '').strip()
-        body = str(request.data.get('body') or '').strip()
+        subject = str(subject or '').strip()
+        body = str(body or '').strip()
         if not subject or not body:
-            return _err('Give the message a subject and something to say.',
-                        'VALIDATION_ERROR')
+            raise ReminderRefused(
+                'Give the message a subject and something to say.',
+                'VALIDATION_ERROR')
         if len(subject) > 140 or len(body) > 2000:
-            return _err('Keep the subject under 140 characters and the message '
-                        'under 2000.', 'VALIDATION_ERROR')
+            raise ReminderRefused(
+                'Keep the subject under 140 characters and the message under '
+                '2000.', 'VALIDATION_ERROR')
         for registration in (TournamentRegistration.objects
                              .filter(tournament=tournament, status='confirmed')
                              .select_related('team', 'user')):
             messages.append((registration, subject, body))
 
     reached = set()
-    for registration, title, body in messages:
+    for registration, title, line in messages:
         for person in people_behind(registration):
             create_notification(
-                person, 'tournament', title, body=body, link=link,
+                person, 'tournament', title, body=line, link=link,
                 metadata={'reminder_for': tournament.tournament_id,
                           'batch': batch, 'kind': kind})
             reached.add(person.user_id)
 
-    return Response({'status': 'success', 'data': {
-        'kind': kind,
-        'entrants': len(messages),
-        'people': len(reached),
-        'batch': batch,
-    }, 'message': ''})
+    return {'kind': kind, 'entrants': len(messages), 'people': len(reached),
+            'batch': batch}
+
+
+@api_view(['POST'])
+def send_reminder(request, tournament_id):
+    """`kind=check_in|match|custom`, sent now. Answers with who it reached."""
+    tournament = _tournament(tournament_id)
+    if tournament is None:
+        return _err('Tournament not found', 'TOURNAMENT_NOT_FOUND',
+                    status.HTTP_404_NOT_FOUND)
+    _user, err = _organiser(request, tournament)
+    if err:
+        return err
+
+    try:
+        result = deliver(
+            tournament, str(request.data.get('kind') or 'check_in').strip(),
+            subject=request.data.get('subject'),
+            body=request.data.get('body'))
+    except ReminderRefused as refusal:
+        http = (status.HTTP_429_TOO_MANY_REQUESTS
+                if refusal.code == 'RATE_LIMITED'
+                else status.HTTP_400_BAD_REQUEST)
+        return _err(refusal.message, refusal.code, http, extra=refusal.extra)
+
+    return Response({'status': 'success', 'data': result, 'message': ''})
