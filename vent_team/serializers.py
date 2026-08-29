@@ -29,13 +29,22 @@ def absolute_media_url(request, file_field):
 
 
 def _owner_block(owner, profile_pic=None):
-    return {
-        'id': owner.user_id,
-        'user_id': owner.user_id,
-        'username': owner.username,
-        'full_name': owner.full_name,
-        'profile_pic': profile_pic,
-    }
+    """The team's owner, as a person.
+
+    This was a hand-made dict, so it described somebody without saying whether
+    they wear the founder mark, and the owner card on a team page showed a name
+    with no badge while the same person carried one everywhere else. The CEO
+    reported it as "The founders badge did not show here again too". Third
+    place with the same cause: a person built by hand instead of by the one
+    builder.
+    """
+    from vent_auth.views_community import _person
+
+    row = _person(None, owner)
+    row['profile_pic'] = profile_pic
+    if profile_pic and not row.get('avatar'):
+        row['avatar'] = profile_pic
+    return row
 
 
 def serialize_team_card(request, team, profile_map=None):

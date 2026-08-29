@@ -146,14 +146,21 @@ def serialize_member(request, m):
         'role': m.role,
         'joined_at': m.joined_at,
         # The org UI renders member.user.{id,username,full_name}
-        'user': {
-            'id': m.user_id,
-            'user_id': m.user_id,
-            'username': m.user.username,
-            'full_name': m.user.full_name,
-            'avatar': avatar,
-        },
+        # Built by the one person builder rather than by hand. A hand-made
+        # dict here is why the founder mark was missing from the member table
+        # while it showed everywhere else: the badge is a property of the
+        # person, so it has to come from wherever a person is described.
+        'user': _person_row(request, m.user, avatar),
     }
+
+
+def _person_row(request, user, avatar=None):
+    """A person, in the shape the front end's UserChip reads."""
+    from .views_community import _person
+    row = _person(request, user)
+    if avatar is not None:
+        row['avatar'] = avatar
+    return row
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +215,19 @@ def org_create(request):
         contact_email=(request.data.get('contact_email') or '').strip(),
         social_links=request.data.get('social_links') or {},
     )
+
+    # The pictures. These were never read: the form uploaded a logo and a
+    # banner, the endpoint built the row without them, and the organisation
+    # came out blank with nothing reported as wrong. An upload that is silently
+    # discarded is worse than one that is refused, because the person believes
+    # it worked and only finds out by looking at the page later.
+    for field in ('logo', 'banner'):
+        uploaded = request.FILES.get(field)
+        if uploaded is not None:
+            setattr(org, field, uploaded)
+    if request.FILES:
+        org.save(update_fields=[f for f in ('logo', 'banner') if f in request.FILES])
+
     OrgMember.objects.create(org=org, user=user, role='owner')
 
     return Response(
@@ -245,9 +265,23 @@ def org_detail(request, org_id):
 # Members
 # ---------------------------------------------------------------------------
 
+def _org_by_ref(org_id):
+    """An organisation by its slug, or by its id for an older link.
+
+    Every sub-resource looked up `org_id=org_id` against a URL that only
+    accepted an integer. When organisations learned slugs the detail route was
+    changed and these were not, so the page loaded its header and then 404'd
+    every panel on it.
+    """
+    ref = str(org_id).strip()
+    if ref.isdigit():
+        return Organization.objects.filter(org_id=int(ref)).first()
+    return Organization.objects.filter(slug=ref).first()
+
+
 @api_view(['GET'])
 def org_members(request, org_id):
-    org = Organization.objects.filter(org_id=org_id).first()
+    org = _org_by_ref(org_id)
     if org is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     members = OrgMember.objects.filter(org=org).select_related('user')
@@ -263,7 +297,7 @@ def org_promote(request, org_id):
     if auth_error:
         return auth_error
 
-    org = Organization.objects.filter(org_id=org_id).first()
+    org = _org_by_ref(org_id)
     if org is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if _role_of(org, user) != 'owner':
@@ -292,7 +326,7 @@ def org_kick(request, org_id):
     if auth_error:
         return auth_error
 
-    org = Organization.objects.filter(org_id=org_id).first()
+    org = _org_by_ref(org_id)
     if org is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if _role_of(org, user) not in MANAGE_ROLES:
@@ -319,7 +353,7 @@ def org_apply(request, org_id):
     if auth_error:
         return auth_error
 
-    org = Organization.objects.filter(org_id=org_id).first()
+    org = _org_by_ref(org_id)
     if org is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if _role_of(org, user):
@@ -353,7 +387,7 @@ def org_requests(request, org_id):
     if auth_error:
         return auth_error
 
-    org = Organization.objects.filter(org_id=org_id).first()
+    org = _org_by_ref(org_id)
     if org is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if _role_of(org, user) not in MANAGE_ROLES:
@@ -366,6 +400,8 @@ def org_requests(request, org_id):
             'user_id': r.user_id,
             'username': r.user.username,
             'full_name': r.user.full_name,
+            # The page renders `r.user`, so it needs a person there too.
+            'user': _person_row(request, r.user),
             'message': r.message,
             'created_at': r.created_at,
         }
@@ -379,7 +415,7 @@ def _resolve_request(request, org_id, accept):
     if auth_error:
         return auth_error
 
-    org = Organization.objects.filter(org_id=org_id).first()
+    org = _org_by_ref(org_id)
     if org is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if _role_of(org, user) not in MANAGE_ROLES:
@@ -435,7 +471,7 @@ def org_follow(request, org_id):
     if auth_error:
         return auth_error
 
-    org = Organization.objects.filter(org_id=org_id).first()
+    org = _org_by_ref(org_id)
     if org is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
@@ -459,7 +495,7 @@ def org_request_verification(request, org_id):
     if auth_error:
         return auth_error
 
-    org = Organization.objects.filter(org_id=org_id).first()
+    org = _org_by_ref(org_id)
     if org is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if _role_of(org, user) != 'owner':
@@ -477,7 +513,7 @@ def org_request_verification(request, org_id):
 
 @api_view(['GET'])
 def org_teams(request, org_id):
-    org = Organization.objects.filter(org_id=org_id).first()
+    org = _org_by_ref(org_id)
     if org is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
@@ -502,7 +538,7 @@ def org_link_team(request, org_id):
     if auth_error:
         return auth_error
 
-    org = Organization.objects.filter(org_id=org_id).first()
+    org = _org_by_ref(org_id)
     if org is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if _role_of(org, user) != 'owner':
@@ -530,7 +566,7 @@ def org_unlink_team(request, org_id):
     if auth_error:
         return auth_error
 
-    org = Organization.objects.filter(org_id=org_id).first()
+    org = _org_by_ref(org_id)
     if org is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if _role_of(org, user) != 'owner':
@@ -570,7 +606,7 @@ def org_linkable_teams(request):
 
 @api_view(['GET'])
 def org_tournaments(request, org_id):
-    org = Organization.objects.filter(org_id=org_id).first()
+    org = _org_by_ref(org_id)
     if org is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
@@ -596,7 +632,7 @@ def org_tournaments(request, org_id):
 
 @api_view(['GET'])
 def org_events(request, org_id):
-    if not Organization.objects.filter(org_id=org_id).exists():
+    if _org_by_ref(org_id) is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     # Events are created by a user, not an org, so there is nothing to list yet.
     return _ok({'events': [], 'count': 0}, 'Events retrieved.')
@@ -604,7 +640,7 @@ def org_events(request, org_id):
 
 @api_view(['GET'])
 def org_activity(request, org_id):
-    org = Organization.objects.filter(org_id=org_id).first()
+    org = _org_by_ref(org_id)
     if org is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 

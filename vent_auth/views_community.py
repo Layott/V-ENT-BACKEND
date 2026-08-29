@@ -60,12 +60,26 @@ def _optional_user(request):
 
 
 def _abs(request, filefield):
+    """An absolute URL for a stored file.
+
+    `request` may be None. Serializers outside a view call the person builder
+    without one, and `None.build_absolute_uri` is an AttributeError rather than
+    the ValueError this used to catch, so a caller with no request would have
+    crashed the moment the person had a picture. A relative URL is right in
+    that case: the media host is the same one serving the page.
+    """
     if not filefield:
         return None
     try:
-        return request.build_absolute_uri(filefield.url)
+        url = filefield.url
     except ValueError:
         return None
+    if request is None:
+        return url
+    try:
+        return request.build_absolute_uri(url)
+    except (ValueError, AttributeError):
+        return url
 
 
 def _avatar(request, user):
