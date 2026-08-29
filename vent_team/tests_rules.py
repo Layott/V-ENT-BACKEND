@@ -5,11 +5,12 @@ running at the same time. Both are about the same thing: a player who cannot
 actually be in both places, discovered before the fixture rather than during it.
 """
 import json
+import uuid
 
 from django.test import TestCase
 from django.utils import timezone
 
-from vent_auth.models import Games, TeamMembers, Teams, Users
+from vent_auth.models import Games, TeamMembers, Teams, UserProfile, Users
 from vent_tournament.models import Tournament, TournamentRegistration
 
 
@@ -186,3 +187,46 @@ class ScheduleClashTests(TestCase):
     def test_a_tournament_on_another_day_does_not_warn(self):
         res = self.join(self.later)
         self.assertNotEqual(res.status_code, 409)
+
+
+class OwnerBadgeTests(TestCase):
+    """The founder mark reaches the owner card on a team page.
+
+    CEO, 29 August 2026, with a screenshot of a team profile: "The founders
+    badge did not show here again too, its supposed to show anywhere."
+
+    Third place with the same cause. The team serializer built its own person
+    dict, so it described the owner without saying whether they wear the mark,
+    and the card showed a bare name while the same person carried a badge in
+    the header two inches above it.
+    """
+
+    def test_the_owner_block_says_whether_they_wear_the_mark(self):
+        from vent_team.serializers import _owner_block
+
+        user = Users.objects.create(
+            username='ownerbadge_%s' % uuid.uuid4().hex[:5],
+            email='ob_%s@vent.test' % uuid.uuid4().hex[:5],
+        )
+        if hasattr(user, 'is_founder'):
+            user.is_founder = True
+            user.show_founder_badge = True
+            user.save(update_fields=['is_founder', 'show_founder_badge'])
+
+        block = _owner_block(user)
+        self.assertIn('founder_badge', block)
+        self.assertTrue(block['founder_badge'])
+
+    def test_building_a_person_without_a_request_does_not_crash(self):
+        """A serializer outside a view has no request, and
+        `None.build_absolute_uri` is an AttributeError rather than the
+        ValueError the helper used to catch."""
+        from vent_auth.views_community import _person
+
+        user = Users.objects.create(
+            username='norequest_%s' % uuid.uuid4().hex[:5],
+            email='nr_%s@vent.test' % uuid.uuid4().hex[:5],
+        )
+        UserProfile.objects.create(user=user, profile_picture='profile_pictures/x.png')
+        row = _person(None, user)
+        self.assertEqual(row['username'], user.username)
