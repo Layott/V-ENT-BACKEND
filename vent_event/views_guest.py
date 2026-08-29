@@ -53,6 +53,23 @@ def _event(event_id):
     return _event_by_ref(event_id, is_active=True)
 
 
+def _referral_from(request, event):
+    """The influencer link this order came through, if the page sent one.
+
+    The page holds it because the buyer arrived through `?ref=CODE` and may
+    have taken several minutes and several screens to reach checkout. An
+    unknown or switched-off code resolves to None and the sale simply is not
+    credited; it is never a reason to refuse somebody's money.
+    """
+    from . import referrals as _refs
+    return _refs.resolve(event, request.data.get('ref'))
+
+
+def _refs_resolve(event, code):
+    from . import referrals as _refs
+    return _refs.resolve(event, code)
+
+
 def _paystack_headers():
     return {
         'Authorization': 'Bearer %s' % os.environ.get('PAYSTACK_SECRET_KEY', ''),
@@ -185,7 +202,8 @@ def _room_or_error(event, tier, quantity):
     return None
 
 
-def _issue(event, tier, quantity, email, answers, unit_ngn, unit_vc, reference=''):
+def _issue(event, tier, quantity, email, answers, unit_ngn, unit_vc, reference='',
+           referral=None):
     """Turn a paid-for or free order into tickets."""
     from .views_tickets import _new_code
 
@@ -207,6 +225,10 @@ def _issue(event, tier, quantity, email, answers, unit_ngn, unit_vc, reference='
                 payment_reference=reference,
             ))
         TicketTier.objects.filter(pk=tier.pk).update(sold=tier.sold + quantity)
+        # Inside the same transaction as the issue, so an influencer link is
+        # credited if and only if the tickets it is being credited for exist.
+        from . import referrals as _refs
+        _refs.attribute(tickets, referral)
     return tickets
 
 
@@ -272,7 +294,8 @@ def guest_buy(request, event_id):
             err = _email_limit_or_error(event, email, quantity)
             if err:
                 return err
-            tickets = _issue(event, tier, quantity, email, answers, unit_ngn, unit_vc)
+            tickets = _issue(event, tier, quantity, email, answers, unit_ngn, unit_vc,
+                             referral=_referral_from(request, event))
         _send_them(tickets)
         return _ok({
             'tickets': [_ticket_row(t) for t in tickets],
@@ -302,6 +325,12 @@ def guest_buy(request, event_id):
             'quantity': quantity,
             'answers': answers[0],
             'attendees': answers[2],
+            # The influencer link, carried through the card payment. Paystack
+            # hands the metadata back at verification, which is a different
+            # request minutes later on a different device as often as not, and
+            # the link is the whole reason that sale exists.
+            'ref': (_referral_from(request, event).code
+                    if _referral_from(request, event) else ''),
         },
     }
 
@@ -396,7 +425,8 @@ def guest_verify(request):
     from .views_tickets import _ngn_to_coins
     tickets = _issue(event, tier, quantity, email,
                      (meta.get('answers') or {}, per_person, attendees),
-                     unit_ngn, _ngn_to_coins(unit_ngn), reference=reference)
+                     unit_ngn, _ngn_to_coins(unit_ngn), reference=reference,
+                     referral=_refs_resolve(event, meta.get('ref')))
     _send_them(tickets)
 
     return _ok({'tickets': [_ticket_row(t) for t in tickets],

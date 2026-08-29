@@ -8,6 +8,7 @@ from . import views_holds
 from . import views_announce
 from . import views_metrics
 from . import views_comp
+from . import views_referrals
 from . import views_map
 from . import views_polls
 from . import views_self_check_in
@@ -107,6 +108,11 @@ urlpatterns = [
          name="event_poll_vote"),
 
     # Influencer links, promo codes, and who else may run the event
+    # An arrival through an influencer's link. Public and unauthenticated,
+    # because somebody arriving through an influencer's link is by definition
+    # somebody who has never been here.
+    path("<str:event_id>/ref/<str:code>/visit/", views_referrals.referral_visit,
+         name="referral_visit"),
     path("<str:event_id>/referrals/", event_referrals, name="event_referrals"),
     path("<str:event_id>/referrals/<int:referral_id>/", event_referral_detail, name="event_referral_detail"),
     path("<str:event_id>/promos/", event_promos, name="event_promos"),

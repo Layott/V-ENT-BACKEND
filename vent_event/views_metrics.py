@@ -182,7 +182,79 @@ def compute(event):
             'event_capacity': event.capacity,
             'remaining': (event.capacity - issued) if event.capacity else None,
         },
+        # CEO, 29 August 2026: "there should be a place to view metrics of
+        # everything about an event that was created. like a dashboard."
+        #
+        # Everything below is the difference between a tickets summary and a
+        # dashboard. It was all being counted somewhere already - the polls
+        # screen knew its answers, the referrals screen knew its links - but an
+        # organiser had to visit six tabs and hold the total in their head.
+        'referrals': _referral_summary(event),
+        'engagement': _engagement(event),
+        'shop': _shop(event),
+        'arrivals_by_hour': _arrivals_by_hour(event),
     }
+
+
+def _referral_summary(event):
+    """What the influencer links did, as a block and as a list."""
+    from . import referrals as _refs
+    rows = _refs.stats_for(event)
+    return {
+        'links': rows,
+        'total_visits': sum(r['visits'] for r in rows),
+        'total_sold': sum(r['tickets_sold'] for r in rows),
+        # Of everything sold, how much came through somebody's link. The
+        # organiser's real question when deciding whether influencers are worth
+        # the free tickets.
+        'best': rows[0]['name'] if rows and rows[0]['tickets_sold'] else None,
+    }
+
+
+def _engagement(event):
+    """Polls, announcements and questions: whether anybody is paying attention."""
+    from .models import EventAnnouncement, EventPoll, EventPollVote
+    polls = EventPoll.objects.filter(event=event)
+    votes = EventPollVote.objects.filter(poll__event=event)
+    return {
+        'polls': polls.count(),
+        'poll_answers': votes.count(),
+        'announcements': EventAnnouncement.objects.filter(event=event).count(),
+    }
+
+
+def _shop(event):
+    """Merchandise sold at the event, which is money the tickets block misses."""
+    from .models import VendorOrder
+    # Through the vendor, not the product: an order belongs to a stall, and
+    # its items hang off it. Going via the item would count an order once per
+    # line on it.
+    agg = (VendorOrder.objects
+           .filter(vendor__event=event)
+           .exclude(status='cancelled')
+           .aggregate(orders=Count('id'),
+                      vc=Sum('total_vc'),
+                      collected=Count('id', filter=Q(collected_at__isnull=False))))
+    return {
+        'orders': agg['orders'] or 0,
+        'revenue_vc': agg['vc'] or 0,
+        'collected': agg['collected'] or 0,
+    }
+
+
+def _arrivals_by_hour(event):
+    """When people actually turned up.
+
+    An organiser staffs a door from this and from nothing else: knowing 400
+    people came is not the same as knowing 300 of them came in one hour.
+    """
+    rows = OrderedDict()
+    for at in (Ticket.objects
+               .filter(event=event, status='checked_in', checked_in_at__isnull=False)
+               .values_list('checked_in_at', flat=True)):
+        key = timezone.localtime(at).strftime('%Y-%m-%d %H:00')
+        rows[key] = rows.get(key, 0) + 1
+    return [{'hour': k, 'arrivals': v} for k, v in sorted(rows.items())]
 
 
 @api_view(['GET'])

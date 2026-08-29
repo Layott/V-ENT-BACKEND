@@ -117,8 +117,19 @@ def event_referrals(request, event_id):
         return err
 
     if request.method == 'GET':
-        rows = event.referrals.all()
-        return _ok({'results': [_referral_row(r) for r in rows], 'count': rows.count()})
+        # Counted from the tickets that carry each link, plus the daily visit
+        # rows. `EventReferral.sold` is not what is reported: it is a counter,
+        # and a counter drifts the first time a payment fails half way through
+        # or a ticket is refunded.
+        from . import referrals as _refs
+        rows = _refs.stats_for(event)
+        for row in rows:
+            row['share_url'] = _refs.share_url(event, row['code'])
+        return _ok({
+            'results': rows,
+            'count': len(rows),
+            'daily': _refs.daily_for(event),
+        })
 
     name = (request.data.get('name') or '').strip()
     code = (request.data.get('code') or '').strip()
@@ -143,7 +154,12 @@ def event_referrals(request, event_id):
         sponsor_id=request.data.get('sponsor_id') or None,
         allocation=allocation,
     )
-    return _ok(_referral_row(referral), 'Link added.', status.HTTP_201_CREATED)
+    from . import referrals as _refs
+    row = _referral_row(referral)
+    row.update({'visits': 0, 'visitors': 0, 'tickets_sold': 0, 'revenue_vc': 0,
+                'conversion': None,
+                'share_url': _refs.share_url(event, referral.code)})
+    return _ok(row, 'Link added.', status.HTTP_201_CREATED)
 
 
 @api_view(['PATCH', 'DELETE'])
