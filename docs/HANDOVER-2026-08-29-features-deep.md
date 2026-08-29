@@ -172,3 +172,42 @@ since it was written, resolved to no format at all through `formats.get`: no
 explanation, no defaults, no catalogue entry, and nothing raised.
 `tests_formats_alias.py` now pins the wizard's values against
 `formats.FORMATS` in both directions.
+
+
+---
+
+## The role that was skipped, and the two faults in it (BE#79 / FE#89)
+
+The Chrome passes covered **signed out** and **the organiser**. The role in
+between - signed in, not the owner, holding no ticket - was never walked, and
+both of these were sitting in it:
+
+**Poll buttons rendered live for anybody with a session** and answered
+`403 TICKET_REQUIRED` on press. An account is not a ticket. The ticket code box
+was also hidden from signed-in readers, so somebody who had bought as a guest
+under another address could not take part at all. The payload now carries
+`can_answer` and the page keys its controls on that.
+
+**`/events/<slug>/manage` printed the refusal above its complete editing form.**
+Fourteen live inputs - ticket types, checkout questions, prices - all of whose
+saves were already decided. A refusal is now held apart from an error, and the
+panels do not render. Zero live inputs afterwards; the organiser's own view is
+untouched.
+
+Both are the same fault and it is the one this repo's rules name by example: a
+control that renders live and fails on submit.
+
+**Underneath the first one**, the poll read path and vote path each had their
+own ticket lookup and had drifted - the read path did not exclude refunded
+tickets, so a refunded holder saw a live button that refused them. One
+`_votable_ticket` now serves both.
+
+**The lesson, written down:** walk four roles, not two. Signed out, owner,
+signed-in non-owner, participant-not-owner. The probe that catches it is
+counting live inputs on a page that has already refused you.
+
+Also corrected in memory: the `pnpm build` landmine probe. Checking
+`node_modules/next/dist/pages` answers "intact" while the real path,
+`node_modules/.pnpm/next@<version>_.../node_modules/next/dist/pages`, is gone.
+Stopping dev before building does not avoid it either - the reinstall is
+unconditional after a build.
