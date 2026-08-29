@@ -193,6 +193,49 @@ reported, because it rewrites `.next` under the running server.
 
 ---
 
+## 4b. The node_modules corruption, properly diagnosed
+
+The recurring "next is not recognized" / `MODULE_NOT_FOUND` failure on this
+machine is **not** node_modules alone. The pnpm **global store** gets corrupted:
+
+```
+ERR_PNPM_ENOENT  [importPackage ...node_modules/next]
+ENOENT: no such file or directory, copyfile
+  'C:\Users\Sweez\AppData\Local\pnpm\store\v10\files\03\8c2e...'
+```
+
+That is why `rm -rf node_modules && pnpm install` sometimes fixes it and
+sometimes does not: the reinstall copies from the same damaged store. The fix
+that actually worked:
+
+```bash
+pnpm store prune      # removed 13124 files, 14 packages
+pnpm install          # re-fetches what the store was missing
+```
+
+Two more things learned while chasing it:
+
+- **`pnpm dev` intermittently cannot resolve `next` on PATH** in a Git Bash
+  shell even when the package and the `.bin` shims are present. Running the
+  binary directly always works:
+  `PORT=3001 node "node_modules/.pnpm/next@14.2.35_*/node_modules/next/dist/bin/next" dev`
+- **Killing the dev server does not always kill it.** Two starts hit
+  `EADDRINUSE` on 3001 with a survivor still listening. Check with
+  `Get-NetTCPConnection -LocalPort 3001 -State Listen` and stop that PID, or a
+  "verified" page may have been served by a process running older code.
+
+### The 500 on the tournament manage route was a stale cache, not a break
+
+After the one-console change, `/tournaments/<slug>/manage` 500'd with
+`MODULE_NOT_FOUND` on a webpack chunk. It is **not** a regression: there is no
+circular import (the chain `[slug]/manage -> manage -> my-tournaments/manage` is
+linear), and on a cleared `.next` the route serves 307 to `/login`, which is
+correct for a protected route with no session. The Reminders tab was also seen
+rendering at that exact URL on the emulator. Run `rm -rf .next` before
+restarting after any change that moves an import.
+
+---
+
 ## 5. Cannot be verified from this machine at all
 
 - **The attendance map with real people.** `vent_event/tests_map.py` covers the
