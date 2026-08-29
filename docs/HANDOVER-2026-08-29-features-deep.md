@@ -211,3 +211,50 @@ Also corrected in memory: the `pnpm build` landmine probe. Checking
 `node_modules/.pnpm/next@<version>_.../node_modules/next/dist/pages`, is gone.
 Stopping dev before building does not avoid it either - the reinstall is
 unconditional after a build.
+
+
+---
+
+## MVP metrics per game (BE#81 / FE#90)
+
+The last tournament-organizing item in the PDF. I had listed it as
+"deliberately left", which was a self-granted exemption rather than a decision:
+it is not large and the instruction was to build the tournament organizing
+features.
+
+`vent_tournament/metrics.py` is the catalogue, in the same shape as
+`formats.py`. 24 metrics, each with a label, a default weight and
+`higher_is_better`, plus a starting set per game. It is code rather than data
+because it ships with the release and is the same for everybody.
+
+Decisions worth keeping:
+
+- **Deaths and own goals carry negative weights.** Ranking on a raw total would
+  crown whoever died most in a game that pays for damage. Damage is 0.001
+  because it is counted in thousands.
+- **`BY_GAME` is ordered most specific first and the first match wins.** NOT
+  longest match. "call of duty" is longer than "warzone" and less specific, and
+  "Call of Duty: Warzone" contains both, so length gave a battle royale the
+  multiplayer set and dropped placement. Adding a mode means putting it ABOVE
+  its franchise. Pinned in both directions, plus a test that every key named in
+  BY_GAME is a real metric - a typo there silently shortens a list.
+- **`MatchPlayerStat` is one row per number**, not a column per stat, because
+  the stat set is the organiser's and a column per metric would be a migration
+  per game.
+- **`TournamentMVP` keeps the score as it stood at award time**, so a later
+  correction does not make the award disagree with itself.
+- **Ties share a position** rather than being separated by a database id.
+- **An award against the table requires a reason**, server-side and in the UI.
+
+Fixed while walking it: the metric rows filled the whole panel width, putting a
+metre of empty row between a metric's name and its weight with the reorder
+buttons off the edge. Capped at 560px.
+
+## What is left from the PDF
+
+The **event product shop**, marked PREMIUM in the document and genuinely large.
+Nothing else from sections 3 and 4.
+
+There is still no scheduler on this deployment, so reminders remain a button
+rather than a cron. Deliberate, and the thing to revisit if they should fire by
+themselves.
