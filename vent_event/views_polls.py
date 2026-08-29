@@ -64,21 +64,31 @@ def _may_manage(user, event):
         event=event, user=user, role='manager').exists()
 
 
+def _votable_ticket(event, code, viewer):
+    """The ticket that may answer, or None. ONE definition, used by both paths.
+
+    The read path and the vote path each had their own lookup and they drifted:
+    the read path did not exclude refunded tickets, so somebody who had been
+    refunded was shown a live button that answered 403 when pressed. Both now
+    call this.
+    """
+    live = Ticket.objects.filter(event=event).exclude(
+        status__in=('refunded', 'cancelled'))
+    if code:
+        return live.filter(code=str(code).strip().upper()).first()
+    if viewer is None:
+        return None
+    return live.filter(user=viewer).first()
+
+
 def _ticket_for(request, event):
     """The ticket this request may vote with, or None.
 
     A code in the body, or a ticket the signed-in viewer already holds. The
     code is what a guest has, and it is the same credential the door reads.
     """
-    code = str(request.data.get('ticket_code') or '').strip().upper()
-    if code:
-        return Ticket.objects.filter(event=event, code=code).exclude(
-            status__in=('refunded', 'cancelled')).first()
-    viewer = _viewer(request)
-    if viewer is None:
-        return None
-    return Ticket.objects.filter(event=event, user=viewer).exclude(
-        status__in=('refunded', 'cancelled')).first()
+    return _votable_ticket(event, request.data.get('ticket_code'),
+                           _viewer(request))
 
 
 def serialize_poll(poll, *, ticket=None, is_organiser=False):
@@ -135,17 +145,20 @@ def polls(request, event_id):
         # A code in the query string so a guest reading the page sees what they
         # already answered. GET carries no body.
         code = str(request.GET.get('ticket_code') or '').strip().upper()
-        ticket = None
-        if code:
-            ticket = Ticket.objects.filter(event=event, code=code).first()
-        elif viewer is not None:
-            ticket = Ticket.objects.filter(event=event, user=viewer).first()
+        ticket = _votable_ticket(event, code, viewer)
 
         rows = (EventPoll.objects.filter(event=event)
                 .prefetch_related('options'))
         return Response({'status': 'success', 'data': {
             'polls': [serialize_poll(p, ticket=ticket,
                                      is_organiser=is_organiser) for p in rows],
+            # Whether THIS reader can answer at all, so the page can say so
+            # before they press something. Signing in is not the same as
+            # holding a ticket: somebody with an account and no ticket, and
+            # somebody who bought as a guest under another address, both reach
+            # this page, and a live button that answers 403 tells them only
+            # after they have chosen.
+            'can_answer': ticket is not None,
         }, 'message': ''})
 
     viewer = _viewer(request)
