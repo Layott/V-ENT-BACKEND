@@ -279,11 +279,15 @@ def send_tournament_registered(user, tournament, *, entry_paid_vc=0):
 
 def send_ticket_purchased(ticket):
     """One email per ticket, because each ticket admits one person by its code."""
+    from vent_event.serializers import map_search_url
     event = ticket.event
     starts = event.start_date
+    # The venue name and the address, because "Eko Convention Centre" is what
+    # somebody asks a driver for and the street is what the driver needs.
+    where = ', '.join(p for p in (event.venue_name, event.location) if p) or 'Online'
     rows = [
         ('Tier', ticket.tier.name),
-        ('Venue', event.location or 'Online'),
+        ('Venue', where),
         ('Doors', starts.strftime('%d %b %Y, %H:%M') if starts else 'To be announced'),
         ('Paid', f'{int(ticket.price_vc):,} VC', '#D4AF37'),
     ]
@@ -302,6 +306,15 @@ def send_ticket_purchased(ticket):
             'has_account': bool(ticket.user_id),
             'ticket_url': f'{APP_URL}/events/my-tickets',
             'find_url': f'{APP_URL}/events/find-ticket',
+            # Only when the organiser turned it on. Offering a check-in link
+            # for an event that scans at the door sends somebody to a page
+            # that refuses them, which is worse than not mentioning it.
+            'check_in_url': (f'{APP_URL}/events/check-in/{ticket.code}'
+                             if event.self_check_in else ''),
+            # Getting there. `directions` is what a map cannot tell you: which
+            # gate, where to park, what to bring.
+            'map_url': event.map_link or map_search_url(event),
+            'directions': event.directions,
             'rows': rows,
         },
         inline_images=[(TICKET_QR_CID, qr, 'ticket-qr.png')],

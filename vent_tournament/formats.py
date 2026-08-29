@@ -233,6 +233,30 @@ FORMATS = {
 }
 
 
+# Spellings that reach here from screens and from old rows, mapped to the key
+# they mean.
+#
+# `swiss_system` is the one that mattered: the create wizard has saved
+# "swiss-system" since it was written, this resolved it to nothing, and a Swiss
+# tournament therefore had no format at all - no note, no defaults, no entry in
+# the catalogue. Nothing raised, which is why it survived.
+ALIASES = {
+    'swiss_system': 'swiss',
+    'swiss_rounds': 'swiss',
+    'league': 'round_robin',
+    'roundrobin': 'round_robin',
+    'rr': 'round_robin',
+    'single': 'single_elimination',
+    'double': 'double_elimination',
+    'se': 'single_elimination',
+    'de': 'double_elimination',
+    'br': 'battle_royale',
+    'gsl_groups': 'gsl',
+    'aggregate': 'aggregate_2v2',
+    'aggregate_2_v_2': 'aggregate_2v2',
+}
+
+
 def get(key):
     """A format by key, tolerant of the ways the value has been written.
 
@@ -241,7 +265,7 @@ def get(key):
     filters before this existed.
     """
     slug = str(key or '').strip().lower().replace('-', '_').replace(' ', '_')
-    return FORMATS.get(slug)
+    return FORMATS.get(ALIASES.get(slug, slug))
 
 
 def catalogue():
