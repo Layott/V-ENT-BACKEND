@@ -7,7 +7,27 @@ These helpers keep that house style but centralize event shaping so the listing,
 detail, and create endpoints all emit an identical Event object.
 """
 
+from urllib.parse import quote_plus
+
 from django.utils import timezone
+
+
+def map_search_url(event):
+    """A maps search for the venue, or '' when there is nothing to search for.
+
+    Google Maps rather than a chosen provider: it is what opens on both phone
+    platforms in Nigeria without an app install, and the URL form is stable.
+    Virtual events get nothing, because there is nowhere to go.
+    """
+    if (event.event_type or '').lower() == 'virtual':
+        return ''
+    parts = [p for p in (event.venue_name, event.location) if p]
+    if not parts:
+        return ''
+    # The venue name and the address together. Either alone is ambiguous in a
+    # city with more than one of anything.
+    return 'https://www.google.com/maps/search/?api=1&query=%s' % quote_plus(
+        ', '.join(parts))
 
 
 def absolute_media_url(request, file_field, fallback_url=None):
@@ -100,7 +120,20 @@ def serialize_event_card(request, event):
         'start_date': event.start_date,
         'end_date': event.end_date,
         'location': event.location,
+        # Getting there. `location` is a line somebody typed, which is enough to
+        # print on a ticket and not enough to travel to.
+        'venue_name': event.venue_name,
+        'map_link': event.map_link,
+        # A search, not a pin, and named so nobody mistakes it for one. An
+        # organiser who drops a real pin gets `map_link` above; everybody else
+        # gets the address handed to a map rather than nothing at all. Kept
+        # separate because a search for "The Dome, Lagos" can land on the wrong
+        # Dome, and a page that presented that as the venue would be lying.
+        'map_search_url': map_search_url(event),
+        'directions': event.directions,
         'virtual_link': event.event_link,
+        'self_check_in': event.self_check_in,
+        'self_check_in_opens_minutes': event.self_check_in_opens_minutes,
         'entry_fee': str(event.entry_fee) if event.entry_fee is not None else '0',
         'capacity': event.capacity,
         'banner': _banner(request, event),

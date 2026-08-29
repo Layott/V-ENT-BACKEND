@@ -591,7 +591,7 @@ def join_tournament(request):
             create_notification(
                 recipient, 'tournament',
                 f"You're registered for {tournament.tournament_title}",
-                link=f'/tournaments/view-tournament?id={tournament.tournament_id}',
+                link=f'/tournaments/{tournament.slug or tournament.tournament_id}',
                 metadata={'tournament_id': tournament.tournament_id},
             )
             # Confirmation of the slot, with the start time and what was paid.

@@ -269,7 +269,9 @@ def send_tournament_registered(user, tournament, *, entry_paid_vc=0):
             'name': _first_name(user),
             'tournament': tournament.tournament_title,
             'starts': starts.strftime('%d %b, %H:%M') if starts else 'soon',
-            'bracket_url': f'{APP_URL}/tournaments/view-tournament?id={tournament.tournament_id}',
+            # The slug, never the key. This link is emailed, so it outlives
+            # every other copy of the address and gets forwarded.
+            'bracket_url': f'{APP_URL}/tournaments/{tournament.slug or tournament.tournament_id}',
             'rows': rows,
         },
     )
@@ -553,3 +555,25 @@ def send_partner_decision(partner):
     except Exception:
         logger.exception('partner decision email failed')
         return False
+
+
+def send_event_announcement(to_address, *, event, subject, body):
+    """One message from an organiser to one ticket holder.
+
+    Sent per address rather than as one email with everybody in bcc, because a
+    bcc list is one mistake away from publishing the attendee list of an event,
+    and that list is the thing people handed over an address to be on rather
+    than to be shown.
+    """
+    return _send(
+        to_address,
+        subject,
+        'event_announcement.html',
+        {
+            'subject': subject,
+            'body': body,
+            'event': event.name,
+            'preheader': (body or '')[:120],
+            'event_url': f'{APP_URL}/events/{event.slug or event.event_id}',
+        },
+    )

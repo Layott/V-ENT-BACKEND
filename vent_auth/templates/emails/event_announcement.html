@@ -1,0 +1,16 @@
+{% extends "emails/base.html" %}
+{% block title %}{{ subject }}{% endblock %}
+{% block kicker %}{{ event }}{% endblock %}
+{% block preheader %}{{ preheader }}{% endblock %}
+{% block heading %}{{ subject }}{% endblock %}
+{% block content %}
+<p style="margin:0 0 20px 0;">A message from the organiser of <strong style="color:#FFFFFF;">{{ event }}</strong>.</p>
+
+<div style="background:#1A1A1F; border-radius:12px; padding:20px;">
+  <p style="margin:0; white-space:pre-line; color:#DEDEE3;">{{ body }}</p>
+</div>
+
+<div style="height:24px; line-height:24px;">&nbsp;</div>
+{% include "emails/_button.html" with url=event_url label="Open the event" %}
+{% endblock %}
+{% block footer_note %}You received this because you hold a ticket for {{ event }}.{% endblock %}
