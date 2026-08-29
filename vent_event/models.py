@@ -316,6 +316,34 @@ class EventReferral(models.Model):
         return f"{self.name} ({self.code})"
 
 
+class ReferralDay(models.Model):
+    """How one influencer link did on one day.
+
+    A day per link, not a row per visitor. The alternative - a row carrying an
+    address and a user agent for every arrival - is a log of who read what,
+    which is a thing to be subpoenaed rather than a thing to be useful. The
+    organiser's question is "did this influencer bring anybody", and a daily
+    count answers it exactly.
+
+    `visitors` counts arrivals whose browser had not been here before, which
+    the browser itself reports by whether it already holds the link cookie.
+    Nothing about the person is stored to work that out.
+    """
+    id = models.AutoField(primary_key=True)
+    referral = models.ForeignKey('EventReferral', on_delete=models.CASCADE,
+                                 related_name='days')
+    day = models.DateField(db_index=True)
+    visits = models.PositiveIntegerField(default=0)
+    visitors = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = ('referral', 'day')
+        ordering = ['day']
+
+    def __str__(self):
+        return f"{self.referral.code} {self.day}: {self.visits}"
+
+
 class EventPromo(models.Model):
     """A discount code, optionally credited to a referral.
 
@@ -527,6 +555,15 @@ class Ticket(models.Model):
     # through one door. Empty for a wallet purchase and for a free ticket.
     payment_reference = models.CharField(max_length=64, blank=True, default='',
                                          db_index=True)
+    # The influencer link this sale came through, if any.
+    #
+    # On the ticket rather than only as a counter on the link, because a
+    # counter drifts: a refund, a double-issue or a failed payment leaves it
+    # wrong with no way to find out which. The organiser's numbers are counted
+    # from these rows, so they are always the truth about what was sold.
+    # EventReferral.sold stays as well, but only as the allocation guard.
+    referral = models.ForeignKey('EventReferral', on_delete=models.SET_NULL,
+                                 null=True, blank=True, related_name='tickets')
     purchased_at = models.DateTimeField(auto_now_add=True)
     checked_in_at = models.DateTimeField(null=True, blank=True)
     # Which door. "Already scanned" sends a steward to a supervisor; "scanned at

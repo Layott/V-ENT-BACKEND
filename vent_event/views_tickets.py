@@ -386,6 +386,14 @@ def buy_ticket(request, event_id):
 
         TicketTier.objects.filter(id=tier.id).update(sold=F('sold') + quantity)
 
+        # Credit the influencer link this buyer came through, in the same
+        # transaction as the purchase. A signed-in buyer reaches checkout the
+        # same way a guest does, so the same `ref` the page has been holding
+        # since they arrived is sent here too. An unknown or switched-off code
+        # credits nobody and is never a reason to refuse the sale.
+        from . import referrals as _refs
+        _refs.attribute(tickets, _refs.resolve(event, request.data.get('ref')))
+
         # The offer is spent, inside the same transaction as the purchase.
         # Leaving it standing would let one person in the queue buy every
         # ticket that comes back.
