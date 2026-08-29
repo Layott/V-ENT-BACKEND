@@ -114,6 +114,10 @@ def serialize_tier(tier):
         # The code itself is never sent. Whether one exists is not a secret;
         # what it is, is.
         'is_hidden': tier.is_hidden,
+        # Which influencer's audience this type belongs to, if any. The name
+        # only: their code is the key and is never published.
+        'unlocked_by': ({'id': tier.unlocked_by_id, 'name': tier.unlocked_by.name}
+                        if tier.unlocked_by_id else None),
         'price_now_ngn': float(tier.price_for(1)),
     }
 
@@ -178,12 +182,14 @@ def ticket_types(request, event_id):
     # A type with an access code is not listed until somebody types it. That is
     # the whole feature: a members' presale that appears in the public list is
     # not a presale.
+    #
+    # The same code can be an influencer's referral: a type locked to them is
+    # invisible until somebody arrives with their link or their code, which is
+    # the whole point of giving a creator something their audience alone can
+    # buy.
     code = str(request.GET.get('code') or '').strip()
-    visible = [
-        tier for tier in tiers
-        if not tier.access_code or tier.access_code.lower() == code.lower()
-    ]
-    unlocked = [t for t in visible if t.access_code]
+    visible = [tier for tier in tiers if tier.opened_by(code)]
+    unlocked = [t for t in visible if t.is_hidden]
 
     return _ok(
         {
@@ -288,9 +294,9 @@ def buy_ticket(request, event_id):
         # The access code, checked at the purchase and not only at the listing.
         # A hidden type that can be bought by anybody who guesses its id is not
         # hidden.
-        if tier.access_code:
+        if tier.is_hidden:
             given = str(request.data.get('code') or '').strip()
-            if given.lower() != tier.access_code.lower():
+            if not tier.opened_by(given):
                 return _error('That ticket type needs an access code.',
                               'CODE_REQUIRED', status.HTTP_403_FORBIDDEN)
 

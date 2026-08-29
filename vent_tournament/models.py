@@ -491,6 +491,21 @@ class BracketMatch(models.Model):
     scheduled_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
+    # The running order, which belongs to the organiser and is not derived.
+    #
+    # CEO, of the Rivalry Series schedule: "Given, not generated. Layo set it.
+    # Do not reorder it to optimise something without asking."
+    #
+    # A day and a position within that day, rather than a clock time: an
+    # organiser building a three-day event thinks "Nigeria v Ghana opens Friday",
+    # not "10:00". Times can be derived from the order and a slot length; the
+    # order cannot be derived from anything.
+    #
+    # Null day means unscheduled, which is the state every fixture starts in and
+    # a real thing to show: it is the list of what still needs a slot.
+    day = models.DateField(null=True, blank=True)
+    running_order = models.PositiveIntegerField(default=0)
+
     # Advancement graph, wired at bracket-generation time. When this match
     # resolves, the winner (and, for double elim, the loser) is routed into the
     # target match/slot below. NULL target => this side ends here.

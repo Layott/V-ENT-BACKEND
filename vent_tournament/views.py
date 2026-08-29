@@ -416,7 +416,30 @@ def join_tournament(request):
         # Shared ticketing: when this tournament runs inside an event and the
         # organizer switched shared ticketing on, a valid ticket for that event
         # pays the entry fee, so there is nothing to debit and no PIN to ask for.
-        from vent_event.views_linking import entry_is_covered
+        from vent_event.views_linking import (entry_is_covered,
+                                                entry_requires_ticket,
+                                                holds_entry_ticket)
+
+        # When the organiser said the event ticket IS the entry, somebody
+        # without one cannot enter at all. Refused here rather than at the door,
+        # where the answer costs them a journey.
+        _needs_ticket, _link = entry_requires_ticket(tournament)
+        if _needs_ticket and not holds_entry_ticket(user, _link):
+            wanted = _link.entry_tier.name if _link.entry_tier_id else None
+            return Response({
+                'code': 'EVENT_TICKET_REQUIRED',
+                'status': 'error',
+                'message': ('Entry to this tournament is a %s ticket for %s.'
+                            % (wanted, _link.event.name)) if wanted else
+                           ('Entry to this tournament is a ticket for %s.'
+                            % _link.event.name),
+                'data': {
+                    'event_id': _link.event_id,
+                    'event_slug': getattr(_link.event, 'slug', None),
+                    'tier_id': _link.entry_tier_id,
+                },
+            }, status=status.HTTP_402_PAYMENT_REQUIRED)
+
         _covered, _event_link = entry_is_covered(user, tournament)
         covered_by_ticket = bool(is_paid and _covered)
         if covered_by_ticket:

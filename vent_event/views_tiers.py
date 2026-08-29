@@ -200,6 +200,23 @@ def update_tier(request, event_id, tier_id):
         tier.perks = str(perks or '')[:255]
         updated.append('perks')
 
+    # Which influencer's audience this type is for. Cleared with an empty
+    # value, because taking a tier back off a creator is a thing organisers do.
+    if 'unlocked_by' in request.data:
+        raw = request.data.get('unlocked_by')
+        if raw in (None, '', 0, '0'):
+            tier.unlocked_by = None
+        else:
+            from .models import EventReferral
+            referral = EventReferral.objects.filter(
+                event=tier.event, pk=raw).first()
+            if referral is None:
+                return _err('That influencer is not on this event.',
+                            'NOT_FOUND', status.HTTP_404_NOT_FOUND,
+                            field='unlocked_by')
+            tier.unlocked_by = referral
+        updated.append('unlocked_by')
+
     for field in ('day', 'day_label'):
         if field in request.data:
             value = request.data.get(field) or ('' if field == 'day_label' else None)
