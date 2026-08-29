@@ -99,6 +99,12 @@ def serialize_tier(tier):
         'remaining': remaining,
         'sold_out': remaining == 0,
         'perks': [p.strip() for p in (tier.perks or '').split(',') if p.strip()],
+        # Which day this ticket is for. A multi-day event sells "Day 1" and
+        # "Day 2" side by side, and two cards differing only in a number tell
+        # a buyer nothing about which date they are actually buying. Stored
+        # since the wizard wrote it and never sent, so no screen could show it.
+        'day': tier.day.isoformat() if tier.day else None,
+        'day_label': tier.day_label or '',
         # What the price does, so the buy screen can say "12 left at this price"
         # and the console can edit it rather than render an empty box.
         'early_bird_quantity': tier.early_bird_quantity,
@@ -287,6 +293,18 @@ def buy_ticket(request, event_id):
             if given.lower() != tier.access_code.lower():
                 return _error('That ticket type needs an access code.',
                               'CODE_REQUIRED', status.HTTP_403_FORBIDDEN)
+
+        # How many one address may hold. The same rule as the guest checkout,
+        # because it is a property of the event and not of the door somebody
+        # came through. A signed-in buyer's address is their account's.
+        buyer_email = (str(request.data.get('email') or '').strip()
+                       or (user.email or ''))
+        ok, already, limit = checkout.room_for_email(event, buyer_email, quantity)
+        if not ok:
+            return _error(
+                'That email address already has %s ticket(s) for this event, '
+                'and the organiser allows %s.' % (already, limit),
+                'EMAIL_LIMIT_REACHED', status.HTTP_409_CONFLICT, field='email')
 
         # What the organiser asked for. A signed-in buyer answers exactly the
         # same questions a guest does: the fields belong to the event, not to

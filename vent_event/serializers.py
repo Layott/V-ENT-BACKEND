@@ -148,6 +148,10 @@ def serialize_event_detail(request, event):
             'username': creator.username,
             'full_name': creator.full_name,
         } if creator else None,
+        # How many one email may hold. The buyer's form needs it so it can cap
+        # the quantity there rather than refusing after they have filled in a
+        # form, and the edit screen needs it to draw its own switch.
+        'max_tickets_per_email': event.max_tickets_per_email,
         # What the organiser typed the prices in. The page converts for the
         # reader; the charge is still settled in naira.
         'currency': getattr(event, 'currency', 'NGN') or 'NGN',

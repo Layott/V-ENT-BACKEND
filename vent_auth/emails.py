@@ -68,7 +68,38 @@ def _plain_text(html):
     return text.strip()
 
 
-def _send(to_address, subject, template, context):
+TICKET_QR_CID = 'ticket-qr'
+
+
+def ticket_qr_png(code):
+    """The ticket code as a QR, for embedding in the email that carries it.
+
+    The email used to say "the scannable version lives in My Tickets", which is
+    true for somebody with an account and false for everybody else: a guest
+    buys without one and has no My Tickets to visit. Their email WAS the
+    ticket, and it could not be scanned.
+
+    Black on white regardless of the email's dark styling, because a phone
+    camera at a gate has to read it off a screen at whatever brightness the
+    holder happens to have.
+    """
+    try:
+        import io
+
+        import qrcode
+
+        image = qrcode.make(code, box_size=8, border=2)
+        buffer = io.BytesIO()
+        image.save(buffer, format='PNG')
+        return buffer.getvalue()
+    except Exception:
+        # The code is printed as text directly above it, so a failure here
+        # costs a scan and never the entry itself.
+        logger.exception('could not draw a QR for %r', code)
+        return None
+
+
+def _send(to_address, subject, template, context, inline_images=None):
     """Render `template` and send it. Returns True on success, never raises."""
     from django.core.mail import EmailMultiAlternatives
     from django.template.loader import render_to_string
@@ -95,18 +126,26 @@ def _send(to_address, subject, template, context):
         )
         message.attach_alternative(html, 'text/html')
 
+        attachments = []
         logo = _logo()
         if logo:
+            attachments.append((LOGO_CID, logo, 'v-ent.png'))
+        for cid, payload, filename in (inline_images or []):
+            if payload:
+                attachments.append((cid, payload, filename))
+
+        if attachments:
             from email.mime.image import MIMEImage
 
-            # multipart/related wraps the alternative parts and the image, which
-            # is what lets `cid:` resolve. Marked inline so no client lists the
-            # logo as an attachment.
+            # multipart/related wraps the alternative parts and the images,
+            # which is what lets `cid:` resolve. Marked inline so no client
+            # lists them as attachments.
             message.mixed_subtype = 'related'
-            image = MIMEImage(logo, 'png')
-            image.add_header('Content-ID', f'<{LOGO_CID}>')
-            image.add_header('Content-Disposition', 'inline', filename='v-ent.png')
-            message.attach(image)
+            for cid, payload, filename in attachments:
+                image = MIMEImage(payload, 'png')
+                image.add_header('Content-ID', f'<{cid}>')
+                image.add_header('Content-Disposition', 'inline', filename=filename)
+                message.attach(image)
 
         message.send(fail_silently=False)
         logger.info('sent %r to %s', template, to_address)
@@ -246,6 +285,9 @@ def send_ticket_purchased(ticket):
         ('Doors', starts.strftime('%d %b %Y, %H:%M') if starts else 'To be announced'),
         ('Paid', f'{int(ticket.price_vc):,} VC', '#D4AF37'),
     ]
+    # A guest has no account, so the email IS their ticket. It carries the
+    # scannable code rather than pointing at a page they cannot reach.
+    qr = ticket_qr_png(ticket.code)
     return _send(
         ticket.attendee_email or ticket.user.email,
         f'Your ticket for {event.name}',
@@ -254,9 +296,13 @@ def send_ticket_purchased(ticket):
             'name': ticket.attendee_name or _first_name(ticket.user),
             'event': event.name,
             'code': ticket.code,
+            'qr_cid': TICKET_QR_CID if qr else '',
+            'has_account': bool(ticket.user_id),
             'ticket_url': f'{APP_URL}/events/my-tickets',
+            'find_url': f'{APP_URL}/events/find-ticket',
             'rows': rows,
         },
+        inline_images=[(TICKET_QR_CID, qr, 'ticket-qr.png')],
     )
 
 

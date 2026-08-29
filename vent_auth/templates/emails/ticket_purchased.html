@@ -4,7 +4,28 @@
 {% block preheader %}Ticket {{ code }} for {{ event }}. Show this code at the door.{% endblock %}
 {% block heading %}Your ticket is ready{% endblock %}
 {% block content %}
-<p style="margin:0 0 20px 0;">{{ name }}, here is your entry to <strong style="color:#FFFFFF;">{{ event }}</strong>. Show this code at the door.</p>
+<p style="margin:0 0 20px 0;">{{ name }}, here is your entry to <strong style="color:#FFFFFF;">{{ event }}</strong>. Show this at the door.</p>
+
+{# The scannable code, in the email itself. It used to live only in My Tickets,
+   which a guest has no account to reach: their email WAS the ticket and it
+   could not be scanned. White plate on purpose, whatever the rest of the mail
+   looks like, because a camera has to read it off a phone at a gate. #}
+{% if qr_cid %}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 20px 0;">
+  <tr>
+    <td align="center" style="padding:0;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="background-color:#FFFFFF; border-radius:12px; padding:12px; line-height:0;">
+            <img src="cid:{{ qr_cid }}" width="200" height="200" alt="QR code for ticket {{ code }}"
+                 style="display:block; width:200px; height:200px; border:0;">
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+{% endif %}
 
 {% include "emails/_code.html" with code=code note="One admission" %}
 
@@ -12,9 +33,16 @@
 {% include "emails/_rows.html" with rows=rows %}
 
 <div style="height:24px; line-height:24px;">&nbsp;</div>
+{# Somebody with an account opens their ticket; somebody without one looks it up
+   with this address and the code. Sending a guest to My Tickets was sending
+   them to a sign-in wall. #}
+{% if has_account %}
 {% include "emails/_button.html" with url=ticket_url label="Open my ticket" color="#D4AF37" text_color="#131316" %}
+{% else %}
+{% include "emails/_button.html" with url=find_url label="Find this ticket again" color="#D4AF37" text_color="#131316" %}
+{% endif %}
 <div style="height:24px; line-height:24px;">&nbsp;</div>
 
-<p style="margin:0; font-size:14px; color:#8A8A93;">The scannable version lives in My Tickets. If your phone dies, the code above is enough.</p>
+<p style="margin:0; font-size:14px; color:#8A8A93;">Show the code above at the door. If the image does not load, the letters underneath it are enough.</p>
 {% endblock %}
 {% block footer_note %}You received this because you bought a ticket on V-ENT.{% endblock %}
