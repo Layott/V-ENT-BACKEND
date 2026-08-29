@@ -9,7 +9,7 @@ from imports import api_view,get_object_or_404, Response, status, transaction
 from .models import (
     Tournament, Users, Games, Teams,
     TournamentPrizeDistribution, TournamentRegistration, BracketMatch,
-    Sponsors, Match, RegisteredTeams,
+    Sponsors, Match, RegisteredTeams, LeagueRules,
 )
 from django.db.models import Q
 from django.db import transaction
@@ -607,6 +607,47 @@ def search_tournament(request):
         return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+def _wants_league(bracket_type):
+    """Whether this format is decided by a table rather than by a bracket."""
+    return str(bracket_type or '').strip().lower().replace('-', '_').replace(
+        ' ', '_') in ('round_robin', 'roundrobin', 'rr', 'league', 'ladder',
+                      'aggregate_2v2')
+
+
+def _league_settings(data, team_size):
+    """Points, seats and the tiebreak order, from whatever the wizard sent.
+
+    Every value is optional and falls back to the ordinary football answer:
+    three for a win, one for a draw. `players_per_team` follows the team size
+    the organiser already chose, so a 2v2 league does not have to be told twice
+    that it is 2v2.
+    """
+    def whole(key, fallback):
+        try:
+            return int(data.get(key, fallback))
+        except (TypeError, ValueError):
+            return fallback
+
+    seats = whole('players_per_team', team_size or 1)
+    tiebreakers = data.get('tiebreakers')
+    if isinstance(tiebreakers, str):
+        # A multipart form cannot send a list, so it arrives as JSON text.
+        try:
+            tiebreakers = json.loads(tiebreakers)
+        except ValueError:
+            tiebreakers = None
+    if not isinstance(tiebreakers, list):
+        tiebreakers = []
+
+    return {
+        'points_win': whole('points_win', 3),
+        'points_draw': whole('points_draw', 1),
+        'points_loss': whole('points_loss', 0),
+        'players_per_team': max(1, seats),
+        'tiebreakers': [str(x) for x in tiebreakers],
+    }
+
+
 @api_view(['POST'])
 def create_tournament(request):
     try:
@@ -704,7 +745,13 @@ def create_tournament(request):
                      'message': 'Choose the game this tournament is played on.'},
                     status=status.HTTP_400_BAD_REQUEST)
             try:
-                game = Games.objects.get(game_title=str(game).title())
+                # Matched as written, ignoring case. `.title()` used to be
+                # applied first, which turns "EA FC 25" into "Ea Fc 25" and
+                # "PUBG Mobile" into "Pubg Mobile" - so a tournament could not
+                # be created on most of the games in the catalogue, and the
+                # error blamed the organiser for naming a game that was there
+                # all along.
+                game = Games.objects.get(game_title__iexact=str(game).strip())
             except Games.DoesNotExist:
                 return Response(
                     {'code': 'GAME_NOT_FOUND', 'status': 'error',
@@ -769,6 +816,19 @@ def create_tournament(request):
                 options=cleaned_options,
                 **social_links
             )
+
+            # How the table is scored, when this is a league.
+            #
+            # Set here rather than left to a second call, because a tournament
+            # created without a LeagueRules row generates a plain round robin:
+            # the seat count lives on that row, so a wizard that creates the
+            # tournament and then fails to save the rules leaves a league with
+            # no matches inside its fixtures, and no sign of why.
+            if _wants_league(bracket_type):
+                LeagueRules.objects.update_or_create(
+                    tournament=tournament,
+                    defaults=_league_settings(request.data, team_size),
+                )
 
             # Create prize distributions if applicable
             if prize_type == 'distributed':
