@@ -49,7 +49,19 @@ class Event(models.Model):
     banner_url = models.URLField(max_length=500, null=True, blank=True)  # External banner URL (used when no file upload)
     is_active = models.BooleanField(default=True)  # To mark if the event is active or not
     is_featured = models.BooleanField(default=False)  # Manually spotlight an event on the listing
-    interaction_count = models.PositiveIntegerField(default=0)  # To track user interactions
+    interaction_count = models.PositiveIntegerField(default=0)
+
+    # How many tickets one email address may hold for this event.
+    #
+    # CEO: "it should be just one per email, so if a ticket has been sent to an
+    # email before, it should not be sent again, even if they refresh and type
+    # in that same email again... the owner should be able to set if one person
+    # can get multiple tickets or its limited to one per mail."
+    #
+    # Stored as a number rather than a boolean because the organiser's real
+    # question is "how many", and a family of four is the next thing anybody
+    # asks for. `None` means no limit at all.
+    max_tickets_per_email = models.PositiveIntegerField(null=True, blank=True, default=None)
 
     def __str__(self):
         return self.name

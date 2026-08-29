@@ -578,6 +578,27 @@ def edit_event(request, event_id):
                           status.HTTP_400_BAD_REQUEST)
         updated.append(field)
 
+    # How many tickets one email address may hold. Nullable on purpose, and an
+    # empty string means "no limit" rather than "unchanged", because turning
+    # the limit OFF is a thing the organiser has to be able to express. The
+    # loop above skips empty values, which is why this one is separate.
+    if 'max_tickets_per_email' in data:
+        raw = data.get('max_tickets_per_email')
+        if raw in (None, '', 0, '0'):
+            event.max_tickets_per_email = None
+        else:
+            try:
+                limit = int(raw)
+            except (TypeError, ValueError):
+                return _error('The limit per email must be a number.',
+                              'INVALID_NUMBER', status.HTTP_400_BAD_REQUEST)
+            if limit < 1:
+                return _error('A limit of less than one ticket would sell '
+                              'nothing at all.', 'INVALID_NUMBER',
+                              status.HTTP_400_BAD_REQUEST)
+            event.max_tickets_per_email = limit
+        updated.append('max_tickets_per_email')
+
     for field in ('start_date', 'end_date'):
         value = data.get(field)
         if value in (None, ''):

@@ -88,6 +88,9 @@ def checkout_fields(request, event_id):
         # always collected and cannot be switched off.
         'email_required': True,
         'guest_checkout': True,
+        # So the guest form can cap its own quantity box instead of letting
+        # somebody pick four and be refused after filling everything in.
+        'max_tickets_per_email': event.max_tickets_per_email,
     }, 'Checkout fields')
 
 
@@ -142,6 +145,26 @@ def _validate_order(event, request):
                                             field=getattr(exc, 'field', None))
 
     return tier, quantity, email, (order_answers, per_person, attendees), None
+
+
+def _email_limit_or_error(event, email, quantity):
+    """Whether this address may hold this many for this event.
+
+    Checked against what the address ALREADY holds rather than against this
+    request, because the case the organiser is guarding against is somebody
+    refreshing the page and typing the same address again.
+    """
+    ok, already, limit = checkout.room_for_email(event, email, quantity)
+    if ok:
+        return None
+    if already:
+        return _err(
+            'That email address already has %s ticket(s) for this event, and '
+            'the organiser allows %s.' % (already, limit),
+            'EMAIL_LIMIT_REACHED', status.HTTP_409_CONFLICT, field='email')
+    return _err(
+        'The organiser allows %s ticket(s) per email address.' % limit,
+        'EMAIL_LIMIT', status.HTTP_409_CONFLICT, field='email')
 
 
 def _room_or_error(event, tier, quantity):
@@ -225,6 +248,12 @@ def guest_buy(request, event_id):
     if err:
         return err
 
+    # Before the gateway, so nobody is sent to pay for a ticket that will be
+    # refused on the way back.
+    err = _email_limit_or_error(event, email, quantity)
+    if err:
+        return err
+
     unit_ngn = tier.price_for(quantity)
     total_ngn = unit_ngn * quantity
 
@@ -233,7 +262,15 @@ def guest_buy(request, event_id):
 
     # ------------------------------------------------------------------ free
     if total_ngn <= 0:
-        tickets = _issue(event, tier, quantity, email, answers, unit_ngn, unit_vc)
+        with transaction.atomic():
+            # Checked again inside the transaction that writes. The check above
+            # catches somebody retyping their address; this catches two
+            # requests arriving at once, which is what a double-tapped button
+            # on a slow connection actually looks like.
+            err = _email_limit_or_error(event, email, quantity)
+            if err:
+                return err
+            tickets = _issue(event, tier, quantity, email, answers, unit_ngn, unit_vc)
         _send_them(tickets)
         return _ok({
             'tickets': [_ticket_row(t) for t in tickets],

@@ -179,3 +179,41 @@ def phone_from(event, answers):
         if value:
             return value[:40]
     return ''
+
+
+def held_by(event, email):
+    """How many live tickets this address already holds for this event.
+
+    A cancelled or refunded ticket does not count. Somebody whose order was
+    refunded has no ticket, and refusing them a second one because of a record
+    that no longer admits anybody is the platform arguing with itself.
+    """
+    from .models import Ticket
+
+    email = str(email or '').strip().lower()
+    if not email:
+        return 0
+    return Ticket.objects.filter(
+        event=event, attendee_email__iexact=email,
+    ).exclude(status__in=('cancelled', 'refunded')).count()
+
+
+def room_for_email(event, email, quantity):
+    """Whether this address may take `quantity` more, and why not if it may not.
+
+    Returns `(ok, already, limit)`. `limit` is None when the organiser has set
+    no limit, which is the ordinary case.
+
+    CEO: "if a ticket has been sent to an email before, it should not be sent
+    again, even if they refresh and type in that same email again."
+
+    So the check is against what the address already HOLDS, not against what
+    this request is doing. Refreshing the page and retyping the same address is
+    exactly the case it exists to stop, and a per-request check would wave it
+    through every time.
+    """
+    limit = event.max_tickets_per_email
+    if not limit:
+        return True, 0, None
+    already = held_by(event, email)
+    return (already + int(quantity or 0)) <= int(limit), already, int(limit)

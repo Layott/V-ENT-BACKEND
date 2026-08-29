@@ -71,6 +71,17 @@ class Tournament(models.Model):
     tournament_banner = models.ImageField(upload_to='tournament_banners/', null=True, blank=True)
     tournament_description = models.TextField(null=True)
     tournament_rules = models.TextField(null=True, blank=True)
+
+    # The rules as a document, beside the typed version rather than instead of
+    # it. CEO: "It should also allow uploading of documents, so people can
+    # download the rule document also."
+    #
+    # Real rulesets run to pages, arrive as a PDF somebody already wrote, and
+    # get argued over during a dispute - so an entrant needs the exact file the
+    # organiser published, not a retyped summary of it. The typed field stays
+    # because a reader on a phone should not have to download anything to see
+    # whether substitutes are allowed.
+    rules_document = models.FileField(upload_to='tournament_rules/', null=True, blank=True)
     bracket_type = models.CharField(max_length=50, default='Single Elimination')
     tournament_creator = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True, related_name='tournament_creator')
     tournament_organization = models.ForeignKey(Organization, on_delete=models.CASCADE, null=True, blank=True)

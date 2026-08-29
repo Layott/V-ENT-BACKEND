@@ -638,6 +638,7 @@ def create_tournament(request):
             entry_fee_price = 0.00 if entry_type == 'Free' else request.data.get('entry_fee_price', 0.00)
             tournament_logo = request.FILES.get('tournament_logo')
             tournament_banner = request.FILES.get('tournament_banner')
+            rules_document = request.FILES.get('rules_document')
             tournament_access = request.data.get('tournament_access')
             team_size = request.data.get('team_size', 1)
             min_number_of_participants = request.data.get('min_number_of_participants', 0)
@@ -743,6 +744,7 @@ def create_tournament(request):
                 tournament_banner=tournament_banner,
                 tournament_description=tournament_description,
                 tournament_rules=tournament_rules,
+                rules_document=rules_document,
                 start_date_and_time=start_date_and_time,
                 end_date_and_time=end_date_and_time,
                 tournament_visibility=tournament_visibility,
@@ -1110,6 +1112,7 @@ def get_all_tournaments(request):
         )
         card.update({
             "tournament_rules": tournament.tournament_rules,
+            "rules_document": tournament.rules_document.url if tournament.rules_document else None,
             "facebook_link": tournament.facebook_link,
             "twitter_link": tournament.twitter_link,
             "instagram_link": tournament.instagram_link,
@@ -1279,6 +1282,7 @@ def view_tournament(request, tournament_id):
             "tournament_banner": tournament.tournament_banner.url if tournament.tournament_banner else None,
             "tournament_description": tournament.tournament_description,
             "tournament_rules": tournament.tournament_rules,
+            "rules_document": tournament.rules_document.url if tournament.rules_document else None,
             "bracket_type": tournament.bracket_type,
             "format_label": bracket_label(tournament.bracket_type),
             "start_date_and_time": tournament.start_date_and_time,
@@ -1405,6 +1409,7 @@ def view_user_drafted_tournaments(request):
                     "tournament_banner": t.tournament_banner.url if t.tournament_banner else None,
                     "tournament_description": t.tournament_description,
                     "tournament_rules": t.tournament_rules,
+                    "rules_document": t.rules_document.url if t.rules_document else None,
                     "bracket_type": t.bracket_type,
                     "format_label": bracket_label(t.bracket_type),
                     "tournament_creator_id": t.tournament_creator.user_id,
@@ -1788,6 +1793,13 @@ def edit_tournament(request, tournament_id):
         if request.FILES.get('tournament_banner'):
             tournament.tournament_banner = request.FILES['tournament_banner']
             updated_fields.append('tournament_banner')
+        # A new rules document replaces the old one. Rulesets get amended
+        # mid-season, and an entrant arguing a call needs the version that was
+        # published, so the file is replaced rather than versioned here and the
+        # old one is left on disk.
+        if request.FILES.get('rules_document'):
+            tournament.rules_document = request.FILES['rules_document']
+            updated_fields.append('rules_document')
 
         # Publish/draft toggle - keep `status` in sync with `is_draft`.
         is_draft = request.data.get('is_draft')
