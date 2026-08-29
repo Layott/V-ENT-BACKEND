@@ -67,6 +67,20 @@ class Tournament(models.Model):
         'vent_auth.GameSeries', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='tournaments')
     game_mode = models.CharField(max_length=50, null=True, blank=True)  # Game Mode
+
+    # When entries open and close.
+    #
+    # The wizard has asked for these since it was written and sent them as
+    # `reg_start_date_and_time` / `reg_end_date_and_time`. There were no columns
+    # to put them in, so every organiser who filled them in had them silently
+    # discarded and had to type them again on the next visit. Nothing raised,
+    # because a field nobody stores is indistinguishable from a field nobody
+    # sent.
+    #
+    # Nullable: a tournament that never says is open until it starts, which is
+    # the behaviour everything already assumes.
+    registration_opens_at = models.DateTimeField(null=True, blank=True)
+    registration_closes_at = models.DateTimeField(null=True, blank=True)
     tournament_logo = models.ImageField(upload_to='tournament_logos/', null=True, blank=True)
     tournament_banner = models.ImageField(upload_to='tournament_banners/', null=True, blank=True)
     tournament_description = models.TextField(null=True)
@@ -925,3 +939,118 @@ class TournamentMVP(models.Model):
 
     def __str__(self):
         return f"MVP {self.tournament_id}: {self.player_id}"
+
+
+class ScheduledReminder(models.Model):
+    """A reminder the organiser sets now for the platform to send later.
+
+    CEO, 29 August 2026: "organizers should be able to schedule reminders."
+
+    **The time is stored as an anchor plus an offset, not as a timestamp.**
+    "An hour before check-in opens" is what an organiser actually means, and it
+    is the version that survives them moving the tournament. A fixed timestamp
+    computed at save time would quietly point at the wrong moment the first
+    time a start date changes, which is the most common edit there is. A fixed
+    time is still available for the cases that genuinely are one - "the morning
+    of, at 9" - and is stored as such.
+
+    There is no scheduler process on this deployment. Celery is installed and
+    no task has ever been defined, so this is driven by a management command
+    that cron runs every few minutes:
+
+        python manage.py send_due_reminders
+
+    That is deliberately less machinery than a broker and a worker: the command
+    is an ordinary function, it can be unit tested, and running it twice in the
+    same minute is harmless because `sent_at` is what decides.
+    """
+
+    ANCHOR_CHOICES = [
+        ('tournament_start', 'The tournament start'),
+        ('check_in_opens', 'Check-in opening'),
+        ('check_in_closes', 'Check-in closing'),
+        ('fixed', 'A time I choose'),
+    ]
+
+    KIND_CHOICES = [
+        ('check_in', 'Check in'),
+        ('match', 'Your next match'),
+        ('custom', 'My own message'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    tournament = models.ForeignKey(
+        Tournament, on_delete=models.CASCADE, related_name='scheduled_reminders')
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES,
+                            default='check_in')
+    subject = models.CharField(max_length=140, blank=True, default='')
+    body = models.TextField(max_length=2000, blank=True, default='')
+
+    anchor = models.CharField(max_length=30, choices=ANCHOR_CHOICES,
+                              default='check_in_opens')
+    # Minutes BEFORE the anchor. Negative means after, which is the honest way
+    # to express "fifteen minutes into check-in" without a second field.
+    offset_minutes = models.IntegerField(default=60)
+    fixed_at = models.DateTimeField(null=True, blank=True)
+
+    sent_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    # Why it did not send, when it did not. Recorded rather than logged: an
+    # organiser who scheduled six reminders and had the sixth skipped is owed
+    # the reason on the screen where they scheduled it.
+    skipped_reason = models.CharField(max_length=200, blank=True, default='')
+    people_reached = models.PositiveIntegerField(default=0)
+
+    created_by = models.ForeignKey(
+        'vent_auth.Users', on_delete=models.SET_NULL, null=True,
+        related_name='scheduled_reminders')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['id']
+
+    def __str__(self):
+        return f"{self.tournament_id}:{self.kind} @ {self.due_at()}"
+
+    def anchor_time(self):
+        """The moment this reminder is measured from, or None.
+
+        None when the tournament has no start time, or uses no check-in and the
+        anchor needs one. A reminder that cannot be placed on the clock is not
+        an error; it simply never comes due, and the screen says so.
+        """
+        from .options import check_in_state
+
+        if self.anchor == 'fixed':
+            return self.fixed_at
+        if self.anchor == 'tournament_start':
+            return self.tournament.start_date_and_time
+        window = check_in_state(self.tournament, timezone.now())
+        if window is None:
+            return None
+        if self.anchor == 'check_in_opens':
+            return window.get('opens_at')
+        if self.anchor == 'check_in_closes':
+            return window.get('closes_at')
+        return None
+
+    def due_at(self):
+        """When this should go out, computed fresh every time it is asked.
+
+        Fresh on purpose: the organiser moves the date and the reminder moves
+        with it, without anybody having to remember to reschedule.
+        """
+        from datetime import timedelta
+
+        anchor = self.anchor_time()
+        if anchor is None:
+            return None
+        if self.anchor == 'fixed':
+            return anchor
+        return anchor - timedelta(minutes=self.offset_minutes or 0)
+
+    def is_due(self, now=None):
+        if self.sent_at or self.cancelled_at:
+            return False
+        due = self.due_at()
+        return due is not None and due <= (now or timezone.now())

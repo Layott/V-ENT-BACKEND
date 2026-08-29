@@ -145,6 +145,16 @@ def serialize_tournament_card(t, confirmed_count=0, prize_pool=0):
         "format_label": bracket_label(t.bracket_type),
         "start_date_and_time": t.start_date_and_time,
         "end_date_and_time": t.end_date_and_time,
+        # When entries open and close. Returned under the names the create
+        # wizard sends as well as the model's own, so re-opening a draft
+        # refills the two fields the organiser typed rather than asking again.
+        "registration_opens_at": t.registration_opens_at,
+        "registration_closes_at": t.registration_closes_at,
+        "reg_start_date_and_time": t.registration_opens_at,
+        "reg_end_date_and_time": t.registration_closes_at,
+        # The edition, so re-opening a draft does not silently drop it.
+        "series_id": t.tournament_series_id,
+        "series_name": t.tournament_series.name if t.tournament_series_id else None,
         "tournament_visibility": t.tournament_visibility,
         "tournament_type": t.tournament_type,
         "tournament_location": t.tournament_location,
@@ -753,6 +763,11 @@ def create_tournament(request):
             tournament_type = request.data.get('tournament_type')
             start_date_and_time = request.data.get('start_date_and_time')
             end_date_and_time = request.data.get('end_date_and_time')
+            # When entries open and close. The wizard has sent these under
+            # these names since it was written and there was nowhere to put
+            # them, so they were read and thrown away on every save.
+            registration_opens_at = request.data.get('reg_start_date_and_time') or None
+            registration_closes_at = request.data.get('reg_end_date_and_time') or None
             tournament_location = request.data.get('tournament_location')
             virtual_link = request.data.get('virtual_link')
             hide_location = request.data.get('hide_location', False)
@@ -876,6 +891,8 @@ def create_tournament(request):
                 rules_document=rules_document,
                 start_date_and_time=start_date_and_time,
                 end_date_and_time=end_date_and_time,
+                registration_opens_at=registration_opens_at,
+                registration_closes_at=registration_closes_at,
                 tournament_visibility=tournament_visibility,
                 tournament_type=tournament_type,
                 tournament_location=None if hide_location else tournament_location,
@@ -1429,6 +1446,17 @@ def view_tournament(request, tournament_id):
             "format_label": bracket_label(tournament.bracket_type),
             "start_date_and_time": tournament.start_date_and_time,
             "end_date_and_time": tournament.end_date_and_time,
+            # When entries open and close, and which edition it is played on.
+            # Returned under the names the create wizard sends as well, so
+            # re-opening a draft refills what the organiser typed instead of
+            # asking for it again.
+            "registration_opens_at": tournament.registration_opens_at,
+            "registration_closes_at": tournament.registration_closes_at,
+            "reg_start_date_and_time": tournament.registration_opens_at,
+            "reg_end_date_and_time": tournament.registration_closes_at,
+            "series_id": tournament.tournament_series_id,
+            "series_name": (tournament.tournament_series.name
+                            if tournament.tournament_series_id else None),
             "tournament_visibility": tournament.tournament_visibility,
             "tournament_type": tournament.tournament_type,
             "tournament_location": tournament.tournament_location,
@@ -1876,6 +1904,31 @@ def edit_tournament(request, tournament_id):
         }
 
         updated_fields = []
+
+        # The registration window and the edition, under the names the create
+        # wizard sends. Kept out of `editable_text` because they map onto
+        # differently named columns, and because an empty string here means
+        # "clear it" rather than "unchanged" - an organiser has to be able to
+        # take a closing date off again.
+        #
+        # Every column touched here is appended to `updated_fields`, because the
+        # save at the end passes `update_fields`. Without that a value is set on
+        # the instance, never written, and the organiser is told it saved.
+        for sent, column in (('reg_start_date_and_time', 'registration_opens_at'),
+                             ('reg_end_date_and_time', 'registration_closes_at')):
+            if sent in request.data:
+                setattr(tournament, column, request.data.get(sent) or None)
+                updated_fields.append(column)
+
+        if 'series_id' in request.data:
+            from vent_auth.models import GameSeries
+            raw = request.data.get('series_id')
+            tournament.tournament_series = (
+                GameSeries.objects.filter(series_id=raw,
+                                          game=tournament.tournament_game).first()
+                if raw else None)
+            updated_fields.append('tournament_series')
+
         for field in editable_text:
             val = request.data.get(field)
             if val is None:

@@ -12,6 +12,19 @@ ExecStart=/srv/vent/backend/venv/bin/gunicorn vent.wsgi:application \
   --bind unix:/run/vent/api.sock \
   --access-logfile - --error-logfile -
 RuntimeDirectory=vent
+# A graceful reload, so a deploy does not drop requests.
+#
+# gunicorn's master keeps the listening socket bound on SIGHUP and re-execs its
+# workers underneath it. `systemctl restart` instead kills the master, which
+# unbinds /run/vent/api.sock, and for the couple of seconds until it is back
+# nginx logs "connect() to unix:/run/vent/api.sock failed" and every request in
+# flight fails. On a phone that reads as "could not reach the server", which is
+# exactly how it was reported on 29 August: a draft save died inside a deploy
+# window.
+#
+# A reload does NOT pick up changes to this file or to the EnvironmentFile.
+# Those still need a restart, which is why deploy.sh says so where it reloads.
+ExecReload=/bin/kill -s HUP $MAINPID
 Restart=always
 RestartSec=3
 
