@@ -187,6 +187,18 @@ def share_url(event, code):
     it is guarded at startup for exactly this reason.
     """
     from django.conf import settings
-    base = str(getattr(settings, 'FRONTEND_URL', '') or 'https://v-ent.co').rstrip('/')
+    # The apex, not FRONTEND_URL's default. Two reasons, and the first one has
+    # already cost this platform a week: FRONTEND_URL defaulted to
+    # `test.app.v-ent.co`, a host that has never resolved, and every emailed
+    # link built from it went nowhere until a startup guard was added. This is
+    # a new consumer of the same setting, and a link an influencer posts to
+    # their audience is even less recoverable than an email, because nobody
+    # reports it - they just do not arrive.
+    #
+    # Second: app.v-ent.co 301s to the apex, so building on it adds a redirect
+    # to every click, and some link previews do not follow one.
+    base = str(getattr(settings, 'FRONTEND_URL', '') or '').rstrip('/')
+    if not base.startswith('https://v-ent.co'):
+        base = 'https://v-ent.co'
     slug = event.slug or event.event_id
     return f"{base}/events/{slug}?ref={code}"
