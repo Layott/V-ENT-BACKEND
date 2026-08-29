@@ -182,7 +182,19 @@ class ReferralTrackingTests(TestCase):
         rows = {r['code']: r for r in res.json()['data']['results']}
         self.assertIn('?ref=BIGST', rows['BIGST']['share_url'])
         self.assertIn(self.event.slug, rows['BIGST']['share_url'])
-        self.assertTrue(rows['BIGST']['share_url'].startswith('http'))
+
+    def test_the_link_points_at_the_apex_whatever_frontend_url_says(self):
+        """FRONTEND_URL defaulted to test.app.v-ent.co, a host that has never
+        resolved, and every emailed link built from it went nowhere for a week.
+        This is a new consumer of the same setting, and a dead link an
+        influencer posts to their audience is worse than a dead email: nobody
+        reports it, they just never arrive."""
+        with self.settings(FRONTEND_URL='https://test.app.v-ent.co'):
+            res = self.client.get('/event/%s/referrals/' % self.event.slug,
+                                  **self.owner_auth)
+        url = {r['code']: r for r in res.json()['data']['results']}['BIGST']['share_url']
+        self.assertTrue(url.startswith('https://v-ent.co/'), url)
+        self.assertNotIn('test.app', url)
 
     def test_somebody_else_cannot_read_the_numbers(self):
         _, stranger_auth = a_user('stranger')
