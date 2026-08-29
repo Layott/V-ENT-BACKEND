@@ -63,8 +63,10 @@ urlpatterns = [
 
     path('dm/list/', community.dm_list),
     path('dm/new/send/', community.dm_send, {'conversation_id': 'new'}),
-    path('dm/<int:conversation_id>/', community.dm_detail),
-    path('dm/<int:conversation_id>/send/', community.dm_send),
+    # `str`, not `int`: the address is the conversation's token. A numeric id
+    # still resolves, because links already shared have to keep working.
+    path('dm/<str:conversation_id>/', community.dm_detail),
+    path('dm/<str:conversation_id>/send/', community.dm_send),
 
     # Settings
     path('setting/', v.get_settings),

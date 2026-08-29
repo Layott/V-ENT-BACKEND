@@ -1295,6 +1295,7 @@ class Scrim(models.Model):
 class Conversation(models.Model):
     """A direct-message thread between exactly two people."""
 
+    slug = models.SlugField(max_length=160, unique=True, null=True, blank=True, db_index=True)
     user_a = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='conversations_a')
     user_b = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='conversations_b')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1303,6 +1304,18 @@ class Conversation(models.Model):
     class Meta:
         unique_together = ('user_a', 'user_b')
         ordering = ['-last_message_at']
+
+    def save(self, *args, **kwargs):
+        # There is nothing here to name, and the first line of somebody's
+        # message has no business being in a URL. So it carries an opaque
+        # token rather than the primary key: a sequential id in an address
+        # lets anybody walk the table by counting, and a private conversation
+        # is the last thing that should be enumerable.
+        from vent_auth.slugs import ensure_token
+
+        if ensure_token(self, 'd') and kwargs.get('update_fields') is not None:
+            kwargs['update_fields'] = list(set(kwargs['update_fields']) | {'slug'})
+        super().save(*args, **kwargs)
 
 
 class DirectMessage(models.Model):
