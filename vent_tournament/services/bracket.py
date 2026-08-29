@@ -269,9 +269,59 @@ def _generate_single_elimination(tournament, ordered):
 # Round robin
 # ---------------------------------------------------------------------------
 
-def _generate_round_robin(tournament, ordered):
-    from ..models import BracketMatch
+def _seats_for(tournament):
+    """How many players each side fields inside one fixture.
 
+    1 means a fixture IS the match, which is every ordinary round robin. More
+    than 1 means the fixture is a tie made of that many matches, one per seat,
+    and it is decided on goals added across them.
+
+    Read from LeagueRules because that is where the organiser sets it. A
+    tournament with no LeagueRules row is a plain round robin, which is the
+    right default: a format nobody configured should not silently become an
+    aggregate league.
+    """
+    from ..models import LeagueRules
+
+    rules = LeagueRules.objects.filter(tournament=tournament).first()
+    if rules is None:
+        return 1
+    return max(1, int(rules.players_per_team or 1))
+
+
+def _seat_players(registration, seats):
+    """The people sitting in each seat for one entrant, in seat order.
+
+    Returns a list of length `seats`, padded with None. A seat with nobody in
+    it is a real state: a fixture is scheduled before both rosters are locked,
+    and a forfeited seat has a score with nobody behind it.
+    """
+    from vent_auth.models import TeamMembers
+
+    if registration is None:
+        return [None] * seats
+
+    if registration.user_id:
+        # An individual entrant fills seat one and nothing else.
+        return [registration.user] + [None] * (seats - 1)
+
+    if not registration.team_id:
+        return [None] * seats
+
+    # Join order is the roster order until somebody sets it deliberately. It is
+    # at least stable and visible, which a set iteration order is not.
+    members = list(
+        TeamMembers.objects.filter(team_id=registration.team_id)
+        .select_related('user').order_by('-is_captain', 'join_date', 'pk')[:seats]
+    )
+    people = [m.user for m in members]
+    return (people + [None] * seats)[:seats]
+
+
+def _generate_round_robin(tournament, ordered):
+    from ..models import BracketMatch, TieFixture
+
+    seats = _seats_for(tournament)
     players = list(ordered)
     n = len(players)
     # Circle method; add a bye placeholder for odd counts.
@@ -288,11 +338,29 @@ def _generate_round_robin(tournament, ordered):
             a, b = arr[i], arr[size - 1 - i]
             if a is None or b is None:
                 continue
-            BracketMatch.objects.create(
+            fixture = BracketMatch.objects.create(
                 tournament=tournament, round_number=r, match_number=match_no,
                 bracket_side='winners', participant_1=a, participant_2=b,
                 status='scheduled',
             )
+
+            # The matches inside the fixture, one per seat. Without these the
+            # fixture is an empty shell: the standings read TieFixture rows, so
+            # a league generated without them has a schedule and no way to
+            # record a score against it.
+            #
+            # Seat N always faces seat N. That is the whole point of the slot
+            # and it is why there is no fixture in which seat 1 plays seat 2.
+            if seats > 1:
+                left = _seat_players(a, seats)
+                right = _seat_players(b, seats)
+                for slot in range(1, seats + 1):
+                    TieFixture.objects.create(
+                        tie=fixture, slot=slot,
+                        player_1=left[slot - 1], player_2=right[slot - 1],
+                        status='scheduled',
+                    )
+
             match_no += 1
             matches_created += 1
         # Rotate all but the first element.
@@ -301,7 +369,15 @@ def _generate_round_robin(tournament, ordered):
     return {
         'rounds_count': rounds,
         'matches_created': matches_created,
-        'structure_summary': [{'total_matches': matches_created, 'players': n}],
+        'structure_summary': [{
+            'total_matches': matches_created,
+            'players': n,
+            'seats_per_side': seats,
+            # What the organiser will actually run. Ten fixtures of two seats is
+            # twenty matches on the floor, and the schedule is built from that
+            # number rather than from the fixture count.
+            'matches_on_the_floor': matches_created * seats,
+        }],
     }
 
 

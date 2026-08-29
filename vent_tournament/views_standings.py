@@ -11,6 +11,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from vent_auth.actors import actor_from_request, may_override
 from vent_auth.decorators import resolve_admin
 
 from .models import BracketMatch, LeagueRules, TieFixture, Tournament
@@ -25,6 +26,32 @@ def _ok(data, message='OK'):
 def _err(message, code, http=status.HTTP_400_BAD_REQUEST):
     return Response({'status': 'error', 'code': code, 'message': message, 'data': None},
                     status=http)
+
+
+def _organiser_or_admin(request, tournament):
+    """(user, error). The tournament's own creator, or somebody overriding.
+
+    These endpoints were admin-only, which meant an organiser could not set the
+    points for their own league or record a score in it. Everything they run
+    would have needed somebody with a console login standing behind them, and
+    the format was therefore unusable by the people it was built for.
+
+    `may_override` keeps the admin path for support work, and the audit trail
+    that goes with it.
+    """
+    user, err = actor_from_request(request)
+    if err:
+        return None, err
+    if tournament.tournament_creator_id == user.user_id:
+        return user, None
+    # The same roles that may cancel a tournament outright. There is no
+    # 'manage_tournaments' permission; naming one that does not exist means
+    # may_override always says no, and the admin path quietly stops working.
+    if may_override(user, 'cancel_tournament'):
+        return user, None
+    return None, _err(
+        'Only the tournament organizer can do that.',
+        'ONLY_TOURNAMENT_ORGANIZER_CAN', status.HTTP_403_FORBIDDEN)
 
 
 @api_view(['GET'])
@@ -104,20 +131,22 @@ def _person(user):
 def record_fixture(request, tie_id):
     """Record one player-versus-player game, then settle the tie if it is complete.
 
-    Admin only for now, deliberately. The player-submits-and-opponent-confirms
-    flow already exists for ordinary matches, and wiring a second, subtly
-    different one for tie fixtures before the format has been used in anger is
-    how two score paths drift apart. An organiser recording results is enough to
-    run the CEO's first league.
-    """
-    admin, err = resolve_admin(request)
-    if err:
-        return err
+    The organiser records results, or an admin overriding them. Not the players:
+    the submit-and-confirm flow already exists for ordinary matches, and wiring
+    a second, subtly different one for tie fixtures before the format has been
+    used in anger is how two score paths drift apart.
 
+    It used to be admin-only, which meant the person actually running the
+    league could not enter a score in it.
+    """
     try:
         tie = BracketMatch.objects.get(pk=tie_id)
     except BracketMatch.DoesNotExist:
         return _err('Match not found', 'MATCH_NOT_FOUND', status.HTTP_404_NOT_FOUND)
+
+    _user, err = _organiser_or_admin(request, tie.tournament)
+    if err:
+        return err
 
     slot = request.data.get('slot')
     goals_1 = request.data.get('goals_1')
@@ -151,7 +180,12 @@ def record_fixture(request, tie_id):
     return _ok({
         'tie_id': tie.pk,
         'slot': slot,
-        'aggregate': {'participant_1': tie.score_p1, 'participant_2': tie.score_p2},
+        # The RUNNING aggregate, not the settled one. `settle` only writes
+        # score_p1/score_p2 once every seat is in, so echoing those told an
+        # organiser who had just recorded the first match of a fixture that the
+        # score was 0-0 - which reads as though the entry had not saved.
+        'aggregate': dict(zip(('participant_1', 'participant_2'),
+                              league.aggregate(tie))),
         'tie_status': tie.status,
         'winner_registration_id': winner.id if winner else None,
         'drawn': tie.status == 'completed' and winner is None,
@@ -160,15 +194,19 @@ def record_fixture(request, tie_id):
 
 @api_view(['POST'])
 def set_league_rules(request, tournament_id):
-    """The organiser's points and tiebreakers."""
-    admin, err = resolve_admin(request)
-    if err:
-        return err
+    """The organiser's points and tiebreakers.
 
+    Theirs, so they set them. This was admin-only, which made the one setting
+    the format depends on unreachable by the person running it.
+    """
     try:
         tournament = Tournament.objects.get(pk=tournament_id)
     except Tournament.DoesNotExist:
         return _err('Tournament not found', 'TOURNAMENT_NOT_FOUND', status.HTTP_404_NOT_FOUND)
+
+    _user, err = _organiser_or_admin(request, tournament)
+    if err:
+        return err
 
     rules, _ = LeagueRules.objects.get_or_create(tournament=tournament)
 
