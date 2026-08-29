@@ -11,7 +11,7 @@ from .models import (
     TournamentPrizeDistribution, TournamentRegistration, BracketMatch,
     Sponsors, Match, RegisteredTeams, LeagueRules,
 )
-from django.db.models import Q
+from django.db.models import F, Q
 from django.db import transaction
 
 from rest_framework.decorators import permission_classes
@@ -280,6 +280,34 @@ def _overlapping_registration(user, tournament):
         if starts <= other_ends and ends >= other_starts:
             return other
     return None
+def _usable_invite(tournament, given):
+    """The invite this code names, if it exists and has a use left.
+
+    None for a blank, an unknown or a spent code - all of which mean the same
+    thing to the person at the door: not this way.
+    """
+    from .models import TournamentInvite
+
+    given = str(given or '').strip()
+    if not given:
+        return None
+    for invite in TournamentInvite.objects.filter(tournament=tournament):
+        if invite.matches(given) and not invite.spent:
+            return invite
+    return None
+
+
+def _entry_status(tournament):
+    """`pending` when the organiser looks at each entrant, `confirmed` otherwise.
+
+    Manual approval means the registration WAITS. It does not mean the entrant
+    is refused, and the difference matters because they have often already paid
+    by the time this is decided.
+    """
+    return 'pending' if tournament.approve_registrations else 'confirmed'
+
+
+
 
 @api_view(['POST'])
 def join_tournament(request):
@@ -386,6 +414,28 @@ def join_tournament(request):
                     'data': {'outstanding': outstanding},
                 }, status=status.HTTP_403_FORBIDDEN)
 
+        # A protected tournament is visible to everybody and open to nobody
+        # without an invite. The visibility setting has always listed it that
+        # way and never enforced it, so choosing "protected" did exactly
+        # nothing: anybody who found the page could still register.
+        #
+        # An invite code is what opens it. The same code opens a private one,
+        # which is the "unique URLs or codes shared with specific groups" the
+        # PRD asks for.
+        invite = None
+        if tournament.tournament_visibility in ('protected', 'private'):
+            given = str(request.data.get('invite_code')
+                        or request.data.get('code') or '').strip()
+            invite = _usable_invite(tournament, given)
+            if invite is None:
+                return Response({
+                    'status': 'error',
+                    'code': 'INVITE_REQUIRED',
+                    'message': ('This tournament is invitation only. Enter the code the '
+                                'organizer sent you.'),
+                    'data': {'visibility': tournament.tournament_visibility},
+                }, status=status.HTTP_403_FORBIDDEN)
+
         # Two tournaments at the same time is two matches somebody cannot play.
         # The PRD asks for a warning rather than a refusal, so this answers with
         # the clash and what it collides with, and goes ahead when the caller
@@ -478,6 +528,15 @@ def join_tournament(request):
                                 status=status.HTTP_403_FORBIDDEN)
 
         with db_transaction.atomic():
+            # The invite is spent inside the same transaction that creates the
+            # registration. Spending it first would burn a code on a
+            # registration that then failed; spending it after would let two
+            # people through one single-use code.
+            if invite is not None:
+                from .models import TournamentInvite
+                TournamentInvite.objects.filter(pk=invite.pk).update(
+                    used_count=F('used_count') + 1)
+
             if team_id:
                 team = get_object_or_404(Teams, team_id=team_id)
                 if TournamentRegistration.objects.filter(tournament=tournament, team=team).exists():
@@ -486,7 +545,7 @@ def join_tournament(request):
                                     status=status.HTTP_409_CONFLICT)
                 registration = TournamentRegistration.objects.create(
                     tournament=tournament, team=team,
-                    status='confirmed', entry_fee_paid=not is_paid,
+                    status=_entry_status(tournament), entry_fee_paid=not is_paid,
                 )
             else:
                 if TournamentRegistration.objects.filter(tournament=tournament, user=user).exists():
@@ -495,7 +554,7 @@ def join_tournament(request):
                                     status=status.HTTP_409_CONFLICT)
                 registration = TournamentRegistration.objects.create(
                     tournament=tournament, user=user,
-                    status='confirmed', entry_fee_paid=not is_paid,
+                    status=_entry_status(tournament), entry_fee_paid=not is_paid,
                 )
 
             # Record what paid for the entry when an event ticket did.
