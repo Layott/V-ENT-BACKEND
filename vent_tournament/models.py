@@ -132,6 +132,17 @@ class Tournament(models.Model):
     # Check if its a draft
     is_draft = models.BooleanField(default=True)
 
+    # Whether the organiser waves entrants through or looks at each one.
+    #
+    # PRD: "Automated or manual procedure to accept or decline teams from your
+    # tournament (select yes or no)."
+    #
+    # Off means a confirmed registration the moment somebody pays or presses
+    # join, which is what almost every open tournament wants. On means every
+    # registration lands as `pending` and waits for the organiser, which is what
+    # an invitational needs.
+    approve_registrations = models.BooleanField(default=False)
+
     # --- M1 lifecycle additions --------------------------------------------
     score_confirmation_mode = models.CharField(
         max_length=20,
@@ -751,3 +762,57 @@ class TournamentStage(models.Model):
 
     def __str__(self):
         return '%s: %s' % (self.tournament_id, self.label)
+
+
+class TournamentInvite(models.Model):
+    """A code that lets somebody register for a tournament they could not otherwise.
+
+    Two things the PRD asks for, and they are the same object seen twice:
+
+      "generate unique URLs or codes for the tournament that can be shared with
+      specific groups or teams (generate up to 64 codes for free users)"
+
+      "automated (a system where a couple of codes can be automatically created
+      and then, only if the teams/players that want to register input those
+      codes will they then be able to register) or manually (where the user
+      inputs the different codes or uploads the codes in a document)"
+
+    So: a row per code. Generated in a batch or typed in one at a time, and the
+    URL is just the code on the end of the tournament's address.
+
+    A code is single-use by default because that is what "one slot" means, and
+    an organiser who wants a code a whole team can use sets `max_uses` above one
+    rather than being handed a different kind of object.
+    """
+
+    id = models.AutoField(primary_key=True)
+    tournament = models.ForeignKey(
+        Tournament, on_delete=models.CASCADE, related_name='invites')
+    code = models.CharField(max_length=32)
+
+    # Who it was meant for, so an organiser reading their list of 64 codes can
+    # tell which one they sent to whom. Free text: they are as likely to write
+    # "the Lagos lot" as a username.
+    label = models.CharField(max_length=120, blank=True, default='')
+
+    max_uses = models.PositiveIntegerField(default=1)
+    used_count = models.PositiveIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='tournament_invites_made')
+
+    class Meta:
+        unique_together = ('tournament', 'code')
+        ordering = ['id']
+
+    def __str__(self):
+        return '%s for tournament %s' % (self.code, self.tournament_id)
+
+    @property
+    def spent(self):
+        return self.used_count >= self.max_uses
+
+    def matches(self, given):
+        return str(given or '').strip().lower() == self.code.strip().lower()
