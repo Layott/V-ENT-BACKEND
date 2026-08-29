@@ -12,6 +12,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 from . import views_formats
+from . import views_running_order
 from . import views_requirements
 from . import views_stages
 from . import views_rules
@@ -73,6 +74,10 @@ urlpatterns = [
     # Public, because a league table is the most shareable thing a tournament
     # produces and putting it behind a sign-in keeps the competition invisible.
     path("<int:tournament_id>/standings/", standings, name="tournament_standings"),
+    path("<str:tournament_id>/running-order/", views_running_order.running_order,
+         name="tournament_running_order"),
+    path("<str:tournament_id>/running-order/set/", views_running_order.set_running_order,
+         name="set_tournament_running_order"),
     path("tie/<int:tie_id>/", tie_detail, name="tie_detail"),
     path("tie/<int:tie_id>/record/", record_fixture, name="record_tie_fixture"),
     path("<int:tournament_id>/league-rules/", set_league_rules, name="set_league_rules"),

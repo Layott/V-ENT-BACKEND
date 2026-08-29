@@ -19,7 +19,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from vent_auth.models import Users
-from .models import Event, EventTournamentLink, Ticket
+from .models import Event, EventTournamentLink, Ticket, TicketTier
 
 
 def _event_by_ref(ref, **extra):
@@ -91,12 +91,52 @@ def link_for_tournament(tournament_id):
             .first())
 
 
+def holds_entry_ticket(user, link):
+    """Whether this person holds the ticket that admits them to the tournament.
+
+    When the organiser named an `entry_tier`, only that tier admits: a general
+    admission ticket does not get somebody into the competition if the rule says
+    the competitor pass does.
+    """
+    if not user or not link:
+        return False
+    tickets = Ticket.objects.filter(
+        event_id=link.event_id, user=user, status__in=TICKET_VALID_STATUSES)
+    if link.entry_tier_id:
+        tickets = tickets.filter(tier_id=link.entry_tier_id)
+    return tickets.exists()
+
+
 def entry_is_covered(user, tournament):
-    """True when this viewer's event ticket pays this tournament's entry fee."""
+    """True when this viewer's event ticket pays this tournament's entry fee.
+
+    `shared_ticketing` is the old flag and still means exactly this. The newer
+    `entry_mode` says the same thing more precisely, and either being set is
+    enough - an organiser who set the mode should not have to also remember a
+    checkbox that predates it.
+    """
     link = link_for_tournament(tournament.tournament_id)
-    if not link or not link.shared_ticketing:
+    if not link:
         return False, link
-    return has_event_ticket(user, link.event_id), link
+    by_ticket = (link.shared_ticketing
+                 or link.entry_mode == EventTournamentLink.ENTRY_TICKET)
+    if not by_ticket:
+        return False, link
+    return holds_entry_ticket(user, link), link
+
+
+def entry_requires_ticket(tournament):
+    """(required, link). Whether a ticket is the ONLY way into this tournament.
+
+    Different from `entry_is_covered`, which asks whether a ticket happens to
+    pay a fee. This asks whether somebody without one may enter at all, which
+    is the organiser saying "the door price is the entry" rather than "a ticket
+    saves you the entry fee".
+    """
+    link = link_for_tournament(tournament.tournament_id)
+    if not link:
+        return False, None
+    return link.entry_mode == EventTournamentLink.ENTRY_TICKET, link
 
 
 def serialize_linked_tournament(request, link, viewer=None):
@@ -113,6 +153,15 @@ def serialize_linked_tournament(request, link, viewer=None):
     card['entry_covered_by_ticket'] = bool(
         link.shared_ticketing and has_event_ticket(viewer, link.event_id)
     )
+
+    # How entry works here, so the register screen can say it rather than
+    # discovering it when the entrant is refused.
+    card['entry_mode'] = link.entry_mode
+    card['entry_tier'] = ({'id': link.entry_tier_id, 'name': link.entry_tier.name}
+                          if link.entry_tier_id else None)
+    card['reward_from_round'] = link.reward_from_round
+    card['reward_tier'] = ({'id': link.reward_tier_id, 'name': link.reward_tier.name}
+                           if link.reward_tier_id else None)
     return card
 
 
@@ -285,6 +334,64 @@ def set_shared_ticketing(request, event_id, tournament_id):
     shared = raw if isinstance(raw, bool) else str(raw).lower() in ('1', 'true', 'yes')
 
     link.shared_ticketing = shared
-    link.save(update_fields=['shared_ticketing'])
+
+    fields = ['shared_ticketing']
+
+    # How somebody gets into the tournament, and what reaching a round is worth.
+    # Sent alongside the flag rather than through a second endpoint, because
+    # they are one decision the organiser makes in one sitting.
+    if 'entry_mode' in request.data:
+        mode = str(request.data.get('entry_mode') or '').strip()
+        valid = {c[0] for c in EventTournamentLink.ENTRY_CHOICES}
+        if mode not in valid:
+            return _error('Entry is one of: %s.' % ', '.join(sorted(valid)),
+                          'VALIDATION_FAILED', status.HTTP_400_BAD_REQUEST)
+        link.entry_mode = mode
+        fields.append('entry_mode')
+
+    def _tier_or_error(key):
+        """A tier on THIS event, or None to clear it."""
+        raw = request.data.get(key)
+        if raw in (None, '', 0, '0'):
+            return None, None
+        tier = TicketTier.objects.filter(event=event, pk=raw).first()
+        if tier is None:
+            return None, _error('That ticket type is not on this event.',
+                                'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+        return tier, None
+
+    if 'entry_tier' in request.data:
+        tier, err2 = _tier_or_error('entry_tier')
+        if err2:
+            return err2
+        link.entry_tier = tier
+        fields.append('entry_tier')
+
+    if 'reward_from_round' in request.data:
+        raw = request.data.get('reward_from_round')
+        if raw in (None, '', 0, '0'):
+            link.reward_from_round = None
+        else:
+            try:
+                link.reward_from_round = max(1, int(raw))
+            except (TypeError, ValueError):
+                return _error('The round has to be a number.', 'INVALID_NUMBER',
+                              status.HTTP_400_BAD_REQUEST)
+        fields.append('reward_from_round')
+
+    if 'reward_tier' in request.data:
+        tier, err2 = _tier_or_error('reward_tier')
+        if err2:
+            return err2
+        link.reward_tier = tier
+        fields.append('reward_tier')
+
+    # A reward with no ticket behind it promises something that cannot be
+    # handed over, so the pair is refused rather than half-stored.
+    if link.reward_from_round and link.reward_tier_id is None:
+        return _error('Say which ticket reaching that round earns.',
+                      'VALIDATION_FAILED', status.HTTP_400_BAD_REQUEST)
+
+    link.save(update_fields=fields)
     return _ok({'tournament': serialize_linked_tournament(request, link, user)},
                'Shared ticketing on.' if shared else 'Shared ticketing off.')

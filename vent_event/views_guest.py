@@ -101,9 +101,11 @@ def _validate_order(event, request):
         return None, None, None, None, _err(
             'Pick a ticket type.', 'VALIDATION_ERROR', field='tier_id')
 
-    if tier.access_code:
+    # A guest is held to the same lock as anybody else. Two gates that check a
+    # code differently is how one of them ends up letting people through.
+    if tier.is_hidden:
         given = str(request.data.get('code') or '').strip()
-        if given.lower() != tier.access_code.lower():
+        if not tier.opened_by(given):
             return None, None, None, None, _err(
                 'That ticket type needs an access code.', 'CODE_REQUIRED',
                 status.HTTP_403_FORBIDDEN)

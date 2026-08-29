@@ -119,6 +119,21 @@ class TicketTier(models.Model):
     # somebody types the code. For a members' presale or a sponsor's allocation.
     access_code = models.CharField(max_length=40, blank=True, default='')
 
+    # A ticket type only an influencer's audience can buy.
+    #
+    # CEO: "there should also be an option where a ticket is locked behind an
+    # influencers link or if the influencer will have codes attributed to them
+    # and so only those who have those codes, can use them to redeem a ticket."
+    #
+    # A pointer to the referral rather than a second copy of its code, so
+    # rotating the influencer's code cannot leave a tier unlockable by a code
+    # nobody is handing out any more. Null means the tier is not locked to
+    # anybody, which is every ordinary tier.
+    unlocked_by = models.ForeignKey(
+        'EventReferral', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='unlocks_tiers',
+    )
+
     def price_for(self, quantity=1):
         """What one ticket costs right now, at this quantity.
 
@@ -135,7 +150,32 @@ class TicketTier(models.Model):
 
     @property
     def is_hidden(self):
-        return bool(self.access_code)
+        # Hidden means "not on the public list": either it wants a code of its
+        # own, or it belongs to an influencer and only their audience sees it.
+        return bool(self.access_code) or self.unlocked_by_id is not None
+
+    def opened_by(self, code):
+        """Whether `code` unlocks this tier.
+
+        Two ways in and they are deliberately different things: a tier's own
+        access_code is a password the organiser set, and `unlocked_by` points at
+        an influencer whose referral code is the key. Checking the referral by
+        pointer rather than by a copied string means rotating that influencer's
+        code takes effect immediately, everywhere.
+        """
+        given = str(code or '').strip().lower()
+        if not self.is_hidden:
+            return True
+        if not given:
+            return False
+        if self.access_code and given == self.access_code.strip().lower():
+            return True
+        if self.unlocked_by_id is not None:
+            referral = self.unlocked_by
+            if referral and referral.is_active:
+                if given == str(referral.code or '').strip().lower():
+                    return True
+        return False
 
     class Meta:
         ordering = ['day', 'id']
@@ -522,6 +562,53 @@ class EventTournamentLink(models.Model):
         'vent_tournament.Tournament', on_delete=models.CASCADE, related_name='event_link',
     )
     shared_ticketing = models.BooleanField(default=False)
+
+    # How somebody gets INTO the tournament when it sits inside an event.
+    #
+    # CEO: "an organizer can decide if the players in the tournament will have
+    # to buy tickets to pay or the tournament will have its own registeration
+    # fee, or if them getting to like the finals gets the players that got
+    # there automatic tickets or not and what level of tickets for everything."
+    #
+    # Three answers, and they are genuinely different arrangements rather than
+    # shades of one setting:
+    #
+    #   ticket    the event ticket IS the entry. No separate fee. This is the
+    #             convention model: pay at the door, play what is on.
+    #   own_fee   the tournament charges its own entry, and the event ticket is
+    #             a separate purchase. This is the tournament-inside-a-festival
+    #             model, where not every attendee is competing.
+    #   free      entry costs nothing either way.
+    ENTRY_TICKET = 'ticket'
+    ENTRY_OWN_FEE = 'own_fee'
+    ENTRY_FREE = 'free'
+    ENTRY_CHOICES = [
+        (ENTRY_TICKET, 'An event ticket is the entry'),
+        (ENTRY_OWN_FEE, 'The tournament charges its own entry fee'),
+        (ENTRY_FREE, 'Free either way'),
+    ]
+    entry_mode = models.CharField(max_length=10, choices=ENTRY_CHOICES,
+                                  default=ENTRY_FREE)
+
+    # Which ticket counts as entry, when the mode is `ticket`. Null means any
+    # ticket to the event does - which is the ordinary case, and a organiser
+    # naming a tier means only that tier admits you to the competition.
+    entry_tier = models.ForeignKey(
+        'TicketTier', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='admits_to_tournaments',
+    )
+
+    # Getting far enough earns a ticket. Null means no such reward.
+    #
+    # Stored as the round number a player must REACH, because that is how an
+    # organiser says it: "everyone who makes the semi-finals gets a weekend
+    # pass". Which pass is `reward_tier`; without one there is nothing to give,
+    # so both are needed for the reward to mean anything.
+    reward_from_round = models.PositiveIntegerField(null=True, blank=True)
+    reward_tier = models.ForeignKey(
+        'TicketTier', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='awarded_by_tournaments',
+    )
     linked_by = models.ForeignKey(
         'vent_auth.Users', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='event_tournament_links',

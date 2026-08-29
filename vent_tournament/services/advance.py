@@ -14,10 +14,14 @@ target slot(s), then walkover-collapse any target that can no longer fill up.
 
 Everything here is idempotent: re-running a cascade never double-advances.
 """
+import logging
+
 import threading
 
 from django.db import transaction
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 TERMINAL_STATUSES = ('completed', 'bye')
 NON_TERMINAL_STATUSES = ('scheduled', 'in_progress', 'pending_opponent_confirm', 'disputed')
@@ -58,7 +62,65 @@ def handle_match_saved(sender, instance, created, **kwargs):
 def cascade(match):
     """Route a freshly-resolved match forward and check for tournament completion."""
     _route(match)
+    _award_reward_tickets(match)
     _maybe_complete(match.tournament_id)
+
+
+def _award_reward_tickets(match):
+    """Reaching a round can earn a ticket to the event this runs inside.
+
+    CEO: "if them getting to like the finals gets the players that got there
+    automatic tickets or not and what level of tickets."
+
+    Awarded on ARRIVAL in the round, not on winning it: "everyone who makes the
+    semi-finals gets a pass" means the four who got there, including the two who
+    then lose. So the trigger is the winner of a round-N match, who has thereby
+    reached round N+1.
+
+    Silent on failure. A ticket that fails to mint is a support question; a
+    scoring path that raises because of one is a tournament that cannot record
+    results.
+    """
+    try:
+        if match.status != 'completed' or match.winner_id is None:
+            return
+
+        from vent_event.models import EventTournamentLink, Ticket
+        from vent_event.views_tickets import _new_code
+
+        link = EventTournamentLink.objects.select_related('event', 'reward_tier').filter(
+            tournament_id=match.tournament_id).first()
+        if link is None or not link.reward_from_round or link.reward_tier_id is None:
+            return
+
+        reached = (match.round_number or 0) + 1
+        if reached < link.reward_from_round:
+            return
+
+        winner = match.winner
+        holder = winner.user if winner and winner.user_id else None
+        if holder is None:
+            # A team entry has no single person to hand a ticket to. Awarding
+            # one to the captain silently would be a decision nobody made.
+            return
+
+        # Idempotent: cascade can run more than once for the same match, and two
+        # tickets for one achievement is two people through one door.
+        already = Ticket.objects.filter(
+            event_id=link.event_id, user=holder, tier_id=link.reward_tier_id,
+            payment_reference='reward:%s' % match.pk).exists()
+        if already:
+            return
+
+        Ticket.objects.create(
+            event_id=link.event_id, tier_id=link.reward_tier_id, user=holder,
+            code=_new_code(), price_vc=0, price_ngn=0,
+            attendee_name=(holder.full_name or holder.username or '')[:120],
+            attendee_email=(holder.email or '')[:254],
+            payment_reference='reward:%s' % match.pk,
+        )
+    except Exception:
+        logger.exception('could not award a reward ticket for match %s', match.pk)
 
 
 # ---------------------------------------------------------------------------
