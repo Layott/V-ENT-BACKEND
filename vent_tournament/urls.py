@@ -14,6 +14,7 @@ from django.conf.urls.static import static
 from . import views_formats
 from . import views_running_order
 from . import views_access
+from . import views_export
 from . import views_requirements
 from . import views_stages
 from . import views_rules
@@ -75,6 +76,8 @@ urlpatterns = [
     # Public, because a league table is the most shareable thing a tournament
     # produces and putting it behind a sign-in keeps the competition invisible.
     path("<int:tournament_id>/standings/", standings, name="tournament_standings"),
+    path("<str:tournament_id>/export/", views_export.export_tournament,
+         name="tournament_export"),
     path("<str:tournament_id>/invites/", views_access.invites, name="tournament_invites"),
     path("<str:tournament_id>/invites/download/", views_access.invites_download,
          name="tournament_invites_download"),
