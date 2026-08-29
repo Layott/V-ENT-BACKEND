@@ -2,6 +2,15 @@
 # Deploy main onto the VPS. Run as the `vent` user.
 set -euo pipefail
 
+# The written page, up for the whole deploy rather than for the seconds the
+# port is dead. nginx answers 503 while this file exists, and 503 is mapped to
+# maintenance.html. The trap matters more than the flag: a deploy that fails
+# half way through must not leave the site showing a maintenance page forever.
+MAINTENANCE_FLAG=/srv/vent/maintenance.on
+sudo install -m 0644 /srv/vent/backend/deploy/maintenance.html /srv/vent/maintenance.html
+sudo touch "$MAINTENANCE_FLAG"
+trap 'sudo rm -f "$MAINTENANCE_FLAG"' EXIT
+
 echo "--- backend ---"
 cd /srv/vent/backend
 git pull --ff-only
@@ -47,9 +56,10 @@ mkdir -p .next/standalone/.next/static .next/standalone/public
 cp -rT .next/static  .next/standalone/.next/static
 cp -rT public        .next/standalone/public
 
-# The written page nginx shows while this is happening.
-sudo install -m 0644 /srv/vent/backend/deploy/maintenance.html /srv/vent/maintenance.html
-
 sudo systemctl restart vent-web
 
 systemctl is-active vent-api vent-web
+
+# Down comes the flag. The trap would do it anyway; doing it here means the
+# site is back before the last line of output rather than after it.
+sudo rm -f "$MAINTENANCE_FLAG"
