@@ -269,7 +269,9 @@ def send_tournament_registered(user, tournament, *, entry_paid_vc=0):
             'name': _first_name(user),
             'tournament': tournament.tournament_title,
             'starts': starts.strftime('%d %b, %H:%M') if starts else 'soon',
-            'bracket_url': f'{APP_URL}/tournaments/view-tournament?id={tournament.tournament_id}',
+            # The slug, never the key. This link is emailed, so it outlives
+            # every other copy of the address and gets forwarded.
+            'bracket_url': f'{APP_URL}/tournaments/{tournament.slug or tournament.tournament_id}',
             'rows': rows,
         },
     )
@@ -277,11 +279,15 @@ def send_tournament_registered(user, tournament, *, entry_paid_vc=0):
 
 def send_ticket_purchased(ticket):
     """One email per ticket, because each ticket admits one person by its code."""
+    from vent_event.serializers import map_search_url
     event = ticket.event
     starts = event.start_date
+    # The venue name and the address, because "Eko Convention Centre" is what
+    # somebody asks a driver for and the street is what the driver needs.
+    where = ', '.join(p for p in (event.venue_name, event.location) if p) or 'Online'
     rows = [
         ('Tier', ticket.tier.name),
-        ('Venue', event.location or 'Online'),
+        ('Venue', where),
         ('Doors', starts.strftime('%d %b %Y, %H:%M') if starts else 'To be announced'),
         ('Paid', f'{int(ticket.price_vc):,} VC', '#D4AF37'),
     ]
@@ -300,6 +306,15 @@ def send_ticket_purchased(ticket):
             'has_account': bool(ticket.user_id),
             'ticket_url': f'{APP_URL}/events/my-tickets',
             'find_url': f'{APP_URL}/events/find-ticket',
+            # Only when the organiser turned it on. Offering a check-in link
+            # for an event that scans at the door sends somebody to a page
+            # that refuses them, which is worse than not mentioning it.
+            'check_in_url': (f'{APP_URL}/events/check-in/{ticket.code}'
+                             if event.self_check_in else ''),
+            # Getting there. `directions` is what a map cannot tell you: which
+            # gate, where to park, what to bring.
+            'map_url': event.map_link or map_search_url(event),
+            'directions': event.directions,
             'rows': rows,
         },
         inline_images=[(TICKET_QR_CID, qr, 'ticket-qr.png')],
@@ -553,3 +568,25 @@ def send_partner_decision(partner):
     except Exception:
         logger.exception('partner decision email failed')
         return False
+
+
+def send_event_announcement(to_address, *, event, subject, body):
+    """One message from an organiser to one ticket holder.
+
+    Sent per address rather than as one email with everybody in bcc, because a
+    bcc list is one mistake away from publishing the attendee list of an event,
+    and that list is the thing people handed over an address to be on rather
+    than to be shown.
+    """
+    return _send(
+        to_address,
+        subject,
+        'event_announcement.html',
+        {
+            'subject': subject,
+            'body': body,
+            'event': event.name,
+            'preheader': (body or '')[:120],
+            'event_url': f'{APP_URL}/events/{event.slug or event.event_id}',
+        },
+    )

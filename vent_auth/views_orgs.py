@@ -335,7 +335,7 @@ def org_apply(request, org_id):
         create_notification(
             user=org.org_owner, category='system',
             title=f'@{user.username} applied to {org.org_name}',
-            body=req.message, link=f'/organizations/manage?id={org.org_id}',
+            body=req.message, link=f'/organizations/{org.slug or org.org_id}/manage',
             metadata={'org_id': org.org_id, 'request_id': req.id},
         )
     except Exception:
@@ -403,7 +403,7 @@ def _resolve_request(request, org_id, accept):
         create_notification(
             user=req.user, category='system',
             title=f"{org.org_name} {'accepted' if accept else 'declined'} your application",
-            body='', link=f'/organizations/org-profile?id={org.org_id}',
+            body='', link=f'/organizations/{org.slug or org.org_id}',
             metadata={'org_id': org.org_id},
         )
     except Exception:

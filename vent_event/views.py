@@ -559,12 +559,37 @@ def edit_event(request, event_id):
     text_fields = [
         'name', 'desc', 'event_type', 'category', 'location', 'event_link',
         'banner_url',
+        # Getting there. `location` alone is enough to print on a ticket and not
+        # enough to travel to.
+        'venue_name', 'map_link', 'directions',
     ]
     for field in text_fields:
         value = data.get(field)
         if value is not None:
             setattr(event, field, value)
             updated.append(field)
+
+    # Whether an attendee may admit themselves, and how long before the doors.
+    # A boolean cannot go through the loop above: `False` is a value the
+    # organiser is expressing, and `if value is not None` would keep it while
+    # the truthiness tests elsewhere would drop it.
+    if 'self_check_in' in data:
+        raw = data.get('self_check_in')
+        event.self_check_in = raw in (True, 'true', 'True', 1, '1', 'yes')
+        updated.append('self_check_in')
+
+    if 'self_check_in_opens_minutes' in data:
+        raw = data.get('self_check_in_opens_minutes')
+        try:
+            minutes = int(raw)
+        except (TypeError, ValueError):
+            return _error('The check-in window must be a number of minutes.',
+                          'INVALID_NUMBER', status.HTTP_400_BAD_REQUEST)
+        if minutes < 0 or minutes > 60 * 24 * 7:
+            return _error('The check-in window has to be between nothing and a '
+                          'week.', 'INVALID_NUMBER', status.HTTP_400_BAD_REQUEST)
+        event.self_check_in_opens_minutes = minutes
+        updated.append('self_check_in_opens_minutes')
 
     # Numbers, guarded: a capacity of "soon" must not reach the column.
     for field in ('entry_fee', 'capacity'):

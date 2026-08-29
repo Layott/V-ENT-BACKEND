@@ -43,6 +43,26 @@
 {% endif %}
 <div style="height:24px; line-height:24px;">&nbsp;</div>
 
+{% if map_url or directions %}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 20px 0;">
+  <tr>
+    <td style="background-color:#1A1A1F; border-radius:12px; padding:16px;">
+      <p style="margin:0 0 8px 0; font-size:13px; color:#8A8A93; text-transform:uppercase; letter-spacing:0.08em;">Getting there</p>
+      {% if directions %}<p style="margin:0 0 10px 0; font-size:14px; color:#DEDEE3; white-space:pre-line;">{{ directions }}</p>{% endif %}
+      {% if map_url %}<a href="{{ map_url }}" style="color:#4CAF50; font-size:14px; text-decoration:none;">Open the venue in maps</a>{% endif %}
+    </td>
+  </tr>
+</table>
+{% endif %}
+
+{% if check_in_url %}
+{# Only when the organiser turned self check-in on. A link that refuses the
+   person who presses it is worse than no link. #}
+<p style="margin:0 0 20px 0; font-size:14px; color:#8A8A93;">
+  When you arrive you can <a href="{{ check_in_url }}" style="color:#4CAF50; text-decoration:none;">check yourself in</a> instead of queueing.
+</p>
+{% endif %}
+
 <p style="margin:0; font-size:14px; color:#8A8A93;">Show the code above at the door. If the image does not load, the letters underneath it are enough.</p>
 {% endblock %}
 {% block footer_note %}You received this because you bought a ticket on V-ENT.{% endblock %}

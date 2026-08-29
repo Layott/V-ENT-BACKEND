@@ -24,6 +24,7 @@ import string
 from django.db import transaction
 from rest_framework import status
 from rest_framework.decorators import api_view
+from django.http import HttpResponse
 from rest_framework.response import Response
 
 from vent_auth.actors import actor_from_request, may_override
@@ -221,7 +222,9 @@ def invites_download(request, tournament_id):
         content_type = 'text/plain'
         name = '%s-invite-codes.txt' % stem
 
-    response = Response(body, content_type=content_type)
+    # Plain, not DRF: a DRF Response renders through JSON and the file would
+    # arrive as a quoted string rather than the codes.
+    response = HttpResponse(body, content_type=content_type)
     response['Content-Disposition'] = 'attachment; filename="%s"' % name
     return response
 

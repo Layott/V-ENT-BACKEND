@@ -5,6 +5,10 @@ from django.conf.urls.static import static
 from . import views_guest
 from . import views_sponsors
 from . import views_holds
+from . import views_announce
+from . import views_metrics
+from . import views_polls
+from . import views_self_check_in
 from . import views_sessions
 from . import views_waitlist
 from . import views_tiers
@@ -45,6 +49,14 @@ urlpatterns = [
     path("my-tickets/", my_tickets, name="my_tickets"),
     path("my-events/", my_events, name="my_events"),
     path("ticket/<str:code>/check-in/", check_in_ticket, name="check_in_ticket"),
+    # Admitting yourself, where the organiser allows it. No Bearer token
+    # required: a guest has no account, and the code plus the address it was
+    # sent to is what stands in for a steward.
+    path("ticket/<str:code>/self-check-in/", views_self_check_in.self_check_in,
+         name="self_check_in"),
+    path("<str:event_id>/self-check-in/settings/",
+         views_self_check_in.self_check_in_settings,
+         name="self_check_in_settings"),
     path("<str:event_id>/ticket-types/", ticket_types, name="ticket_types"),
     path("<str:event_id>/sessions/", views_sessions.sessions, name="event_sessions"),
     path("<str:event_id>/sessions/manage/", views_sessions.manage_sessions, name="manage_sessions"),
@@ -70,6 +82,22 @@ urlpatterns = [
     path("<str:event_id>/tiers/<int:tier_id>/delete/", views_tiers.delete_tier, name="delete_tier"),
     path("<str:event_id>/buy-ticket/", buy_ticket, name="buy_ticket"),
     path("<str:event_id>/attendees/", event_attendees, name="event_attendees"),
+    # What the event did: sold, turned up, and what is left.
+    path("<str:event_id>/metrics/", views_metrics.event_metrics,
+         name="event_metrics"),
+    path("<str:event_id>/metrics/export/", views_metrics.export_metrics,
+         name="export_event_metrics"),
+    # A message from the organiser to everybody holding a ticket.
+    path("<str:event_id>/announcements/", views_announce.announcements,
+         name="event_announcements"),
+    path("<str:event_id>/announcements/audience/",
+         views_announce.announcement_audience, name="announcement_audience"),
+    # Asking the room. A vote belongs to a ticket, not to an account.
+    path("<str:event_id>/polls/", views_polls.polls, name="event_polls"),
+    path("<str:event_id>/polls/<int:poll_id>/", views_polls.poll_detail,
+         name="event_poll_detail"),
+    path("<str:event_id>/polls/<int:poll_id>/vote/", views_polls.vote,
+         name="event_poll_vote"),
 
     # Influencer links, promo codes, and who else may run the event
     path("<str:event_id>/referrals/", event_referrals, name="event_referrals"),

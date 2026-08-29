@@ -222,6 +222,8 @@ class AccessTests(TestCase):
                               **self.auth)
         self.assertEqual(res.status_code, 200)
         self.assertIn('attachment', res['Content-Disposition'])
+        # The codes themselves, not a JSON string containing them.
+        self.assertFalse(res.content.decode('utf-8').startswith('"'))
 
     def test_they_download_as_csv(self):
         self.client.post(self.invites_url(), data={'count': 2},

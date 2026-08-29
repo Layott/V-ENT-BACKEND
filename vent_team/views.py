@@ -536,7 +536,7 @@ def request_join(request, team_id):
         create_notification(
             team.team_owner_id, 'team',
             f'@{user.username} requested to join {team.team_name}',
-            link=f'/teams/team-profile?id={team.team_id}',
+            link=f'/teams/{team.slug or team.team_id}',
             metadata={'team_id': team.team_id, 'request_id': req.id},
         )
     except Exception:
@@ -785,7 +785,7 @@ def accept_request(request, request_id):
         create_notification(
             req.applicant_id, 'team',
             f'You joined {req.team.team_name}',
-            link=f'/teams/team-profile?id={req.team.team_id}',
+            link=f'/teams/{req.team.slug or req.team.team_id}',
             metadata={'team_id': req.team.team_id},
         )
     except Exception:

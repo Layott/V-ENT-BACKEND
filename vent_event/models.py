@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from django.db import models
 from vent_auth.models import Users, Games, Teams, Organization
 from django.utils import timezone
@@ -62,6 +64,72 @@ class Event(models.Model):
     # question is "how many", and a family of four is the next thing anybody
     # asks for. `None` means no limit at all.
     max_tickets_per_email = models.PositiveIntegerField(null=True, blank=True, default=None)
+
+    # Getting there.
+    #
+    # `location` is a line of text an organiser typed, which is enough to print
+    # on a ticket and not enough to travel to. These three are the rest of the
+    # answer, and they are separate fields because they are three different
+    # things: where the pin drops, what the building is called on the day, and
+    # everything a map cannot tell you.
+    map_link = models.URLField(max_length=500, blank=True, default='')
+    venue_name = models.CharField(max_length=140, blank=True, default='')
+    directions = models.TextField(blank=True, default='')
+
+    # Arriving without a steward scanning you.
+    #
+    # The door flow already works and is the right one for a gate with staff on
+    # it. This is for the rest: a virtual event, a meet-up of thirty people, a
+    # session inside a venue somebody is already inside. Off by default, because
+    # an attendee who can admit themselves can admit themselves from home.
+    self_check_in = models.BooleanField(default=False)
+    # How long before the doors somebody may do it. Not a free window: a ticket
+    # marked used at 9am for a 7pm event tells the organiser nothing about who
+    # actually turned up, and attendance is the number they act on.
+    self_check_in_opens_minutes = models.PositiveIntegerField(default=120)
+
+    def starts_at(self):
+        """The moment the event begins, timezone aware, or None.
+
+        The date and the time are separate columns, which is how the form asks
+        for them. Everything that reasons about "before the event" needs them
+        put back together, and doing it in each caller is how two of them end up
+        disagreeing.
+        """
+        if not self.event_date or not self.start_time:
+            return None
+        naive = datetime.combine(self.event_date, self.start_time)
+        return timezone.make_aware(naive, timezone.get_current_timezone()) \
+            if timezone.is_naive(naive) else naive
+
+    def ends_at(self):
+        """The moment it finishes. Rolls past midnight when it has to.
+
+        An event running 21:00 to 02:00 ends the following day. Comparing the
+        two times numerically would make it end five hours before it started,
+        and every window computed from it would be closed.
+        """
+        started = self.starts_at()
+        if started is None or not self.end_time:
+            return None
+        day = self.event_date
+        if self.start_time and self.end_time <= self.start_time:
+            day = day + timedelta(days=1)
+        naive = datetime.combine(day, self.end_time)
+        return timezone.make_aware(naive, timezone.get_current_timezone()) \
+            if timezone.is_naive(naive) else naive
+
+    def self_check_in_window(self):
+        """(opens, closes) for admitting yourself, or (None, None).
+
+        Closes at the end of the event rather than at its start. Somebody
+        arriving late is still somebody who came.
+        """
+        started = self.starts_at()
+        if started is None:
+            return None, None
+        opens = started - timedelta(minutes=self.self_check_in_opens_minutes or 0)
+        return opens, (self.ends_at() or started + timedelta(hours=6))
 
     def __str__(self):
         return self.name
@@ -843,3 +911,138 @@ class EventCheckoutField(models.Model):
 
     def __str__(self):
         return '%s: %s' % (self.event_id, self.label)
+
+
+class EventAnnouncement(models.Model):
+    """A message from the organiser to everybody holding a ticket.
+
+    PRD section 4: notifications to registered attendees.
+
+    "The venue gate has changed", "doors are an hour later", "bring ID". These
+    are the messages that decide whether people arrive at the right place, and
+    until now an organiser had no way to send one except by finding everybody
+    themselves.
+
+    Two decisions worth stating:
+
+    **It is a record, not a send.** The row is written first and the emails go
+    afterwards, so an announcement that half sent is a row with a count and an
+    error rather than a thing nobody can see happened. It is never edited after
+    sending: recipients already have the old text in their inbox, and a message
+    that says something different on the site than in the email is worse than
+    the original mistake.
+
+    **Guests get it too.** Most ticket holders on this platform have no account,
+    and an announcement that only reached members would miss the majority of the
+    room. Account holders additionally get it in their notification inbox.
+    """
+
+    AUDIENCE_CHOICES = [
+        ('all', 'Everybody holding a ticket'),
+        ('checked_in', 'People who have arrived'),
+        ('not_checked_in', 'People who have not arrived yet'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE,
+                              related_name='announcements')
+    sent_by = models.ForeignKey('vent_auth.Users', on_delete=models.SET_NULL,
+                                null=True, related_name='event_announcements')
+    subject = models.CharField(max_length=140)
+    body = models.TextField(max_length=2000)
+    audience = models.CharField(max_length=20, choices=AUDIENCE_CHOICES,
+                                default='all')
+    # How many addresses it went to, counted at send time. Recorded rather than
+    # derived, because the ticket list moves afterwards and the honest answer to
+    # "who got this" is who held a ticket when it was sent.
+    recipients = models.PositiveIntegerField(default=0)
+    notified_in_app = models.PositiveIntegerField(default=0)
+    sent_at = models.DateTimeField(auto_now_add=True)
+    email_error = models.CharField(max_length=300, blank=True, default='')
+
+    class Meta:
+        ordering = ['-sent_at']
+
+    def __str__(self):
+        return f"{self.event.name}: {self.subject}"
+
+
+class EventPoll(models.Model):
+    """A question the organiser puts to the room.
+
+    PRD section 4: polls for attendees.
+
+    Closed rather than deleted when it is over, because the answers are the
+    point and deleting the question throws them away. `closes_at` is optional:
+    plenty of polls are closed by hand when the organiser has seen enough.
+    """
+
+    id = models.AutoField(primary_key=True)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE,
+                              related_name='polls')
+    question = models.CharField(max_length=200)
+    # Whether people see the running count before they answer. Off by default:
+    # a visible tally moves later answers toward the leader, and an organiser
+    # asking "which day suits you" wants the answer, not the bandwagon.
+    show_results_before_voting = models.BooleanField(default=False)
+    is_open = models.BooleanField(default=True)
+    closes_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey('vent_auth.Users', on_delete=models.SET_NULL,
+                                   null=True, related_name='event_polls')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def closed(self):
+        """Open, and not past its own deadline."""
+        if not self.is_open:
+            return True
+        if self.closes_at and timezone.now() > self.closes_at:
+            return True
+        return False
+
+    def __str__(self):
+        return self.question
+
+
+class EventPollOption(models.Model):
+    """One thing somebody may pick. Ordered by the organiser, not alphabetically."""
+
+    id = models.AutoField(primary_key=True)
+    poll = models.ForeignKey(EventPoll, on_delete=models.CASCADE,
+                             related_name='options')
+    text = models.CharField(max_length=140)
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['position', 'id']
+
+    def __str__(self):
+        return self.text
+
+
+class EventPollVote(models.Model):
+    """One answer.
+
+    Identified by the TICKET, not by the account. Most people holding a ticket
+    here have no account, and a poll only members could answer would be a poll
+    of the wrong room. One ticket is one vote, which is also the only definition
+    that cannot be gamed by signing up twice.
+    """
+
+    id = models.AutoField(primary_key=True)
+    poll = models.ForeignKey(EventPoll, on_delete=models.CASCADE,
+                             related_name='votes')
+    option = models.ForeignKey(EventPollOption, on_delete=models.CASCADE,
+                               related_name='votes')
+    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE,
+                               related_name='poll_votes')
+    voted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # One ticket, one answer per poll. Changing your mind updates the row.
+        unique_together = [('poll', 'ticket')]
+
+    def __str__(self):
+        return f"{self.ticket.code} -> {self.option.text}"
