@@ -15,6 +15,7 @@ from . import views_formats
 from . import views_running_order
 from . import views_access
 from . import views_export
+from . import views_mvp
 from . import views_reminders
 from . import views_requirements
 from . import views_stages
@@ -84,6 +85,14 @@ urlpatterns = [
          name="send_reminder"),
     path("<str:tournament_id>/remind/audience/",
          views_reminders.reminder_audience, name="reminder_audience"),
+    # What counts as a good game here, the stat lines, and the award.
+    path("<str:tournament_id>/metrics/", views_mvp.tournament_metrics,
+         name="tournament_metrics"),
+    path("<str:tournament_id>/matches/<int:match_id>/stats/",
+         views_mvp.match_stats, name="match_stats"),
+    path("<str:tournament_id>/mvp/", views_mvp.mvp_table, name="mvp_table"),
+    path("<str:tournament_id>/mvp/award/", views_mvp.award_mvp,
+         name="award_mvp"),
     path("<str:tournament_id>/invites/", views_access.invites, name="tournament_invites"),
     path("<str:tournament_id>/invites/download/", views_access.invites_download,
          name="tournament_invites_download"),
