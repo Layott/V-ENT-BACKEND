@@ -17,7 +17,7 @@ in `V-ENT/GATES-FEATURES-DEEP.md`.
 | BE#74 / FE#87 | protected actually protected, invite codes, the approval queue |
 | BE#75 | tests pinning the tiebreak order and result entry |
 
-## Built since, on `feature/tournament-data-export` (not yet merged)
+## Built since, MERGED AND DEPLOYED (BE#77, FE#88)
 
 | | Tests | What it is |
 |---|---|---|
@@ -103,19 +103,20 @@ be lying.
 ## Still open, from `V-ENT FEATURES DEEP.pdf`
 
 **Tournaments**
-- Check-in and match reminders to entrants (G8).
-- The format explanation in the wizard. `formats.py` already serialises `notes`
-  at line 263; nothing displays it, and the note text should live in the three
-  dictionaries so it translates (G9).
-- MVP metrics chosen per game.
+- MVP metrics chosen per game. Not started.
 
 **Events and ticketing**
-- The event product shop (marked PREMIUM in the document; large).
-- Frontend for everything built tonight: self check-in, the metrics screen,
-  announcements, polls, the venue block.
+- The event product shop (marked PREMIUM in the document; large). Not started.
 
-Mini events are already covered by `EventSession` and its three endpoints. Not
+Everything else from sections 3 and 4 is now built, tested and deployed. Mini
+events were already covered by `EventSession` and its three endpoints; not
 rebuilt.
+
+There is still no scheduler on this deployment. Celery is installed and no task
+has ever been defined, so reminders are a button the organiser presses rather
+than a cron. That is a deliberate choice given the deployment, not an
+oversight, and it is the thing to revisit if reminders should fire by
+themselves.
 
 ---
 
@@ -141,5 +142,33 @@ Seed: tournament `cade-rivalry-probe` (id 16) is a five-nation two-seat league
 with one fixture played and one scheduled day. Event `lagos-anime-con-2026`
 carries the guest checkout, the organiser's questions and sponsors.
 
-Branch: `feature/tournament-data-export`, one commit so far. The event and
-ticketing work above is committed on top before the PR.
+Everything above is merged to `main` in both repos and deployed to the VPS.
+Verified live: `/event/anime-night-lagos/announcements/`, `/polls/` and
+`/self-check-in/settings/` all answer 200 on api.v-ent.co, and
+`https://v-ent.co/events/check-in/<code>` serves 200.
+
+
+---
+
+## Found while walking in Chrome, and fixed in the same pass
+
+**The polls fetch on the event page sent no Authorization header.** A signed-in
+ticket holder was told to answer a poll they had already answered, and an
+organiser could not see the counts on their own event. Caught at 390px, not on
+desktop, because the desktop pass happened to be signed out.
+
+**The audience picker on the Messages tab used a 90px class** and truncated
+every option to "Everybody with a t...".
+
+**`EventDetailsOverview` shipped seven invented social accounts.**
+`facebook.com/username`, `x.com/username` and five more, rendered as a live row
+of links whenever an organiser had saved none. Placeholder content presented as
+real is the first thing a reader spots.
+
+**The tournament format picker offered five of eight formats.** GSL, the
+aggregate 2v2 league and the ladder could not be selected on the screen that
+exists to build tournaments. And `swiss-system`, which the wizard has saved
+since it was written, resolved to no format at all through `formats.get`: no
+explanation, no defaults, no catalogue entry, and nothing raised.
+`tests_formats_alias.py` now pins the wizard's values against
+`formats.FORMATS` in both directions.
