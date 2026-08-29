@@ -269,6 +269,17 @@ def create_order(request, vendor_id):
         if wallet is None:
             return _error('No wallet found for this account.', 'NO_WALLET', status.HTTP_400_BAD_REQUEST)
 
+        # Taking your own stock costs nothing.
+        #
+        # The stall owner buying from their own stall was charged and, since
+        # there is nobody to pay, the coins went nowhere - the same money
+        # destruction as the missing credit below, in the one case where it is
+        # hardest to notice. The order is still recorded and stock still moves,
+        # because a shirt off the table is a shirt off the table.
+        own_stall = bool(vendor.owner_id) and vendor.owner_id == user.user_id
+        if own_stall:
+            total_vc = 0
+
         if total_vc > 0:
             if not wallet.pin_hash:
                 return _error('Set a wallet PIN before buying.', 'PIN_REQUIRED', status.HTTP_400_BAD_REQUEST)
@@ -285,6 +296,38 @@ def create_order(request, vendor_id):
                 wallet=wallet, type='deduction', amount=-total_vc,
                 description=f'Order at {vendor.name}', status='completed',
             )
+
+            # Pay the stall.
+            #
+            # This was missing entirely: the buyer was debited, a row was
+            # written for them, and the money reached nobody. Every purchase
+            # destroyed it. Nothing raised, because the order still succeeded
+            # and the buyer's side of the books balanced on its own.
+            #
+            # Inside the same transaction as the debit, and under the same lock
+            # discipline, so a crash between the two cannot take the money
+            # without delivering it. Skipped when the buyer owns the stall -
+            # moving coins from a wallet to itself is a no-op that would leave
+            # two rows implying a sale to yourself.
+            # `own_stall` has already zeroed the total, so reaching here means
+            # a real buyer and a real seller.
+            if vendor.owner_id:
+                seller_wallet = UserWallet.objects.select_for_update().filter(
+                    user_id=vendor.owner_id).first()
+                if seller_wallet is None:
+                    # Refusing is the honest answer. Taking the money and
+                    # working out where to put it later is how a platform ends
+                    # up owing somebody an amount nobody recorded.
+                    return _error(
+                        f'{vendor.name} cannot be paid right now. Nothing has '
+                        'been taken from your wallet.',
+                        'SELLER_HAS_NO_WALLET', status.HTTP_409_CONFLICT)
+                seller_wallet.wallet_balance += total_vc
+                seller_wallet.save(update_fields=['wallet_balance'])
+                Transaction.objects.create(
+                    wallet=seller_wallet, type='receive', amount=total_vc,
+                    description=f'Sale at {vendor.name}', status='completed',
+                )
 
         order = VendorOrder.objects.create(
             vendor=vendor, buyer=user, code=_new_order_code(), total_vc=total_vc,

@@ -130,6 +130,10 @@ def serialize_event_card(request, event):
         # separate because a search for "The Dome, Lagos" can land on the wrong
         # Dome, and a page that presented that as the venue would be lying.
         'map_search_url': map_search_url(event),
+        # The pin, for the map drawn on the page. Null where the organiser has
+        # not given one, and the page says so rather than centring on nowhere.
+        'latitude': float(event.latitude) if event.latitude is not None else None,
+        'longitude': float(event.longitude) if event.longitude is not None else None,
         'directions': event.directions,
         'virtual_link': event.event_link,
         'self_check_in': event.self_check_in,

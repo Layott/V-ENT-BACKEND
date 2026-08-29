@@ -7,6 +7,8 @@ from . import views_sponsors
 from . import views_holds
 from . import views_announce
 from . import views_metrics
+from . import views_comp
+from . import views_map
 from . import views_polls
 from . import views_self_check_in
 from . import views_sessions
@@ -96,6 +98,11 @@ urlpatterns = [
     path("<str:event_id>/polls/", views_polls.polls, name="event_polls"),
     path("<str:event_id>/polls/<int:poll_id>/", views_polls.poll_detail,
          name="event_poll_detail"),
+    # Where people are coming from, as cells rather than as people.
+    path("<str:event_id>/origins/", views_map.event_origins, name="event_origins"),
+    # Tickets an organiser hands out by typing an address.
+    path("<str:event_id>/comp-tickets/", views_comp.comp_tickets,
+         name="comp_tickets"),
     path("<str:event_id>/polls/<int:poll_id>/vote/", views_polls.vote,
          name="event_poll_vote"),
 

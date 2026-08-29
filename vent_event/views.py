@@ -563,6 +563,27 @@ def edit_event(request, event_id):
         # enough to travel to.
         'venue_name', 'map_link', 'directions',
     ]
+    # The pin. Editable by hand for a venue whose map link carries no
+    # coordinate, and validated rather than trusted: a bad number here puts the
+    # venue in the sea, which nobody notices until somebody drives there.
+    for field in ('latitude', 'longitude'):
+        if field in data:
+            raw = data.get(field)
+            if raw in (None, ''):
+                setattr(event, field, None)
+                updated.append(field)
+                continue
+            try:
+                from .geo import check_point
+                # Validated as a pair, because a latitude alone is not a place.
+                lat = data.get('latitude', event.latitude)
+                lng = data.get('longitude', event.longitude)
+                check_point(lat, lng)
+            except Exception:
+                return _error('That is not a valid coordinate.',
+                              'BAD_COORDINATE', status.HTTP_400_BAD_REQUEST)
+            setattr(event, field, raw)
+            updated.append(field)
     for field in text_fields:
         value = data.get(field)
         if value is not None:
