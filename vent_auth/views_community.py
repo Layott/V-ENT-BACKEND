@@ -8,9 +8,10 @@ from datetime import timedelta
 
 from django.db.models import Count, F, Q
 from django.utils import timezone
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import AllowAny
 
 from .models import (
     Users, UserProfile, Games, Teams,
@@ -553,10 +554,35 @@ def thread_reply_upvote(request, reply_id):
 # Scrims
 # ---------------------------------------------------------------------------
 
+def _side(request, team, player):
+    """One side of a scrim, whether it is a team or one player.
+
+    The table renders both the same way, so both produce the same shape. `solo`
+    is what lets the page say "player" rather than "team" without inspecting
+    which key is missing.
+    """
+    if team is not None:
+        return {'id': team.team_id, 'name': team.team_name, 'tag': None,
+                'solo': False, 'logo': _abs(request, team.team_logo)}
+    if player is not None:
+        return {'id': player.user_id, 'name': player.username, 'tag': None,
+                'solo': True, 'logo': None}
+    return None
+
+
 def serialize_scrim(request, s, viewer=None):
-    team = {'id': s.team_id, 'name': s.team.team_name, 'tag': None,
-            'logo': _abs(request, s.team.team_logo)} if s.team_id else None
-    opponent = {'id': s.opponent_id, 'name': s.opponent.team_name, 'tag': None} if s.opponent_id else None
+    from .game_modes import mode_for
+
+    team = _side(request, s.team if s.team_id else None,
+                 s.player if s.player_id else None)
+    opponent = _side(request, s.opponent if s.opponent_id else None,
+                     s.opponent_player if s.opponent_player_id else None)
+    challenged = _side(request, s.challenged if s.challenged_id else None,
+                       s.challenged_player if s.challenged_player_id else None)
+
+    game_title = s.game.game_title if s.game else None
+    mode = mode_for(game_title, s.mode) if s.mode else None
+
     return {
         'id': s.id,
         'slug': s.slug,
@@ -568,15 +594,22 @@ def serialize_scrim(request, s, viewer=None):
         'opponent_open_or_team_b': {'open': opponent is None, 'opponent': opponent},
         'scheduled_at': s.scheduled_for,
         'format': s.match_format,
-        'region': s.region,
-        'game': s.game.game_title if s.game else None,
+        # Which way the game is being played, and the readable name for it.
+        # Sent as both because the page shows the label and filters on the id.
+        'mode': s.mode,
+        'mode_label': mode['label'] if mode else '',
+        'team_size': s.team_size,
+        'is_solo': s.is_solo,
+        'map_code': s.map_code,
+        'country': s.country,
+        'game': game_title,
         'scheduled_for': s.scheduled_for,
         'notes': s.notes,
         'status': s.status,
         'created_by': _person(request, s.created_by),
-        # A team cannot scrim itself, so the poster never sees an Accept button.
+        # Nobody can scrim themselves, so the poster never sees an Accept button.
         'is_mine': bool(viewer and s.created_by_id == viewer.user_id),
-        'challenged': {'id': s.challenged_id, 'name': s.challenged.team_name} if s.challenged_id else None,
+        'challenged': challenged,
         'created_at': s.created_at,
     }
 
@@ -584,69 +617,196 @@ def serialize_scrim(request, s, viewer=None):
 @api_view(['GET'])
 def scrim_list(request):
     viewer = _optional_user(request)
-    qs = Scrim.objects.select_related('team', 'opponent', 'challenged', 'game', 'created_by')
+    qs = Scrim.objects.select_related(
+        'team', 'opponent', 'challenged', 'game', 'created_by',
+        'player', 'opponent_player', 'challenged_player',
+    )
     wanted = (request.GET.get('status') or '').strip()
     if wanted and wanted.lower() != 'all':
         qs = qs.filter(status__iexact=wanted)
     game = (request.GET.get('game') or '').strip()
     if game and game.lower() != 'all':
         qs = qs.filter(game__game_title__iexact=game)
-    region = (request.GET.get('region') or '').strip()
-    if region and region.lower() != 'all':
-        qs = qs.filter(region__iexact=region)
+    # `country` is the field now. `region` is still read so a bookmarked
+    # filter from the old picker does not silently return everything.
+    country = (request.GET.get('country') or request.GET.get('region') or '').strip()
+    if country and country.lower() != 'all':
+        qs = qs.filter(country__iexact=country)
+
+    mode = (request.GET.get('mode') or '').strip()
+    if mode and mode.lower() != 'all':
+        qs = qs.filter(mode__iexact=mode)
+
+    # Solo or team, which is the first thing somebody looking for a scrim wants
+    # to narrow by: a 1v1 player has no use for a five-a-side post.
+    kind = (request.GET.get('kind') or '').strip().lower()
+    if kind == 'solo':
+        qs = qs.filter(player__isnull=False)
+    elif kind in ('team', 'teams'):
+        qs = qs.filter(team__isnull=False)
 
     rows = [serialize_scrim(request, s, viewer) for s in qs[:PAGE_SIZE]]
     return _ok({'scrims': rows, 'count': qs.count()}, 'Scrims retrieved.')
 
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def scrim_games(request):
+    """What each game can be scrimmed as.
+
+    Served from the backend rather than duplicated in the form, because the
+    same catalogue decides what the form offers AND what the create endpoint
+    accepts. Two copies would drift, and the drift shows up as a scrim saved
+    in a mode its game does not have.
+    """
+    from .game_modes import catalogue
+    return _ok({'games': catalogue()}, 'Game modes retrieved.')
+
+
 @api_view(['POST'])
 def scrim_create(request):
+    from .game_modes import modes_for, mode_for
+
     user, auth_error = _authenticate(request)
     if auth_error:
         return auth_error
 
-    team = Teams.objects.filter(team_id=request.data.get('team_id')).first()
-    if team is None:
-        return _error('Pick one of your teams.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+    # Solo or team. A solo challenge is posted by the person, so there is no
+    # team to belong to and nothing to check membership of.
+    #
+    # CEO, 29 August 2026: "should be able to create solo challenges also."
+    # Most of what is played here is 1v1, and requiring a team meant a player
+    # had to invent a team of themselves before they could ask for a game.
+    solo = bool(request.data.get('solo'))
 
-    from .models import TeamMembers
-    is_member = team.team_owner_id == user.user_id or TeamMembers.objects.filter(team=team, user=user).exists()
-    if not is_member:
-        return _error('You can only post scrims for a team you belong to.',
-                      'FORBIDDEN', status.HTTP_403_FORBIDDEN)
+    team = None
+    if not solo:
+        team = Teams.objects.filter(team_id=request.data.get('team_id')).first()
+        if team is None:
+            return _error('Pick one of your teams.', 'VALIDATION_ERROR',
+                          status.HTTP_400_BAD_REQUEST)
+
+        from .models import TeamMembers
+        is_member = (team.team_owner_id == user.user_id
+                     or TeamMembers.objects.filter(team=team, user=user).exists())
+        if not is_member:
+            return _error('You can only post scrims for a team you belong to.',
+                          'FORBIDDEN', status.HTTP_403_FORBIDDEN)
 
     # The poster picks the game; fall back to whatever the team plays.
     game_title = (request.data.get('game') or '').strip()
     game = Games.objects.filter(game_title__iexact=game_title).first() if game_title else None
+    if game is None and team is not None:
+        game = team.game
+    if game is None:
+        return _error('Choose a game.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
 
-    # Naming an opponent turns the post into a direct challenge: only that team
-    # can accept it. Leaving it blank keeps the slot open to anyone.
-    opponent = None
+    # The mode has to be one this game actually has. A form can be edited
+    # before it is sent, and a scrim stored in a mode that does not exist is
+    # one nobody can turn up to play.
+    mode_id = (request.data.get('mode') or '').strip()
+    available = modes_for(game.game_title)
+    mode = mode_for(game.game_title, mode_id) if mode_id else None
+    if mode_id and mode is None:
+        return _error(
+            f'{game.game_title} is not played as that. Choose one of: '
+            + ', '.join(m['label'] for m in available) + '.',
+            'UNKNOWN_MODE', status.HTTP_400_BAD_REQUEST)
+    if mode is None:
+        mode = available[0]
+
+    # The format has to be one the MODE offers, not one from another mode. A
+    # battle royale scored on points cannot be "Bo3", and Lone Wolf is fixed at
+    # first to five by the game itself.
+    match_format = (request.data.get('format') or '').strip()
+    if match_format and match_format not in mode['formats']:
+        return _error(
+            f"{mode['label']} is not played as \"{match_format}\". Choose one of: "
+            + ', '.join(mode['formats']) + '.',
+            'UNKNOWN_FORMAT', status.HTTP_400_BAD_REQUEST)
+    if not match_format:
+        match_format = mode['formats'][0]
+
+    # How many a side, and it has to be a size this mode supports. Solo means
+    # one, and a mode with no 1 in its sizes cannot be played alone: Clash
+    # Squad is four a side, so a solo Clash Squad post would waste the time of
+    # whoever accepted it.
+    try:
+        team_size = int(request.data.get('team_size') or (1 if solo else mode['sizes'][-1]))
+    except (TypeError, ValueError):
+        return _error('Team size must be a number.', 'VALIDATION_ERROR',
+                      status.HTTP_400_BAD_REQUEST)
+    if team_size not in mode['sizes']:
+        return _error(
+            f"{mode['label']} is played "
+            + ' or '.join(f'{n}v{n}' for n in mode['sizes']) + '.',
+            'UNKNOWN_SIZE', status.HTTP_400_BAD_REQUEST)
+    if solo and team_size != 1:
+        return _error('A solo challenge is one against one.', 'VALIDATION_ERROR',
+                      status.HTTP_400_BAD_REQUEST)
+
+    # Some modes need something else before anybody can play them. Craftland is
+    # somebody's own map, and without the code the opponent cannot find it.
+    map_code = (request.data.get('map_code') or '').strip()[:40]
+    if 'map_code' in mode['asks'] and not map_code:
+        return _error(f"{mode['label']} is played on a custom map, so it needs "
+                      'the map code.', 'MAP_CODE_REQUIRED',
+                      status.HTTP_400_BAD_REQUEST)
+
+    # Naming an opponent turns the post into a direct challenge: only they can
+    # accept it. Leaving it blank keeps the slot open to anyone.
+    opponent_team = None
+    opponent_player = None
     opponent_name = (request.data.get('opponent') or '').strip()
     if opponent_name:
-        opponent = Teams.objects.filter(team_name__iexact=opponent_name).first()
-        if opponent is None:
-            return _error(f'No team called "{opponent_name}".', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-        if opponent.team_id == team.team_id:
-            return _error('A team cannot scrim itself.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+        if solo:
+            opponent_player = Users.objects.filter(username__iexact=opponent_name).first()
+            if opponent_player is None:
+                return _error(f'No player called "{opponent_name}".', 'NOT_FOUND',
+                              status.HTTP_404_NOT_FOUND)
+            if opponent_player.user_id == user.user_id:
+                return _error('You cannot challenge yourself.', 'VALIDATION_ERROR',
+                              status.HTTP_400_BAD_REQUEST)
+        else:
+            opponent_team = Teams.objects.filter(team_name__iexact=opponent_name).first()
+            if opponent_team is None:
+                return _error(f'No team called "{opponent_name}".', 'NOT_FOUND',
+                              status.HTTP_404_NOT_FOUND)
+            if opponent_team.team_id == team.team_id:
+                return _error('A team cannot scrim itself.', 'VALIDATION_ERROR',
+                              status.HTTP_400_BAD_REQUEST)
 
     scrim = Scrim.objects.create(
         team=team,
-        game=game or team.game,
+        player=user if solo else None,
+        game=game,
+        mode=mode['id'],
+        team_size=team_size,
+        map_code=map_code,
         created_by=user,
-        challenged=opponent,
+        challenged=opponent_team,
+        challenged_player=opponent_player,
         scheduled_for=request.data.get('scheduled_for') or request.data.get('scheduled_at') or None,
-        match_format=(request.data.get('format') or '').strip()[:20],
-        region=(request.data.get('region') or '').strip()[:40],
+        match_format=match_format[:40],
+        # The same vocabulary as every other country on the platform, so this
+        # can be compared with a player's own country instead of being a label.
+        country=(request.data.get('country') or request.data.get('region') or '').strip()[:60],
         notes=(request.data.get('notes') or '').strip()[:280],
     )
 
-    if opponent is not None:
+    challenged_owner = None
+    if opponent_team is not None:
+        challenged_owner = opponent_team.team_owner
+    elif opponent_player is not None:
+        challenged_owner = opponent_player
+
+    if challenged_owner is not None:
         try:
             from .views_notifications import create_notification
+            who = scrim.poster_name
             create_notification(
-                user=opponent.team_owner, category='team',
-                title=f'{team.team_name} challenged you to a scrim',
+                user=challenged_owner, category='team',
+                title=f'{who} challenged you to a scrim',
                 body=scrim.notes, link='/community?tab=scrims',
                 metadata={'scrim_id': scrim.id},
             )
@@ -662,11 +822,39 @@ def scrim_accept(request, scrim_id):
     if auth_error:
         return auth_error
 
-    scrim = Scrim.objects.select_related('team').filter(id=scrim_id).first()
+    scrim = (Scrim.objects
+             .select_related('team', 'player', 'challenged', 'challenged_player')
+             .filter(id=scrim_id).first())
     if scrim is None:
         return _error('Scrim not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if scrim.status != 'open':
         return _error(f'That scrim is already {scrim.status}.', 'STATE_CONFLICT', status.HTTP_409_CONFLICT)
+
+    # A solo challenge is accepted by a person. There is no team to bring, no
+    # membership to check, and asking for one would make every 1v1 post
+    # unacceptable to the players it was aimed at.
+    if scrim.is_solo:
+        if scrim.player_id == user.user_id:
+            return _error('You cannot accept your own challenge.',
+                          'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+        if scrim.challenged_player_id and scrim.challenged_player_id != user.user_id:
+            return _error(f'This challenge was aimed at '
+                          f'{scrim.challenged_player.username}.',
+                          'FORBIDDEN', status.HTTP_403_FORBIDDEN)
+        scrim.opponent_player = user
+        scrim.status = 'accepted'
+        scrim.save(update_fields=['opponent_player', 'status'])
+        try:
+            from .views_notifications import create_notification
+            create_notification(
+                user=scrim.player, category='team',
+                title=f'{user.username} accepted your challenge',
+                body=scrim.notes, link='/community?tab=scrims',
+                metadata={'scrim_id': scrim.id},
+            )
+        except Exception:
+            pass
+        return _ok({'scrim': serialize_scrim(request, scrim, user)}, 'Challenge accepted.')
 
     opponent = Teams.objects.filter(team_id=request.data.get('team_id')).first()
     if opponent is None:

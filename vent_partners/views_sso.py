@@ -343,9 +343,45 @@ INBOUND_PROVIDERS = {
         'token_url': 'AFC_TOKEN_URL',
         'userinfo_url': 'AFC_USERINFO_URL',
         'scope': 'AFC_SCOPE',
-        'default_scope': 'profile email',
+        # Read out of AFC's partner integration guide, version 1.2, issued
+        # 4 August 2026. The SSO surface is on the API host with an /sso/
+        # prefix, NOT on the website origin, and the trailing slashes are part
+        # of the path. Defaults rather than blanks so a missing environment
+        # variable is a missing credential, not a silently wrong endpoint.
+        'default_authorize_url': 'https://api.africanfreefirecommunity.com/sso/authorize/',
+        'default_token_url': 'https://api.africanfreefirecommunity.com/sso/token/',
+        'default_userinfo_url': 'https://api.africanfreefirecommunity.com/sso/userinfo/',
+        # AFC's claim names do not match its scope names: the scopes use dots
+        # and the claims use underscores. Asked for here; read in
+        # link_or_create_user.
+        #
+        # openid and profile give the identity and the in-game name.
+        # afc.freefire gives ff_uid, which is what matches a registration to
+        # the right player. afc.team gives the team they actually play for.
+        # afc.standing says whether AFC has sanctioned them. Nothing else is
+        # requested: every extra scope is one more thing the player can refuse,
+        # and widening later forces a fresh consent screen anyway.
+        'default_scope': 'openid profile email afc.freefire afc.team afc.standing',
     },
 }
+
+
+def _new_pkce_pair():
+    """A PKCE verifier and its S256 challenge.
+
+    RFC 7636: the verifier is 43 to 128 characters from an unreserved
+    alphabet, and the challenge is the base64url of its SHA-256 with the
+    padding stripped. `token_urlsafe(64)` lands inside that range and uses only
+    permitted characters.
+    """
+    import base64
+    import hashlib
+    import secrets
+
+    verifier = secrets.token_urlsafe(64)[:128]
+    digest = hashlib.sha256(verifier.encode('ascii')).digest()
+    challenge = base64.urlsafe_b64encode(digest).decode('ascii').rstrip('=')
+    return verifier, challenge
 
 
 def inbound_config(slug):
@@ -356,9 +392,12 @@ def inbound_config(slug):
         'label': spec['label'],
         'client_id': os.environ.get(spec['client_id'], ''),
         'client_secret': os.environ.get(spec['client_secret'], ''),
-        'authorize_url': os.environ.get(spec['authorize_url'], ''),
-        'token_url': os.environ.get(spec['token_url'], ''),
-        'userinfo_url': os.environ.get(spec['userinfo_url'], ''),
+        'authorize_url': os.environ.get(spec['authorize_url'],
+                                        spec.get('default_authorize_url', '')),
+        'token_url': os.environ.get(spec['token_url'],
+                                    spec.get('default_token_url', '')),
+        'userinfo_url': os.environ.get(spec['userinfo_url'],
+                                       spec.get('default_userinfo_url', '')),
         'scope': os.environ.get(spec['scope'], spec['default_scope']),
     }
     cfg['configured'] = all([
@@ -395,7 +434,20 @@ def inbound_start(request, provider):
         )
 
     from django.core import signing
-    state = signing.dumps({'p': provider}, salt='vent.inbound-sso')
+    from .models import InboundLogin
+
+    state = signing.dumps({'p': provider, 'n': secrets.token_urlsafe(12)},
+                          salt='vent.inbound-sso')
+
+    # The verifier is kept here and never leaves the server. It cannot ride in
+    # `state`, which goes out through the player's browser and is signed rather
+    # than encrypted, and it cannot go in the cache, which is per-process local
+    # memory on this deployment. See InboundLogin.
+    verifier, challenge = _new_pkce_pair()
+    InboundLogin.sweep()
+    InboundLogin.objects.create(provider=provider, state=state,
+                                code_verifier=verifier)
+
     base = os.environ.get('BACKEND_PUBLIC_URL', 'https://api.v-ent.co').rstrip('/')
     params = {
         'client_id': cfg['client_id'],
@@ -403,6 +455,11 @@ def inbound_start(request, provider):
         'response_type': 'code',
         'scope': cfg['scope'],
         'state': state,
+        # AFC sets PKCE_REQUIRED. Without these two the authorize request is
+        # refused outright, which their guide names as the most common reason a
+        # first integration fails.
+        'code_challenge': challenge,
+        'code_challenge_method': 'S256',
     }
     return _ok({'url': f"{cfg['authorize_url']}?{urlencode(params)}"}, f"Continue at {cfg['label']}")
 
@@ -417,14 +474,25 @@ def inbound_callback(request, provider):
     if cfg is None or not cfg['configured']:
         return redirect(f'{FRONTEND_URL}/login?error=sso-unavailable')
 
+    from .models import InboundLogin
+
     code = request.GET.get('code')
+    state = request.GET.get('state', '')
     try:
-        signing.loads(request.GET.get('state', ''), salt='vent.inbound-sso', max_age=900)
+        signing.loads(state, salt='vent.inbound-sso', max_age=900)
     except Exception:
         return redirect(f'{FRONTEND_URL}/login?error=sso-state')
 
     if not code:
         return redirect(f'{FRONTEND_URL}/login?error=sso-cancelled')
+
+    # Single use. Claimed by deleting it, so a replayed callback finds nothing
+    # and the same authorization code cannot be exchanged twice.
+    attempt = InboundLogin.objects.filter(provider=provider, state=state).first()
+    if attempt is None:
+        return redirect(f'{FRONTEND_URL}/login?error=sso-state')
+    verifier = attempt.code_verifier
+    attempt.delete()
 
     base = os.environ.get('BACKEND_PUBLIC_URL', 'https://api.v-ent.co').rstrip('/')
     try:
@@ -434,6 +502,10 @@ def inbound_callback(request, provider):
             'client_id': cfg['client_id'],
             'client_secret': cfg['client_secret'],
             'redirect_uri': f'{base}/partners/inbound/{provider}/callback/',
+            # The other half of the PKCE pair. AFC checks it against the
+            # challenge sent on the authorize request and refuses the exchange
+            # if it does not match.
+            'code_verifier': verifier,
         }, timeout=15)
         if token_res.status_code != 200:
             logger.warning('%s token exchange failed: %s', provider, token_res.text[:200])
