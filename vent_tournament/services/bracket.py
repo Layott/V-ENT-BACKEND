@@ -68,6 +68,72 @@ def confirmed_registrations(tournament):
     )
 
 
+def _display_name(reg):
+    if reg.user_id:
+        return (reg.user.username or '').lower()
+    if reg.team_id:
+        return (reg.team.team_name or '').lower()
+    return ''
+
+
+def _seed_by_record(regs):
+    """Best first, from what has actually been played.
+
+    "Automatic seeding based off result entry" has to mean the results, not the
+    alphabet. This used to sort by an unset seed field and then by name, which
+    is alphabetical order wearing the word "ranked" - and an organiser pressing
+    a button labelled that would have had no way to know.
+
+    Three sources, in order of how much they are worth:
+
+      1. The standings, when anything has been played. A group stage feeding a
+         knockout is the case this exists for: the bracket is seeded by how the
+         groups actually went.
+      2. The organiser's own `seed` number, where they set one.
+      3. Alphabetical, which decides nothing but decides it the same way twice.
+
+    Deterministic at every level, because a bracket that comes out differently
+    on a retry is a bracket nobody can check.
+    """
+    regs = list(regs)
+    if not regs:
+        return regs
+
+    tournament = regs[0].tournament
+
+    table = {}
+    try:
+        from . import league
+
+        for row in league.team_table(tournament):
+            reg_id = row.get('registration_id')
+            if reg_id is not None:
+                table[reg_id] = row
+    except Exception:
+        # A standings failure must not stop a bracket being drawn; it just
+        # means seeding falls back to what the organiser set.
+        table = {}
+
+    played = any((row.get('played') or 0) > 0 for row in table.values())
+
+    def key(reg):
+        row = table.get(reg.id) if played else None
+        if row:
+            # Negated so "more is better" sorts first without reversing the
+            # whole key and flipping the name tiebreak with it.
+            return (0,
+                    -int(row.get('points') or 0),
+                    -int(row.get('goal_difference') or 0),
+                    -int(row.get('goals_for') or 0),
+                    _display_name(reg))
+        return (1,
+                reg.seed if reg.seed is not None else 1_000_000,
+                0, 0,
+                _display_name(reg))
+
+    return sorted(regs, key=key)
+
+
 def seed_registrations(regs, strategy, manual_order=None):
     """Return registrations ordered best-seed-first per the chosen strategy."""
     strategy = strategy or 'random'
@@ -84,15 +150,7 @@ def seed_registrations(regs, strategy, manual_order=None):
                 ordered.append(r)
         return ordered
     if strategy == 'ranked':
-        # Placeholder ranking until an ELO/points system lands (M2): existing
-        # seed field first, then alphabetical by display name for determinism.
-        def name(r):
-            if r.user_id:
-                return (r.user.username or '').lower()
-            if r.team_id:
-                return (r.team.team_name or '').lower()
-            return ''
-        return sorted(regs, key=lambda r: (r.seed if r.seed is not None else 1_000_000, name(r)))
+        return _seed_by_record(regs)
     # random (default)
     shuffled = list(regs)
     random.shuffle(shuffled)
