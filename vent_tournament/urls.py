@@ -14,9 +14,13 @@ from django.conf.urls.static import static
 from . import views_formats
 from . import views_running_order
 from . import views_access
+from . import views_invitations
+from . import views_overlay_feed
+from . import views_overlays
 from . import views_export
 from . import views_mvp
 from . import views_reminders
+from . import views_scheduled
 from . import views_requirements
 from . import views_stages
 from . import views_rules
@@ -85,6 +89,12 @@ urlpatterns = [
          name="send_reminder"),
     path("<str:tournament_id>/remind/audience/",
          views_reminders.reminder_audience, name="reminder_audience"),
+    # Reminders set now, for the platform to send later.
+    path("<str:tournament_id>/remind/scheduled/",
+         views_scheduled.scheduled_reminders, name="scheduled_reminders"),
+    path("<str:tournament_id>/remind/scheduled/<int:reminder_id>/",
+         views_scheduled.cancel_scheduled_reminder,
+         name="cancel_scheduled_reminder"),
     # What counts as a good game here, the stat lines, and the award.
     path("<str:tournament_id>/metrics/", views_mvp.tournament_metrics,
          name="tournament_metrics"),
@@ -93,7 +103,19 @@ urlpatterns = [
     path("<str:tournament_id>/mvp/", views_mvp.mvp_table, name="mvp_table"),
     path("<str:tournament_id>/mvp/award/", views_mvp.award_mvp,
          name="award_mvp"),
+    # Codes anybody holding one can spend.
     path("<str:tournament_id>/invites/", views_access.invites, name="tournament_invites"),
+    # Invitations addressed to a named player or a named team.
+    path("<str:tournament_id>/invitations/", views_invitations.invitations,
+         name="tournament_invitations"),
+    # What the person who was invited can see. The organiser's list is theirs
+    # alone, so without this a recipient has no way to reach their own.
+    path("<str:tournament_id>/invitations/mine/", views_invitations.my_invitation,
+         name="tournament_my_invitation"),
+    path("<str:tournament_id>/invitations/<int:invitation_id>/",
+         views_invitations.invitation_detail, name="tournament_invitation_detail"),
+    path("<str:tournament_id>/invitations/<int:invitation_id>/respond/",
+         views_invitations.respond, name="tournament_invitation_respond"),
     path("<str:tournament_id>/invites/download/", views_access.invites_download,
          name="tournament_invites_download"),
     path("<str:tournament_id>/registrations/", views_access.registrations,
@@ -102,6 +124,18 @@ urlpatterns = [
          name="tournament_running_order"),
     path("<str:tournament_id>/running-order/set/", views_running_order.set_running_order,
          name="set_tournament_running_order"),
+    # A tournament in the shape a stream overlay consumes. Public and
+    # cheap: it is polled by OBS at a venue for hours, and carries
+    # nothing that is not already on the public tournament page.
+    path("<str:tournament_id>/overlay-feed/", views_overlay_feed.overlay_feed,
+         name="tournament_overlay_feed"),
+    # Uploading an overlay and getting the URL that goes into OBS.
+    path("<str:tournament_id>/overlays/", views_overlays.overlays,
+         name="tournament_overlays"),
+    path("<str:tournament_id>/overlays/<int:overlay_id>/",
+         views_overlays.overlay_detail, name="tournament_overlay_detail"),
+    path("<str:tournament_id>/overlays/<int:overlay_id>/rotate/",
+         views_overlays.rotate, name="tournament_overlay_rotate"),
     path("tie/<int:tie_id>/", tie_detail, name="tie_detail"),
     path("tie/<int:tie_id>/record/", record_fixture, name="record_tie_fixture"),
     path("<int:tournament_id>/league-rules/", set_league_rules, name="set_league_rules"),

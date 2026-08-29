@@ -18,11 +18,16 @@ from django.contrib import admin
 from django.urls import path, include
 
 from vent_partners import urls as partner_urls
+from vent_tournament import views_overlays as overlay_views
 from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    # The URL an organiser pastes into OBS or vMix. Root-mounted and short,
+    # because it is typed into a machine at a venue, and public by token,
+    # because a browser source cannot sign in.
+    path("overlay/<str:token>/", overlay_views.serve_overlay, name="serve_overlay"),
     path("auth/", include('vent_auth.urls')),
     path("tournament/", include('vent_tournament.urls')),
     path("event/", include('vent_event.urls')),

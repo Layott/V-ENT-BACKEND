@@ -41,9 +41,11 @@ media/
 # Private uploads - KYC identity documents. NEVER commit these.
 private/
 
-# Static files
+# Static files. `staticfiles/` is collectstatic output and is generated.
+# `static/` is NOT: it holds overlay-runtime.js, which OBS loads from a
+# venue to drive an uploaded overlay. Ignoring it meant the one file the
+# whole overlay feature depends on could never reach the server.
 staticfiles/
-static/
 
 # IDEs
 .vscode/
