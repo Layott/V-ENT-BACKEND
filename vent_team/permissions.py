@@ -91,12 +91,23 @@ def can(role, permission):
 
 
 def role_table():
-    """The whole matrix, for a screen that wants to explain itself."""
+    """The whole matrix, for a screen that wants to explain itself.
+
+    The label and the blurb are sent as English AND as a key. A sentence built
+    in Python cannot be translated - it arrives already written, and the page
+    would show English inside a French screen, which is exactly what happened
+    the first time this shipped. The page looks the key up in its own
+    dictionary and falls back to the English here, so the server stays the one
+    authority on what a role MAY DO and the page stays the one authority on
+    what it is CALLED.
+    """
     return [
         {
             'role': role,
             'label': role.replace('_', ' ').title(),
+            'label_key': 'role.%s' % role,
             'blurb': ROLE_BLURBS.get(role, ''),
+            'blurb_key': 'role.%s.blurb' % role,
             'permissions': sorted(perms),
         }
         for role, perms in ROLE_PERMISSIONS.items()

@@ -1397,3 +1397,104 @@ class DirectMessage(models.Model):
 # Defined in its own module and re-exported here so Django picks it up as a
 # model of this app without models.py growing another table nobody reads.
 from .models_slughistory import SlugHistory  # noqa: E402,F401
+
+
+class TeamInvite(models.Model):
+    """An invitation to join a team: to one named player, or as a link.
+
+    CEO, 29 August 2026: "There is no way for me to add players to my teams or
+    invite people, or get a link players can use to join directly."
+
+    Both are the same act - somebody with authority saying "you may join" - and
+    they differ only in who it is addressed to, so they are one model with a
+    `kind` rather than two tables that would need the same accept path written
+    twice.
+
+    A DIRECT invite names a person. It is spent when they answer, and only they
+    can answer it.
+
+    A LINK invite names nobody and carries a token. An owner posts it in a
+    group chat and whoever follows it joins. That is the whole point and also
+    the whole risk, so a link has limits a direct invite does not need: it can
+    expire, it can be capped at a number of uses, and it can be revoked
+    outright. Without those, one leaked link is a permanent open door into the
+    roster.
+    """
+
+    KIND_CHOICES = [
+        ('direct', 'To one player'),
+        ('link', 'A link anyone may use'),
+    ]
+    STATUS_CHOICES = [
+        ('pending', 'Waiting for an answer'),
+        ('accepted', 'Accepted'),
+        ('declined', 'Declined'),
+        ('revoked', 'Withdrawn'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    team = models.ForeignKey(Teams, on_delete=models.CASCADE, related_name='invites')
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES, default='direct')
+    invited_by = models.ForeignKey(Users, on_delete=models.CASCADE,
+                                   related_name='team_invites_sent')
+    # Null on a link invite: it is addressed to nobody in particular.
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, null=True, blank=True,
+                             related_name='team_invites_received')
+    # The role they arrive as. An owner inviting a coach should not have to
+    # invite them and then change their role in a second step.
+    role = models.CharField(max_length=20, default='member')
+    message = models.CharField(max_length=280, blank=True, default='')
+
+    # Link invites only. Opaque and not enumerable: a sequential id here would
+    # let anybody walk every team's open link by counting.
+    token = models.CharField(max_length=40, blank=True, default='', db_index=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    # 0 means no limit.
+    max_uses = models.PositiveIntegerField(default=0)
+    uses = models.PositiveIntegerField(default=0)
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    created_at = models.DateTimeField(auto_now_add=True)
+    answered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            # One live invitation per person per team. Asking twice is a
+            # reminder, not a second row, so their list never shows the same
+            # team twice and accepting cannot happen twice.
+            models.UniqueConstraint(
+                fields=['team', 'user'],
+                condition=models.Q(status='pending', kind='direct'),
+                name='one_pending_direct_team_invite',
+            ),
+        ]
+
+    def __str__(self):
+        who = self.user.username if self.user_id else 'link'
+        return f'{self.team.team_name} -> {who}'
+
+    def save(self, *args, **kwargs):
+        if self.kind == 'link' and not self.token:
+            import secrets
+            # `t_` so a token is recognisable in a log or a support message.
+            self.token = 't_' + secrets.token_urlsafe(16)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_spent(self):
+        """Whether this link can still be used.
+
+        A direct invite is spent by being answered. A link is spent by expiry,
+        by its cap, or by being revoked.
+        """
+        from django.utils import timezone as _tz
+
+        if self.status != 'pending':
+            return True
+        if self.kind == 'link':
+            if self.expires_at and self.expires_at <= _tz.now():
+                return True
+            if self.max_uses and self.uses >= self.max_uses:
+                return True
+        return False
