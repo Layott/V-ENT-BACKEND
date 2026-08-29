@@ -255,6 +255,10 @@ STATIC_URL = "static/"
 # without it `collectstatic` fails and the Django admin renders unstyled.
 STATIC_ROOT = os.environ.get('STATIC_ROOT', os.path.join(BASE_DIR, 'staticfiles'))
 
+# `static/overlay-runtime.js` is served to OBS from a venue, so it has to be
+# collected like any other static file rather than living only in an app.
+STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
+
 
 # ---------------------------------------------------------------------------
 # Production hardening. Every flag here is a no-op in local development

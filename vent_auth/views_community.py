@@ -716,6 +716,9 @@ def serialize_conversation(request, convo, viewer):
     last = convo.messages.last()
     return {
         'id': convo.id,
+        # What the address bar shows. `id` stays in the payload because the
+        # list has rendered off it since before there was a slug.
+        'slug': convo.slug,
         'with': _person(request, other),
         'last_message': last.body[:140] if last else '',
         'last_message_at': convo.last_message_at,
@@ -739,13 +742,25 @@ def dm_list(request):
     return _ok({'conversations': rows, 'count': len(rows)}, 'Conversations retrieved.')
 
 
+def _conversation_by_key(key):
+    """A conversation by its public token, or by its id for older links."""
+    convo = (Conversation.objects
+             .select_related('user_a', 'user_b')
+             .filter(slug=str(key)).first())
+    if convo is None and str(key).isdigit():
+        convo = (Conversation.objects
+                 .select_related('user_a', 'user_b')
+                 .filter(id=int(key)).first())
+    return convo
+
+
 @api_view(['GET'])
 def dm_detail(request, conversation_id):
     user, auth_error = _authenticate(request)
     if auth_error:
         return auth_error
 
-    convo = Conversation.objects.select_related('user_a', 'user_b').filter(id=conversation_id).first()
+    convo = _conversation_by_key(conversation_id)
     if convo is None:
         return _error('Conversation not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if user.user_id not in (convo.user_a_id, convo.user_b_id):
@@ -797,7 +812,7 @@ def dm_send(request, conversation_id):
             )
         convo = _conversation_for(user, other)
     else:
-        convo = Conversation.objects.filter(id=conversation_id).first()
+        convo = _conversation_by_key(conversation_id)
         if convo is None:
             return _error('Conversation not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
         if user.user_id not in (convo.user_a_id, convo.user_b_id):
@@ -813,7 +828,9 @@ def dm_send(request, conversation_id):
         create_notification(
             user=other, category='mention',
             title=f'New message from @{user.username}',
-            body=body[:120], link='/community/dm',
+            # The address of the conversation itself. Without it the
+            # notification announces a message and then opens a list.
+            body=body[:120], link=f'/community/dm/{convo.slug or convo.id}',
             metadata={'conversation_id': convo.id},
         )
     except Exception:

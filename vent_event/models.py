@@ -76,6 +76,18 @@ class Event(models.Model):
     venue_name = models.CharField(max_length=140, blank=True, default='')
     directions = models.TextField(blank=True, default='')
 
+    # Where the pin actually goes.
+    #
+    # `map_link` is a URL somebody pasted, which opens a map somewhere else. It
+    # cannot be drawn on a map here, so "Getting there" was a heading with a
+    # link under it and nothing to look at. These two are what a map needs.
+    #
+    # Filled from the pasted link where it carries a coordinate, which most
+    # Google and Apple Maps URLs do, so an organiser is not asked to type
+    # numbers they have already given us.
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+
     # Arriving without a steward scanning you.
     #
     # The door flow already works and is the right one for a gate with staff on
@@ -146,6 +158,20 @@ class Event(models.Model):
         # compute the new slug and never write it, which is the whole rename path.
         if changed and kwargs.get('update_fields') is not None:
             kwargs['update_fields'] = list(set(kwargs['update_fields']) | {'slug'})
+
+        # A pasted map link usually already carries the coordinate. Reading it
+        # saves the organiser from typing numbers they have just given us, and
+        # typing a coordinate by hand is the step where a venue ends up in the
+        # Gulf of Guinea. Never overwrites a coordinate somebody set.
+        if self.map_link and (self.latitude is None or self.longitude is None):
+            from .geo import point_from_map_link
+
+            point = point_from_map_link(self.map_link)
+            if point:
+                self.latitude, self.longitude = point
+                if kwargs.get('update_fields') is not None:
+                    kwargs['update_fields'] = list(
+                        set(kwargs['update_fields']) | {'latitude', 'longitude'})
         super().save(*args, **kwargs)
 
 
@@ -977,14 +1003,85 @@ class EventPoll(models.Model):
     plenty of polls are closed by hand when the organiser has seen enough.
     """
 
+    #: What kind of question this is.
+    #
+    # CEO, 29 August 2026: the poll mechanism should be "a lot more detailed
+    # with a lot more options for polling, just like google forms". It could ask
+    # exactly one thing: pick one of these. That answers "which day suits you"
+    # and nothing else - not "how was it out of five", not "what should we play
+    # next" when the answer is a sentence, not "pick every day you can make".
+    #
+    # `single` is the original behaviour and the default, so every poll that
+    # already exists keeps working without being touched.
+    SINGLE = 'single'
+    MULTIPLE = 'multiple'
+    SCALE = 'scale'
+    SHORT_TEXT = 'short_text'
+    LONG_TEXT = 'long_text'
+    RANKING = 'ranking'
+
+    KIND_CHOICES = [
+        (SINGLE, 'Pick one'),
+        (MULTIPLE, 'Pick several'),
+        (SCALE, 'Rate on a scale'),
+        (SHORT_TEXT, 'Short answer'),
+        (LONG_TEXT, 'Long answer'),
+        (RANKING, 'Put in order'),
+    ]
+
+    #: Kinds that need a list of options, and kinds that must not have one.
+    OPTION_KINDS = {SINGLE, MULTIPLE, RANKING}
+    TEXT_KINDS = {SHORT_TEXT, LONG_TEXT}
+
     id = models.AutoField(primary_key=True)
     event = models.ForeignKey(Event, on_delete=models.CASCADE,
                               related_name='polls')
     question = models.CharField(max_length=200)
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES, default=SINGLE)
+
+    # Help text under the question, for the ones that need explaining. A poll
+    # asking people to rank five things needs a sentence saying so.
+    help_text = models.CharField(max_length=280, blank=True, default='')
+
+    # `multiple` only. Zero means no bound, which is the common case.
+    min_choices = models.PositiveIntegerField(default=0)
+    max_choices = models.PositiveIntegerField(default=0)
+
+    # `scale` only. One to five by default, because that is what people expect
+    # when they are asked to rate something.
+    scale_min = models.PositiveIntegerField(default=1)
+    scale_max = models.PositiveIntegerField(default=5)
+    scale_min_label = models.CharField(max_length=40, blank=True, default='')
+    scale_max_label = models.CharField(max_length=40, blank=True, default='')
+
+    # Whether the reader is expected to answer. Nothing is enforced server-side
+    # by this; it exists so the screen can mark a question and so an organiser
+    # can tell the difference between "nobody answered" and "nobody had to".
+    required = models.BooleanField(default=False)
+
     # Whether people see the running count before they answer. Off by default:
     # a visible tally moves later answers toward the leader, and an organiser
     # asking "which day suits you" wants the answer, not the bandwagon.
     show_results_before_voting = models.BooleanField(default=False)
+
+    # One question shown because of how an earlier one was answered.
+    #
+    # CEO, 29 August 2026: "should also be able to link questions together,
+    # based off like their answers in one question and then it shows then
+    # another question." Asking "which day" and then "which session on that
+    # day" is two questions where the second only makes sense for some answers
+    # to the first, and asking it of everybody gets noise back.
+    #
+    # `depends_on` is the earlier question. Then either an option that had to be
+    # chosen, or a range on a scale. Both null means "shown once the earlier one
+    # has been answered at all", which is the third useful case.
+    depends_on = models.ForeignKey('self', on_delete=models.SET_NULL,
+                                   null=True, blank=True, related_name='reveals')
+    depends_on_option = models.ForeignKey(
+        'EventPollOption', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='reveals')
+    depends_on_min = models.IntegerField(null=True, blank=True)
+    depends_on_max = models.IntegerField(null=True, blank=True)
     is_open = models.BooleanField(default=True)
     closes_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey('vent_auth.Users', on_delete=models.SET_NULL,
@@ -993,6 +1090,47 @@ class EventPoll(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+
+    def visible_for(self, ticket):
+        """Whether this question should be put to this ticket holder.
+
+        A question with no condition is always shown. A question with one is
+        shown only once the earlier question has been answered in the way the
+        organiser named. The organiser's own view of the poll list ignores this;
+        it is about what an attendee is asked.
+
+        Both the serializer and the vote endpoint call this, because a question
+        somebody must not see is also one they must not be able to answer -
+        hiding it in the page would leave the endpoint open to anybody who
+        looked.
+        """
+        if self.depends_on_id is None:
+            return True
+        if ticket is None:
+            return False
+
+        earlier = (EventPollVote.objects
+                   .filter(poll_id=self.depends_on_id, ticket=ticket)
+                   .prefetch_related('choices').first())
+        if earlier is None:
+            return False
+
+        if self.depends_on_option_id is not None:
+            picked = {earlier.option_id} | {
+                c.option_id for c in earlier.choices.all()}
+            return self.depends_on_option_id in picked
+
+        if self.depends_on_min is not None or self.depends_on_max is not None:
+            if earlier.number is None:
+                return False
+            if self.depends_on_min is not None and earlier.number < self.depends_on_min:
+                return False
+            if self.depends_on_max is not None and earlier.number > self.depends_on_max:
+                return False
+            return True
+
+        # No option and no range: answered at all is enough.
+        return True
 
     def closed(self):
         """Open, and not past its own deadline."""
@@ -1034,10 +1172,23 @@ class EventPollVote(models.Model):
     id = models.AutoField(primary_key=True)
     poll = models.ForeignKey(EventPoll, on_delete=models.CASCADE,
                              related_name='votes')
+    # Null for every kind except `single`. Kept as the home of a single answer
+    # so no existing vote has to be migrated into a new shape.
     option = models.ForeignKey(EventPollOption, on_delete=models.CASCADE,
-                               related_name='votes')
+                               related_name='votes', null=True, blank=True)
     ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE,
                                related_name='poll_votes')
+
+    # What was actually answered, which depends on the kind of question.
+    #
+    # `option` above still carries a `single` answer, which is why every vote
+    # that already exists keeps working and keeps counting. The rest are here:
+    # a number for `scale`, a sentence for the two text kinds, and rows in
+    # `EventPollChoice` for `multiple` and `ranking`, where one answer is
+    # several options and the order can be the point.
+    number = models.IntegerField(null=True, blank=True)
+    text = models.TextField(blank=True, default='')
+
     voted_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -1045,4 +1196,50 @@ class EventPollVote(models.Model):
         unique_together = [('poll', 'ticket')]
 
     def __str__(self):
-        return f"{self.ticket.code} -> {self.option.text}"
+        return f"{self.ticket.code} -> poll {self.poll_id}"
+
+
+class EventPollChoice(models.Model):
+    """One option inside one answer, for the questions where an answer is several.
+
+    `position` is what makes `ranking` different from `multiple`: the same rows,
+    read in the order the person put them in rather than as a set.
+    """
+
+    id = models.AutoField(primary_key=True)
+    vote = models.ForeignKey(EventPollVote, on_delete=models.CASCADE,
+                             related_name='choices')
+    option = models.ForeignKey(EventPollOption, on_delete=models.CASCADE,
+                               related_name='choices')
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = [('vote', 'option')]
+        ordering = ['position', 'id']
+
+
+class EventAttendeeOrigin(models.Model):
+    """Roughly where one attendee is coming from, for the map on the event.
+
+    Deliberately not a location. What is stored is the centre of a cell about
+    5km across, computed by `vent_event.geo.to_cell`, and the point that was
+    rounded is never written anywhere. See that module for why.
+
+    A row exists only because somebody asked for one. Removing it is how you
+    stop sharing, and there is nothing else to undo.
+    """
+
+    event = models.ForeignKey('Event', on_delete=models.CASCADE, related_name='attendee_origins')
+    user = models.ForeignKey('vent_auth.Users', on_delete=models.CASCADE,
+                             related_name='event_origins')
+    # The cell centre. Not the attendee's location.
+    cell_latitude = models.DecimalField(max_digits=9, decimal_places=6)
+    cell_longitude = models.DecimalField(max_digits=9, decimal_places=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('event', 'user')
+        indexes = [models.Index(fields=['event', 'cell_latitude', 'cell_longitude'])]
+
+    def __str__(self):
+        return 'origin for event %s' % self.event_id

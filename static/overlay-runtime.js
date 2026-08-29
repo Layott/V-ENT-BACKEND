@@ -1,0 +1,174 @@
+/* The V-ENT overlay runtime.
+ *
+ * Injected ahead of an uploaded overlay's own scripts by `serve_overlay`. It
+ * fetches the tournament, fills anything marked as data, and keeps doing so
+ * while the browser source is open.
+ *
+ * The question this answers: can ANY html file uploaded here be driven by live
+ * data. Not quite, and the edge is the design. A file containing
+ * `<div>ALIEN X</div>` cannot be driven, because nothing can know whether that
+ * is a team name or a word in the artwork, and guessing rewrites the wrong text
+ * on air. So the file says which bits are data, with one attribute:
+ *
+ *     <div data-vent="team.name"></div>
+ *     <img data-vent-src="team.logo">
+ *     <span data-vent="team.won">0</span>
+ *     <tbody data-vent-repeat="standings">
+ *       <tr>
+ *         <td data-vent="place"></td>
+ *         <td data-vent="name"></td>
+ *         <td data-vent="won"></td>
+ *       </tr>
+ *     </tbody>
+ *     <div data-vent-show="team.won">Only drawn when they have won something</div>
+ *
+ * A file that instead defines `window.build()` and reads `window.VENT` gets
+ * that object and has `build()` called for it, which is how a scripted overlay
+ * like the KON10DR pack is driven with a fifteen-line adapter.
+ *
+ * Which team the overlay is about comes from its own `?t=TAG`, untouched, so a
+ * file written for another system keeps working the way its author expects.
+ */
+(function () {
+  'use strict';
+
+  var tag = document.getElementById('vent-overlay-runtime');
+  var FEED = tag && tag.getAttribute('data-feed');
+  var EVERY = Number((tag && tag.getAttribute('data-every')) || 4000);
+  if (!FEED) return;
+
+  var lastVersion = null;
+
+  /* Which team this overlay is about. The overlay's own convention wins: `?t=`
+     is what every pack I have seen uses, and rewriting it would break files
+     that already work. */
+  function wantedTag() {
+    var q = new URLSearchParams(location.search);
+    return (q.get('t') || q.get('team') || '').toUpperCase();
+  }
+
+  /* `team.name` out of the data, with the row's own fields addressable bare so
+     a repeat can say `name` rather than `team.name`. */
+  function read(path, scope, data) {
+    var parts = String(path).split('|')[0].trim().split('.');
+    var root;
+    if (parts.length === 1) {
+      root = scope || {};
+    } else if (parts[0] === 'tournament') {
+      root = data.tournament; parts.shift();
+    } else if (parts[0] === 'team') {
+      root = data.__team || {}; parts.shift();
+    } else if (parts[0] === 'player') {
+      root = (data.__team && data.__team.players && data.__team.players[0]) || {};
+      parts.shift();
+    } else {
+      root = scope || data;
+    }
+    var value = root;
+    for (var i = 0; i < parts.length; i += 1) {
+      if (value === null || value === undefined) return '';
+      value = value[parts[i]];
+    }
+    return value === null || value === undefined ? '' : value;
+  }
+
+  function fill(root, scope, data) {
+    /* Text. Only written when it differs, so an overlay mid-animation is not
+       restarted four times a minute by a value that did not move. */
+    root.querySelectorAll('[data-vent]').forEach(function (el) {
+      if (el.closest('[data-vent-repeat]') && el.closest('[data-vent-repeat]') !== root) return;
+      var next = String(read(el.getAttribute('data-vent'), scope, data));
+      if (el.textContent !== next) el.textContent = next;
+    });
+
+    root.querySelectorAll('[data-vent-src]').forEach(function (el) {
+      if (el.closest('[data-vent-repeat]') && el.closest('[data-vent-repeat]') !== root) return;
+      var next = String(read(el.getAttribute('data-vent-src'), scope, data));
+      if (next && el.getAttribute('src') !== next) el.setAttribute('src', next);
+    });
+
+    /* Drawn only when there is something to draw. A zero, an empty string and a
+       missing value are all "nothing", because on a stream an empty box is
+       worse than an absent one. */
+    root.querySelectorAll('[data-vent-show]').forEach(function (el) {
+      var value = read(el.getAttribute('data-vent-show'), scope, data);
+      var on = !(value === '' || value === 0 || value === false);
+      el.style.display = on ? '' : 'none';
+    });
+  }
+
+  function repeat(data) {
+    document.querySelectorAll('[data-vent-repeat]').forEach(function (host) {
+      var what = host.getAttribute('data-vent-repeat');
+      var rows = what === 'players'
+        ? ((data.__team && data.__team.players) || [])
+        : (data[what === 'standings' ? 'teams' : what] || []);
+
+      /* The first child is the template, kept off-screen rather than removed,
+         so the file remains something a designer can open and edit. */
+      if (!host.__ventTemplate) {
+        var first = host.firstElementChild;
+        if (!first) return;
+        host.__ventTemplate = first.cloneNode(true);
+      }
+      host.innerHTML = '';
+      rows.forEach(function (row) {
+        var el = host.__ventTemplate.cloneNode(true);
+        fill(el, row, data);
+        host.appendChild(el);
+      });
+    });
+  }
+
+  function apply(data) {
+    var want = wantedTag();
+    var teams = data.teams || [];
+    data.__team = teams.filter(function (t) {
+      return String(t.tag).toUpperCase() === want;
+    })[0] || teams[0] || {};
+
+    /* What a scripted overlay reads. Published before `build()` is called,
+       because a file that reads it at the top of its own script runs first. */
+    window.VENT = data;
+
+    fill(document, null, data);
+    repeat(data);
+
+    if (typeof window.build === 'function') {
+      try {
+        window.build(data);
+      } catch (err) {
+        /* An overlay that throws must not take the page down: the rest of it is
+           still on screen in front of an audience. */
+        if (window.console) console.warn('V-ENT overlay: build() threw', err);
+      }
+    }
+
+    document.documentElement.setAttribute('data-vent-ready', '1');
+  }
+
+  function poll() {
+    fetch(FEED, { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (body) {
+        if (!body || body.status !== 'success') return;
+        var data = body.data;
+        /* Redraw only when something moved. A browser source runs for six hours
+           at a venue, often on a hotspot, and re-rendering an animation every
+           four seconds is how an overlay ends up stuttering on air. */
+        if (data.version === lastVersion) return;
+        lastVersion = data.version;
+        apply(data);
+      })
+      .catch(function () {
+        /* Keep whatever is on screen. A scoreboard that freezes at the last
+           good numbers is recoverable; one that blanks is not. */
+      });
+  }
+
+  poll();
+  if (EVERY > 0) setInterval(poll, EVERY);
+
+  /* So an organiser can prove the link works before it goes on air. */
+  window.VENTOverlay = { refresh: poll, feed: FEED };
+})();

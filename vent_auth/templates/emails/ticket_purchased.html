@@ -6,10 +6,10 @@
 {% block content %}
 <p style="margin:0 0 20px 0;">{{ name }}, here is your entry to <strong style="color:#FFFFFF;">{{ event }}</strong>. Show this at the door.</p>
 
-{# The scannable code, in the email itself. It used to live only in My Tickets,
+{% comment %} The scannable code, in the email itself. It used to live only in My Tickets,
    which a guest has no account to reach: their email WAS the ticket and it
    could not be scanned. White plate on purpose, whatever the rest of the mail
-   looks like, because a camera has to read it off a phone at a gate. #}
+   looks like, because a camera has to read it off a phone at a gate. {% endcomment %}
 {% if qr_cid %}
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 20px 0;">
   <tr>
@@ -33,9 +33,9 @@
 {% include "emails/_rows.html" with rows=rows %}
 
 <div style="height:24px; line-height:24px;">&nbsp;</div>
-{# Somebody with an account opens their ticket; somebody without one looks it up
+{% comment %} Somebody with an account opens their ticket; somebody without one looks it up
    with this address and the code. Sending a guest to My Tickets was sending
-   them to a sign-in wall. #}
+   them to a sign-in wall. {% endcomment %}
 {% if has_account %}
 {% include "emails/_button.html" with url=ticket_url label="Open my ticket" color="#D4AF37" text_color="#131316" %}
 {% else %}
@@ -56,8 +56,8 @@
 {% endif %}
 
 {% if check_in_url %}
-{# Only when the organiser turned self check-in on. A link that refuses the
-   person who presses it is worse than no link. #}
+{% comment %} Only when the organiser turned self check-in on. A link that refuses the
+   person who presses it is worse than no link. {% endcomment %}
 <p style="margin:0 0 20px 0; font-size:14px; color:#8A8A93;">
   When you arrive you can <a href="{{ check_in_url }}" style="color:#4CAF50; text-decoration:none;">check yourself in</a> instead of queueing.
 </p>

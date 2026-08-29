@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 from vent_auth.models import Users, Games, Teams, Organization
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
@@ -1054,3 +1055,133 @@ class ScheduledReminder(models.Model):
             return False
         due = self.due_at()
         return due is not None and due <= (now or timezone.now())
+
+
+class TournamentInvitation(models.Model):
+    """An organiser asking one named player or one named team to enter.
+
+    CEO, 29 August 2026: "tournament organizers, should be able to invite people
+    or teams to their events."
+
+    Not the same thing as `TournamentInvite`, which is a code an organiser hands
+    out and anybody holding it can spend. This is addressed: it names who it is
+    for, it tells them, and it can be accepted or declined. An organiser wanting
+    four particular teams in a bracket does not want four codes to distribute
+    and reconcile; they want to ask four teams.
+
+    One invitation per tournament per recipient, so asking twice is a reminder
+    rather than a second row, and the recipient's list never shows the same
+    tournament twice.
+    """
+
+    PENDING = 'pending'
+    ACCEPTED = 'accepted'
+    DECLINED = 'declined'
+    WITHDRAWN = 'withdrawn'
+    STATUS_CHOICES = [
+        (PENDING, 'Waiting for an answer'),
+        (ACCEPTED, 'Accepted'),
+        (DECLINED, 'Declined'),
+        (WITHDRAWN, 'Withdrawn by the organiser'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    tournament = models.ForeignKey(
+        Tournament, on_delete=models.CASCADE, related_name='invitations')
+
+    # Exactly one of these. A team invitation is answered by whoever owns the
+    # team, and a player invitation by that player.
+    user = models.ForeignKey(
+        Users, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='tournament_invitations')
+    team = models.ForeignKey(
+        Teams, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='tournament_invitations')
+
+    message = models.CharField(max_length=280, blank=True, default='')
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=PENDING)
+
+    invited_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='tournament_invitations_sent')
+    created_at = models.DateTimeField(auto_now_add=True)
+    answered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['tournament', 'user'],
+                condition=models.Q(user__isnull=False),
+                name='one_invitation_per_player'),
+            models.UniqueConstraint(
+                fields=['tournament', 'team'],
+                condition=models.Q(team__isnull=False),
+                name='one_invitation_per_team'),
+        ]
+
+    def __str__(self):
+        who = self.team.team_name if self.team_id else (
+            self.user.username if self.user_id else '?')
+        return 'invitation to %s for tournament %s' % (who, self.tournament_id)
+
+
+class TournamentOverlay(models.Model):
+    """An HTML overlay an organiser uploaded, and the URL they paste into OBS.
+
+    CEO, 29 August 2026: "if users can upload html files, we should be able to
+    get links to paste inside obs or vmix or any streaming software of choice."
+
+    Which decides almost everything about this model:
+
+    **The token is the credential.** OBS opens a browser source with no session,
+    no cookie and no header. Whatever authorises it has to be in the URL, so it
+    is a long random token and the URL is treated as a secret. A rotate is a new
+    token, which is why it lives in a column rather than being derived from the
+    id.
+
+    **The file is stored, not the markup.** An overlay is a designer's file and
+    is edited by re-uploading it. Keeping it as a file means the original is
+    what is served, which is the only version anybody can debug against.
+
+    **Nothing about it is private.** It shows the same standings as the public
+    tournament page, to a camera pointed at a screen in a hall. The token exists
+    so that an overlay cannot be enumerated and hotlinked, not because the
+    contents are secret.
+    """
+
+    id = models.AutoField(primary_key=True)
+    tournament = models.ForeignKey(
+        Tournament, on_delete=models.CASCADE, related_name='overlays')
+    name = models.CharField(max_length=120)
+    file = models.FileField(upload_to='tournament_overlays/')
+
+    # What goes in the URL. Long, random, and rotatable: a URL pasted into a
+    # machine at a venue and forgotten is a URL that has to be revocable.
+    token = models.CharField(max_length=48, unique=True, db_index=True)
+
+    # What the uploader's file turned out to be, worked out once at upload
+    # rather than on every request from OBS. See `overlay_binding.inspect`.
+    binding = models.CharField(max_length=20, default='none')
+    bound_fields = models.JSONField(default=list, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='tournament_overlays')
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return '%s for tournament %s' % (self.name, self.tournament_id)
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            import secrets
+            self.token = secrets.token_urlsafe(24)[:48]
+            if kwargs.get('update_fields') is not None:
+                kwargs['update_fields'] = list(
+                    set(kwargs['update_fields']) | {'token'})
+        super().save(*args, **kwargs)

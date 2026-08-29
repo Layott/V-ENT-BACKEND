@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>V-ENT is updating</title>
+<!--
+  Served by nginx when the app is not answering: mid-deploy, or a restart that
+  took longer than a second.
+
+  Everything here is inline on purpose. When this page is being shown the Node
+  server is down, and the Node server is what serves the fonts, the images and
+  every stylesheet. A maintenance page that depends on the thing that is broken
+  is a second broken page.
+
+  It retries on its own rather than asking somebody to keep pressing reload,
+  and it says what is happening rather than showing a status code.
+-->
+<style>
+  :root {
+    --page: #131316;
+    --surface: #1b1c1f;
+    --surface-2: #212225;
+    --text: #f4f4f5;
+    --muted: rgba(244, 244, 245, 0.58);
+    --quiet: rgba(244, 244, 245, 0.4);
+    --brand: #ed1c24;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background-color: var(--page);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+  }
+  .card {
+    background-color: var(--surface);
+    border-radius: 20px;
+    padding: 2.25rem 1.75rem 1.75rem;
+    width: 100%;
+    max-width: 460px;
+  }
+  .mark { display: block; width: 34px; height: auto; }
+  h1 {
+    font-size: 1.7rem;
+    line-height: 1.15;
+    letter-spacing: -0.015em;
+    font-weight: 650;
+    margin-top: 1.5rem;
+  }
+  .lead { color: var(--muted); font-size: 1rem; line-height: 1.65; margin-top: 0.85rem; }
+  .rows { margin-top: 1.6rem; display: flex; flex-direction: column; gap: 0.5rem; }
+  .row {
+    background-color: var(--surface-2);
+    border-radius: 12px;
+    padding: 0.85rem 1rem;
+    font-size: 0.92rem;
+    line-height: 1.5;
+    color: rgba(244, 244, 245, 0.86);
+  }
+  .row b { font-weight: 620; color: var(--text); }
+  .foot {
+    margin-top: 1.6rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .status { color: var(--quiet); font-size: 0.84rem; }
+  button {
+    font: inherit;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: #fff;
+    background-color: var(--brand);
+    border: none;
+    border-radius: 10px;
+    padding: 0.7rem 1.2rem;
+    cursor: pointer;
+    outline: none;
+  }
+  button:hover { background-color: #ff2229; }
+  button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  a { color: rgba(244, 244, 245, 0.8); }
+  @media (min-width: 700px) {
+    .card { padding: 2.75rem 2.5rem 2.25rem; }
+    h1 { font-size: 2.1rem; }
+  }
+</style>
+</head>
+<body>
+  <main class="card">
+    <svg class="mark" viewBox="0 0 40 46" role="img" aria-label="V-ENT">
+      <path d="M0 0h40L20 46 0 0zm7.6 5.4L20 34.1 32.4 5.4H7.6z" fill="#ED1C24"/>
+    </svg>
+
+    <h1>V-ENT is updating</h1>
+    <p class="lead">
+      A new version is going out right now. This takes about a minute, and this
+      page will take you back the moment it is done.
+    </p>
+
+    <div class="rows">
+      <p class="row"><b>Your money is untouched.</b> Wallet balances, entry fees and prizes are held on the server, not in this page.</p>
+      <p class="row"><b>Your tickets still work.</b> A ticket already bought keeps its code, and the door scanner reads it whether or not this page is up.</p>
+      <p class="row"><b>Nothing you submitted is lost.</b> Anything the server accepted before the update is saved. Anything it did not accept was never charged for.</p>
+    </div>
+
+    <div class="foot">
+      <span class="status" id="status" aria-live="polite">Checking again in 15 seconds</span>
+      <button type="button" id="retry">Try now</button>
+    </div>
+  </main>
+
+<script>
+(function () {
+  var status = document.getElementById('status');
+  var retry = document.getElementById('retry');
+  var left = 15;
+  var checking = false;
+
+  function check() {
+    if (checking) return;
+    checking = true;
+    status.textContent = 'Checking';
+    fetch('/?probe=' + Date.now(), { method: 'HEAD', cache: 'no-store' })
+      .then(function (res) {
+        if (res.ok) { location.reload(); return; }
+        throw new Error('still down');
+      })
+      .catch(function () {
+        checking = false;
+        left = 15;
+        status.textContent = 'Still updating. Checking again in 15 seconds';
+      });
+  }
+
+  retry.addEventListener('click', check);
+
+  setInterval(function () {
+    if (checking) return;
+    left -= 1;
+    if (left <= 0) { check(); return; }
+    status.textContent = 'Checking again in ' + left + (left === 1 ? ' second' : ' seconds');
+  }, 1000);
+})();
+</script>
+</body>
+</html>
