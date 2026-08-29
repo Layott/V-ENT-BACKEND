@@ -264,3 +264,45 @@ class PollManagementTests(PollBase):
     def test_an_unknown_event_is_a_404(self):
         res = self.client.get('/event/999999/polls/')
         self.assertEqual(res.status_code, 404)
+
+
+class PollAnswerableTests(PollBase):
+    """Whether the reader may answer, said before they press anything.
+
+    Signing in is not the same as holding a ticket. Somebody with an account and
+    no ticket, and somebody who bought as a guest under another address, both
+    reach this page. A live button that answers 403 tells them only after they
+    have chosen, which is the fault the community compose box shipped with.
+    """
+
+    def test_a_signed_in_holder_may_answer(self):
+        res = self.read(auth=self.member_auth)
+        self.assertTrue(res.data['data']['can_answer'])
+
+    def test_a_signed_in_stranger_may_not(self):
+        res = self.read(auth=self.stranger_auth)
+        self.assertFalse(res.data['data']['can_answer'])
+
+    def test_the_organiser_without_a_ticket_may_not_answer(self):
+        # They see the counts. That is a different permission from voting.
+        res = self.read(auth=self.auth)
+        self.assertFalse(res.data['data']['can_answer'])
+        self.assertTrue(res.data['data']['polls'][0]['results_visible'])
+
+    def test_a_guest_with_a_code_may_answer(self):
+        res = self.read(code='PO000001')
+        self.assertTrue(res.data['data']['can_answer'])
+
+    def test_a_guest_with_no_code_may_not(self):
+        res = self.read()
+        self.assertFalse(res.data['data']['can_answer'])
+
+    def test_a_wrong_code_may_not(self):
+        res = self.read(code='NOTATICKET')
+        self.assertFalse(res.data['data']['can_answer'])
+
+    def test_a_refunded_holder_may_not(self):
+        self.guest.status = 'refunded'
+        self.guest.save()
+        res = self.read(code='PO000001')
+        self.assertFalse(res.data['data']['can_answer'])
