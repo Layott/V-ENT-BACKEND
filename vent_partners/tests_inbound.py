@@ -66,8 +66,15 @@ class InboundConfiguredTests(TestCase):
             self.assertIn('error=sso-state', res['Location'])
 
     def test_the_full_callback_signs_somebody_in(self):
-        from django.core import signing
-        state = signing.dumps({'p': 'afc'}, salt='vent.inbound-sso')
+        # Start the flow properly rather than minting a state by hand. The
+        # callback now requires an attempt that this server actually began,
+        # because that is where the PKCE verifier is kept: a callback for a
+        # sign-in nobody started has no verifier to send, and AFC would refuse
+        # the exchange anyway.
+        with mock.patch.dict('os.environ', AFC_ENV):
+            start = self.client.get('/partners/inbound/afc/start/')
+        from urllib.parse import parse_qs, urlparse
+        state = parse_qs(urlparse(start.json()['data']['url']).query)['state'][0]
 
         token_response = mock.Mock(status_code=200)
         token_response.json.return_value = {'access_token': 'afc-access'}

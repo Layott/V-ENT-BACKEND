@@ -318,3 +318,56 @@ class ExternalIdentity(models.Model):
 
     def __str__(self):
         return f'{self.provider}:{self.external_id}'
+
+
+class InboundLogin(models.Model):
+    """One in-flight "sign in with AFC" attempt, and its PKCE verifier.
+
+    AFC sets `PKCE_REQUIRED: True`, and their guide is blunt about it: it is not
+    advisory and not only for public clients, and omitting it is "the single
+    most common cause of a first integration attempt failing". So the authorize
+    request carries a `code_challenge` and the token exchange has to carry the
+    matching `code_verifier`.
+
+    The verifier cannot travel in `state`. State goes out through the player's
+    browser and comes back the same way, and Django's `signing.dumps` is signed
+    but not encrypted, so anybody who can read the address bar could read the
+    verifier out of it. That is precisely the interception PKCE exists to stop,
+    so putting the secret there would leave the ceremony in place and the
+    protection gone.
+
+    It cannot live in the cache either. No CACHES backend is configured, so
+    Django falls back to per-process local memory: under more than one gunicorn
+    worker the request that starts the login and the request that finishes it
+    are usually different processes, and the second one would find nothing.
+    That failure is invisible in development, where there is one process.
+
+    So it is a row. Short-lived, single use, and deleted the moment it is spent.
+    """
+
+    id = models.AutoField(primary_key=True)
+    provider = models.CharField(max_length=40)
+    # The opaque value handed to the provider and returned on the callback.
+    state = models.CharField(max_length=190, unique=True, db_index=True)
+    code_verifier = models.CharField(max_length=128)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.provider}:{self.state[:12]}'
+
+    @classmethod
+    def sweep(cls, older_than_seconds=900):
+        """Drop attempts nobody finished.
+
+        An abandoned sign-in leaves a row behind, and without this the table
+        grows forever with dead secrets in it. Called on the way past rather
+        than from a cron, because it is two orders of magnitude cheaper than
+        the HTTP round trip it sits next to.
+        """
+        from django.utils import timezone as _tz
+        from datetime import timedelta
+        cutoff = _tz.now() - timedelta(seconds=older_than_seconds)
+        return cls.objects.filter(created_at__lt=cutoff).delete()
