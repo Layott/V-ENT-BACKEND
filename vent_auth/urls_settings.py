@@ -57,6 +57,7 @@ urlpatterns = [
     path('thread/<int:thread_id>/upvote/', community.thread_upvote),
     path('thread/reply/<int:reply_id>/upvote/', community.thread_reply_upvote),
 
+    path('scrim/games/', community.scrim_games),
     path('scrim/list/', community.scrim_list),
     path('scrim/create/', community.scrim_create),
     path('scrim/<int:scrim_id>/accept/', community.scrim_accept),

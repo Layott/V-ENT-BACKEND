@@ -1263,25 +1263,89 @@ class Scrim(models.Model):
         ('played', 'Played'),
     ]
 
-    team = models.ForeignKey(Teams, on_delete=models.CASCADE, related_name='scrims_posted')
+    # A scrim is posted by a team OR by one player.
+    #
+    # CEO, 29 August 2026: "should be able to create solo challenges also."
+    # Most of what is played on this platform is 1v1 - EA FC, Lone Wolf, a
+    # Clash Squad duel - and requiring a team to post one meant a player had to
+    # invent a team of themselves first. `team` is nullable now and `player`
+    # carries the other case; exactly one of them is set, which `clean()`
+    # enforces.
+    team = models.ForeignKey(
+        Teams, on_delete=models.CASCADE, null=True, blank=True, related_name='scrims_posted',
+    )
+    player = models.ForeignKey(
+        Users, on_delete=models.CASCADE, null=True, blank=True, related_name='scrims_as_player',
+    )
     opponent = models.ForeignKey(
         Teams, on_delete=models.SET_NULL, null=True, blank=True, related_name='scrims_accepted',
+    )
+    opponent_player = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True, related_name='scrims_accepted_solo',
     )
     # Set when the post is a direct challenge: only this team may accept.
     challenged = models.ForeignKey(
         Teams, on_delete=models.SET_NULL, null=True, blank=True, related_name='scrims_challenged',
     )
+    challenged_player = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True, related_name='scrims_challenged_solo',
+    )
     game = models.ForeignKey(Games, on_delete=models.SET_NULL, null=True, blank=True, related_name='scrims')
     created_by = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='scrims_created')
     scheduled_for = models.DateTimeField(null=True, blank=True)
-    match_format = models.CharField(max_length=20, blank=True, default='')
-    region = models.CharField(max_length=40, blank=True, default='')
+
+    # Which way the game is being played. Free Fire alone is four different
+    # games depending on this answer, and the format that makes sense follows
+    # from it: a Battle Royale is points across N matches and Clash Squad is
+    # first to N rounds, so "Bo3" is meaningless in one and wrong in the other.
+    # See vent_auth/game_modes.py.
+    mode = models.CharField(max_length=40, blank=True, default='')
+    # How many a side. 1 for a solo challenge.
+    team_size = models.PositiveSmallIntegerField(default=1)
+    match_format = models.CharField(max_length=40, blank=True, default='')
+    # Free Fire Craftland is played on a map somebody built, shared as a code.
+    map_code = models.CharField(max_length=40, blank=True, default='')
+
+    # Where the players are, as a country.
+    #
+    # This was `region`, and its list was 'NG-West', 'NG-East', 'ZA', 'KE',
+    # 'EU-West', 'NA-East', 'SA', 'AS-East' - Nigerian zones, ISO country
+    # codes and continental shards in one picker, so it could not be compared
+    # with anything. The rest of the platform stores a country as a full name
+    # from src/constants/countries.js, and a scrim is now the same, which means
+    # "scrims near me" can actually be a query instead of a guess.
+    country = models.CharField(max_length=60, blank=True, default='')
     notes = models.CharField(max_length=280, blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='open')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['-created_at']
+
+    @property
+    def is_solo(self):
+        return self.player_id is not None
+
+    @property
+    def poster_name(self):
+        """Who posted it, whichever kind it is."""
+        if self.player_id:
+            return self.player.username
+        return self.team.team_name if self.team_id else ''
+
+    def clean(self):
+        """Exactly one side, and it is either a team or a player.
+
+        A row with both set would render twice and be acceptable by two
+        different people; a row with neither has nobody to play it.
+        """
+        from django.core.exceptions import ValidationError
+
+        if bool(self.team_id) == bool(self.player_id):
+            raise ValidationError(
+                'A scrim is posted either by a team or by one player, not both '
+                'and not neither.'
+            )
 
     def save(self, *args, **kwargs):
         # No name to build an address from, so it carries an opaque token
