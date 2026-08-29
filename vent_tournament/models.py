@@ -816,3 +816,112 @@ class TournamentInvite(models.Model):
 
     def matches(self, given):
         return str(given or '').strip().lower() == self.code.strip().lower()
+
+
+class TournamentMetric(models.Model):
+    """One thing this tournament counts, and what it is worth.
+
+    PRD section 3 asks for performance metrics "specific to the game" and for
+    "tie breakers for MVPs and teams" among the organiser's settings. Both mean
+    the same thing: the organiser decides what a good game is here, and the
+    platform does the arithmetic.
+
+    Stored as rows rather than as a JSON blob on Tournament, for the reason
+    entry requirements were: a refusal, a weight or an order has to name WHICH
+    metric it is about, and a list of dicts cannot be filtered, ordered or
+    pointed at by a foreign key.
+
+    `position` is the tiebreak order. Two players level on total score are
+    separated by the first metric in this list, then the second, which is the
+    same shape as the league table's tiebreakers and deliberately so - two
+    orderings that behave differently are two orderings somebody has to hold in
+    their head.
+    """
+
+    id = models.AutoField(primary_key=True)
+    tournament = models.ForeignKey(
+        Tournament, on_delete=models.CASCADE, related_name='metrics')
+    # The key from vent_tournament.metrics.METRICS. Not a FK, because the
+    # catalogue is code rather than data: it ships with the release, is the
+    # same for everybody, and a migration to add a metric would be silly.
+    key = models.CharField(max_length=40)
+    weight = models.FloatField(default=1.0)
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['position', 'id']
+        unique_together = [('tournament', 'key')]
+
+    def __str__(self):
+        return f"{self.tournament_id}:{self.key} x{self.weight}"
+
+    def definition(self):
+        from . import metrics as catalogue
+        return catalogue.get(self.key)
+
+
+class MatchPlayerStat(models.Model):
+    """What one player did in one match, for one metric.
+
+    One row per number rather than a wide table with a column per stat, because
+    the set of stats is the organiser's and changes per tournament. A column per
+    possible metric would be a migration every time somebody adds a game.
+
+    The player is a user rather than a registration: in a team tournament the
+    interesting question is which PERSON was the most valuable, and a
+    registration is a team.
+    """
+
+    id = models.AutoField(primary_key=True)
+    match = models.ForeignKey(
+        BracketMatch, on_delete=models.CASCADE, related_name='player_stats')
+    player = models.ForeignKey(
+        'vent_auth.Users', on_delete=models.CASCADE, related_name='match_stats')
+    # Which side they played for, so a stat line can be shown next to the right
+    # team without inferring it from team membership, which changes.
+    registration = models.ForeignKey(
+        TournamentRegistration, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='player_stats')
+    key = models.CharField(max_length=40)
+    value = models.FloatField(default=0)
+    recorded_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        # One number per player per metric per match. Reporting a corrected
+        # figure updates the row rather than adding a second one, which is what
+        # makes a re-submission safe.
+        unique_together = [('match', 'player', 'key')]
+        ordering = ['match_id', 'player_id', 'key']
+
+    def __str__(self):
+        return f"{self.match_id}:{self.player_id}:{self.key}={self.value}"
+
+
+class TournamentMVP(models.Model):
+    """The award, once somebody has decided it.
+
+    Computed from the stats by default, and the organiser may override with a
+    reason. Both are recorded, because "the numbers said X and the organiser
+    chose Y" is a fact somebody will ask about, and losing it makes the decision
+    look arbitrary when it was not.
+    """
+
+    id = models.AutoField(primary_key=True)
+    tournament = models.OneToOneField(
+        Tournament, on_delete=models.CASCADE, related_name='mvp')
+    player = models.ForeignKey(
+        'vent_auth.Users', on_delete=models.CASCADE, related_name='mvp_awards')
+    # The score the arithmetic gave them, kept as it stood when the award was
+    # made. Stats can be corrected afterwards and the award should not silently
+    # start disagreeing with itself.
+    score = models.FloatField(default=0)
+    # Set when the organiser picked somebody the arithmetic did not.
+    overridden = models.BooleanField(default=False)
+    reason = models.CharField(max_length=300, blank=True, default='')
+    decided_by = models.ForeignKey(
+        'vent_auth.Users', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='mvp_decisions')
+    decided_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"MVP {self.tournament_id}: {self.player_id}"
