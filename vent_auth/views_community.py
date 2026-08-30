@@ -568,6 +568,14 @@ def thread_reply_upvote(request, reply_id):
 # Scrims
 # ---------------------------------------------------------------------------
 
+def _result_row(request, result):
+    """The agreed score on a challenge, for any list that shows one."""
+    if result is None:
+        return None
+    from .views_challenges import serialize_result
+    return serialize_result(request, result)
+
+
 def _side(request, team, player):
     """One side of a scrim, whether it is a team or one player.
 
@@ -616,6 +624,15 @@ def serialize_scrim(request, s, viewer=None):
         'is_solo': s.is_solo,
         'map_code': s.map_code,
         'country': s.country,
+        # Who may answer, and the words for it. `open_to` is what the page
+        # filters on; the label is what it prints.
+        'open_to': s.open_to,
+        'countries': s.countries or [],
+        'open_to_label': s.open_to_label,
+        # The agreed score, once there is one. A challenge with no result is
+        # not the same as one that finished nil-nil, so this is null rather
+        # than zeroes.
+        'result': _result_row(request, getattr(s, 'result', None)),
         'game': game_title,
         'scheduled_for': s.scheduled_for,
         'notes': s.notes,
@@ -634,9 +651,13 @@ def scrim_list(request):
     qs = Scrim.objects.select_related(
         'team', 'opponent', 'challenged', 'game', 'created_by',
         'player', 'opponent_player', 'challenged_player',
-    )
+    ).prefetch_related('result')
     wanted = (request.GET.get('status') or '').strip()
-    if wanted and wanted.lower() != 'all':
+    if wanted and wanted.lower() == 'past':
+        # CEO: "challenges should also show past matches and games and the
+        # data also."
+        qs = qs.filter(status='played')
+    elif wanted and wanted.lower() != 'all':
         qs = qs.filter(status__iexact=wanted)
     game = (request.GET.get('game') or '').strip()
     if game and game.lower() != 'all':
@@ -645,7 +666,14 @@ def scrim_list(request):
     # filter from the old picker does not silently return everything.
     country = (request.GET.get('country') or request.GET.get('region') or '').strip()
     if country and country.lower() != 'all':
-        qs = qs.filter(country__iexact=country)
+        from django.db.models import Q
+        # A challenge open to everybody belongs in every country's list, and
+        # one open to a group belongs in each of theirs. Matching only the
+        # single `country` column would hide exactly the challenges that were
+        # opened up.
+        qs = qs.filter(Q(country__iexact=country)
+                       | Q(open_to='anywhere')
+                       | Q(open_to='countries', countries__icontains=country))
 
     mode = (request.GET.get('mode') or '').strip()
     if mode and mode.lower() != 'all':
@@ -790,6 +818,25 @@ def scrim_create(request):
                 return _error('A team cannot scrim itself.', 'VALIDATION_ERROR',
                               status.HTTP_400_BAD_REQUEST)
 
+    # Who may answer this, by where they are.
+    #
+    # CEO: "for country should be able to open it to all, or select a group of
+    # countries they want also." One country was the only option, which is
+    # wrong at both ends: somebody happy to play anybody had to pick a country
+    # and turn everyone else away, and a West African scrim needed four posts.
+    open_to = (request.data.get('open_to') or '').strip() or 'country'
+    if open_to not in dict(Scrim.OPEN_TO_CHOICES):
+        return _error('That is not a way to choose who may answer.', 'BAD_OPEN_TO',
+                      status.HTTP_400_BAD_REQUEST)
+    countries = request.data.get('countries') or []
+    if not isinstance(countries, list):
+        return _error('Countries must be a list.', 'VALIDATION_ERROR',
+                      status.HTTP_400_BAD_REQUEST)
+    countries = [str(c)[:60] for c in countries][:40]
+    if open_to == 'countries' and not countries:
+        return _error('Choose at least one country, or open it to everybody.',
+                      'NO_COUNTRIES', status.HTTP_400_BAD_REQUEST)
+
     scrim = Scrim.objects.create(
         team=team,
         player=user if solo else None,
@@ -805,6 +852,8 @@ def scrim_create(request):
         # The same vocabulary as every other country on the platform, so this
         # can be compared with a player's own country instead of being a label.
         country=(request.data.get('country') or request.data.get('region') or '').strip()[:60],
+        open_to=open_to,
+        countries=countries,
         notes=(request.data.get('notes') or '').strip()[:280],
     )
 
@@ -847,6 +896,11 @@ def scrim_accept(request, scrim_id):
     # A solo challenge is accepted by a person. There is no team to bring, no
     # membership to check, and asking for one would make every 1v1 post
     # unacceptable to the players it was aimed at.
+    if not scrim.open_to_country(getattr(user, 'country', '')):
+        return _error(
+            'This challenge is only open to players in %s.' % scrim.open_to_label,
+            'WRONG_COUNTRY', status.HTTP_403_FORBIDDEN)
+
     if scrim.is_solo:
         if scrim.player_id == user.user_id:
             return _error('You cannot accept your own challenge.',

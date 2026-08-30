@@ -1315,6 +1315,27 @@ class Scrim(models.Model):
     # from src/constants/countries.js, and a scrim is now the same, which means
     # "scrims near me" can actually be a query instead of a guess.
     country = models.CharField(max_length=60, blank=True, default='')
+
+    # Who may answer this, by where they are.
+    #
+    # CEO, 30 August 2026: "for country should be able to open it to all, or
+    # select a group of countries they want also."
+    #
+    # One country was the only option, which is wrong at both ends: somebody
+    # happy to play anybody had to pick a country and turn everyone else away,
+    # and somebody running a West African scrim had to post four separate
+    # challenges. `anywhere` and a list cover both without making the simple
+    # case harder.
+    OPEN_TO_CHOICES = [
+        ('anywhere', 'Anyone, anywhere'),
+        ('countries', 'A chosen group of countries'),
+        ('country', 'One country'),
+    ]
+    open_to = models.CharField(max_length=20, choices=OPEN_TO_CHOICES, default='country')
+    # Used only when open_to is `countries`. Full names, from the one list the
+    # rest of the platform compares against.
+    countries = models.JSONField(default=list, blank=True)
+
     notes = models.CharField(max_length=280, blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='open')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1325,6 +1346,29 @@ class Scrim(models.Model):
     @property
     def is_solo(self):
         return self.player_id is not None
+
+    def open_to_country(self, country):
+        """Whether somebody from this country may answer this challenge.
+
+        Enforced on accept as well as drawn on the page: a filter that only
+        hides things is a suggestion, and the person who edits the request gets
+        in anyway.
+        """
+        if self.open_to == 'anywhere':
+            return True
+        wanted = (country or '').strip().lower()
+        if self.open_to == 'countries':
+            return wanted in {str(c).strip().lower() for c in (self.countries or [])}
+        # A single country, and a challenge with no country set turns nobody away.
+        return not self.country or wanted == self.country.strip().lower()
+
+    @property
+    def open_to_label(self):
+        if self.open_to == 'anywhere':
+            return 'Anyone, anywhere'
+        if self.open_to == 'countries':
+            return ', '.join(self.countries or []) or 'A chosen group'
+        return self.country or 'Anywhere'
 
     @property
     def poster_name(self):
@@ -1498,3 +1542,74 @@ class TeamInvite(models.Model):
             if self.max_uses and self.uses >= self.max_uses:
                 return True
         return False
+
+
+class ScrimResult(models.Model):
+    """How a challenge actually finished, agreed by both sides.
+
+    CEO, 30 August 2026: "record results also, the results should also show on
+    their profiles as history".
+
+    One side reports and the other confirms. That is the whole design, and the
+    reason for it is that a scrim has no referee: there is no bracket, no
+    organiser and no admin watching, so whatever one player types is the only
+    account of what happened. If reporting were enough, the ledger would record
+    whatever the faster typist claimed, and a history built on that is worse
+    than no history because people would rely on it.
+
+    So a result is `reported` until the other side agrees. A disagreement is
+    recorded as `disputed` and kept - both numbers, both names - rather than
+    letting the second report overwrite the first. Nobody is adjudicated here;
+    the point is that the disagreement is visible instead of silently resolved
+    in favour of whoever went last.
+    """
+
+    STATUS_CHOICES = [
+        ('reported', 'Waiting to be confirmed'),
+        ('confirmed', 'Agreed by both sides'),
+        ('disputed', 'The two sides disagree'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    scrim = models.OneToOneField(Scrim, on_delete=models.CASCADE, related_name='result')
+
+    # `a` is whoever posted the challenge, `b` is whoever accepted it, and that
+    # never changes, so a score always means the same thing however it is read.
+    score_a = models.IntegerField(default=0)
+    score_b = models.IntegerField(default=0)
+
+    reported_by = models.ForeignKey(Users, on_delete=models.CASCADE,
+                                    related_name='scrim_results_reported')
+    reported_at = models.DateTimeField(auto_now_add=True)
+
+    confirmed_by = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True,
+                                     blank=True, related_name='scrim_results_confirmed')
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='reported')
+
+    # What the other side said it was, when they disagree. Kept beside the
+    # original rather than replacing it: a dispute with only one set of numbers
+    # in it is not a dispute, it is a rewrite.
+    disputed_score_a = models.IntegerField(null=True, blank=True)
+    disputed_score_b = models.IntegerField(null=True, blank=True)
+    disputed_by = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True,
+                                    blank=True, related_name='scrim_results_disputed')
+    disputed_at = models.DateTimeField(null=True, blank=True)
+
+    note = models.CharField(max_length=280, blank=True, default='')
+
+    class Meta:
+        ordering = ['-reported_at']
+
+    def __str__(self):
+        return f'{self.scrim_id}: {self.score_a}-{self.score_b} ({self.status})'
+
+    @property
+    def winner(self):
+        """'a', 'b' or 'draw'. Only meaningful once it is confirmed."""
+        if self.score_a > self.score_b:
+            return 'a'
+        if self.score_b > self.score_a:
+            return 'b'
+        return 'draw'

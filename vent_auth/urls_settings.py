@@ -12,6 +12,7 @@ from . import views_account_security as sec
 from . import views_rankings as rank
 from . import views_orgs as orgs
 from . import views_community as community
+from . import views_challenges as challenges
 
 urlpatterns = [
     # Rankings (root-mounted: the /rankings page calls /ranking/ with no prefix)
@@ -64,6 +65,13 @@ urlpatterns = [
     path('scrim/list/', community.scrim_list),
     path('scrim/create/', community.scrim_create),
     path('scrim/<int:scrim_id>/accept/', community.scrim_accept),
+    # The rest of a challenge's life. Literal routes first; `<str:scrim_id>`
+    # takes one segment, so anything single-segment after it is unreachable.
+    path('scrim/history/<str:username>/', challenges.challenge_history),
+    path('scrim/<str:scrim_id>/detail/', challenges.challenge_detail),
+    path('scrim/<str:scrim_id>/talk/', challenges.challenge_conversation),
+    path('scrim/<str:scrim_id>/result/', challenges.report_result),
+    path('scrim/<str:scrim_id>/result/confirm/', challenges.confirm_result),
 
     path('dm/list/', community.dm_list),
     path('dm/new/send/', community.dm_send, {'conversation_id': 'new'}),
