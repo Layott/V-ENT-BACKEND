@@ -329,7 +329,18 @@ def account_overview(request):
                 'user_id': user.user_id,
                 'username': user.username,
                 'email': user.email,
-                'email_verified': user.is_active,
+                # Not `is_active`. An account created by signing in with an
+                # outside provider is active immediately and its address may
+                # never have been confirmed - or, when the provider sends no
+                # address at all, may be a synthetic one this platform invented.
+                # Reporting that as Verified is how a made-up address came to
+                # wear a green badge on the CEO's own settings page.
+                'email_verified': bool(
+                    user.is_active
+                    and (user.email or '').strip()
+                    and not (user.email or '').lower().endswith('.external')
+                    and (user.signup_type or 'normal') in ('normal', 'google')
+                ),
                 'full_name': user.full_name,
                 'date_joined': user.date_joined,
                 'country': user.country,

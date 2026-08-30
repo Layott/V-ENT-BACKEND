@@ -147,3 +147,103 @@ directly.
 - No real AFC credentials on this machine; the live exchange stays unproven.
 - Gates K1-K9 (nine screens with tests and no browser walk) not yet done.
 - A dispute still has no settling screen.
+
+---
+
+# Second half of 30 August: AFC in production, and what it broke
+
+`AFC_SSO_ENABLED` was defaulted on and production already held real AFC
+credentials, so the button went live the moment the deploy landed. Three
+problems followed within minutes, all reported by the CEO.
+
+## 1. It forked people into new accounts
+
+**AFC's userinfo returns no email at all.** Its discovery document declares only
+`sub` under `claims_supported`; `email` being in the granted scopes does not
+mean the claim comes back. `link_or_create_user` matches on the provider id
+first and the address second, so with no address the match was skipped and an
+account was invented with a synthetic `<name>@afc.external` address.
+
+Three real accounts: `layott_777` (the CEO's duplicate), `fyre`, and one whose
+username was AFC's raw 64-character id, because "VT V1RUX" contains a space and
+failed `username_problem`.
+
+**`AFC_SSO_ENABLED=0` on the VPS**, so no more can be created. Fixed:
+
+- No account is created without a real address. `link_or_create_user` returns
+  `'no-email'` and the callback sends them to `/login?error=sso-no-email`, which
+  tells them to sign in normally and link AFC from settings - the path that
+  attaches to the account they already have.
+- Six claim spellings are read, and the claim names that *did* arrive are
+  logged. That log line is how AFC's fix gets confirmed.
+- A handle that is not a valid username keeps its letters and digits.
+
+**The CEO's duplicate (id 88) was deleted at their request**, together with its
+ExternalIdentity, so once AFC sends an address a sign-in matches their real
+account (id 3, `ladilawalt@gmail.com`, Google). `fyre` and the hash-named
+account still exist; they belong to other people and were left alone.
+
+**Do not switch AFC back on** until a live sign-in is seen carrying an address.
+`check_afc_sso` cannot see userinfo - that needs a real token - so it passing is
+not evidence about this.
+
+## 2. "It said not successful but still logged me in"
+
+`/auth/external` read `useSearchParams()` in an effect whose dependency array
+held `params`, which is a fresh object every render. The effect ran twice: the
+first pass spent the token and created the session, the second found it spent,
+failed, and painted "Sign-in did not complete" over a working session.
+
+It runs once now, and before showing a failure at all it asks `getSession()`
+whether one exists.
+
+## 3. The whole page left v-ent.co
+
+It opens a **window** now, with the login page still underneath. Verified: the
+popup is created on the click, sent to
+`api.africanfreefirecommunity.com/sso/authorize/`, and `location.pathname` stays
+`/fr/login`.
+
+It cannot be an in-page modal, and that is not a shortcut being taken: AFC sends
+`X-Frame-Options: SAMEORIGIN`, so their login cannot be embedded, and somebody
+else's login form rendered inside our chrome is the shape of a phishing page
+whether or not we mean it that way. A window keeps their address bar visible,
+which is what lets somebody see whose site they are typing into. The window is
+opened before the `await`, because a popup opened after one is no longer tied to
+the click and gets blocked; if it is blocked anyway the old whole-page redirect
+still runs.
+
+## 4. Also fixed while in there
+
+- **`email_verified` was `user.is_active`**, so the invented address wore a green
+  Verified badge on the CEO's own settings page.
+- **The username is now the main name.** Two accounts both called "Layott" read
+  identically on every screen. `UserChip` - the one component every name goes
+  through, enforced by `scripts/check-user-chips.mjs` - now leads with the
+  username and puts the real name underneath. The header did its own and was
+  brought in line. The profile field is labelled "Name", not "Full name", in all
+  three languages.
+- **Two public pages hung for signed-out visitors.** `/teams` showed six
+  skeleton cards for ever and `/teams/team-profile` sat on "Loading the
+  team...", both because the fetch returned before `loading` was ever cleared
+  when there was no token. Both are public and in the sitemap.
+
+## Verified
+
+1581 backend tests. `check-keys` 3877 keys 0 missing, `dict-parity` equal.
+Chrome: the team page loading signed out, the owner card leading with
+`demo_temi`, the settings label reading "Nom", and the popup opening without the
+page leaving `/fr/login`.
+
+## Still open from the K walk
+
+K1, K2, K8, K9 are closed with evidence in GATES.md. K3 (comp tickets), K5 (the
+invitation banner as the invited player), K6 (poll branching) and K7 (answering
+all six poll kinds) are not done. K4 is done.
+
+Two defects found on the way and not yet fixed:
+
+- The tournament console's **Actions tab renders a second copy of the page
+  header**, so the title and View Public Page appear twice with a gap between.
+- The tournament detail hero **overlaps its own text at 411px**: "by Vermillion
+  Events" collides with the Share and "You are registered" controls.
