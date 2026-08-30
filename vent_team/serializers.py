@@ -148,8 +148,14 @@ def _viewer_state(request, team, members):
     request_status = 'none'
     if not is_member:
         latest = (
+            # `applicant`, not `user`. Every other query in vent_team/views.py
+            # already had it right; this one raised FieldError, so any signed-in
+            # visitor who was neither the owner nor a member got a 500 on a team
+            # page. Signed out took the early return above it and the owner took
+            # the `not is_member` shortcut, so both of the roles anybody tests
+            # went straight past it.
             TeamJoinRequest.objects
-            .filter(team=team, user=user)
+            .filter(team=team, applicant=user)
             .order_by('-created_at')
             .first()
         )
