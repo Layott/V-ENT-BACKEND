@@ -161,11 +161,30 @@ def refresh_daily_location(user, request):
         if not country:
             return False
 
-        user.country = country
-        user.state = city or user.state
+        # A guess never overwrites an answer.
+        #
+        # This wrote the IP's country and city over whatever the account
+        # already held, every day. Two things went wrong with that. A player
+        # who told us where they are had it quietly replaced by wherever their
+        # carrier's gateway happens to sit - Nigerian mobile data resolved a
+        # Lagos sign-in to Ilorin - and `country` is not decoration: a
+        # challenge open to one country is gated on this field, so a wrong
+        # guess locks somebody out of challenges in their own country.
+        #
+        # So it fills a blank and nothing else. Somebody who has never said
+        # where they are still gets a sensible default on their first sign-in;
+        # somebody who has said gets to keep it.
+        fields = ['last_login_ip', 'location_updated_at']
+        if not (user.country or '').strip():
+            user.country = country
+            fields.append('country')
+        if city and not (user.state or '').strip():
+            user.state = city
+            fields.append('state')
+
         user.last_login_ip = ip
         user.location_updated_at = timezone.now()
-        user.save(update_fields=['country', 'state', 'last_login_ip', 'location_updated_at'])
+        user.save(update_fields=fields)
         return True
     except Exception:
         logger.warning('geoip: daily location refresh failed', exc_info=True)

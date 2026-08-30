@@ -15,6 +15,7 @@ import os
 import re
 
 from django.conf import settings
+from django.core.mail import EmailMultiAlternatives
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,34 @@ def _logo():
             logger.warning('email logo missing at %s; sending without it', LOGO_PATH)
             _logo_bytes = b''
     return _logo_bytes or None
+
+
+class _RelatedEmail(EmailMultiAlternatives):
+    """An email whose multipart/related part says which part is the document.
+
+    RFC 2387 makes `type` a required parameter on multipart/related: it names
+    the content type of the root, so a client knows which enclosed part is the
+    document and which are the things it refers to. Django builds the tree
+    correctly - related wrapping alternative wrapping text and html, plus the
+    inline image - but writes a bare `Content-Type: multipart/related;
+    boundary=...`.
+
+    Gmail on Android drew the V-ENT mark as a broken image because of it: with
+    no root declared it would not resolve `cid:ventlogo` against the sibling
+    part. The structure was right and the declaration was not, which is why
+    nothing in the send path could see it - the message it built looked correct
+    at every level a test walks.
+
+    Done as a subclass rather than by rewriting the message on the way out, so
+    what lands in `mail.outbox` is still an EmailMessage with a `.subject` on
+    it, which is what every test that checks an email reads.
+    """
+
+    def message(self):
+        payload = super().message()
+        if payload.get_content_subtype() == 'related':
+            payload.set_param('type', 'multipart/alternative')
+        return payload
 
 
 def _plain_text(html):
@@ -101,7 +130,6 @@ def ticket_qr_png(code):
 
 def _send(to_address, subject, template, context, inline_images=None):
     """Render `template` and send it. Returns True on success, never raises."""
-    from django.core.mail import EmailMultiAlternatives
     from django.template.loader import render_to_string
 
     context = dict(
@@ -118,7 +146,7 @@ def _send(to_address, subject, template, context, inline_images=None):
         return False
 
     try:
-        message = EmailMultiAlternatives(
+        message = _RelatedEmail(
             subject=subject,
             body=_plain_text(html),
             from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', None),
@@ -432,10 +460,26 @@ def send_login_alert(user, request=None):
             logger.warning('could not read login alert preference; sending anyway', exc_info=True)
 
         latest = user.login_events.first() if hasattr(user, 'login_events') else None
-        where = ', '.join(p for p in [getattr(latest, 'city', ''), getattr(latest, 'country', '')] if p)
+
+        # The country, and deliberately not the city.
+        #
+        # CEO, 30 August 2026, on an alert that placed a Lagos sign-in in
+        # Ilorin: "the ilorik there is wrong". It was, and it will keep being
+        # wrong: an address on a mobile network belongs to the carrier's
+        # gateway, not to the handset, so the city is the city of whichever
+        # exchange the traffic came out of. Nigerian mobile data routinely
+        # resolves hundreds of kilometres from the person holding the phone.
+        #
+        # That matters more here than anywhere else the guess is used. This
+        # email exists so somebody can answer "was that me?", and a city they
+        # have never been to answers "no" for a sign-in that was theirs. A
+        # security alert that cries wolf gets ignored, and then the real one is
+        # ignored too. The country is coarse enough to usually be right, and
+        # the device and the time are what actually identify the session.
+        country = getattr(latest, 'country', '') or ''
         rows = [
             ('When', latest.created_at.strftime('%d %b %Y, %H:%M') if latest else 'Just now'),
-            ('Where', where or 'Unknown location'),
+            ('Country', country or 'Could not tell'),
             ('IP address', getattr(latest, 'ip', '') or 'Unknown'),
             ('Device', _short_agent(getattr(latest, 'user_agent', ''))),
         ]
@@ -447,6 +491,11 @@ def send_login_alert(user, request=None):
                 'name': user.full_name or user.username,
                 'rows': rows,
                 'reset_url': f'{APP_URL}/forgot-password',
+                # Said out loud rather than left for the reader to work out
+                # after they have already been alarmed.
+                'note': ('The country is worked out from the network address. '
+                         'On mobile data it is your network provider, which can '
+                         'be some way from where you are.'),
             },
         )
     except Exception:
