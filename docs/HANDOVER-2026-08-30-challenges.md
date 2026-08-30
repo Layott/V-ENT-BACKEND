@@ -130,7 +130,8 @@ that has been shared. `?tab=scrims` still resolves.
 
 ## Verified
 
-- Backend: **1525 tests, all passing** (`DB_ENGINE=sqlite python manage.py test`).
+- Backend: **1525 tests, all passing** before the console work; **840 in
+  vent_auth + vent_event** after it, all passing (`DB_ENGINE=sqlite python manage.py test`).
 - Chrome, desktop and 390px, in French: login and signup provider rows; the
   Linked accounts panel with AFC; the challenges list with country and past
   filters; a challenge page as owner, as opponent and as a stranger; accept
@@ -139,11 +140,35 @@ that has been shared. `?tab=scrims` still resolves.
   overflow at 390px on any of them.
 - `node scripts/check-keys.mjs`: 3775 keys, 0 missing. `dict-parity.mjs`: equal.
 
+## 7. The console: events, tickets, and what was sent
+
+Gates X1-X6, all closed. The console could list events and correct their fields
+and nothing else.
+
+New: `vent_auth/views_admin_events.py` and
+`src/app/(admin)/admin/events/[slug]/`. Three tabs - the numbers, the tickets,
+what was sent - reached by a Manage link on each row of the events list.
+
+**Two things worth remembering.** Voiding a ticket returns the seat to its tier,
+because a tier's `sold` is what the next buyer is checked against; a void that
+left it alone would shrink the room by one every time somebody was refused
+entry. And nothing here can edit an announcement: the recipients already have
+the text in their inbox, and a console that could rewrite the record would be
+rewriting the answer to the question it exists to answer.
+
+Everything is behind `@admin_role_required`, which insists the session went
+through the second factor. Reading is open to every admin role; cancelling an
+event and voiding a ticket are super_admin and support_admin only.
+
+The reason for a cancel or a void is asked for in the page. `window.prompt`
+blocks the tab, cannot be styled, and reads as a browser warning.
+
+44 tests. Walked in Chrome as demo_temi: voided VT-RFG7BWZY, watched the tier go
+from 5 sold to 4, and checked the AdminAction row afterwards
+(`demo_temi | VT-RFG7BWZY | Chargeback from the bank`).
+
 ## Open
 
-- **X1-X6, the admin console for events and tickets.** Not started. This is the
-  CEO's other outstanding request from 30 August: manage events, manage tickets,
-  and see what organisers actually sent out.
 - **Nothing is deployed.** Both repos are committed on
   `feature/aug29-organiser-tools` and unpushed.
 - **A dispute has no settling screen.** Two accounts of a match are recorded and
