@@ -366,20 +366,21 @@ INBOUND_PROVIDERS = {
         # requested: every extra scope is one more thing the player can refuse,
         # and widening later forces a fresh consent screen anyway.
         'default_scope': 'openid profile email afc.freefire afc.team afc.standing',
-        # Off until AFC's own sign-in page is working again.
+        # Was off through 30 August 2026, because AFC's own sign-in page took
+        # about twelve seconds to answer and then sat on "Loading..." for ever,
+        # and a button leading to a page that never finishes is worse than no
+        # button. Measured again on 30 August after they shipped a fix: their
+        # login page reaches a usable form in 1.4 seconds and carries the
+        # authorize URL through as a `redirect`, so the round trip is whole.
+        # They also publish a discovery document now, which `check_afc_sso`
+        # reads to confirm the three endpoints below are still the right ones.
         #
-        # 30 August 2026: their /sso/authorize/ correctly bounces a signed-out
-        # visitor to africanfreefirecommunity.com/login, and that page takes
-        # about twelve seconds to answer and then sits on "Loading...". Our
-        # half of the handshake is right - AFC accepts the client id, the
-        # redirect URI and the PKCE challenge - so there is nothing to fix
-        # here, but a button that leads to a page that never finishes loading
-        # is worse than no button. AFC say they are fixing it.
-        #
-        # Set AFC_SSO_ENABLED=1 to put it back. It is an environment variable
-        # rather than a commented-out button so turning it back on is a deploy
-        # setting, not a code change and a review.
+        # So the default is back on. This is safe with no keys set: `enabled`
+        # and `credentials` are separate questions and `configured` needs both,
+        # so a host with no AFC_CLIENT_ID still lists nothing and draws no
+        # button. Set AFC_SSO_ENABLED=0 to hold it shut even where keys exist.
         'enabled_env': 'AFC_SSO_ENABLED',
+        'enabled_default': '1',
     },
 }
 
@@ -429,7 +430,8 @@ def inbound_config(slug):
     ])
     switch = spec.get('enabled_env')
     cfg['enabled'] = (
-        os.environ.get(switch, '0').strip().lower() in ('1', 'true', 'yes')
+        os.environ.get(switch, spec.get('enabled_default', '0')).strip().lower()
+        in ('1', 'true', 'yes')
         if switch else True
     )
     cfg['configured'] = cfg['credentials'] and cfg['enabled']

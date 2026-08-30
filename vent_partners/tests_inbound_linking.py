@@ -7,10 +7,14 @@ settings panel that exists precisely to list connected accounts knew nothing
 about it, so the one place anybody would look said nothing.
 
 And, the same day: "pending when the afc is done fixing, lets hide afc for now."
-AFC's own login page answers in about twelve seconds and then sits on
-"Loading...", so the button leads somewhere that never finishes. Hiding it is a
-switch rather than a deletion, because the credentials are real and the flow
-works; only their sign-in page does not.
+AFC's login page then answered in about twelve seconds and sat on "Loading...",
+so the button led somewhere that never finished. Hiding it was a switch rather
+than a deletion, because the credentials were real and the flow worked; only
+their sign-in page did not.
+
+AFC shipped their fix on 30 August 2026 and the default is back on, so the
+switch is now the way to hold it shut rather than the way it ships. These tests
+outlive that: a switch that has been used once will be used again.
 """
 import uuid
 from unittest import mock
@@ -31,6 +35,9 @@ AFC_ON = {
     'AFC_SSO_ENABLED': '1',
 }
 AFC_OFF = dict(AFC_ON, AFC_SSO_ENABLED='0')
+# Credentials present, the switch never mentioned. This is how a host that has
+# been given keys and no opinion about the switch behaves.
+AFC_DEFAULT = {k: v for k, v in AFC_ON.items() if k != 'AFC_SSO_ENABLED'}
 
 
 def a_user(name, password=None):
@@ -68,6 +75,40 @@ class SwitchedOffTests(TestCase):
         with mock.patch.dict('os.environ', AFC_OFF):
             res = self.client.get('/partners/inbound/afc/start/')
         self.assertEqual(res.status_code, 503)
+
+    def test_with_keys_and_no_switch_set_it_is_offered(self):
+        """AFC fixed their login page on 30 August 2026, so the default is on.
+
+        A host that has been handed credentials and says nothing about the
+        switch gets the button, rather than having to know to set a variable
+        whose reason for existing has passed.
+        """
+        from vent_partners.views_sso import inbound_config
+        with mock.patch.dict('os.environ', AFC_DEFAULT, clear=True):
+            cfg = inbound_config('afc')
+        self.assertTrue(cfg['enabled'])
+        self.assertTrue(cfg['configured'])
+
+    def test_with_no_keys_and_no_switch_set_nothing_is_offered(self):
+        """The default being on must not mean a button on a host with no keys.
+
+        `enabled` and `credentials` are separate questions and `configured`
+        needs both, so production draws nothing until somebody adds the client
+        id and secret.
+        """
+        from vent_partners.views_sso import inbound_config
+        with mock.patch.dict('os.environ', {}, clear=True):
+            cfg = inbound_config('afc')
+        self.assertTrue(cfg['enabled'])
+        self.assertFalse(cfg['credentials'])
+        self.assertFalse(cfg['configured'])
+
+        # Listed, and honestly: a provider missing its keys says
+        # `configured: false` and the login page draws nothing for it. That is
+        # a different case from switched off, which is not listed at all.
+        with mock.patch.dict('os.environ', {}, clear=True):
+            res = self.client.get('/partners/inbound/providers/')
+        self.assertFalse(res.json()['data']['providers']['afc']['configured'])
 
     def test_switching_it_off_does_not_throw_away_the_credentials(self):
         """The client id and secret survive, so turning it back on is one
