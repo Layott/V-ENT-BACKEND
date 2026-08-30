@@ -197,6 +197,11 @@ def serialize_team_detail(request, team):
     return {
         'id': team.team_id,
         'team_id': team.team_id,
+        # The detail payload carried no slug, so every page built from it had
+        # nothing but the numeric id to build a link out of - which is how
+        # Manage came to point at /edit-team-profile/<id>. See the slug rule:
+        # no numeric id in an address a person can see.
+        'slug': team.slug,
         'name': team.team_name,
         'tag': None,
         'game': game_title,

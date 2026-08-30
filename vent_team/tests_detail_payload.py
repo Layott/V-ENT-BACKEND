@@ -25,6 +25,58 @@ def signed_in(username):
     )
     return user, {'HTTP_AUTHORIZATION': 'Bearer %s' % user.login_session_token}
 
+
+class TeamDetailPayloadTests(TestCase):
+    def setUp(self):
+        self.game = Games.objects.get_or_create(game_title='Free Fire')[0]
+        self.owner, self.owner_auth = signed_in('avalanche_boss')
+        self.stranger, self.stranger_auth = signed_in('passerby')
+        self.team = Teams.objects.create(
+            team_name='Avalanche Gaming', game=self.game, description='',
+            team_creator=self.owner, team_owner=self.owner,
+            penalty_points=0, number_of_members=1,
+            allow_membership_requests=True,
+        )
+
+    def _detail(self, auth=None):
+        res = self.client.get('/team/view-team/%s/' % self.team.team_id, **(auth or {}))
+        self.assertEqual(res.status_code, 200)
+        return res.json()['data']['team']
+
+    def test_the_detail_payload_carries_the_slug(self):
+        """Without it the only thing a link can be built from is the numeric id.
+
+        That is how Manage came to point at /edit-team-profile/<id>, against the
+        rule that no numeric id appears in an address a person can see.
+        """
+        team = self._detail(self.owner_auth)
+        self.assertTrue(team['slug'])
+        self.assertEqual(team['slug'], self.team.slug)
+
+    def test_the_owner_is_told_they_are_the_owner(self):
+        self.assertTrue(self._detail(self.owner_auth)['viewer_is_owner'])
+
+    def test_a_stranger_is_not(self):
+        self.assertFalse(self._detail(self.stranger_auth)['viewer_is_owner'])
+
+    def test_an_unauthenticated_request_is_not_the_owner(self):
+        """The flag is False rather than absent when nobody is signed in.
+
+        This is why the edit page must not fetch before its session has
+        resolved: a request sent without the token gets a definite `false`, and
+        `false` has no fallback to fall through to.
+        """
+        self.assertFalse(self._detail()['viewer_is_owner'])
+
+    def test_the_owner_block_still_names_them_both_ways(self):
+        """The frontend fallback compares on id and on username, because
+        `session.user.id` is the username whenever login sent no user_id."""
+        owner = self._detail(self.owner_auth)['owner']
+        self.assertEqual(owner['user_id'], self.owner.user_id)
+        self.assertEqual(owner['id'], self.owner.user_id)
+        self.assertEqual(owner['username'], 'avalanche_boss')
+
+
 class SignedInStrangerTests(TestCase):
     """The role that is neither signed out nor the owner.
 
