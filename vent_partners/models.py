@@ -350,6 +350,16 @@ class InboundLogin(models.Model):
     # The opaque value handed to the provider and returned on the callback.
     state = models.CharField(max_length=190, unique=True, db_index=True)
     code_verifier = models.CharField(max_length=128)
+    # Set when somebody already signed in started this from their settings page
+    # to add the provider to their linked accounts. Null means the ordinary
+    # case: a sign-in, where whoever comes back is whoever the provider says.
+    #
+    # It is held here rather than inferred on the way back, because the callback
+    # arrives from the provider with no V-ENT session on it at all: a linking
+    # flow and a sign-in flow look identical at that point unless the intent was
+    # written down when the flow started.
+    link_user = models.ForeignKey(Users, on_delete=models.CASCADE, null=True,
+                                  blank=True, related_name='inbound_link_attempts')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

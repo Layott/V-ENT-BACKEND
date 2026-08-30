@@ -337,6 +337,10 @@ def sso_userinfo(request):
 INBOUND_PROVIDERS = {
     'afc': {
         'label': 'African Free Fire Community',
+        # The letters on the button. The full label is 27 characters and does
+        # not fit next to a mark, so the provider says what its short form is
+        # rather than the login page guessing at initials.
+        'short': 'AFC',
         'client_id': 'AFC_CLIENT_ID',
         'client_secret': 'AFC_CLIENT_SECRET',
         'authorize_url': 'AFC_AUTHORIZE_URL',
@@ -362,6 +366,20 @@ INBOUND_PROVIDERS = {
         # requested: every extra scope is one more thing the player can refuse,
         # and widening later forces a fresh consent screen anyway.
         'default_scope': 'openid profile email afc.freefire afc.team afc.standing',
+        # Off until AFC's own sign-in page is working again.
+        #
+        # 30 August 2026: their /sso/authorize/ correctly bounces a signed-out
+        # visitor to africanfreefirecommunity.com/login, and that page takes
+        # about twelve seconds to answer and then sits on "Loading...". Our
+        # half of the handshake is right - AFC accepts the client id, the
+        # redirect URI and the PKCE challenge - so there is nothing to fix
+        # here, but a button that leads to a page that never finishes loading
+        # is worse than no button. AFC say they are fixing it.
+        #
+        # Set AFC_SSO_ENABLED=1 to put it back. It is an environment variable
+        # rather than a commented-out button so turning it back on is a deploy
+        # setting, not a code change and a review.
+        'enabled_env': 'AFC_SSO_ENABLED',
     },
 }
 
@@ -390,6 +408,7 @@ def inbound_config(slug):
         return None
     cfg = {
         'label': spec['label'],
+        'short': spec.get('short', ''),
         'client_id': os.environ.get(spec['client_id'], ''),
         'client_secret': os.environ.get(spec['client_secret'], ''),
         'authorize_url': os.environ.get(spec['authorize_url'],
@@ -400,11 +419,74 @@ def inbound_config(slug):
                                        spec.get('default_userinfo_url', '')),
         'scope': os.environ.get(spec['scope'], spec['default_scope']),
     }
-    cfg['configured'] = all([
+    # Two different questions, kept apart. `credentials` is whether we could
+    # sign somebody in; `enabled` is whether we currently want to. Collapsing
+    # them would mean hiding a provider by deleting its keys, which is how a
+    # temporary switch-off turns into a lost credential.
+    cfg['credentials'] = all([
         cfg['client_id'], cfg['client_secret'], cfg['authorize_url'],
         cfg['token_url'], cfg['userinfo_url'],
     ])
+    switch = spec.get('enabled_env')
+    cfg['enabled'] = (
+        os.environ.get(switch, '0').strip().lower() in ('1', 'true', 'yes')
+        if switch else True
+    )
+    cfg['configured'] = cfg['credentials'] and cfg['enabled']
     return cfg
+
+
+def _bearer_user(request):
+    """The signed-in user, or None. Never an error.
+
+    `inbound_start` is reachable both ways: signed out to sign in, signed in to
+    link. A missing or stale token here means the first case, not a failure.
+    """
+    if not (request.META.get('HTTP_AUTHORIZATION') or '').strip():
+        return None
+    user, err = _user_from_bearer(request)
+    return None if err else user
+
+
+def attach_identity(provider, profile, user):
+    """Add an outside account to a V-ENT account that already exists.
+
+    Returns the word the settings page shows: `linked`, `taken` when the outside
+    account already belongs to somebody else, `already` when it is already on
+    this account, or `failed` when the provider sent back nothing to identify.
+
+    The `taken` case is the one that matters. Two V-ENT accounts pointing at one
+    AFC account would both answer to the same sign-in, and whichever row was
+    found first would win, silently and differently over time.
+    """
+    external_id = str(
+        profile.get('id') or profile.get('sub') or profile.get('user_id') or ''
+    ).strip()
+    if not external_id:
+        return 'failed'
+
+    handle = (profile.get('username') or profile.get('preferred_username')
+              or profile.get('name') or '').strip()
+    email = (profile.get('email') or '').strip().lower()
+
+    existing = (ExternalIdentity.objects
+                .filter(provider=provider, external_id=external_id).first())
+    if existing is not None:
+        if existing.user_id != user.user_id:
+            return 'taken'
+        existing.external_username = handle[:190]
+        existing.external_email = email[:254]
+        existing.last_login_at = timezone.now()
+        existing.save(update_fields=['external_username', 'external_email',
+                                     'last_login_at'])
+        return 'already'
+
+    ExternalIdentity.objects.create(
+        user=user, provider=provider, external_id=external_id,
+        external_username=handle[:190], external_email=email[:254],
+        last_login_at=timezone.now(),
+    )
+    return 'linked'
 
 
 @api_view(['GET'])
@@ -414,7 +496,13 @@ def inbound_providers(request):
     rows = {}
     for slug in INBOUND_PROVIDERS:
         cfg = inbound_config(slug)
-        rows[slug] = {'label': cfg['label'], 'configured': cfg['configured']}
+        # A provider that is switched off is not listed at all. The login page
+        # would otherwise have to know the difference between "not set up" and
+        # "set up and deliberately hidden", which is not its business.
+        if not cfg['enabled']:
+            continue
+        rows[slug] = {'label': cfg['label'], 'short': cfg['short'],
+                      'configured': cfg['configured']}
     return _ok({'providers': rows}, 'Sign-in providers')
 
 
@@ -436,6 +524,12 @@ def inbound_start(request, provider):
     from django.core import signing
     from .models import InboundLogin
 
+    # Two things start here and they are not the same. Somebody signed out is
+    # signing in. Somebody signed in, arriving from their settings page with a
+    # bearer token, is adding this provider to their linked accounts and must
+    # come back to the same V-ENT account they left from.
+    link_user = _bearer_user(request)
+
     state = signing.dumps({'p': provider, 'n': secrets.token_urlsafe(12)},
                           salt='vent.inbound-sso')
 
@@ -446,7 +540,7 @@ def inbound_start(request, provider):
     verifier, challenge = _new_pkce_pair()
     InboundLogin.sweep()
     InboundLogin.objects.create(provider=provider, state=state,
-                                code_verifier=verifier)
+                                code_verifier=verifier, link_user=link_user)
 
     base = os.environ.get('BACKEND_PUBLIC_URL', 'https://api.v-ent.co').rstrip('/')
     params = {
@@ -492,6 +586,7 @@ def inbound_callback(request, provider):
     if attempt is None:
         return redirect(f'{FRONTEND_URL}/login?error=sso-state')
     verifier = attempt.code_verifier
+    link_user = attempt.link_user
     attempt.delete()
 
     base = os.environ.get('BACKEND_PUBLIC_URL', 'https://api.v-ent.co').rstrip('/')
@@ -520,6 +615,14 @@ def inbound_callback(request, provider):
     except Exception:
         logger.exception('%s inbound sign-in failed', provider)
         return redirect(f'{FRONTEND_URL}/login?error=sso-failed')
+
+    label = cfg['label']
+
+    if link_user is not None:
+        # Adding the provider to an account that already exists. The browser
+        # goes back to the settings panel it left, not to a fresh sign-in.
+        outcome = attach_identity(provider, profile, link_user)
+        return redirect(f'{FRONTEND_URL}/settings?panel=linked&{provider}={outcome}')
 
     user = link_or_create_user(provider, profile)
     if user is None:
@@ -558,7 +661,10 @@ def link_or_create_user(provider, profile):
     )
     if identity is not None:
         identity.last_login_at = timezone.now()
-        identity.save(update_fields=['last_login_at'])
+        identity.external_username = handle[:190] or identity.external_username
+        identity.external_email = email[:254] or identity.external_email
+        identity.save(update_fields=['last_login_at', 'external_username',
+                                     'external_email'])
         return identity.user
 
     user = Users.objects.filter(email__iexact=email).first() if email else None
@@ -591,3 +697,37 @@ def link_or_create_user(provider, profile):
         last_login_at=timezone.now(),
     )
     return user
+
+
+@api_view(['POST'])
+def inbound_disconnect(request, provider):
+    """Remove an outside account from the signed-in V-ENT account.
+
+    Refused when it is the only way in. Somebody whose account was created by
+    signing in with AFC has no password, and unlinking would leave a real
+    account with a wallet and a tournament history that nobody can reach. They
+    are told to set a password first rather than being locked out politely.
+    """
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+
+    cfg = inbound_config(provider)
+    if cfg is None:
+        return _err('Unknown provider.', 'UNKNOWN_PROVIDER', status.HTTP_404_NOT_FOUND)
+
+    identity = ExternalIdentity.objects.filter(user=user, provider=provider).first()
+    if identity is None:
+        return _err(f"{cfg['label']} is not connected.", 'NOT_CONNECTED',
+                    status.HTTP_404_NOT_FOUND)
+
+    has_password = bool(user.password) and user.has_usable_password()
+    other_ways_in = has_password or user.signup_type == 'google'
+    if not other_ways_in:
+        return _err(
+            'Set a password before disconnecting this, or you will not be able '
+            'to sign in again.',
+            'ONLY_SIGN_IN_METHOD', status.HTTP_409_CONFLICT)
+
+    identity.delete()
+    return _ok({'provider': provider}, f"{cfg['label']} disconnected.")

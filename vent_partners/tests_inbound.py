@@ -24,22 +24,31 @@ AFC_ENV = {
     'AFC_AUTHORIZE_URL': 'https://africanfreefirecommunity.com/oauth/authorize',
     'AFC_TOKEN_URL': 'https://africanfreefirecommunity.com/oauth/token',
     'AFC_USERINFO_URL': 'https://africanfreefirecommunity.com/api/me',
+    # The switch, on, because these tests are about the flow rather than about
+    # whether it is currently offered. See SwitchedOffTests for the other half.
+    'AFC_SSO_ENABLED': '1',
 }
+
+CREDENTIALS_ONLY = dict(AFC_ENV, AFC_SSO_ENABLED='0')
 
 
 class InboundGuardTests(TestCase):
     def test_unconfigured_providers_are_reported_honestly(self):
-        with mock.patch.dict('os.environ', {}, clear=False):
-            for key in AFC_ENV:
-                mock.patch.dict('os.environ', {key: ''}).start()
+        with mock.patch.dict('os.environ', {'AFC_SSO_ENABLED': '1',
+                                            'AFC_CLIENT_ID': '',
+                                            'AFC_CLIENT_SECRET': ''}):
             res = self.client.get('/partners/inbound/providers/')
             self.assertEqual(res.status_code, 200)
             afc = res.json()['data']['providers']['afc']
             self.assertEqual(afc['label'], 'African Free Fire Community')
+            self.assertEqual(afc['short'], 'AFC')
             self.assertFalse(afc['configured'])
 
     def test_starting_an_unconfigured_provider_is_a_503(self):
-        res = self.client.get('/partners/inbound/afc/start/')
+        with mock.patch.dict('os.environ', {'AFC_SSO_ENABLED': '1',
+                                            'AFC_CLIENT_ID': '',
+                                            'AFC_CLIENT_SECRET': ''}):
+            res = self.client.get('/partners/inbound/afc/start/')
         self.assertEqual(res.status_code, 503)
         self.assertFalse(res.json()['configured'])
 

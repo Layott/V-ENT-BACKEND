@@ -60,6 +60,7 @@ partner_urlpatterns = [
 
     # Signing in to V-ENT with an outside account
     path('inbound/providers/', sso.inbound_providers),
+    path('inbound/<str:provider>/disconnect/', sso.inbound_disconnect),
     path('inbound/<str:provider>/start/', sso.inbound_start),
     path('inbound/<str:provider>/callback/', sso.inbound_callback),
 ]
