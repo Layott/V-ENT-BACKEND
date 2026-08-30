@@ -103,6 +103,10 @@ def serialize_result(request, result):
         'winner': result.winner if result.status == 'confirmed' else None,
         'note': result.note,
         'reported_by': _person(request, result.reported_by),
+        # Which side reported it, so a page can tell "waiting for them" from
+        # "waiting for you" without working out sides again on the client and
+        # getting a different answer for a team member who did not report.
+        'reported_side': side_of(result.scrim, result.reported_by),
         'reported_at': result.reported_at,
         'confirmed_by': _person(request, result.confirmed_by) if result.confirmed_by_id else None,
         'confirmed_at': result.confirmed_at,

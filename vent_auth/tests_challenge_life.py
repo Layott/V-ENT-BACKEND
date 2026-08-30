@@ -227,6 +227,15 @@ class ChallengeLifeTests(TestCase):
         self.assertEqual(scrim.status, 'accepted', 'a reported score should not '
                                                    'finish the challenge on its own')
 
+    def test_the_result_says_which_side_reported_it(self):
+        """So a page can tell "waiting for them" from "waiting for you"
+        without working sides out again on the client."""
+        scrim = self._accepted()
+        self._post('/scrim/%s/result/' % scrim.slug, {'score_a': 5, 'score_b': 2})
+        res = self.client.get('/scrim/%s/detail/' % scrim.slug, **self.rival_auth)
+        result = res.json()['data']['scrim']['result']
+        self.assertEqual(result['reported_side'], 'a')
+
     def test_the_other_side_confirms_and_then_it_counts(self):
         scrim = self._accepted()
         self._post('/scrim/%s/result/' % scrim.slug, {'score_a': 5, 'score_b': 2})

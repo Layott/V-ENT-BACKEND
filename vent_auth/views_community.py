@@ -897,9 +897,14 @@ def scrim_accept(request, scrim_id):
     # membership to check, and asking for one would make every 1v1 post
     # unacceptable to the players it was aimed at.
     if not scrim.open_to_country(getattr(user, 'country', '')):
+        # The country rides along as a field rather than only inside the
+        # sentence. A sentence built in Python cannot be translated, and this
+        # one was landing in English on an otherwise French page; the code plus
+        # the parameter can be.
         return _error(
             'This challenge is only open to players in %s.' % scrim.open_to_label,
-            'WRONG_COUNTRY', status.HTTP_403_FORBIDDEN)
+            'WRONG_COUNTRY', status.HTTP_403_FORBIDDEN,
+            extra={'country': scrim.open_to_label})
 
     if scrim.is_solo:
         if scrim.player_id == user.user_id:
