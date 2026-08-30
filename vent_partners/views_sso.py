@@ -646,6 +646,42 @@ def inbound_callback(request, provider):
     return redirect(f'{FRONTEND_URL}/auth/external?token={session_token}&username={user.username}')
 
 
+def _is_placeholder_email(address):
+    """An address this platform invented because the provider sent none."""
+    return (address or '').strip().lower().endswith('.external')
+
+
+def _adopt_real_email(user, email):
+    """Give a placeholder account its real address, or hand the person back
+    the account they already had.
+
+    Only ever acts on an account still carrying an invented address. An account
+    with a real address on it was either matched by that address or typed in by
+    the person, and is not ours to move.
+    """
+    if not _is_placeholder_email(user.email):
+        return user
+
+    existing = Users.objects.filter(email__iexact=email).exclude(pk=user.pk).first()
+    if existing is not None:
+        # They had an account here all along. Point the identity at it; the
+        # shell keeps nothing worth carrying over, because it was made minutes
+        # ago by a sign-in that should have matched this account in the first
+        # place.
+        logger.warning(
+            'Re-pointing external identity from placeholder account %s to %s, '
+            'matched on %s', user.username, existing.username, email,
+        )
+        return existing
+
+    # No other account, so this one is theirs - it just never had a real
+    # address on it. Adopt it rather than making them a second account.
+    user.email = email[:254]
+    user.save(update_fields=['email'])
+    logger.info('Placeholder account %s adopted its real address', user.username)
+    return user
+
+
 def link_or_create_user(provider, profile):
     """Match an outside account to a V-ENT one, or make a new one.
 
@@ -688,11 +724,21 @@ def link_or_create_user(provider, profile):
         .first()
     )
     if identity is not None:
+        # An address arriving for the first time has to be acted on, not just
+        # recorded. AFC began sending one only for players who are approved and
+        # consented, and everybody who signed in before that is already bound to
+        # an account created without one. This match is on the provider's id and
+        # returns immediately, so without the step below those people would be
+        # handed the same invented account for ever and the address would never
+        # be used - the fix on their side would silently do nothing for exactly
+        # the people it was meant to help.
+        if email:
+            identity.user = _adopt_real_email(identity.user, email)
         identity.last_login_at = timezone.now()
         identity.external_username = handle[:190] or identity.external_username
         identity.external_email = email[:254] or identity.external_email
-        identity.save(update_fields=['last_login_at', 'external_username',
-                                     'external_email'])
+        identity.save(update_fields=['user', 'last_login_at',
+                                     'external_username', 'external_email'])
         return identity.user
 
     user = Users.objects.filter(email__iexact=email).first() if email else None

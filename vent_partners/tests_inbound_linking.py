@@ -24,7 +24,7 @@ from django.utils import timezone
 
 from vent_auth.models import Users
 from vent_partners.models import ExternalIdentity, InboundLogin
-from vent_partners.views_sso import attach_identity
+from vent_partners.views_sso import attach_identity, link_or_create_user
 
 AFC_ON = {
     'AFC_CLIENT_ID': 'afc-client',
@@ -338,3 +338,72 @@ class DisconnectTests(TestCase):
         # that it is refused and the link survives.
         self.assertIn(res.status_code, (400, 401, 403))
         self.assertTrue(ExternalIdentity.objects.exists())
+
+
+class EmailArrivesLaterTests(TestCase):
+    """AFC began sending an address only for approved, consented players.
+
+    Everybody who signed in before that is already bound by external id to an
+    account created without one, and that match returns before the address is
+    ever looked at. Without healing, the fix on their side would do nothing for
+    exactly the people it was meant to help.
+    """
+
+    def _signed_in_once_with_no_email(self, external_id='e1', handle='Fyre'):
+        with mock.patch.dict('os.environ', AFC_ON):
+            outcome = link_or_create_user(
+                'afc', {'id': external_id, 'username': handle, 'email': 'seed@afc.test'})
+        # Force the account back to the shape the broken window produced.
+        outcome.email = '%s@afc.external' % outcome.username
+        outcome.save(update_fields=['email'])
+        return outcome
+
+    def test_a_returning_player_is_handed_the_account_they_already_had(self):
+        theirs = Users.objects.create(username='real_fyre', email='fyre@gmail.com')
+        shell = self._signed_in_once_with_no_email()
+        self.assertNotEqual(shell.pk, theirs.pk)
+
+        with mock.patch.dict('os.environ', AFC_ON):
+            got = link_or_create_user(
+                'afc', {'id': 'e1', 'username': 'Fyre', 'email': 'FYRE@gmail.com'})
+
+        self.assertEqual(got.pk, theirs.pk)
+        self.assertEqual(
+            ExternalIdentity.objects.get(provider='afc', external_id='e1').user_id,
+            theirs.user_id)
+
+    def test_a_player_with_no_other_account_keeps_theirs_and_gains_the_address(self):
+        shell = self._signed_in_once_with_no_email(external_id='e2', handle='Solo')
+        with mock.patch.dict('os.environ', AFC_ON):
+            got = link_or_create_user(
+                'afc', {'id': 'e2', 'username': 'Solo', 'email': 'solo@gmail.com'})
+        self.assertEqual(got.pk, shell.pk)
+        got.refresh_from_db()
+        self.assertEqual(got.email, 'solo@gmail.com')
+
+    def test_an_account_with_a_real_address_is_never_moved(self):
+        """Somebody who signed up here properly and later linked AFC keeps their
+        account whatever the provider now says."""
+        theirs, _ = a_user('settled')
+        theirs.email = 'settled@vent.test'
+        theirs.save(update_fields=['email'])
+        ExternalIdentity.objects.create(
+            user=theirs, provider='afc', external_id='e3',
+            external_username='Settled', last_login_at=timezone.now())
+        Users.objects.create(username='decoy', email='someone_else@gmail.com')
+
+        with mock.patch.dict('os.environ', AFC_ON):
+            got = link_or_create_user(
+                'afc', {'id': 'e3', 'username': 'Settled', 'email': 'someone_else@gmail.com'})
+
+        self.assertEqual(got.pk, theirs.pk)
+        theirs.refresh_from_db()
+        self.assertEqual(theirs.email, 'settled@vent.test')
+
+    def test_still_no_address_still_refuses_to_create(self):
+        before = Users.objects.count()
+        with mock.patch.dict('os.environ', AFC_ON):
+            self.assertEqual(
+                link_or_create_user('afc', {'id': 'e4', 'username': 'nocsnt'}),
+                'no-email')
+        self.assertEqual(Users.objects.count(), before)
