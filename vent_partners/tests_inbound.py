@@ -136,6 +136,35 @@ class IdentityMatchingTests(TestCase):
     def test_a_profile_with_no_id_is_refused(self):
         self.assertIsNone(link_or_create_user('afc', {'username': 'nobody'}))
 
-    def test_an_account_without_an_email_still_works(self):
-        user = link_or_create_user('afc', {'id': '9', 'username': 'noemail'})
-        self.assertTrue(user.email.endswith('@afc.external'))
+    def test_no_email_means_no_account_is_created(self):
+        """A provider that sends no address cannot have an account made for it.
+
+        This used to invent `<name>@afc.external` and create one. AFC sends no
+        address at all, so every sign-in forked the person into a second
+        account holding none of their teams, tickets or wallet - which is what
+        happened to the CEO on 30 August 2026, signing in with the same address
+        on both sides.
+        """
+        before = Users.objects.count()
+        outcome = link_or_create_user('afc', {'id': '9', 'username': 'noemail'})
+        self.assertEqual(outcome, 'no-email')
+        self.assertEqual(Users.objects.count(), before)
+
+    def test_an_existing_account_is_found_when_the_email_is_spelt_differently(self):
+        """Providers do not agree on the claim name; the match must not depend
+        on them picking `email`."""
+        existing = Users.objects.create(username='already', email='same@vent.test')
+        matched = link_or_create_user(
+            'afc', {'id': '31', 'username': 'other', 'email_address': 'SAME@vent.test'})
+        self.assertEqual(matched.pk, existing.pk)
+
+    def test_a_handle_with_a_space_does_not_become_the_external_id(self):
+        """"VT V1RUX" is not a username, but the fallback must still be a name.
+
+        It fell through to `afc_<64 hex>`, which is unusable and puts the
+        provider's own id in the address bar of every page they visit.
+        """
+        user = link_or_create_user(
+            'afc', {'id': 'b' * 64, 'username': 'VT V1RUX', 'email': 'vt@afc.test'})
+        self.assertNotIn('b' * 64, user.username)
+        self.assertRegex(user.username, r'^[a-z0-9_]+$')

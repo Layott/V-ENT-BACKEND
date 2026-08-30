@@ -16,6 +16,7 @@ import base64
 import hashlib
 import logging
 import os
+import re
 import secrets
 from urllib.parse import urlencode
 
@@ -627,6 +628,13 @@ def inbound_callback(request, provider):
         return redirect(f'{FRONTEND_URL}/settings?panel=linked&{provider}={outcome}')
 
     user = link_or_create_user(provider, profile)
+    if user == 'no-email':
+        # The provider told us who they are but not how to reach them, so we
+        # cannot tell whether they already have an account here. Rather than
+        # fork them into a second one, send them to sign in the ordinary way
+        # and connect the provider from settings, which attaches to the account
+        # they already have.
+        return redirect(f'{FRONTEND_URL}/login?error=sso-no-email&provider={provider}')
     if user is None:
         return redirect(f'{FRONTEND_URL}/login?error=sso-no-identity')
 
@@ -651,7 +659,25 @@ def link_or_create_user(provider, profile):
     if not external_id:
         return None
 
-    email = (profile.get('email') or '').strip().lower()
+    # AFC's discovery document declares only `sub` under claims_supported, and
+    # in practice its userinfo returns no address at all even though `email` is
+    # in the granted scopes. Read every spelling a provider might use before
+    # concluding there is none, and say in the log which claims did arrive, so
+    # the next provider that names it differently is a one-line change rather
+    # than another round of duplicate accounts.
+    email = ''
+    for key in ('email', 'email_address', 'emailAddress', 'mail',
+                'primary_email', 'user_email'):
+        value = (profile.get(key) or '').strip().lower()
+        if value:
+            email = value
+            break
+    if not email:
+        logger.warning(
+            '%s userinfo carried no email. Claims present: %s',
+            provider, sorted(profile.keys()),
+        )
+
     handle = (profile.get('username') or profile.get('preferred_username')
               or profile.get('name') or '').strip()
 
@@ -672,11 +698,33 @@ def link_or_create_user(provider, profile):
     user = Users.objects.filter(email__iexact=email).first() if email else None
 
     if user is None:
+        # Without an address there is no way to tell whether this person
+        # already has a V-ENT account, and guessing wrong is the expensive
+        # direction: it silently forks somebody into a second account holding
+        # none of their teams, tickets, wallet or history. The CEO signed in
+        # with AFC on 30 August 2026 using the same address on both sides and
+        # got a brand new account, because AFC sent no address for the match to
+        # use.
+        #
+        # So an account is only ever created from a real address. With none,
+        # this refuses and the caller sends them to sign in normally and link
+        # AFC from settings, which attaches to the account they already have.
+        if not email:
+            return 'no-email'
+
         from vent_auth.views_helpers import normalize_username, username_problem
 
         candidate = normalize_username(handle)
         if username_problem(candidate):
-            candidate = generate_unique_username(email or f'{provider}_{external_id}')
+            # A handle with a space or a symbol in it - "VT V1RUX" - is not a
+            # username here, but the person is still called that. Keep the
+            # letters and digits rather than falling back to the provider's
+            # 64-character id, which produced an unusable name and published
+            # their external id in the address bar of every page they visit.
+            stripped = re.sub(r'[^a-z0-9_]+', '_', normalize_username(handle)).strip('_')
+            candidate = stripped if not username_problem(stripped) else ''
+            candidate = generate_unique_username(
+                candidate or email or f'{provider}_player')
         else:
             candidate = generate_unique_username(candidate)
 
