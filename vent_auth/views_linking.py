@@ -102,9 +102,47 @@ def link_status(request):
         'label': user.email if google_connected else '',
     }
 
+    # Signing in with an outside community is a linked account too, and it was
+    # the one thing this panel did not know about: somebody could sign in with
+    # their African Free Fire Community account and find nothing here saying so.
+    from vent_partners.models import ExternalIdentity
+    from vent_partners.views_sso import INBOUND_PROVIDERS, inbound_config
+
+    identities = {
+        row.provider: row
+        for row in ExternalIdentity.objects.filter(user=user)
+    }
+    external = {}
+    for slug in INBOUND_PROVIDERS:
+        cfg = inbound_config(slug)
+        row = identities.get(slug)
+        # A provider switched off is hidden, unless this person is already
+        # linked to it: their account genuinely is connected and the panel must
+        # not quietly stop saying so.
+        if not cfg['enabled'] and row is None:
+            continue
+        external[slug] = {
+            'label': cfg['label'],
+            'short': cfg['short'],
+            'configured': cfg['configured'],
+            'connected': row is not None,
+            # What it is connected as, so the row proves the link rather than
+            # asserting it.
+            'handle': (row.external_username or row.external_email) if row else '',
+            # True when this is how the account signs in. Those cannot be
+            # unlinked without a password, and the panel says so instead of
+            # offering a button that answers 409.
+            'is_sign_in_method': (
+                row is not None
+                and user.signup_type == slug
+                and not (bool(user.password) and user.has_usable_password())
+            ),
+        }
+
     return Response({
         'status': 'success',
-        'data': {'linked': linked, 'providers': provider_status()},
+        'data': {'linked': linked, 'providers': provider_status(),
+                 'external': external},
         'message': 'Linked accounts.',
     })
 

@@ -31,6 +31,11 @@ from .models import InboundLogin
 AFC_ENV = {
     'AFC_CLIENT_ID': 'vent-client',
     'AFC_CLIENT_SECRET': 'vent-secret',
+    # The provider is switched off in production until AFC's own login page is
+    # working again. These tests are about the shape of the request, so they
+    # turn it on: hiding a button is not a reason to stop checking the
+    # handshake it starts.
+    'AFC_SSO_ENABLED': '1',
 }
 
 

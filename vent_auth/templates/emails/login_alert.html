@@ -8,6 +8,12 @@
 
 {% include "emails/_rows.html" with rows=rows %}
 
+{% if note %}
+<p style="margin:12px 0 0; color:#7A7A82; font-size:13px; line-height:1.6;">
+  {{ note }}
+</p>
+{% endif %}
+
 <p style="margin:20px 0 0; color:#C9C9CF; font-size:15px; line-height:1.6;">
   If that was you, there is nothing to do. If it was not, change your password now and the sign-in
   will be ended with it.

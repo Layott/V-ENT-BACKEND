@@ -148,8 +148,14 @@ def _viewer_state(request, team, members):
     request_status = 'none'
     if not is_member:
         latest = (
+            # `applicant`, not `user`. Every other query in vent_team/views.py
+            # already had it right; this one raised FieldError, so any signed-in
+            # visitor who was neither the owner nor a member got a 500 on a team
+            # page. Signed out took the early return above it and the owner took
+            # the `not is_member` shortcut, so both of the roles anybody tests
+            # went straight past it.
             TeamJoinRequest.objects
-            .filter(team=team, user=user)
+            .filter(team=team, applicant=user)
             .order_by('-created_at')
             .first()
         )
@@ -191,6 +197,11 @@ def serialize_team_detail(request, team):
     return {
         'id': team.team_id,
         'team_id': team.team_id,
+        # The detail payload carried no slug, so every page built from it had
+        # nothing but the numeric id to build a link out of - which is how
+        # Manage came to point at /edit-team-profile/<id>. See the slug rule:
+        # no numeric id in an address a person can see.
+        'slug': team.slug,
         'name': team.team_name,
         'tag': None,
         'game': game_title,

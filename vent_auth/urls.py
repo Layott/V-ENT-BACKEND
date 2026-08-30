@@ -2,6 +2,7 @@ from django.urls import path, include
 from .views import *
 from django.conf import settings
 from django.conf.urls.static import static
+from . import views_admin_events as admin_events
 
 
 from .views_rankings import games_list
@@ -54,6 +55,20 @@ urlpatterns = [
     path("admin/users/<int:user_id>/delete/", admin_delete_user, name="admin_delete_user"),
     path("admin/tournaments/", admin_list_tournaments, name="admin_list_tournaments"),
     path("admin/events/", admin_list_events, name="admin_list_events"),
+    # The console's view of one event: its numbers, its tickets, what was sent.
+    # Literal segments first so `<str:event_ref>` cannot swallow them.
+    path("admin/tickets/<str:code>/action/", admin_events.admin_ticket_action,
+         name="admin_ticket_action"),
+    path("admin/tournaments/<str:tournament_ref>/sent/",
+         admin_events.admin_tournament_sent, name="admin_tournament_sent"),
+    path("admin/events/<str:event_ref>/tickets/", admin_events.admin_event_tickets,
+         name="admin_event_tickets"),
+    path("admin/events/<str:event_ref>/sent/", admin_events.admin_event_sent,
+         name="admin_event_sent"),
+    path("admin/events/<str:event_ref>/state/", admin_events.admin_event_state,
+         name="admin_event_state"),
+    path("admin/events/<str:event_ref>/", admin_events.admin_event_detail,
+         name="admin_event_detail"),
     path("admin/games/", admin_games, name="admin_games"),
     path("admin/games/<int:game_id>/", admin_game_detail, name="admin_game_detail"),
     path("admin/games/<int:game_id>/series/", admin_game_series, name="admin_game_series"),
