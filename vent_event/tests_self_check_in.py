@@ -155,9 +155,18 @@ class SelfCheckInWindowTests(SelfCheckInBase):
     def test_arriving_late_on_the_day_still_counts(self):
         # It closes at the END of the event, not the start. Somebody arriving
         # late is still somebody who came.
+        #
+        # The date is taken from when the event STARTED, not from now. Run this
+        # at 00:55 and `now - 2h` is 22:55 yesterday: filing that under today's
+        # date describes an event running 22:55 tonight to 02:55 tomorrow, which
+        # has not begun, and the check-in is correctly refused as too early. The
+        # code was right and the test was reading the clock badly - which is the
+        # kind of failure that teaches people to ignore a suite, because it only
+        # appears between midnight and two in the morning.
         now = timezone.localtime(timezone.now())
-        self.event.event_date = now.date()
-        self.event.start_time = (now - timedelta(hours=2)).time()
+        started = now - timedelta(hours=2)
+        self.event.event_date = started.date()
+        self.event.start_time = started.time()
         self.event.end_time = (now + timedelta(hours=2)).time()
         self.event.save()
         self.assertEqual(self.arrive().status_code, 200)
