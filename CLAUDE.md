@@ -688,7 +688,7 @@ This backend integrates with or is planned to integrate with the following servi
 | **AWS EC2** | Hosting — t3.small, runs Django + Celery + Daphne | Planned |
 | **Paystack** | All payment flows — Nigerian gateway. Never simulate payments. Never add a second payment provider. | Planned |
 | **Firebase Admin SDK** | Push notifications (FCM) | Planned |
-| **ipinfo.io** | IP geolocation | Planned |
+| **ipinfo.io** | IP geolocation, consulted before the local DB-IP file when `IPINFO_TOKEN` is set. Answers cached per address for 30 days, so the 50k/month free tier is 50k distinct addresses. Never used to write a city onto a profile - see `vent_auth/ipinfo.py` | **Wired** |
 | **Sentry** | Error tracking | Planned |
 | **PostHog** | Analytics | Planned |
 

@@ -170,3 +170,63 @@ would ever fail a test:
    that page and not only the new ones. `.pageGrid > * { min-width: 0 }`.
    `document.scrollWidth` reported 412 the whole time, so an overflow check
    would have passed.
+
+---
+
+## Addendum: ipinfo.io wired (CEO, same day)
+
+> "ship, then wire up ipinfo"
+
+`vent_auth/ipinfo.py`. Consulted **before** the local DB-IP file, and only when
+`IPINFO_TOKEN` is set. With no token nothing changes at all: a local file read,
+no network call, no user IP leaving the server.
+
+Worth being clear about what it does and does not buy. ipinfo is sharper than
+the free DB-IP City Lite build, particularly on the mobile ranges most of
+V-ENT's traffic arrives on, so the **country** is right more often. It does not
+make a city knowable: a carrier gateway is a real place and it is not where the
+subscriber is, so ipinfo answering "Ilorin" for a Lagos phone is ipinfo being
+right about the gateway. The rule is unchanged — **a guessed city is offered,
+never asserted.** A daily refresh with ipinfo live still fills only the country,
+still marks it `country_is_guess`, and still leaves `state` blank. There is a
+test that says exactly that.
+
+What the better data buys is a suggestion worth showing. `GET
+/settings/location-suggestion/` returns what the sign-in address looks like,
+writing nothing, and the profile editor offers it: **"On dirait Lagos. Utiliser"**.
+One press fills the field; the person still saves.
+
+Three things the module is careful about, because a third-party call on a
+sign-in path is where a platform picks up a stall it never recovers from:
+
+| | |
+|---|---|
+| Can be switched off | No token, no call. Nothing here is on the critical path for an account to exist |
+| Never blocks for long | 2s timeout, and every failure (refused, slow, 429, malformed) is a quiet fallback |
+| Asked once per address | `IPLocation` caches for 30 days, including a "we asked and got nothing" row. 50,000 a month is 50,000 **distinct addresses**, not 50,000 sign-ins |
+
+A two-letter country code is turned into the **name** the rest of the platform
+stores, because a tournament open to "Nigeria" is checked against this field and
+"NG" would match nothing anywhere. An unrecognised code returns None rather than
+a two-letter string that looks like a country.
+
+### Verified
+
+- `vent_auth/tests_ipinfo.py`, 16 tests. Full suite **1670, OK**.
+- A real HTTP round trip against a local stand-in that answers the way ipinfo
+  answers, so the actual `requests` call, timeout, JSON parse and cache write
+  all ran: `locate('102.89.34.7') -> ('Nigeria', 'Lagos')`, an unknown address
+  cached as nothing, a private address never sent.
+- The rule held with ipinfo live: refresh on an MTN address ipinfo called Ilorin
+  left `country 'Nigeria' (guess)` and `state ''`.
+- The offer walked in Chrome: rendered as "On dirait **Lagos**. Utiliser", one
+  press put Lagos in the field, and the offer disappeared. The one thing stubbed
+  in that step was the suggestion response itself, using the exact JSON the
+  server had produced in the real round trip.
+
+### What is left
+
+**The token.** `IPINFO_TOKEN` is empty everywhere, so today the platform behaves
+exactly as it did before. Sign up at ipinfo.io (free, 50k/month), put the token
+in the VPS `.env`, restart. Nothing else to do — and nothing breaks if it is
+never done. `IPINFO_ENDPOINT` can point the lookup at a mirror or a proxy.

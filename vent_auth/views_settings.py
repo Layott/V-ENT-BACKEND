@@ -184,6 +184,43 @@ def update_user_account(request, user_id):
     })
 
 
+@api_view(['GET'])
+def location_suggestion(request):
+    """Where this sign-in looks like it is coming from, offered rather than set.
+
+    The platform will not write a city onto somebody's profile from an address:
+    Nigerian mobile data routes through a handful of carrier gateways, so a
+    Lagos phone resolves to Ilorin, and asserting that is the platform saying
+    something false about a person on their own profile.
+
+    Offering it is a different thing entirely. The person can see the guess, and
+    a single press accepts it - which is the only honest use of a city that
+    might be right. Nothing is written here.
+    """
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+
+    from .geo import client_ip, locate
+
+    ip = client_ip(request)
+    country, city = locate(ip)
+
+    return Response({
+        'status': 'success',
+        'data': {
+            'country': country,
+            'city': city,
+            # What the account currently holds, so the screen can stay quiet
+            # when the guess agrees with it.
+            'current_country': user.country,
+            'current_city': user.state,
+            'country_is_guess': user.country_is_guess,
+        },
+        'message': 'Location suggestion retrieved.',
+    })
+
+
 # ---------------------------------------------------------------------------
 # Devices / sessions
 # ---------------------------------------------------------------------------

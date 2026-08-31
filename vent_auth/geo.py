@@ -79,12 +79,29 @@ def _is_public(ip):
 
 
 def locate(ip):
-    """(country_name, region_name) for an address, or (None, None).
+    """(country_name, city_name) for an address, or (None, None).
+
+    ipinfo.io first when a token is configured, the local DB-IP file otherwise
+    and whenever ipinfo cannot answer. Two providers rather than one because
+    they fail differently: the local file is always there and is a monthly
+    snapshot of a free build; ipinfo is sharper, especially on mobile ranges,
+    and is a network call that can be slow, rate-limited or switched off.
 
     Never raises. A geolocation failure is not worth failing a signup over.
     """
     if not ip or not _is_public(ip):
         return None, None
+
+    # The better answer first. Everything about this call - the token, the
+    # timeout, the cache, the silence on failure - lives in `ipinfo`.
+    try:
+        from . import ipinfo
+
+        country, city = ipinfo.lookup(ip)
+        if country:
+            return country, _tidy_place(city)
+    except Exception:
+        logger.warning('geoip: ipinfo layer raised, falling back', exc_info=True)
 
     reader = _get_reader()
     if reader is None:

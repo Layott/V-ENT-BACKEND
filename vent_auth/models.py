@@ -197,6 +197,33 @@ class UserGallery(models.Model):
         return self.kind == self.KIND_ESPORTS and self.released_at is not None
 
 
+class IPLocation(models.Model):
+    """What a location provider said about one address, remembered.
+
+    An address's city does not move, so asking again on every sign-in spends a
+    third-party quota to learn the same thing. This makes the common path a
+    local read: 50,000 requests a month is 50,000 DISTINCT addresses rather
+    than 50,000 sign-ins, which is a different order of problem.
+
+    A row saying "we asked and got nothing" is kept deliberately. Re-asking
+    about an address the provider does not know, forever, is the same waste
+    with none of the benefit.
+    """
+
+    ip = models.GenericIPAddressField(primary_key=True)
+    country = models.CharField(max_length=120, blank=True, default='')
+    city = models.CharField(max_length=120, blank=True, default='')
+    # Which provider answered. Worth storing: when somebody asks why a profile
+    # says what it says, "ipinfo, on 31 August" is an answer and "we looked it
+    # up somehow" is not.
+    source = models.CharField(max_length=20, blank=True, default='')
+    updated_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return '%s -> %s, %s (%s)' % (self.ip, self.city or '?', self.country or '?',
+                                      self.source or '?')
+
+
 class VerificationToken(models.Model):
     user_email = models.EmailField(unique=True)
     token = models.CharField(max_length=64)

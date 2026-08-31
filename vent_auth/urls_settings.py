@@ -121,6 +121,9 @@ urlpatterns = [
 
     # Account
     path('user/<str:user_id>/update/', v.update_user_account),
+    # Where a sign-in looks like it comes from. Offered to the person, never
+    # written onto their profile - see the endpoint for why.
+    path('settings/location-suggestion/', v.location_suggestion),
     # str, not int: a profile is addressed by username. The numeric form
     # still resolves so links shared before this keep working.
     path('user/<str:user_id>/profile/', prof.public_profile),

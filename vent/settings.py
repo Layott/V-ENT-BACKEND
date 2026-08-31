@@ -71,6 +71,16 @@ SESSION_TOKEN_TIMEOUT_MINUTES = int(os.environ.get('SESSION_TOKEN_TIMEOUT_MINUTE
 
 GEOIP_DB_PATH = os.environ.get('GEOIP_DB_PATH', os.path.join(BASE_DIR, 'geo', 'dbip-city-lite.mmdb'))
 
+# ipinfo.io, consulted before the local database when a token is set. Sharper
+# than the free DB-IP build, particularly on the mobile ranges most of V-ENT's
+# traffic arrives on. Leave the token empty and the platform is exactly as it
+# was: a local file read, no network call, no user IP leaving the server.
+IPINFO_TOKEN = os.environ.get('IPINFO_TOKEN', '')
+IPINFO_TIMEOUT = float(os.environ.get('IPINFO_TIMEOUT', '2.0'))
+# Overridable so a self-hosted mirror or a proxy can stand in. Must contain one
+# %s, where the address goes.
+IPINFO_ENDPOINT = os.environ.get('IPINFO_ENDPOINT', '')
+
 # Application definition
 
 INSTALLED_APPS = [
