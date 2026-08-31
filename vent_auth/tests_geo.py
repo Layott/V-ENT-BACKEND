@@ -24,12 +24,17 @@ class DailyLocationTests(TestCase):
             username='geotest', email='geotest@vent.test', signup_type='normal')
 
     @mock.patch('vent_auth.geo.locate', return_value=('Nigeria', 'Lagos'))
-    def test_writes_city_and_country_on_first_login(self, _locate):
+    def test_writes_the_country_and_never_the_city(self, _locate):
+        """CEO, 31 August 2026: "the IP gets the wrong location, it says ilorin
+        for me, but I am in Lagos currently". An address places somebody in a
+        country reliably and in a city barely at all, so the city is not written
+        from one even when the lookup offers a plausible answer."""
         with self.settings(DEBUG=False):
             self.assertTrue(geo.refresh_daily_location(self.user, request_from('105.112.0.1')))
         self.user.refresh_from_db()
         self.assertEqual(self.user.country, 'Nigeria')
-        self.assertEqual(self.user.state, 'Lagos')
+        self.assertFalse((self.user.state or '').strip())
+        self.assertTrue(self.user.country_is_guess)
         self.assertEqual(self.user.last_login_ip, '105.112.0.1')
         self.assertIsNotNone(self.user.location_updated_at)
 
@@ -48,7 +53,7 @@ class DailyLocationTests(TestCase):
             self.assertTrue(geo.refresh_daily_location(self.user, request_from('154.160.0.1')))
         self.user.refresh_from_db()
         self.assertEqual(self.user.country, 'Ghana')
-        self.assertEqual(self.user.state, 'Accra')
+        self.assertFalse((self.user.state or '').strip())
 
     @mock.patch('vent_auth.geo.locate')
     def test_private_address_is_skipped_without_a_lookup(self, locate):

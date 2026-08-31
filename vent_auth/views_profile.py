@@ -371,9 +371,15 @@ def get_user_informations(request):
             'founder_badge': bool(getattr(user, 'is_founder', False)
                                   and user.show_founder_badge),
             'country': user.country,
-            # The city, so a profile can read "Lagos, Nigeria". Both halves are
-            # set by the daily location refresh at sign-in.
+            # The city, so a profile can read "Lagos, Nigeria". The city is only
+            # ever what the person typed: an IP places somebody in a country
+            # reliably and in a city barely at all, and a Nigerian carrier
+            # gateway resolved a Lagos sign-in to Ilorin.
             'state': user.state,
+            # True when the country was worked out from a sign-in address
+            # rather than chosen. The screen says so and offers a correction,
+            # instead of presenting a guess as a fact.
+            'country_is_guess': user.country_is_guess,
             'profile_picture': request.build_absolute_uri(profile.profile_picture.url) if profile and profile.profile_picture else None,
             'banner': request.build_absolute_uri(profile.banner.url) if profile and profile.banner else None,
             'description': profile.description if profile else None,
@@ -520,6 +526,10 @@ def edit_profile_info(request):
         fullname = request.data.get('fullname')
         description = request.data.get('description')
         country = request.data.get('country')
+        # The city. It was never accepted here, so the only way it could ever be
+        # set was the daily IP guess - and that guess put a Lagos player in
+        # Ilorin with no way to correct it.
+        state = request.data.get('state')
         interests = request.data.get('interests')
 
         user = Users.objects.filter(login_session_token=login_session_token).first()
@@ -543,6 +553,11 @@ def edit_profile_info(request):
             profile.description = description
         if country:
             user.country = country
+            # Saying it settles it. It stops being a guess the moment somebody
+            # chooses, so the screen stops offering to correct it.
+            user.country_is_guess = False
+        if state is not None:
+            user.state = str(state).strip()
         if profile_pic:
             if not profile_pic.content_type.startswith("image/"):
                 return Response({ 'code': 'INVALID_PROFILE_PICTURE_FORMAT','status': 'error', 'message': 'Invalid profile picture format'}, status=status.HTTP_400_BAD_REQUEST)
@@ -951,8 +966,112 @@ def public_profile(request, user_id):
             # that governs it was written and never read, so it is reported
             # here and enforced in dm_send.
             'can_message': _may_message(viewer if not _ignored else None, user),
+            # What this person actually has. Without these the profile page
+            # had nothing of theirs to draw and filled its panels from the
+            # reader's own endpoints, which is how somebody else's profile
+            # ended up showing your teams and your tournaments.
+            'teams': _public_teams(user),
+            'tournaments': _public_tournaments(user),
+            'gallery': _public_gallery_rows(request, user),
+            'esports_images': _public_gallery_rows(request, user, esports=True),
         },
     }, status=status.HTTP_200_OK)
+
+
+def _public_teams(user):
+    """The teams this person is in OR owns.
+
+    Owning one and being a row in TeamMembers are separate facts here, and a
+    team's owner is very often not in its member table - reading only the
+    member table reported "no teams" for somebody running five of them.
+    """
+    from .models import TeamMembers, Teams
+
+    rows = {}
+
+    def add(team, is_captain=False, is_owner=False):
+        if team is None:
+            return
+        row = rows.setdefault(team.team_id, {
+            'id': team.team_id,
+            'team_id': team.team_id,
+            'slug': team.slug,
+            'name': team.team_name,
+            'game': team.game.game_title if team.game else None,
+            'member_count': team.number_of_members,
+            'is_captain': False,
+            'is_owner': False,
+        })
+        row['is_captain'] = row['is_captain'] or is_captain
+        row['is_owner'] = row['is_owner'] or is_owner
+
+    for m in TeamMembers.objects.filter(user=user).select_related('team', 'team__game'):
+        add(m.team, is_captain=m.is_captain)
+    for team in Teams.objects.filter(team_owner=user).select_related('game'):
+        add(team, is_owner=True)
+    return list(rows.values())
+
+
+def _public_tournaments(user):
+    """Tournaments this person has played in or run, newest first.
+
+    Both, because a profile is asked "what have they done", and running one is
+    as much an answer as entering one. Drafts are excluded: an unpublished
+    tournament is not a thing that happened.
+    """
+    from vent_tournament.models import Tournament, TournamentRegistration
+
+    rows = {}
+    entered = (TournamentRegistration.objects
+               .filter(user=user, tournament__is_draft=False)
+               .select_related('tournament', 'tournament__tournament_game'))
+    for reg in entered:
+        t = reg.tournament
+        rows[t.tournament_id] = {
+            'id': t.tournament_id,
+            'tournament_id': t.tournament_id,
+            'slug': t.slug,
+            'name': t.tournament_title,
+            'title': t.tournament_title,
+            'game': t.tournament_game.game_title if t.tournament_game else None,
+            'start_date': t.start_date_and_time,
+            'role': 'player',
+            'status': reg.status,
+        }
+    for t in Tournament.objects.filter(tournament_creator=user, is_draft=False) \
+            .select_related('tournament_game'):
+        row = rows.get(t.tournament_id)
+        if row:
+            row['role'] = 'organizer and player'
+            continue
+        rows[t.tournament_id] = {
+            'id': t.tournament_id,
+            'tournament_id': t.tournament_id,
+            'slug': t.slug,
+            'name': t.tournament_title,
+            'title': t.tournament_title,
+            'game': t.tournament_game.game_title if t.tournament_game else None,
+            'start_date': t.start_date_and_time,
+            'role': 'organizer',
+            'status': None,
+        }
+    return sorted(rows.values(), key=lambda r: (r['start_date'] is None, r['start_date']),
+                  reverse=True)
+
+
+def _public_gallery_rows(request, user, esports=False):
+    """Their pictures. Released esports ones are public by definition; personal
+    ones ride on whether the profile itself may be read, which the caller has
+    already decided by the time it reaches here."""
+    from .models import UserGallery
+    from .views_gallery_release import serialize_image
+
+    if esports:
+        items = UserGallery.objects.filter(
+            user=user, kind=UserGallery.KIND_ESPORTS, released_at__isnull=False)
+    else:
+        items = UserGallery.objects.filter(user=user, kind=UserGallery.KIND_PERSONAL)
+    return [serialize_image(request, i) for i in items]
 
 
 def privacy_of(user):

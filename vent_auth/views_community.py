@@ -16,7 +16,7 @@ from rest_framework.permissions import AllowAny
 from .models import (
     Users, UserProfile, Games, Teams,
     Post, PostLike, PostComment,
-    Club, ClubMember,
+    Club, ClubMember, ClubTopic,
     Thread, ThreadReply, ThreadUpvote, ThreadReplyUpvote,
     Scrim,
     Conversation, DirectMessage,
@@ -331,7 +331,10 @@ def club_create(request):
         owner=user,
         is_private=bool(request.data.get('is_private')),
     )
-    ClubMember.objects.create(club=club, user=user)
+    # The person who made it runs it, and a club needs somewhere to talk from
+    # the moment it exists - a club with no topic has nowhere to say anything.
+    ClubMember.objects.create(club=club, user=user, role=ClubMember.ROLE_OWNER)
+    ClubTopic.objects.create(club=club, name='General', position=0, created_by=user)
     return _created({'club': serialize_club(request, club, user)}, f'{club.name} created.')
 
 
@@ -366,22 +369,34 @@ def club_detail(request, club_id):
 
 @api_view(['POST'])
 def club_join(request, club_id):
+    """Join, or leave if already in. Addressed by slug like everything else."""
+    from vent_auth.slugs import resolve_or_redirect
+
     user, auth_error = _authenticate(request)
     if auth_error:
         return auth_error
 
-    club = Club.objects.filter(id=club_id).first()
+    club, moved_to = resolve_or_redirect(
+        club_id, entity_type='club', id_field='id', model=Club,
+        queryset=Club.objects.select_related('owner'),
+    )
+    if moved_to:
+        return Response({
+            'status': 'moved', 'code': 'SLUG_CHANGED',
+            'message': 'This club has been renamed.',
+            'data': {'slug': moved_to, 'url': f'/community/club/{moved_to}'},
+        }, status=status.HTTP_200_OK)
     if club is None:
         return _error('Club not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
     membership = ClubMember.objects.filter(club=club, user=user).first()
     if membership:
-        if club.owner_id == user.user_id:
+        if membership.role == ClubMember.ROLE_OWNER or club.owner_id == user.user_id:
             return _error('The owner cannot leave their own club.', 'FORBIDDEN', status.HTTP_403_FORBIDDEN)
         membership.delete()
         joined = False
     else:
-        ClubMember.objects.create(club=club, user=user)
+        ClubMember.objects.create(club=club, user=user, role=ClubMember.ROLE_MEMBER)
         joined = True
 
     return _ok({'joined': joined, 'member_count': club.members.count()},

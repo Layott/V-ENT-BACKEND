@@ -165,11 +165,21 @@ def update_user_account(request, user_id):
         if f in request.data and request.data.get(f) is not None:
             setattr(user, f, request.data.get(f))
             changed.append(f)
+    # Saying where you are settles it. The country stops being a guess the
+    # moment somebody sets it themselves, so the screen stops offering to
+    # correct something they have already corrected.
+    if 'country' in changed and user.country_is_guess:
+        user.country_is_guess = False
+        changed.append('country_is_guess')
     if changed:
         user.save(update_fields=changed)
     return Response({
         'status': 'success',
-        'data': {'updated': changed, 'user': {f: getattr(user, f) for f in _ACCOUNT_FIELDS}},
+        'data': {
+            'updated': changed,
+            'user': {f: getattr(user, f) for f in _ACCOUNT_FIELDS},
+            'country_is_guess': user.country_is_guess,
+        },
         'message': 'Account updated.',
     })
 
@@ -345,6 +355,10 @@ def account_overview(request):
                 'date_joined': user.date_joined,
                 'country': user.country,
                 'state': user.state,
+                # True when the country came from the sign-in address rather
+                # than from the person. The screen says so and invites a
+                # correction instead of presenting a guess as a fact.
+                'country_is_guess': user.country_is_guess,
                 # KYC is parked, so it reports parked rather than an eternal
                 # "Pending" that nobody is working through.
                 'kyc_status': 'parked' if kyc is None else kyc.status,
