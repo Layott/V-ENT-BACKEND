@@ -230,3 +230,48 @@ a two-letter string that looks like a country.
 exactly as it did before. Sign up at ipinfo.io (free, 50k/month), put the token
 in the VPS `.env`, restart. Nothing else to do — and nothing breaks if it is
 never done. `IPINFO_ENDPOINT` can point the lookup at a mirror or a proxy.
+
+---
+
+## Addendum 2: a visitor is not a member (frontend only)
+
+> "if a new user enters the site for whatever reason, even to like get tickets
+> to an event, it always looks like they already have an account. also when a
+> new user wants to buy a ticket and they click on get ticket, it goes to the
+> tab, but it should scroll the page down to the tickets for them"
+
+**Three of the four shells had no signed-out branch at all.** The desktop
+sidebar read `status` only to pick the logo's href; `MobileSidebar` did not read
+it; `BottomMenu` had a Logout and nothing else. Somebody arriving from a shared
+event link met a wallet with no coins, a profile that was not theirs, a bell
+over an inbox that did not exist, and a Logout for a session that did not
+either.
+
+Public sections stay for everybody — content is public and it is the action
+that is gated. What goes is what belongs to a person: Home (a member's
+dashboard, which redirects a visitor to sign in anyway), Profile, Wallet,
+Settings, the notification bell, Logout. Their place is taken by **Log in** and
+**Create an account**. Inside the hamburger each group keeps its public entry
+and drops the personal ones, so a stranger expanding Events sees "All events"
+and neither "My events" nor "My tickets".
+
+Every branch reads `status`, never `data`. `data` alone cannot tell "signed
+out" from "still asking", and treating the second as the first is what makes a
+shell flash from a member's to a visitor's.
+
+**Get tickets** sat in the hero and only switched a tab several screens further
+down, so pressing it looked inert. It scrolls now.
+
+### Two things only the walk could find
+
+1. **`behavior: 'smooth'` is silently swallowed on the event page.** Measured on
+   the same element in the same moment: `'auto'` scrolls to the maximum,
+   `'smooth'` leaves `scrollY` at 0. Shipping the smooth version would have
+   shipped a button that still does nothing.
+2. **One `scrollIntoView` is not enough.** The ticket panel fetches its tiers,
+   so at the moment the tab changes the page is barely taller than the window
+   and there is nothing to scroll. The intent is held until the strip reaches
+   the top or the page admits it cannot scroll further, and dropped after two
+   seconds so a slow request cannot move the page under somebody reading.
+
+Walked signed out at 1745px and on the emulator at 411 CSS px. Gates AC1 to AC5.
