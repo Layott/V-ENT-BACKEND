@@ -13,6 +13,9 @@ from . import views_rankings as rank
 from . import views_orgs as orgs
 from . import views_community as community
 from . import views_challenges as challenges
+from . import views_clubs_actions as clubs
+from . import views_orgs_manage as orgm
+from . import views_gallery_release as gallery
 
 urlpatterns = [
     # Rankings (root-mounted: the /rankings page calls /ranking/ with no prefix)
@@ -25,6 +28,11 @@ urlpatterns = [
     # anything declared after it that is also a single segment is
     # unreachable: `linkable-teams` was, and answered 404 forever.
     path('organization/linkable-teams/', orgs.org_linkable_teams),
+    path('organization/linkable-clubs/', orgm.linkable_clubs),
+    # Invites live above the <str:org_id> catch-all: `invites` and `invite`
+    # are single segments and would otherwise be read as an organisation name.
+    path('organization/invites/mine/', orgm.my_org_invites),
+    path('organization/invite/<str:token>/respond/', orgm.respond_to_invite),
     path('organization/<str:org_id>/', orgs.org_detail),
     path('organization/<str:org_id>/members/', orgs.org_members),
     path('organization/<str:org_id>/promote/', orgs.org_promote),
@@ -41,6 +49,15 @@ urlpatterns = [
     path('organization/<str:org_id>/tournaments/', orgs.org_tournaments),
     path('organization/<str:org_id>/events/', orgs.org_events),
     path('organization/<str:org_id>/activity/', orgs.org_activity),
+    path('organization/<str:org_id>/update/', orgm.org_update),
+    path('organization/<str:org_id>/capabilities/', orgm.org_capabilities),
+    path('organization/<str:org_id>/role/', orgm.org_set_role),
+    path('organization/<str:org_id>/invite/', orgm.org_invite),
+    path('organization/<str:org_id>/invites/', orgm.org_invites),
+    path('organization/<str:org_id>/invite/<str:token>/cancel/', orgm.org_cancel_invite),
+    path('organization/<str:org_id>/clubs/', orgm.org_clubs),
+    path('organization/<str:org_id>/link-club/', orgm.org_link_club),
+    path('organization/<str:org_id>/unlink-club/', orgm.org_unlink_club),
 
     # Community (root-mounted: /post/, /club/, /thread/, /scrim/, /dm/)
     path('post/list/', community.post_list),
@@ -52,7 +69,21 @@ urlpatterns = [
     path('club/list/', community.club_list),
     path('club/create/', community.club_create),
     path('club/<str:club_id>/', community.club_detail),
-    path('club/<int:club_id>/join/', community.club_join),
+    path('club/<str:club_id>/join/', community.club_join),
+
+    # Clubs as group chats: topics, messages, and the people who run them.
+    path('club/<str:club_ref>/overview/', clubs.club_overview),
+    path('club/<str:club_ref>/members/', clubs.club_members),
+    path('club/<str:club_ref>/leave/', clubs.club_leave),
+    path('club/<str:club_ref>/topic/create/', clubs.club_create_topic),
+    path('club/<str:club_ref>/topic/<int:topic_id>/', clubs.club_messages),
+    path('club/<str:club_ref>/topic/<int:topic_id>/post/', clubs.club_post_message),
+    path('club/<str:club_ref>/topic/<int:topic_id>/update/', clubs.club_update_topic),
+    path('club/<str:club_ref>/topic/<int:topic_id>/delete/', clubs.club_delete_topic),
+    path('club/<str:club_ref>/message/<int:message_id>/delete/', clubs.club_delete_message),
+    path('club/<str:club_ref>/role/', clubs.club_set_role),
+    path('club/<str:club_ref>/remove-member/', clubs.club_remove_member),
+    path('club/<str:club_ref>/mute/', clubs.club_mute_member),
 
     path('thread/list/', community.thread_list),
     path('thread/create/', community.thread_create),
@@ -90,9 +121,17 @@ urlpatterns = [
 
     # Account
     path('user/<str:user_id>/update/', v.update_user_account),
+    # Where a sign-in looks like it comes from. Offered to the person, never
+    # written onto their profile - see the endpoint for why.
+    path('settings/location-suggestion/', v.location_suggestion),
     # str, not int: a profile is addressed by username. The numeric form
     # still resolves so links shared before this keep working.
     path('user/<str:user_id>/profile/', prof.public_profile),
+    # The gallery, with the esports release recorded on each picture.
+    path('gallery/release-terms/', gallery.release_terms),
+    path('gallery/upload/', gallery.upload_gallery),
+    path('gallery/withdraw-release/', gallery.withdraw_release),
+    path('user/<str:user_id>/gallery/', gallery.public_gallery),
     # Finding a person by name, so a direct message can be addressed by
     # picking somebody rather than by spelling their handle correctly.
     path('user/search/', usersearch.user_search),

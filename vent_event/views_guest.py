@@ -202,8 +202,24 @@ def _room_or_error(event, tier, quantity):
     return None
 
 
+def _buyer(request):
+    """The signed-in person, if there is one.
+
+    The guest checkout is called by signed-out visitors and by signed-in ones -
+    it is the only checkout an event with a card price has. It set `user=None`
+    unconditionally, so a member who bought through it ended up with a ticket
+    attached to nobody, and "My tickets" told them they had none. That is the
+    exact report from the CEO on 31 August.
+    """
+    try:
+        from vent_auth.views_community import _optional_user
+        return _optional_user(request)
+    except Exception:
+        return None
+
+
 def _issue(event, tier, quantity, email, answers, unit_ngn, unit_vc, reference='',
-           referral=None):
+           referral=None, buyer=None):
     """Turn a paid-for or free order into tickets."""
     from .views_tickets import _new_code
 
@@ -214,7 +230,7 @@ def _issue(event, tier, quantity, email, answers, unit_ngn, unit_vc, reference='
             who = attendees[index] or {}
             mine = {**order_answers, **per_person[index]}
             tickets.append(Ticket.objects.create(
-                event=event, tier=tier, user=None,
+                event=event, tier=tier, user=buyer,
                 code=_new_code(),
                 price_vc=unit_vc, price_ngn=unit_ngn,
                 attendee_name=str(who.get('name') or '').strip()[:120],
@@ -295,6 +311,7 @@ def guest_buy(request, event_id):
             if err:
                 return err
             tickets = _issue(event, tier, quantity, email, answers, unit_ngn, unit_vc,
+                             buyer=_buyer(request),
                              referral=_referral_from(request, event))
         _send_them(tickets)
         return _ok({
@@ -426,7 +443,8 @@ def guest_verify(request):
     tickets = _issue(event, tier, quantity, email,
                      (meta.get('answers') or {}, per_person, attendees),
                      unit_ngn, _ngn_to_coins(unit_ngn), reference=reference,
-                     referral=_refs_resolve(event, meta.get('ref')))
+                     referral=_refs_resolve(event, meta.get('ref')),
+                     buyer=_buyer(request))
     _send_them(tickets)
 
     return _ok({'tickets': [_ticket_row(t) for t in tickets],

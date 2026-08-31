@@ -165,12 +165,59 @@ def update_user_account(request, user_id):
         if f in request.data and request.data.get(f) is not None:
             setattr(user, f, request.data.get(f))
             changed.append(f)
+    # Saying where you are settles it. The country stops being a guess the
+    # moment somebody sets it themselves, so the screen stops offering to
+    # correct something they have already corrected.
+    if 'country' in changed and user.country_is_guess:
+        user.country_is_guess = False
+        changed.append('country_is_guess')
     if changed:
         user.save(update_fields=changed)
     return Response({
         'status': 'success',
-        'data': {'updated': changed, 'user': {f: getattr(user, f) for f in _ACCOUNT_FIELDS}},
+        'data': {
+            'updated': changed,
+            'user': {f: getattr(user, f) for f in _ACCOUNT_FIELDS},
+            'country_is_guess': user.country_is_guess,
+        },
         'message': 'Account updated.',
+    })
+
+
+@api_view(['GET'])
+def location_suggestion(request):
+    """Where this sign-in looks like it is coming from, offered rather than set.
+
+    The platform will not write a city onto somebody's profile from an address:
+    Nigerian mobile data routes through a handful of carrier gateways, so a
+    Lagos phone resolves to Ilorin, and asserting that is the platform saying
+    something false about a person on their own profile.
+
+    Offering it is a different thing entirely. The person can see the guess, and
+    a single press accepts it - which is the only honest use of a city that
+    might be right. Nothing is written here.
+    """
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+
+    from .geo import client_ip, locate
+
+    ip = client_ip(request)
+    country, city = locate(ip)
+
+    return Response({
+        'status': 'success',
+        'data': {
+            'country': country,
+            'city': city,
+            # What the account currently holds, so the screen can stay quiet
+            # when the guess agrees with it.
+            'current_country': user.country,
+            'current_city': user.state,
+            'country_is_guess': user.country_is_guess,
+        },
+        'message': 'Location suggestion retrieved.',
     })
 
 
@@ -345,6 +392,10 @@ def account_overview(request):
                 'date_joined': user.date_joined,
                 'country': user.country,
                 'state': user.state,
+                # True when the country came from the sign-in address rather
+                # than from the person. The screen says so and invites a
+                # correction instead of presenting a guess as a fact.
+                'country_is_guess': user.country_is_guess,
                 # KYC is parked, so it reports parked rather than an eternal
                 # "Pending" that nobody is working through.
                 'kyc_status': 'parked' if kyc is None else kyc.status,

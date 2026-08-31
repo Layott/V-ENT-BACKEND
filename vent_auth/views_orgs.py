@@ -107,7 +107,7 @@ def serialize_org(request, org, viewer=None, detail=False):
         'total_tournaments_hosted': tournaments.count(),
         'prize_pool_awarded_vc': prize_total,
         'total_prize_pool': prize_total,
-        'events_hosted': 0,          # events are not org-owned yet
+        'events_hosted': org.events.filter(is_active=True).count(),
         'owner': org.org_owner.username if org.org_owner else None,
         'follower_count': org.followers.count(),
         # The listing cards need these too: without them a member sees "Join".
@@ -144,6 +144,11 @@ def serialize_member(request, m):
         'username': m.user.username,
         'full_name': m.user.full_name,
         'role': m.role,
+        # Which parts of the organisation this person runs. A manager limited
+        # to tournaments and a manager limited to events have the same role and
+        # are not the same person, so the screen has to be told which is which.
+        'scopes': m.scopes or [],
+        'areas': m.areas,
         'joined_at': m.joined_at,
         # The org UI renders member.user.{id,username,full_name}
         # Built by the one person builder rather than by hand. A hand-made
@@ -189,6 +194,22 @@ def org_list(request):
 # POST /organization/create/
 # ---------------------------------------------------------------------------
 
+def _parse_links(raw):
+    """Social links, however the form sent them.
+
+    Multipart flattens everything to a string, so an array arrives as its JSON
+    text. Stored raw it becomes a string where the page expects a list, and the
+    links panel renders one character per row.
+    """
+    if isinstance(raw, str):
+        import json
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return {}
+    return raw if isinstance(raw, (list, dict)) else {}
+
+
 @api_view(['POST'])
 def org_create(request):
     user, auth_error = _authenticate(request)
@@ -213,7 +234,7 @@ def org_create(request):
         location=(request.data.get('location') or '').strip()[:120],
         region=(request.data.get('region') or '').strip()[:60],
         contact_email=(request.data.get('contact_email') or '').strip(),
-        social_links=request.data.get('social_links') or {},
+        social_links=_parse_links(request.data.get('social_links')),
     )
 
     # The pictures. These were never read: the form uploaded a logo and a
@@ -300,23 +321,37 @@ def org_promote(request, org_id):
     org = _org_by_ref(org_id)
     if org is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    if _role_of(org, user) != 'owner':
-        return _error('Only the organization owner can change roles.', 'FORBIDDEN', status.HTTP_403_FORBIDDEN)
+    from .views_orgs_manage import _clean_scopes, _membership
+
+    me = _membership(org, user)
+    if me is None or me.rank < OrgMember.RANK[OrgMember.ROLE_ADMIN]:
+        return _error('Your role in this organization does not allow that.',
+                      'FORBIDDEN', status.HTTP_403_FORBIDDEN)
 
     role = (request.data.get('role') or '').strip()
     if role not in {'admin', 'manager', 'member'}:
         return _error('Role must be admin, manager or member.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+    if role == OrgMember.ROLE_ADMIN and me.role != OrgMember.ROLE_OWNER:
+        return _error('Only the owner can make somebody an admin.', 'FORBIDDEN',
+                      status.HTTP_403_FORBIDDEN)
 
     member = OrgMember.objects.filter(
         org=org, user_id=request.data.get('user_id')
     ).select_related('user').first()
     if member is None:
         return _error('That person is not a member.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    if member.role == 'owner':
-        return _error('The owner\'s role cannot be changed here.', 'FORBIDDEN', status.HTTP_403_FORBIDDEN)
+    if member.pk == getattr(me, 'pk', None):
+        return _error('You cannot change your own role.', 'FORBIDDEN', status.HTTP_403_FORBIDDEN)
+    # Equal rank is not enough. Two admins that can demote each other leaves an
+    # organisation with no management, decided by whoever pressed first.
+    if not me.outranks(member):
+        return _error('You cannot change the role of somebody at your own level or above.',
+                      'FORBIDDEN', status.HTTP_403_FORBIDDEN)
 
     member.role = role
-    member.save(update_fields=['role'])
+    member.scopes = _clean_scopes(request.data.get('scopes')) \
+        if role == OrgMember.ROLE_MANAGER else []
+    member.save(update_fields=['role', 'scopes'])
     return _ok({'member': serialize_member(request, member)}, f'@{member.user.username} is now {role}.')
 
 
@@ -329,14 +364,18 @@ def org_kick(request, org_id):
     org = _org_by_ref(org_id)
     if org is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    if _role_of(org, user) not in MANAGE_ROLES:
+    from .views_orgs_manage import _membership
+
+    me = _membership(org, user)
+    if me is None or me.rank < OrgMember.RANK[OrgMember.ROLE_ADMIN]:
         return _error('You do not manage this organization.', 'FORBIDDEN', status.HTTP_403_FORBIDDEN)
 
     member = OrgMember.objects.filter(org=org, user_id=request.data.get('user_id')).select_related('user').first()
     if member is None:
         return _error('That person is not a member.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    if member.role == 'owner':
-        return _error('The owner cannot be removed.', 'FORBIDDEN', status.HTTP_403_FORBIDDEN)
+    if not me.outranks(member):
+        return _error('You cannot remove somebody at your own level or above.',
+                      'FORBIDDEN', status.HTTP_403_FORBIDDEN)
 
     username = member.user.username
     member.delete()
@@ -632,10 +671,24 @@ def org_tournaments(request, org_id):
 
 @api_view(['GET'])
 def org_events(request, org_id):
-    if _org_by_ref(org_id) is None:
+    """The events this organisation runs.
+
+    This answered an empty list with a comment saying events were not org-owned.
+    The foreign key had been there since the series work; only the endpoint was
+    still written as though it had not.
+    """
+    org = _org_by_ref(org_id)
+    if org is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    # Events are created by a user, not an org, so there is nothing to list yet.
-    return _ok({'events': [], 'count': 0}, 'Events retrieved.')
+
+    from vent_event.serializers import serialize_event_card
+
+    rows = (org.events.filter(is_active=True)
+            .select_related('game')
+            .prefetch_related('ticket_tiers')
+            .order_by('-start_date'))
+    return _ok({'events': [serialize_event_card(request, e) for e in rows],
+                'count': rows.count()}, 'Events retrieved.')
 
 
 @api_view(['GET'])

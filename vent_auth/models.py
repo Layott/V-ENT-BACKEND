@@ -3,6 +3,7 @@ from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 import datetime
+import uuid
 
 from .storages import private_storage
 
@@ -28,6 +29,11 @@ class Users(AbstractUser):
     # a write on every call would be a write on every call.
     last_login_ip = models.GenericIPAddressField(null=True, blank=True)
     location_updated_at = models.DateTimeField(null=True, blank=True)
+    # Whether the country on this account was worked out from an address rather
+    # than chosen by the person. A guess and an answer look identical once
+    # stored, and a screen that cannot tell them apart presents the guess as a
+    # fact. It is cleared the moment somebody sets their own country.
+    country_is_guess = models.BooleanField(default=False)
 
     # Deactivation hides an account and is undone by signing in. A scheduled
     # deletion is the same thing with a date attached - nothing is destroyed
@@ -133,12 +139,89 @@ class UserInterests(models.Model):
 
 
 class UserGallery(models.Model):
+    """A picture somebody put on their profile, and what may be done with it.
+
+    CEO, 31 August 2026: "there should be another type of upload for those who
+    want to upload their Esports pictures, let them know that the Esports
+    images will be used publicly and inside events or tournaments. that they
+    grant use of it to organizers for those events."
+
+    So a picture is one of two things:
+
+    - **personal**  it sits on the profile and goes no further. Whether a
+                    stranger sees it at all follows the profile's own privacy
+                    setting.
+    - **esports**   the person has released it for organisers to use on event
+                    and tournament pages. That is a licence somebody grants,
+                    and a licence is worthless unless it is recorded, so the
+                    moment and the wording they agreed to are stored ON THE ROW.
+                    An image with no `released_at` was never released, whatever
+                    its kind says.
+
+    `RELEASE_TERMS_VERSION` moves whenever the wording changes. Rows keep the
+    version they were released under, because consent is to a specific sentence
+    and not to a policy that can be edited afterwards.
+    """
+
+    KIND_PERSONAL = 'personal'
+    KIND_ESPORTS = 'esports'
+    KIND_CHOICES = [
+        (KIND_PERSONAL, 'Personal'),
+        (KIND_ESPORTS, 'Esports'),
+    ]
+
+    # Bump this when the release wording changes. The string is stored, not the
+    # sentence, so the wording lives in one place and every row says which one.
+    RELEASE_TERMS_VERSION = '2026-08-31'
+
     user = models.ForeignKey(Users, on_delete=models.CASCADE)
     image = models.ImageField(upload_to='gallery/', null=True, blank=True)
+    kind = models.CharField(max_length=16, choices=KIND_CHOICES, default=KIND_PERSONAL)
+    caption = models.CharField(max_length=140, blank=True, default='')
+    # When the person granted organisers use of this picture, and under which
+    # wording. Null on a personal picture, and null is the only honest answer
+    # for an esports one that somehow lost its consent.
+    released_at = models.DateTimeField(null=True, blank=True)
+    release_terms_version = models.CharField(max_length=32, blank=True, default='')
     date_added = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-date_added']
 
     def __str__(self):
         return f"Gallery of {self.user.username}"
+
+    @property
+    def is_released(self):
+        """Whether an organiser may use this. Both halves, always together."""
+        return self.kind == self.KIND_ESPORTS and self.released_at is not None
+
+
+class IPLocation(models.Model):
+    """What a location provider said about one address, remembered.
+
+    An address's city does not move, so asking again on every sign-in spends a
+    third-party quota to learn the same thing. This makes the common path a
+    local read: 50,000 requests a month is 50,000 DISTINCT addresses rather
+    than 50,000 sign-ins, which is a different order of problem.
+
+    A row saying "we asked and got nothing" is kept deliberately. Re-asking
+    about an address the provider does not know, forever, is the same waste
+    with none of the benefit.
+    """
+
+    ip = models.GenericIPAddressField(primary_key=True)
+    country = models.CharField(max_length=120, blank=True, default='')
+    city = models.CharField(max_length=120, blank=True, default='')
+    # Which provider answered. Worth storing: when somebody asks why a profile
+    # says what it says, "ipinfo, on 31 August" is an answer and "we looked it
+    # up somehow" is not.
+    source = models.CharField(max_length=20, blank=True, default='')
+    updated_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return '%s -> %s, %s (%s)' % (self.ip, self.city or '?', self.country or '?',
+                                      self.source or '?')
 
 
 class VerificationToken(models.Model):
@@ -610,16 +693,52 @@ class Organization(models.Model):
             kwargs['update_fields'] = list(set(kwargs['update_fields']) | {'slug'})
         super().save(*args, **kwargs)
 class OrgMember(models.Model):
+    """Somebody in an organisation, and what they are allowed to run in it.
+
+    CEO, 31 August 2026: "I should be able to invite people and give them
+    different roles to manage different things."
+
+    So role decides how far somebody reaches, and for a manager, `scopes`
+    decides which parts of the organisation they reach into:
+
+    - **owner**    the organisation is theirs. Exactly one. Appoints admins,
+                   cannot be removed, and holds every scope.
+    - **admin**    everything except appointing another admin: edits the
+                   profile, invites and removes people below them, runs every
+                   area.
+    - **manager**  runs only the areas named in `scopes` - any of teams,
+                   events, tournaments, clubs. A tournament manager who cannot
+                   touch the shop is the whole point of the role.
+    - **member**   represents the organisation and runs nothing.
+
+    Scopes are stored rather than derived, because "which areas" is a decision
+    the owner makes per person and there is no rule that recovers it.
+    """
+
+    ROLE_OWNER = 'owner'
+    ROLE_ADMIN = 'admin'
+    ROLE_MANAGER = 'manager'
+    ROLE_MEMBER = 'member'
     ROLE_CHOICES = [
-        ('owner', 'Owner'),
-        ('admin', 'Admin'),
-        ('manager', 'Manager'),
-        ('member', 'Member'),
+        (ROLE_OWNER, 'Owner'),
+        (ROLE_ADMIN, 'Admin'),
+        (ROLE_MANAGER, 'Manager'),
+        (ROLE_MEMBER, 'Member'),
     ]
+    RANK = {ROLE_MEMBER: 0, ROLE_MANAGER: 1, ROLE_ADMIN: 2, ROLE_OWNER: 3}
+
+    # The four things an organisation holds. Adding a fifth means adding it
+    # here and nowhere else: every check reads this list.
+    SCOPE_TEAMS = 'teams'
+    SCOPE_EVENTS = 'events'
+    SCOPE_TOURNAMENTS = 'tournaments'
+    SCOPE_CLUBS = 'clubs'
+    ALL_SCOPES = [SCOPE_TEAMS, SCOPE_EVENTS, SCOPE_TOURNAMENTS, SCOPE_CLUBS]
 
     org = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='members')
     user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='org_memberships')
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='member')
+    scopes = models.JSONField(default=list, blank=True)
     joined_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -628,6 +747,78 @@ class OrgMember(models.Model):
 
     def __str__(self):
         return f"{self.user_id}@{self.org_id} ({self.role})"
+
+    @property
+    def rank(self):
+        return self.RANK.get(self.role, 0)
+
+    def outranks(self, other):
+        """Whether this member may act on `other`. Equal rank is not enough:
+        two admins that can demote each other leaves an organisation with no
+        management, decided by whoever pressed first."""
+        return other is not None and self.rank > other.rank
+
+    @property
+    def areas(self):
+        """Which parts of the organisation this person may run."""
+        if self.rank >= self.RANK[self.ROLE_ADMIN]:
+            return list(self.ALL_SCOPES)
+        if self.role == self.ROLE_MANAGER:
+            return [s for s in (self.scopes or []) if s in self.ALL_SCOPES]
+        return []
+
+    def may_run(self, area):
+        return area in self.areas
+
+
+class OrgInvite(models.Model):
+    """An invitation to join an organisation with a role already chosen.
+
+    An invite names the role and the areas up front, so accepting is one press
+    rather than a request that somebody then has to grade. It is addressed to a
+    V-ENT account: an organisation invites a player it can already see, and an
+    invite to an email address nobody has claimed is a signup funnel rather
+    than a membership.
+
+    It carries an opaque token rather than its primary key, because an
+    invitation identifier that can be guessed by counting is an invitation
+    anybody can accept.
+    """
+
+    STATUS_PENDING = 'pending'
+    STATUS_ACCEPTED = 'accepted'
+    STATUS_DECLINED = 'declined'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_ACCEPTED, 'Accepted'),
+        (STATUS_DECLINED, 'Declined'),
+        (STATUS_CANCELLED, 'Cancelled'),
+    ]
+
+    org = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='invites')
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='org_invites')
+    invited_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='org_invites_sent')
+    role = models.CharField(max_length=20, choices=OrgMember.ROLE_CHOICES, default='member')
+    scopes = models.JSONField(default=list, blank=True)
+    message = models.CharField(max_length=280, blank=True, default='')
+    token = models.CharField(max_length=32, unique=True, db_index=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"invite {self.token} -> {self.user_id}@{self.org_id}"
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            self.token = 'oi_' + uuid.uuid4().hex[:20]
+        super().save(*args, **kwargs)
 
 
 class OrgJoinRequest(models.Model):
@@ -1156,6 +1347,11 @@ class Club(models.Model):
     logo = models.ImageField(upload_to='club_logos/', null=True, blank=True)
     banner = models.ImageField(upload_to='club_banners/', null=True, blank=True)
     owner = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='owned_clubs')
+    # A club can belong to an organisation, which is how an org holds its
+    # community alongside its teams, events and tournaments.
+    organization = models.ForeignKey(
+        'Organization', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='clubs')
     is_private = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -1176,12 +1372,128 @@ class Club(models.Model):
             kwargs['update_fields'] = list(set(kwargs['update_fields']) | {'slug'})
         super().save(*args, **kwargs)
 class ClubMember(models.Model):
+    """Somebody in a club, and what they are allowed to do in it.
+
+    CEO, 31 August 2026: "Clubs are meant to be like group chats, that people
+    can join and stay an read and send messages around particular set topics,
+    then you have people who manage the group chat and manage it, they also can
+    add also admins too with varying levels of control to their clubs."
+
+    So four levels, and they are a ladder rather than a set of switches:
+
+    - **owner**     the person whose club it is. Exactly one. Can do everything,
+                    including appointing admins, and cannot be removed.
+    - **admin**     can appoint and demote moderators, manage topics, and remove
+                    or mute anybody below them. Cannot touch another admin or the
+                    owner - otherwise two admins can remove each other and the
+                    club has no management left.
+    - **moderator** looks after the conversation: delete a message, mute a member
+                    for a while. Cannot change anybody's role.
+    - **member**    reads and writes.
+
+    `muted_until` is a time rather than a flag, so a mute expires by itself
+    instead of relying on somebody remembering to lift it.
+    """
+
+    ROLE_OWNER = 'owner'
+    ROLE_ADMIN = 'admin'
+    ROLE_MODERATOR = 'moderator'
+    ROLE_MEMBER = 'member'
+    ROLE_CHOICES = [
+        (ROLE_OWNER, 'Owner'),
+        (ROLE_ADMIN, 'Admin'),
+        (ROLE_MODERATOR, 'Moderator'),
+        (ROLE_MEMBER, 'Member'),
+    ]
+    # Higher outranks lower. Every "may I act on this person" question is this
+    # comparison, in one place, so the rule cannot be written differently in two
+    # endpoints.
+    RANK = {ROLE_MEMBER: 0, ROLE_MODERATOR: 1, ROLE_ADMIN: 2, ROLE_OWNER: 3}
+
     club = models.ForeignKey(Club, on_delete=models.CASCADE, related_name='members')
     user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='club_memberships')
+    role = models.CharField(max_length=16, choices=ROLE_CHOICES, default=ROLE_MEMBER)
+    muted_until = models.DateTimeField(null=True, blank=True)
     joined_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = ('club', 'user')
+
+    def __str__(self):
+        return f'{self.user_id} in {self.club_id} as {self.role}'
+
+    @property
+    def rank(self):
+        return self.RANK.get(self.role, 0)
+
+    @property
+    def is_muted(self):
+        return bool(self.muted_until and self.muted_until > timezone.now())
+
+    def outranks(self, other):
+        """Whether this member may act on `other`. Equal rank is not enough."""
+        return other is not None and self.rank > other.rank
+
+
+class ClubTopic(models.Model):
+    """One conversation inside a club.
+
+    The CEO asked for messages "around particular set topics", so a club is not
+    one undifferentiated wall: it holds named topics and every message belongs to
+    one. A club gets a "General" topic when it is created, because a club with no
+    topic has nowhere to say anything.
+    """
+
+    club = models.ForeignKey(Club, on_delete=models.CASCADE, related_name='topics')
+    name = models.CharField(max_length=80)
+    description = models.CharField(max_length=200, blank=True, default='')
+    position = models.PositiveIntegerField(default=0)
+    # A locked topic still reads. It is how an announcement channel is made, and
+    # how a thread that has run its course is closed without deleting what was
+    # said in it.
+    is_locked = models.BooleanField(default=False)
+    created_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='created_club_topics')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['position', 'id']
+        unique_together = ('club', 'name')
+
+    def __str__(self):
+        return f'{self.club_id}/{self.name}'
+
+
+class ClubMessage(models.Model):
+    """Something somebody said in a topic.
+
+    Deleting is soft. A moderator removing a message should not also remove the
+    evidence of what was moderated, and a thread with holes punched through it
+    cannot be read back later to settle an argument about what happened.
+    """
+
+    topic = models.ForeignKey(ClubTopic, on_delete=models.CASCADE, related_name='messages')
+    author = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, related_name='club_messages')
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    edited_at = models.DateTimeField(null=True, blank=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='deleted_club_messages')
+
+    class Meta:
+        ordering = ['id']
+        indexes = [models.Index(fields=['topic', 'id'])]
+
+    def __str__(self):
+        return f'msg {self.id} in {self.topic_id}'
+
+    @property
+    def is_deleted(self):
+        return self.deleted_at is not None
 
 
 class Thread(models.Model):

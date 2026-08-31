@@ -444,6 +444,18 @@ def my_tickets(request):
     if auth_error:
         return auth_error
 
+    # Anything bought as a guest at this account's own address becomes theirs
+    # before the list is built. `claim_for` used to run only at email
+    # verification, which happens once and usually before the ticket exists, so
+    # a member who checked out as a guest was told they had no tickets while
+    # holding one. The update matches nothing on the common path and costs a
+    # single statement.
+    try:
+        from .views_guest import claim_for
+        claim_for(user)
+    except Exception:
+        pass
+
     wanted = (request.GET.get('status') or '').strip()
     qs = Ticket.objects.filter(user=user).select_related('event', 'tier')
     if wanted in {'valid', 'checked_in', 'refunded', 'cancelled'}:
@@ -454,8 +466,20 @@ def my_tickets(request):
     upcoming = [t for t in tickets if t['event']['event_date'] and t['event']['event_date'] >= today]
     past = [t for t in tickets if not (t['event']['event_date'] and t['event']['event_date'] >= today)]
 
+    # The counts under the filters, computed from the same rows the list is
+    # built from rather than from a second query that can disagree with it.
+    counts = {'all': len(tickets), 'active': 0, 'used': 0, 'refunded': 0}
+    for t in tickets:
+        if t['status'] == 'valid':
+            counts['active'] += 1
+        elif t['status'] == 'checked_in':
+            counts['used'] += 1
+        elif t['status'] in ('refunded', 'cancelled'):
+            counts['refunded'] += 1
+
     return _ok(
-        {'tickets': tickets, 'upcoming': upcoming, 'past': past, 'count': len(tickets)},
+        {'tickets': tickets, 'upcoming': upcoming, 'past': past,
+         'count': len(tickets), 'counts': counts},
         'Tickets retrieved.',
     )
 

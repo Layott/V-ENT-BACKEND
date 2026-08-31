@@ -94,12 +94,16 @@ class LocationRefreshTests(TestCase):
         with mock.patch.object(geo, 'locate', return_value=located):
             return geo.refresh_daily_location(user, self._request())
 
-    def test_it_fills_a_blank_country(self):
+    def test_it_fills_a_blank_country_and_leaves_the_city_alone(self):
+        """Ilorin is the literal case: a Nigerian carrier gateway resolves a
+        Lagos sign-in to Ilorin, for most of a network's subscribers rather than
+        occasionally. The country is right and worth filling; the city is not."""
         user = a_user(country='', state='')
         self.assertTrue(self._refresh(user))
         user.refresh_from_db()
         self.assertEqual(user.country, 'Nigeria')
-        self.assertEqual(user.state, 'Ilorin')
+        self.assertFalse((user.state or '').strip())
+        self.assertTrue(user.country_is_guess)
 
     def test_it_leaves_a_country_the_person_chose(self):
         """`country` gates who may accept a challenge. A wrong guess here locks

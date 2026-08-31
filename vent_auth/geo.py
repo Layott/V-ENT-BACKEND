@@ -79,12 +79,29 @@ def _is_public(ip):
 
 
 def locate(ip):
-    """(country_name, region_name) for an address, or (None, None).
+    """(country_name, city_name) for an address, or (None, None).
+
+    ipinfo.io first when a token is configured, the local DB-IP file otherwise
+    and whenever ipinfo cannot answer. Two providers rather than one because
+    they fail differently: the local file is always there and is a monthly
+    snapshot of a free build; ipinfo is sharper, especially on mobile ranges,
+    and is a network call that can be slow, rate-limited or switched off.
 
     Never raises. A geolocation failure is not worth failing a signup over.
     """
     if not ip or not _is_public(ip):
         return None, None
+
+    # The better answer first. Everything about this call - the token, the
+    # timeout, the cache, the silence on failure - lives in `ipinfo`.
+    try:
+        from . import ipinfo
+
+        country, city = ipinfo.lookup(ip)
+        if country:
+            return country, _tidy_place(city)
+    except Exception:
+        logger.warning('geoip: ipinfo layer raised, falling back', exc_info=True)
 
     reader = _get_reader()
     if reader is None:
@@ -132,7 +149,11 @@ def locate_request(request):
 
 
 def refresh_daily_location(user, request):
-    """Update a user's country and city from their IP, once per day.
+    """Fill in a user's country from their IP, once per day, if it is blank.
+
+    The city is deliberately NOT written from an address - see the comment in
+    the body. An IP places somebody in a country reliably and in a city barely
+    at all.
 
     Called on the way through login, both the password path and Google's. The
     lookup is a local file read so it costs nothing worth measuring, but the
@@ -161,26 +182,38 @@ def refresh_daily_location(user, request):
         if not country:
             return False
 
-        # A guess never overwrites an answer.
+        # A guess never overwrites an answer, and the city is never guessed
+        # at all.
         #
-        # This wrote the IP's country and city over whatever the account
-        # already held, every day. Two things went wrong with that. A player
-        # who told us where they are had it quietly replaced by wherever their
-        # carrier's gateway happens to sit - Nigerian mobile data resolved a
-        # Lagos sign-in to Ilorin - and `country` is not decoration: a
-        # challenge open to one country is gated on this field, so a wrong
-        # guess locks somebody out of challenges in their own country.
+        # This wrote the IP's country AND city over whatever the account held,
+        # every day. Two things went wrong with that. A player who told us
+        # where they are had it quietly replaced by wherever their carrier's
+        # gateway happens to sit, and `country` is not decoration: a challenge
+        # open to one country is gated on this field, so a wrong guess locks
+        # somebody out of challenges in their own country. That was fixed by
+        # only ever filling a blank.
         #
-        # So it fills a blank and nothing else. Somebody who has never said
-        # where they are still gets a sensible default on their first sign-in;
-        # somebody who has said gets to keep it.
+        # The city was still wrong, and filling a blank did not save it. CEO,
+        # 31 August 2026: "the IP gets the wrong location, it says ilorin for
+        # me, but I am in Lagos currently". Nigerian mobile data routes through
+        # a handful of gateways, so a Lagos sign-in resolves to Ilorin - not
+        # occasionally, but for most of a network's subscribers. An IP tells you
+        # the country reliably and the city barely at all.
+        #
+        # So: country fills a blank, city is never written from an address.
+        # A blank city is somebody who has not said. A wrong city is the
+        # platform asserting something false about a person on their own
+        # profile, and they have to notice it to correct it.
         fields = ['last_login_ip', 'location_updated_at']
         if not (user.country or '').strip():
             user.country = country
+            # Recorded so the screen can say this was worked out from their
+            # connection and invite a correction, rather than presenting a
+            # guess as a fact.
+            if hasattr(user, 'country_is_guess'):
+                user.country_is_guess = True
+                fields.append('country_is_guess')
             fields.append('country')
-        if city and not (user.state or '').strip():
-            user.state = city
-            fields.append('state')
 
         user.last_login_ip = ip
         user.location_updated_at = timezone.now()
