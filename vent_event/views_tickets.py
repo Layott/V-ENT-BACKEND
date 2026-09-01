@@ -105,6 +105,10 @@ def serialize_tier(tier):
         # since the wizard wrote it and never sent, so no screen could show it.
         'day': tier.day.isoformat() if tier.day else None,
         'day_label': tier.day_label or '',
+        # How many of this type one address may hold. Null means this type sets
+        # no rule of its own; the day's and the event's still apply, so the
+        # screen says "no limit of its own" rather than "no limit".
+        'max_tickets_per_email': tier.max_tickets_per_email,
         # What the price does, so the buy screen can say "12 left at this price"
         # and the console can edit it rather than render an empty box.
         'early_bird_quantity': tier.early_bird_quantity,
@@ -305,12 +309,16 @@ def buy_ticket(request, event_id):
         # came through. A signed-in buyer's address is their account's.
         buyer_email = (str(request.data.get('email') or '').strip()
                        or (user.email or ''))
-        ok, already, limit = checkout.room_for_email(event, buyer_email, quantity)
+        ok, refusal = checkout.room_for_email(event, buyer_email, quantity,
+                                              tier=tier)
         if not ok:
-            return _error(
-                'That email address already has %s ticket(s) for this event, '
-                'and the organiser allows %s.' % (already, limit),
-                'EMAIL_LIMIT_REACHED', status.HTTP_409_CONFLICT, field='email')
+            from .views_guest import _email_limit_or_error
+            # One refusal, written once. A signed-in buyer and a guest are
+            # refused by the same three rules for the same reasons, and two
+            # copies of that sentence is how the two checkouts start
+            # disagreeing about what the organiser set.
+            return _email_limit_or_error(event, buyer_email, quantity,
+                                         tier=tier)
 
         # What the organiser asked for. A signed-in buyer answers exactly the
         # same questions a guest does: the fields belong to the event, not to
