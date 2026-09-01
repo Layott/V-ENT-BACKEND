@@ -128,8 +128,16 @@ def create_tier(request, event_id):
         # code. The public endpoint filters those out, which is the whole point
         # of a code - but it left an organiser unable to see, price or retire a
         # tier they had created.
-        return _ok({'tiers': [serialize_tier(t) for t in event.ticket_tiers.all()]},
-                   'Ticket types')
+        # The event's own days go with the list, because a type's date can only
+        # be corrected against the days the event actually runs. Without this
+        # the console could show a type reading "Day 2" with no date and offer
+        # no way to give it one, which is exactly what it did.
+        from .views_limits import event_days
+        return _ok({
+            'tiers': [serialize_tier(t) for t in event.ticket_tiers.all()],
+            'days': [{'day': row['day'].isoformat(), 'n': row['n']}
+                     for row in event_days(event)],
+        }, 'Ticket types')
 
     name = str(request.data.get('name') or '').strip()
     if not name:
