@@ -22,6 +22,7 @@ from . import emails
 from .views_helpers import (
     normalize_username,
     username_problem,
+    username_refusal,
     session_timeout_minutes,
     generate_session_token,
     create_default_profile_picture,
@@ -87,38 +88,36 @@ def signup(request):
                     "message": "Signup with the username you saved on the waitlist"
                 }, status=status.HTTP_400_BAD_REQUEST)
     else:
-        # A handle reserved on the pre-launch waitlist is held for its reserver
-        # for WAITLIST_HOLD_DAYS. Without this, 98 people who reserved a name
-        # can lose it to a stranger between launch and the moment they open the
-        # claim email. The reserver themselves is never blocked - the check is
-        # by email - and the hold lapses so abandoned names come back.
-        reserved = WaitlistReservation.objects.filter(username__iexact=username).first()
-        if reserved and reserved.holds_username() and reserved.email.lower() != (email or '').lower():
+        # Why this handle cannot be used, said precisely.
+        #
+        # CEO, 1 September: "dont just show this username has been taken, tell
+        # them that the taken username is one of the unique ones taken during
+        # the waitlist."
+        #
+        # A handle reserved before launch is held for its reserver, and the
+        # reserver themselves is never blocked - the check is by email. The hold
+        # lapses so abandoned names come back. All four outcomes live in
+        # `username_refusal`, so every screen that refuses a name gives the same
+        # reason.
+        refusal = username_refusal(username, email=email)
+        if refusal:
+            code, message, data = refusal
             return Response({
-                "status": "error",
-                "message": "That username is reserved by a V-ENT waitlist member. Please choose another.",
-                "code": "USERNAME_RESERVED",
+                "status": "error", "message": message, "code": code,
+                "data": data, "field": "username",
             }, status=status.HTTP_409_CONFLICT)
 
-        username_is_available = Users.objects.filter(username=username).exists()
-
-        if not username_is_available:
-            user = Users.objects.create(
-                # Falls back to the username so every surface that prints a
-                # display name has something real to show until onboarding.
-                full_name=fullname or username,
-                email=email,
-                username=username,
-                password=make_password(password),
-                country=country or None,
-                state=state or None,
-                is_active=False
-            )
-        else:
-            return Response({ 'code': 'USERNAME_ALREADY_TAKEN',
-                "status": "error",
-                "message": "Username already taken"
-            }, status=status.HTTP_400_BAD_REQUEST)
+        user = Users.objects.create(
+            # Falls back to the username so every surface that prints a display
+            # name has something real to show until onboarding.
+            full_name=fullname or username,
+            email=email,
+            username=username,
+            password=make_password(password),
+            country=country or None,
+            state=state or None,
+            is_active=False
+        )
 
     token = default_token_generator.make_token(user)
     uid = urlsafe_base64_encode(force_bytes(user.pk))
@@ -609,8 +608,12 @@ def save_username(request):
     except VerificationToken.DoesNotExist:
         return Response({ 'code': 'NO_VERIFICATION_TOKEN_FOUND',"status": "error", "message": "No verification token found for this email"}, status=status.HTTP_404_NOT_FOUND)
 
-    if Users.objects.filter(username=username.strip().lower()).exists():
-        return Response({ 'code': 'USERNAME_ALREADY_TAKEN',"status": "error", "message": "Username already taken"}, status=status.HTTP_400_BAD_REQUEST)
+    refusal = username_refusal(username, email=email)
+    if refusal:
+        code, message, data = refusal
+        return Response({'code': code, "status": "error", "message": message,
+                         "data": data, "field": "username"},
+                        status=status.HTTP_409_CONFLICT)
 
     user = Users.objects.create(email=email.strip().lower(), username=username.strip().lower())
     user.save()

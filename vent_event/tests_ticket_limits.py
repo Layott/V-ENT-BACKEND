@@ -185,6 +185,10 @@ class LimitsEndpointTests(TestCase):
             reg_end_date=now + timedelta(days=4))
         self.friday = (now + timedelta(days=5)).date()
         self.saturday = (now + timedelta(days=6)).date()
+        # The event runs to +7d, so there is a third day with no type on it.
+        # That day still has to be offered, which is the whole point of reading
+        # the days off the event rather than off the types.
+        self.sunday = (now + timedelta(days=7)).date()
         self.standard = TicketTier.objects.create(
             event=self.event, name='Standard', price=Decimal('0'),
             quantity=50, day=self.friday, day_label='Day 1')
@@ -204,8 +208,10 @@ class LimitsEndpointTests(TestCase):
         data = res.json()['data']
         self.assertIsNone(data['event'])
         self.assertEqual(len(data['tiers']), 2)
-        self.assertEqual([d['day'] for d in data['days']],
-                         [self.friday.isoformat(), self.saturday.isoformat()])
+        self.assertEqual(
+            [d['day'] for d in data['days']],
+            [self.friday.isoformat(), self.saturday.isoformat(),
+             self.sunday.isoformat()])
         self.assertTrue(data['has_days'])
         # The day carries the label the organiser gave it, not a bare date.
         self.assertEqual(data['days'][0]['label'], 'Day 1')
@@ -233,7 +239,7 @@ class LimitsEndpointTests(TestCase):
         self.assertEqual(
             sorted(EventDayLimit.objects.filter(event=self.event)
                    .values_list('day', flat=True)),
-            [self.friday, self.saturday])
+            [self.friday, self.saturday, self.sunday])
         self.assertEqual(
             set(EventDayLimit.objects.filter(event=self.event)
                 .values_list('max_tickets_per_email', flat=True)), {3})
@@ -246,12 +252,43 @@ class LimitsEndpointTests(TestCase):
         self.vip.refresh_from_db()
         self.assertEqual(self.event.max_tickets_per_email, 4)
         self.assertIsNone(self.vip.max_tickets_per_email)
-        self.assertEqual(EventDayLimit.objects.filter(event=self.event).count(), 2)
+        self.assertEqual(EventDayLimit.objects.filter(event=self.event).count(), 3)
 
     def test_clearing_all_days_removes_the_rows(self):
         self.post({'all_days': 3})
         self.post({'all_days': None})
         self.assertEqual(EventDayLimit.objects.filter(event=self.event).count(), 0)
+
+    def test_a_day_with_no_ticket_type_is_still_offered(self):
+        """The days come from the event, not from the types that exist yet.
+
+        Reading them off `TicketTier.day` meant a day nothing was sold for was
+        never offered, so an organiser could not assign a type to it. That is
+        how a type called "General Admission Day 2" ended up carrying no date
+        and showing the buyer nothing at all.
+        """
+        res = self.client.get(self.url, **self.auth)
+        days = [d['day'] for d in res.json()['data']['days']]
+        self.assertIn(self.sunday.isoformat(), days)
+        self.assertFalse(
+            self.event.ticket_tiers.filter(day=self.sunday).exists())
+
+    def test_the_days_are_numbered_for_the_screen(self):
+        res = self.client.get(self.url, **self.auth)
+        self.assertEqual([d['n'] for d in res.json()['data']['days']], [1, 2, 3])
+
+    def test_a_one_day_event_offers_no_per_day_section(self):
+        """One day, and a per-day rule is the event-wide rule under a new name."""
+        self.event.end_date = self.event.start_date
+        self.event.save(update_fields=['end_date'])
+        res = self.client.get(self.url, **self.auth)
+        self.assertFalse(res.json()['data']['has_days'])
+
+    def test_the_tier_list_carries_the_days_so_a_date_can_be_corrected(self):
+        res = self.client.get(
+            '/event/%s/tiers/' % self.event.event_id, **self.auth)
+        self.assertEqual(res.status_code, 200, res.json())
+        self.assertEqual([d['n'] for d in res.json()['data']['days']], [1, 2, 3])
 
     def test_zero_is_refused_rather_than_read_as_no_limit(self):
         """Somebody typing 0 thinks they are allowing none, not allowing all."""

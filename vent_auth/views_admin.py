@@ -1319,13 +1319,37 @@ def get_number_of_all_users(request):
 
 @api_view(["POST"])
 def check_username_availability(request):
+    """Whether a handle can be used, and if not, precisely why.
+
+    CEO, 1 September: "dont just show this username has been taken, tell them
+    that the taken username is one of the unique ones taken during the
+    waitlist."
+
+    This is the endpoint the signup form calls while somebody types, so it is
+    the first place they hear it, and hearing "taken" about a name reserved
+    before launch sends them off inventing variations of something they will
+    never get. Same helper as every other refusal path, so the sentence they
+    read here is the sentence they read on submit.
+
+    The envelope is unchanged - a taken name answers 200 with `status: success`,
+    which reads oddly but is what the form has always expected - and `code`,
+    `reason` and `data` are added beside it.
+    """
+    from .views_helpers import username_refusal
+
     username = request.data.get("username")
     if not username:
         return Response({ 'code': 'USERNAME_REQUIRED',"status": "error", "message": "Username is required"}, status=status.HTTP_400_BAD_REQUEST)
-    exists = Users.objects.filter(username=username).exists()
-    if exists:
-        return Response({"status": "success", "message": "Username exists"}, status=status.HTTP_200_OK)
-    return Response({ 'code': 'USERNAME_DOES_NOT_EXIST',"status": "error", "message": "Username does not exist"}, status=status.HTTP_404_NOT_FOUND)
+
+    refusal = username_refusal(username, email=request.data.get("email"))
+    if refusal:
+        code, message, data = refusal
+        return Response({"status": "success", "message": message,
+                         "reason": code, "data": data,
+                         "available": False}, status=status.HTTP_200_OK)
+    return Response({ 'code': 'USERNAME_DOES_NOT_EXIST',"status": "error",
+                     "message": "Username does not exist", "available": True},
+                    status=status.HTTP_404_NOT_FOUND)
 
 
 @api_view(['POST'])

@@ -18,7 +18,7 @@ from .models import (
     Games, GameAccount, FavoriteGames, Teams, TeamProfile, SocialLink,
 )
 from . import emails
-from .views_helpers import session_timeout_minutes
+from .views_helpers import session_timeout_minutes, username_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -544,8 +544,13 @@ def edit_profile_info(request):
             return Response({ 'code': 'USER_PROFILE_DOES_NOT','status': 'error', 'message': 'User profile does not exist'}, status=status.HTTP_404_NOT_FOUND)
 
         if username and username != user.username:
-            if Users.objects.filter(username=username).exists():
-                return Response({ 'code': 'USERNAME_ALREADY_TAKEN','status': 'error', 'message': 'Username already taken'}, status=status.HTTP_400_BAD_REQUEST)
+            refusal = username_refusal(username, email=user.email, exclude_user=user)
+            if refusal:
+                code, message, data = refusal
+                return Response({'code': code, 'status': 'error',
+                                 'message': message, 'data': data,
+                                 'field': 'username'},
+                                status=status.HTTP_409_CONFLICT)
             user.username = username
         if fullname:
             user.full_name = fullname

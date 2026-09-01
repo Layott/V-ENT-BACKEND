@@ -22,7 +22,9 @@ because the wider scopes still apply. The screen says so in those words.
 Enforcement lives in `checkout.room_for_email`, in one place, so the guest
 checkout and the signed-in one cannot disagree about what the organiser set.
 """
-from datetime import date
+from datetime import date, timedelta
+
+from django.utils import timezone
 
 from rest_framework import status
 from rest_framework.decorators import api_view
@@ -87,20 +89,56 @@ def _read_limit(raw, field):
     return limit, None
 
 
-def _days_of(event):
-    """Every day this event sells a ticket for, from the types themselves.
+def event_days(event):
+    """Every calendar day this event runs, from its own start and end.
 
-    A day is not a record anywhere: it is `TicketTier.day`, carried by the types
-    that admit you on it. Reading it from the types rather than storing a second
-    list is what stops the two disagreeing when a type is added or its date
-    corrected.
+    A day is not a record anywhere. It used to be read off `TicketTier.day`,
+    which was enough for a limits screen but wrong for a picker: a day nothing
+    is sold for yet would not be offered, so an organiser could never assign a
+    type to it. That is how "General Admission Day 2" ended up carrying no date
+    at all and showing the buyer nothing.
+
+    Computed here rather than in the browser so the console and the creation
+    wizard cannot disagree about how many days an event has. The wizard does its
+    own arithmetic only because at that point the event does not exist yet.
+
+    Returns `[{'day': date, 'n': 1, ...}]`, ordered, capped so a mistyped end
+    date years out cannot produce an enormous list.
     """
+    start = getattr(event, 'start_date', None)
+    end = getattr(event, 'end_date', None) or start
+    if start is None:
+        return []
+    first = timezone.localtime(start).date() if timezone.is_aware(start) else start.date()
+    last = timezone.localtime(end).date() if timezone.is_aware(end) else end.date()
+    if last < first:
+        last = first
+    out = []
+    cursor, n = first, 1
+    while cursor <= last and len(out) < 60:
+        out.append({'day': cursor, 'n': n})
+        cursor += timedelta(days=1)
+        n += 1
+    return out
+
+
+def _days_of(event):
+    """The dates a limit may be set for: the event's own days.
+
+    Falls back to the dates the types carry, for an event whose start and end
+    were never filled in. Without that fallback an older event would lose the
+    per-day section entirely.
+    """
+    days = [row['day'] for row in event_days(event)]
+    if days:
+        return days
     seen = event.ticket_tiers.exclude(day=None).values_list('day', flat=True)
     return sorted(set(seen))
 
 
 def _serialize(event):
     days = _days_of(event)
+    numbers = {row['day']: row['n'] for row in event_days(event)}
     set_days = {row.day: row.max_tickets_per_email
                 for row in event.day_limits.all()}
     return {
@@ -117,6 +155,7 @@ def _serialize(event):
         } for t in event.ticket_tiers.all()],
         'days': [{
             'day': d.isoformat(),
+            'n': numbers.get(d),
             # The label the organiser gave that date on any of its types, so
             # the screen can say "Day 2" the way the rest of the product does
             # rather than printing a bare date nobody chose.
@@ -124,10 +163,10 @@ def _serialize(event):
                            if t.day == d and t.day_label), ''),
             'max_tickets_per_email': set_days.get(d),
         } for d in days],
-        # Whether a per-day rule can be set at all. An event whose types carry
-        # no date has one day, and offering a per-day section for it is offering
-        # an empty box.
-        'has_days': bool(days),
+        # Whether a per-day rule is a thing worth offering. A one day event has
+        # exactly one day, and a per-day section for it is the event-wide rule
+        # wearing a second name.
+        'has_days': len(days) > 1,
     }
 
 
