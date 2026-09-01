@@ -392,3 +392,70 @@ class StandingsApiTests(TestCase):
             content_type='application/json', **self.auth)
 
         self.assertEqual(res.json()['data']['tiebreakers'], ['goals_for'])
+
+
+class OddNumberOfSidesTests(TestCase):
+    """A five nation league is ten fixtures and nobody sits out.
+
+    `aggregate_2v2` carried `even_only`, which is a knockout concern: an odd
+    count leaves somebody without an opponent in round one. This format is a
+    table, so there is no round one. The flag refused precisely the event the
+    format was written for - the Rivalry Series, five nations, EA FC.
+    """
+
+    def test_five_sides_is_a_valid_aggregate_league(self):
+        from vent_tournament.formats import FORMATS
+
+        fmt = FORMATS['aggregate_2v2']
+        self.assertFalse(fmt.even_only)
+        self.assertIsNone(fmt.count_problem(5))
+
+    def test_every_count_from_two_upwards_is_accepted(self):
+        from vent_tournament.formats import FORMATS
+
+        fmt = FORMATS['aggregate_2v2']
+        for n in range(2, 13):
+            self.assertIsNone(fmt.count_problem(n), n)
+
+    def test_one_side_is_still_refused(self):
+        from vent_tournament.formats import FORMATS
+
+        self.assertEqual(FORMATS['aggregate_2v2'].count_problem(1), 'at_least')
+
+    def test_knockout_formats_keep_the_even_rule(self):
+        """Removing it here must not remove it where it is correct."""
+        from vent_tournament.formats import FORMATS
+
+        for key in ('single_elimination', 'double_elimination'):
+            self.assertTrue(FORMATS[key].even_only, key)
+            self.assertEqual(FORMATS[key].count_problem(5), 'even', key)
+
+    def test_only_a_knockout_may_require_an_even_count(self):
+        """CEO: "Odd numbers should almost always work for a league, because
+        each player or team just has to play the others and then they are
+        ranked based off a table."
+
+        Which is the general rule, not a fact about one format. An odd count is
+        only a problem when everybody must be paired at once, and that is
+        knockout. A table, a points race and a Swiss all cope with any number,
+        so the flag has no business on them. `aggregate_2v2` carried it and
+        refused the five nation Rivalry Series; this stops the next one.
+        """
+        from vent_tournament.formats import FORMATS
+
+        for key, fmt in FORMATS.items():
+            if fmt.even_only:
+                self.assertEqual(
+                    fmt.advancement, 'knockout',
+                    '%s requires an even count but advances by %s. Only a '
+                    'knockout leaves somebody without an opponent.'
+                    % (key, fmt.advancement))
+
+    def test_every_table_format_accepts_five(self):
+        from vent_tournament.formats import FORMATS
+
+        for key, fmt in FORMATS.items():
+            if fmt.advancement in ('table', 'points', 'swiss'):
+                if fmt.max_participants and fmt.max_participants < 5:
+                    continue
+                self.assertIsNone(fmt.count_problem(5), key)

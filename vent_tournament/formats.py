@@ -209,7 +209,14 @@ FORMATS = {
             'total goals across those fixtures.'
         ),
         min_participants=2,
-        even_only=True,
+        # NOT even_only. That flag is a knockout concern - an odd count leaves
+        # somebody without an opponent in round one - and this is a table: a
+        # round robin where every side plays every other. Five nations is ten
+        # fixtures and nobody sits out.
+        #
+        # It was set here and it refused exactly the event this format was
+        # written for. The Rivalry Series is five nations, and the wizard would
+        # not create it.
         advancement='table',
         scoring='aggregate_goals',
         # Total goals, never a count of individual wins. Winning one fixture 5-0
