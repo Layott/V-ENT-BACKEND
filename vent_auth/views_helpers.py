@@ -234,3 +234,73 @@ def username_taken(raw, *, exclude_user=None):
     return WaitlistReservation.objects.filter(
         username__iexact=name, claimed_at__isnull=True,
     ).exists()
+
+
+def username_refusal(raw, *, email=None, exclude_user=None):
+    """Why this handle cannot be used, said precisely. `None` when it is free.
+
+    Returns `(code, message, data)`. The code is what gets translated; the
+    message is the English fallback; `data` carries anything the sentence names.
+
+    CEO, 1 September: "if there is a username that was saved during the waitlist
+    time and it is inputted, dont just show this username has been taken, tell
+    them that the taken username is one of the unique ones taken during the
+    waitlist."
+
+    The reason this matters is that "that username is taken" invites somebody to
+    keep trying variations of a name they will never get, and it reads as though
+    a stranger beat them to it. 102 people reserved a handle before launch, and
+    those names were gone before the platform opened. Somebody typing one is
+    owed the actual explanation, which is also the one that tells a returning
+    waitlist member "that is your own name, go and claim it" rather than sending
+    them off to invent a new one.
+
+    Four outcomes, and they are genuinely different situations:
+
+    | Reserved, still held, not by you | it may come back when the hold lapses |
+    | Reserved and since claimed       | it is that person's account now       |
+    | Reserved, hold lapsed, now free  | no refusal at all                     |
+    | Taken by an ordinary account     | the plain message, unchanged          |
+    """
+    from .models import Users, WaitlistReservation
+
+    name = normalize_username(raw)
+    if not name:
+        return None
+
+    reservation = WaitlistReservation.objects.filter(username__iexact=name).first()
+
+    # The reserver themselves is never refused their own name. Matched by
+    # address, because that is the only thing the waitlist actually captured.
+    theirs = bool(
+        reservation and email
+        and reservation.email.lower() == str(email).strip().lower())
+
+    holder = Users.objects.filter(username__iexact=name)
+    if exclude_user is not None:
+        holder = holder.exclude(pk=exclude_user.pk)
+    holder = holder.first()
+
+    if holder is not None:
+        # Somebody has it. Whether that is a waitlist name that has since been
+        # claimed changes what the person typing it should do next.
+        if reservation is not None and reservation.is_claimed:
+            return ('USERNAME_TAKEN_WAITLIST',
+                    'That name was one of the handles reserved before launch on '
+                    'the V-ENT waitlist, and the member who reserved it has '
+                    'claimed it. Please choose another.',
+                    {'username': name})
+        return ('USERNAME_ALREADY_TAKEN', 'Username already taken',
+                {'username': name})
+
+    if reservation is not None and reservation.holds_username() and not theirs:
+        return ('USERNAME_RESERVED',
+                'That name is one of the handles reserved before launch on the '
+                'V-ENT waitlist. It is being held for the member who reserved '
+                'it. Please choose another.',
+                {'username': name})
+
+    # Either no reservation, or one whose hold has lapsed with nobody holding
+    # the name. A lapsed hold puts the handle back in the open pool, which is
+    # the whole reason the hold has a deadline.
+    return None

@@ -325,7 +325,7 @@ def change_username(request):
     update_user_account, which only ever wrote full_name, country and state - so
     the button appeared to work and changed nothing.
     """
-    from .views_helpers import normalize_username, username_problem, username_taken
+    from .views_helpers import normalize_username, username_problem, username_refusal
 
     user, err = _user_from_bearer(request)
     if err:
@@ -342,8 +342,13 @@ def change_username(request):
         return Response({'status': 'success', 'data': {'username': user.username},
                          'message': 'That is already your username.'})
 
-    if username_taken(name, exclude_user=user):
-        return Response({ 'code': 'USERNAME_TAKEN','status': 'error', 'message': 'That username is taken.'},
+    # Not just "taken". A name reserved before launch on the waitlist says so,
+    # because that is a different situation and a different next step.
+    refusal = username_refusal(name, email=user.email, exclude_user=user)
+    if refusal:
+        code, message, data = refusal
+        return Response({'code': code, 'status': 'error', 'message': message,
+                         'data': data, 'field': 'username'},
                         status=status.HTTP_409_CONFLICT)
 
     user.username = name
