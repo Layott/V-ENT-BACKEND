@@ -181,28 +181,72 @@ def phone_from(event, answers):
     return ''
 
 
-def held_by(event, email):
-    """How many live tickets this address already holds for this event.
+def held_by(event, email, tier=None, day=None):
+    """How many live tickets this address already holds, within a scope.
 
     A cancelled or refunded ticket does not count. Somebody whose order was
     refunded has no ticket, and refusing them a second one because of a record
     that no longer admits anybody is the platform arguing with itself.
+
+    `tier` narrows to one ticket type. `day` narrows to every type admitting on
+    that date, which is what a day limit is about: a buyer holding a Standard
+    and a VIP for Saturday holds two tickets for Saturday, whatever the two
+    types allow separately.
     """
     from .models import Ticket
 
     email = str(email or '').strip().lower()
     if not email:
         return 0
-    return Ticket.objects.filter(
+    rows = Ticket.objects.filter(
         event=event, attendee_email__iexact=email,
-    ).exclude(status__in=('cancelled', 'refunded')).count()
+    ).exclude(status__in=('cancelled', 'refunded'))
+    if tier is not None:
+        rows = rows.filter(tier=tier)
+    if day is not None:
+        rows = rows.filter(tier__day=day)
+    return rows.count()
 
 
-def room_for_email(event, email, quantity):
-    """Whether this address may take `quantity` more, and why not if it may not.
+def day_limit_for(event, day):
+    """The per-day number an organiser set for `day`, or None."""
+    if day is None:
+        return None
+    from .models import EventDayLimit
 
-    Returns `(ok, already, limit)`. `limit` is None when the organiser has set
-    no limit, which is the ordinary case.
+    row = EventDayLimit.objects.filter(event=event, day=day).first()
+    return int(row.max_tickets_per_email) if row else None
+
+
+def email_limits(event, tier=None):
+    """Every limit that applies to buying `tier`, most specific first.
+
+    A list of `(scope, limit, day)`. The scopes stack: a purchase must satisfy
+    all of them, not the first one found. An organiser who says "one VIP each"
+    and "four per day" means both, and honouring only the narrower would let
+    somebody take five on a day they had capped at four.
+
+    The order matters only for which refusal the buyer is told about, and the
+    most specific rule is the one that explains their situation best.
+    """
+    out = []
+    if tier is not None and tier.max_tickets_per_email:
+        out.append(('tier', int(tier.max_tickets_per_email), None))
+    day = getattr(tier, 'day', None) if tier is not None else None
+    per_day = day_limit_for(event, day)
+    if per_day:
+        out.append(('day', per_day, day))
+    if event.max_tickets_per_email:
+        out.append(('event', int(event.max_tickets_per_email), None))
+    return out
+
+
+def room_for_email(event, email, quantity, tier=None):
+    """Whether this address may take `quantity` more, and which rule says no.
+
+    Returns `(ok, refusal)`. `refusal` is None when the purchase is allowed,
+    and otherwise a dict naming the scope that refused it, what the address
+    already holds inside that scope, and the number the organiser set.
 
     CEO: "if a ticket has been sent to an email before, it should not be sent
     again, even if they refresh and type in that same email again."
@@ -211,9 +255,31 @@ def room_for_email(event, email, quantity):
     this request is doing. Refreshing the page and retyping the same address is
     exactly the case it exists to stop, and a per-request check would wave it
     through every time.
+
+    CEO, later: "if there is several different days or types of ticket, the
+    option to set this for each ticket type and day should be available. for
+    all tickets and days at once also."
+
+    Hence three scopes rather than one, all checked. `tier` is optional so the
+    caller that has not resolved a type yet still gets the event-wide rule
+    enforced, which is the behaviour this function had before there were three.
     """
-    limit = event.max_tickets_per_email
-    if not limit:
-        return True, 0, None
-    already = held_by(event, email)
-    return (already + int(quantity or 0)) <= int(limit), already, int(limit)
+    wanted = int(quantity or 0)
+    for scope, limit, day in email_limits(event, tier):
+        if scope == 'tier':
+            already = held_by(event, email, tier=tier)
+        elif scope == 'day':
+            already = held_by(event, email, day=day)
+        else:
+            already = held_by(event, email)
+        if already + wanted > limit:
+            return False, {
+                'scope': scope,
+                'already': already,
+                'limit': limit,
+                # What to call the thing that refused, so the buyer is told
+                # "VIP" or "Saturday 12 September" rather than "a limit".
+                'name': (tier.name if scope == 'tier' and tier is not None
+                         else (day.isoformat() if scope == 'day' and day else '')),
+            }
+    return True, None

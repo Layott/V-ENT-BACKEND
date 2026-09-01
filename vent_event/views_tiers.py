@@ -92,6 +92,26 @@ def _read_quantity(raw, current=None):
     return quantity, None
 
 
+def _read_email_limit(raw, current=None):
+    """The per-type email limit. Empty means the type sets no rule of its own.
+
+    Distinct from zero, which nothing should mean here: a type nobody may buy
+    is a type with no allocation, not a type with a limit of none.
+    """
+    if raw in (None, ''):
+        return None, None
+    try:
+        limit = int(raw)
+    except (TypeError, ValueError):
+        return None, _err('That has to be a number.', 'INVALID_NUMBER',
+                          field='max_tickets_per_email')
+    if limit < 1:
+        return None, _err('A limit is at least one ticket. Leave it empty for '
+                          'no limit of its own.', 'INVALID_NUMBER',
+                          field='max_tickets_per_email')
+    return limit, None
+
+
 @api_view(['GET', 'POST'])
 def create_tier(request, event_id):
     """POST /event/<id>/tiers/ - add a ticket type to an event that exists.
@@ -129,6 +149,10 @@ def create_tier(request, event_id):
     if isinstance(perks, list):
         perks = ', '.join(str(p).strip() for p in perks if str(p).strip())
 
+    email_limit, err = _read_email_limit(request.data.get('max_tickets_per_email'))
+    if err:
+        return err
+
     tier = TicketTier.objects.create(
         event=event,
         name=name[:60],
@@ -137,6 +161,7 @@ def create_tier(request, event_id):
         perks=str(perks or '')[:255],
         day=request.data.get('day') or None,
         day_label=str(request.data.get('day_label') or '')[:60],
+        max_tickets_per_email=email_limit,
     )
     return _ok({'tier': serialize_tier(tier),
                 'tiers': [serialize_tier(t) for t in event.ticket_tiers.all()]},
@@ -216,6 +241,17 @@ def update_tier(request, event_id, tier_id):
                             field='unlocked_by')
             tier.unlocked_by = referral
         updated.append('unlocked_by')
+
+    if 'max_tickets_per_email' in request.data:
+        raw = request.data.get('max_tickets_per_email')
+        if raw in (None, ''):
+            tier.max_tickets_per_email = None
+        else:
+            limit, err = _read_email_limit(raw)
+            if err:
+                return err
+            tier.max_tickets_per_email = limit
+        updated.append('max_tickets_per_email')
 
     for field in ('day', 'day_label'):
         if field in request.data:

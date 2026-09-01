@@ -41,8 +41,10 @@ def _ok(data, message='OK', http_status=status.HTTP_200_OK):
                     status=http_status)
 
 
-def _err(message, code, http_status=status.HTTP_400_BAD_REQUEST, field=None):
-    body = {'status': 'error', 'data': {}, 'message': message, 'code': code}
+def _err(message, code, http_status=status.HTTP_400_BAD_REQUEST, field=None,
+         data=None):
+    body = {'status': 'error', 'data': data or {}, 'message': message,
+            'code': code}
     if field is not None:
         body['field'] = field
     return Response(body, status=http_status)
@@ -166,24 +168,64 @@ def _validate_order(event, request):
     return tier, quantity, email, (order_answers, per_person, attendees), None
 
 
-def _email_limit_or_error(event, email, quantity):
-    """Whether this address may hold this many for this event.
+def _email_limit_or_error(event, email, quantity, tier=None):
+    """Whether this address may hold this many, under every rule that applies.
 
     Checked against what the address ALREADY holds rather than against this
     request, because the case the organiser is guarding against is somebody
     refreshing the page and typing the same address again.
+
+    Three rules can refuse it: the ticket type's own, the day's, and the
+    event-wide one. The refusal names which, because "you already have a VIP"
+    and "you already have two tickets for Saturday" send somebody to different
+    next steps, and "you have reached a limit" sends them to neither.
     """
-    ok, already, limit = checkout.room_for_email(event, email, quantity)
+    ok, refusal = checkout.room_for_email(event, email, quantity, tier=tier)
     if ok:
         return None
-    if already:
-        return _err(
+
+    # A code per scope rather than one code and three sentences. A sentence
+    # built here cannot be translated; a code with the numbers beside it can.
+    #
+    # Six codes, not three, because "you already hold two of these" and "nobody
+    # may take three of these" are different sentences and a translation cannot
+    # be both. The second happens when somebody asks for more in one go than
+    # the rule allows, so they hold none and are still refused - and a
+    # translation reading "you already have 0" would be nonsense.
+    scope = refusal['scope']
+    already, limit, name = refusal['already'], refusal['limit'], refusal['name']
+    held = bool(already)
+    codes = {
+        ('tier', True): 'EMAIL_LIMIT_TIER',
+        ('tier', False): 'EMAIL_LIMIT_TIER_MAX',
+        ('day', True): 'EMAIL_LIMIT_DAY',
+        ('day', False): 'EMAIL_LIMIT_DAY_MAX',
+        ('event', True): 'EMAIL_LIMIT_REACHED',
+        ('event', False): 'EMAIL_LIMIT',
+    }
+
+    if scope == 'tier':
+        message = (
+            'That email address already has %s %s ticket(s), and the organiser '
+            'allows %s.' % (already, name, limit) if held else
+            'The organiser allows %s %s ticket(s) per email address.'
+            % (limit, name))
+    elif scope == 'day':
+        message = (
+            'That email address already has %s ticket(s) for %s, and the '
+            'organiser allows %s that day.' % (already, name, limit) if held else
+            'The organiser allows %s ticket(s) per email address on %s.'
+            % (limit, name))
+    else:
+        message = (
             'That email address already has %s ticket(s) for this event, and '
-            'the organiser allows %s.' % (already, limit),
-            'EMAIL_LIMIT_REACHED', status.HTTP_409_CONFLICT, field='email')
-    return _err(
-        'The organiser allows %s ticket(s) per email address.' % limit,
-        'EMAIL_LIMIT', status.HTTP_409_CONFLICT, field='email')
+            'the organiser allows %s.' % (already, limit) if held else
+            'The organiser allows %s ticket(s) per email address.' % limit)
+
+    return _err(message, codes[(scope, held)], status.HTTP_409_CONFLICT,
+                field='email',
+                data={'scope': scope, 'already': already, 'limit': limit,
+                      'name': name})
 
 
 def _room_or_error(event, tier, quantity):
@@ -290,7 +332,7 @@ def guest_buy(request, event_id):
 
     # Before the gateway, so nobody is sent to pay for a ticket that will be
     # refused on the way back.
-    err = _email_limit_or_error(event, email, quantity)
+    err = _email_limit_or_error(event, email, quantity, tier=tier)
     if err:
         return err
 
@@ -307,7 +349,7 @@ def guest_buy(request, event_id):
             # catches somebody retyping their address; this catches two
             # requests arriving at once, which is what a double-tapped button
             # on a slow connection actually looks like.
-            err = _email_limit_or_error(event, email, quantity)
+            err = _email_limit_or_error(event, email, quantity, tier=tier)
             if err:
                 return err
             tickets = _issue(event, tier, quantity, email, answers, unit_ngn, unit_vc,

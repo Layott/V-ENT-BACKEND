@@ -15,6 +15,8 @@ from . import views_self_check_in
 from . import views_sessions
 from . import views_waitlist
 from . import views_tiers
+from . import views_limits
+from . import views_short_links
 from .views import create_event, get_all_events, view_event, edit_event
 from .views_tickets import (
     ticket_types, buy_ticket, my_tickets, check_in_ticket, event_attendees,
@@ -72,6 +74,15 @@ urlpatterns = [
     path("<str:event_id>/holds/<int:hold_id>/issue/", views_holds.issue_hold, name="issue_hold"),
     path("<str:event_id>/money/", views_holds.event_money, name="event_money"),
     path("<str:event_id>/tiers/", views_tiers.create_tier, name="create_tier"),
+    # How many tickets one address may hold, per type, per day, or across the
+    # whole event. One endpoint for all three scopes, because a screen that
+    # edits them together should not have to write them one request at a time.
+    path("<str:event_id>/email-limits/", views_limits.email_limits,
+         name="email_limits"),
+    path("<str:event_id>/short-links/", views_short_links.short_links,
+         name="event_short_links"),
+    path("<str:event_id>/short-links/<int:link_id>/",
+         views_short_links.delete_short_link, name="delete_short_link"),
     path("<str:event_id>/checkout-fields/", views_guest.checkout_fields, name="checkout_fields"),
     path("<str:event_id>/sponsors/manage/", views_sponsors.event_sponsors,
          name="event_sponsors"),

@@ -213,6 +213,23 @@ class TicketTier(models.Model):
     # somebody types the code. For a members' presale or a sponsor's allocation.
     access_code = models.CharField(max_length=40, blank=True, default='')
 
+    # How many of THIS type one email address may hold.
+    #
+    # CEO: "if there is several different days or types of ticket, the option to
+    # set this for each ticket type and day should be available. for all tickets
+    # and days at once also."
+    #
+    # The event-wide number could not express the thing organisers actually
+    # want, which is a different rule per type: one VIP each, four General
+    # Admission, and a day pass capped per day. A single number for the whole
+    # event forces the strictest of those onto all of them.
+    #
+    # `None` means this type sets no rule of its own and is bounded only by the
+    # event-wide number and by its day. It is not "unlimited": the wider scopes
+    # still apply, and every scope that has a number is checked.
+    max_tickets_per_email = models.PositiveIntegerField(null=True, blank=True,
+                                                        default=None)
+
     # A ticket type only an influencer's audience can buy.
     #
     # CEO: "there should also be an option where a ticket is locked behind an
@@ -1280,3 +1297,94 @@ class EventAttendeeOrigin(models.Model):
 
     def __str__(self):
         return 'origin for event %s' % self.event_id
+
+
+class EventDayLimit(models.Model):
+    """How many tickets one email address may hold for one day of an event.
+
+    A day has no model of its own: it is `TicketTier.day`, a date carried by
+    every type that admits you on it. So the per-day rule cannot live on a
+    column somewhere, and it needs a row keyed by the date itself.
+
+    This is deliberately not folded into `TicketTier.max_tickets_per_email`.
+    They answer different questions. A three-day convention selling Standard
+    and VIP on each day has six types and three days; "two tickets per day,
+    whichever type" is one rule, and writing it onto six types both repeats it
+    and stops being true the moment a seventh is added.
+
+    The three scopes stack rather than override. A purchase must satisfy every
+    one that has a number: the type's, the day's, and the event's. The organiser
+    setting "one VIP each" and "four per day" means both, and the buyer who
+    already holds a VIP is refused a second whatever the day allows.
+    """
+
+    id = models.AutoField(primary_key=True)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE,
+                              related_name='day_limits')
+    day = models.DateField()
+    max_tickets_per_email = models.PositiveIntegerField()
+
+    class Meta:
+        unique_together = ('event', 'day')
+        ordering = ['day']
+
+    def __str__(self):
+        return '%s on %s: %s per email' % (
+            self.event_id, self.day, self.max_tickets_per_email)
+
+
+class ShortLink(models.Model):
+    """A short address that stands in for a longer one on this platform.
+
+    CEO: "add an option for people to be able to shorten their ticket links, so
+    you create very short versions of the ticket links."
+
+    A ticket link is long by the time it is worth sharing. The event carries a
+    readable slug, the tickets sit behind a tab, and an influencer's link adds a
+    code on the end, so what an organiser is asked to read out on a livestream
+    or print on a flyer is seventy characters of which sixty are punctuation.
+
+    Three things this is careful about.
+
+    **The target is a path on this site, never a URL.** Storing somewhere to
+    redirect to, and letting a caller choose it, is an open redirect: anybody
+    could hand out a v-ent.co address that lands on a page they control, with
+    the platform's name lending it credibility. `target` is validated to start
+    with a single `/` and is resolved against our own origin at redirect time.
+
+    **The token is opaque and not a counter.** Sequential short links can be
+    walked by counting, which publishes every unlisted event anybody shortened.
+    Same alphabet as the rest of the platform, minus the characters that are
+    misread when a link is read aloud, which is exactly what these are for.
+
+    **A short link is not a tracker.** It counts arrivals and nothing else. No
+    address, no user agent, no row per visitor. The organiser's question is
+    "did the flyer work", and a count answers it without keeping a log of who
+    read what.
+    """
+
+    id = models.AutoField(primary_key=True)
+    token = models.CharField(max_length=24, unique=True, db_index=True)
+    # Which event this belongs to, so an organiser can find and retire their own
+    # links, and so deleting an event does not leave an address pointing at a
+    # page that is gone.
+    event = models.ForeignKey(Event, on_delete=models.CASCADE,
+                              related_name='short_links')
+    # A path on this site, always beginning with '/'.
+    target = models.CharField(max_length=500)
+    # What the organiser calls it: "flyer", "Temi's story", "radio read".
+    # One event usually wants several, and a list of identical short codes with
+    # nothing to tell them apart is a list nobody can use.
+    label = models.CharField(max_length=80, blank=True, default='')
+    created_by = models.ForeignKey('vent_auth.Users', on_delete=models.SET_NULL,
+                                   null=True, blank=True,
+                                   related_name='short_links')
+    hits = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return '%s -> %s' % (self.token, self.target)
