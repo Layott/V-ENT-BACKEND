@@ -1185,3 +1185,123 @@ class TournamentOverlay(models.Model):
                 kwargs['update_fields'] = list(
                     set(kwargs['update_fields']) | {'token'})
         super().save(*args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# The production studio
+# ---------------------------------------------------------------------------
+#
+# CEO, 1 September 2026: "the site's tournament bracket systems will handle the
+# calculations and seeding and feed it into the production studio based off what
+# is being requested for each element, and each element can be copied and pasted
+# into your streaming software as browser sources and it updates in realtime...
+# it'll be like a production studio for any organizer who can pay for it."
+#
+# So this is not a feature of one event. It is a capability an organiser rents.
+#
+# The difference from `TournamentOverlay`, which already exists: that one serves
+# a designer's uploaded HTML file. This one serves elements V-ENT itself ships,
+# bound to the bracket, driven by an operator during a broadcast. Both keep
+# working; they answer different questions. An organiser with a designer uses
+# the first. An organiser who wants a scoreboard in ten minutes uses this.
+
+class BroadcastSession(models.Model):
+    """One broadcast. A stream day, usually.
+
+    A session rather than a bare tournament because a three day event is three
+    broadcasts with three sets of graphics on screen, and because ending a
+    session is how an operator clears everything at once without hunting for
+    what is still showing.
+
+    **The token is the credential.** OBS opens a browser source with no session,
+    no cookie and no header, so whatever authorises an element URL has to be in
+    the URL. It is per session, which means last week's URLs stop working when
+    the session ends, and a leaked URL costs one broadcast rather than the
+    tournament.
+    """
+
+    STATUS = [('live', 'Live'), ('ended', 'Ended')]
+
+    id = models.AutoField(primary_key=True)
+    tournament = models.ForeignKey(
+        Tournament, on_delete=models.CASCADE, related_name='broadcast_sessions')
+    name = models.CharField(max_length=120, blank=True, default='')
+    token = models.CharField(max_length=48, unique=True, db_index=True)
+    status = models.CharField(max_length=10, choices=STATUS, default='live')
+
+    started_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='broadcast_sessions')
+    started_at = models.DateTimeField(auto_now_add=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-started_at']
+
+    def __str__(self):
+        return '%s (%s)' % (self.name or 'Broadcast', self.tournament_id)
+
+    @property
+    def is_live(self):
+        return self.status == 'live'
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            import secrets
+            self.token = secrets.token_urlsafe(24)[:48]
+            if kwargs.get('update_fields') is not None:
+                kwargs['update_fields'] = list(
+                    set(kwargs['update_fields']) | {'token'})
+        super().save(*args, **kwargs)
+
+
+class BroadcastElement(models.Model):
+    """One graphic in one session, and whether it is on screen.
+
+    The operator's whole job is turning these on and off and correcting what
+    they say, so that is exactly what the row holds: a kind, a payload, and
+    whether it is showing.
+
+    **State lives here, not in the browser source.** An element page is a dumb
+    renderer that asks "what should I be showing" a few times a second. That is
+    what makes it survivable: OBS can be restarted mid-broadcast, the machine
+    can be swapped, a second operator can open the same URL on another laptop,
+    and the graphic comes back exactly as it was. A design that kept state in
+    the page would lose the broadcast with the tab.
+
+    One row per kind per session, because two scorebars is not a thing anybody
+    wants and letting it happen is how a stale one ends up on air.
+    """
+
+    # What V-ENT ships. Adding to this list is how the studio grows, and each
+    # one is a page under /studio/<token>/<kind>.
+    KINDS = [
+        ('scorebar', 'Score bar'),
+        ('standings', 'Standings table'),
+        ('lower_third', 'Lower third'),
+        ('player_card', 'Player card'),
+        ('bracket', 'Bracket'),
+        ('ticker', 'Ticker'),
+        ('intro', 'Intro'),
+        ('outro', 'Outro'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    session = models.ForeignKey(
+        BroadcastSession, on_delete=models.CASCADE, related_name='elements')
+    kind = models.CharField(max_length=20, choices=KINDS)
+
+    # What the operator typed or picked: which fixture, which player, a caption.
+    # Free-form per kind, because a lower third and a standings table have
+    # nothing in common and a column per field would be a hundred empty columns.
+    payload = models.JSONField(default=dict, blank=True)
+
+    is_active = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('session', 'kind')
+        ordering = ['kind']
+
+    def __str__(self):
+        return '%s %s' % (self.kind, 'on' if self.is_active else 'off')

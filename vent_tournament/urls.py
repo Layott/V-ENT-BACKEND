@@ -17,6 +17,7 @@ from . import views_access
 from . import views_invitations
 from . import views_overlay_feed
 from . import views_overlays
+from . import views_studio
 from . import views_export
 from . import views_mvp
 from . import views_reminders
@@ -26,6 +27,15 @@ from . import views_stages
 from . import views_rules
 
 urlpatterns = [
+    # The production studio. Operator side is tournament-scoped and signed in;
+    # the browser-source side is token-scoped and public, mounted at the root.
+    path("<str:tournament_id>/studio/sessions/", views_studio.sessions,
+         name="studio_sessions"),
+    path("<str:tournament_id>/studio/sessions/<int:session_id>/",
+         views_studio.session_detail, name="studio_session_detail"),
+    path("<str:tournament_id>/studio/sessions/<int:session_id>/element/<str:kind>/",
+         views_studio.element, name="studio_element"),
+
     # The catalogue the wizard asks its questions from. Public: somebody
     # deciding whether to run a tournament here should see what is
     # supported before they have an account.
