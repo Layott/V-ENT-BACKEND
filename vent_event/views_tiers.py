@@ -19,6 +19,7 @@ every number on the page a lie.
 **A tier with tickets sold against it is retired, not deleted.** Deleting it
 would cascade to the tickets, which are what somebody holds at the door.
 """
+from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from django.shortcuts import get_object_or_404
@@ -261,16 +262,38 @@ def update_tier(request, event_id, tier_id):
             tier.max_tickets_per_email = limit
         updated.append('max_tickets_per_email')
 
-    for field in ('day', 'day_label'):
-        if field in request.data:
-            value = request.data.get(field) or ('' if field == 'day_label' else None)
-            setattr(tier, field, value)
-            updated.append(field)
+    # The date a type admits on. Parsed rather than assigned raw: a DateField
+    # given a string writes correctly, because Django coerces on the way to the
+    # database, but the instance in memory keeps the string - and the very next
+    # line serialises it and calls `.isoformat()` on a str.
+    #
+    # That is a 500 AFTER a successful write, which is the worst shape a bug can
+    # take: the change lands, the caller is told it failed, and they try again.
+    # It happened live, and the retries landed on a different type, so an event
+    # ended up with two ticket types pointed at the same day.
+    if 'day' in request.data:
+        raw = request.data.get('day')
+        if raw in (None, ''):
+            tier.day = None
+        else:
+            try:
+                tier.day = date.fromisoformat(str(raw)[:10])
+            except ValueError:
+                return _err('That is not a date.', 'INVALID_DATE', field='day')
+        updated.append('day')
+
+    if 'day_label' in request.data:
+        tier.day_label = str(request.data.get('day_label') or '')[:60]
+        updated.append('day_label')
 
     if not updated:
         return _err('Nothing to change.', 'NO_FIELDS_TO_UPDATE')
 
     tier.save(update_fields=updated)
+    # Read back before serialising. Every field is now the type the column says
+    # it is, whatever was assigned above, so a serializer that calls a date
+    # method on a date cannot be handed a string.
+    tier.refresh_from_db()
     return _ok({'tier': serialize_tier(tier),
                 'tiers': [serialize_tier(t) for t in event.ticket_tiers.all()]},
                'Ticket type updated.')

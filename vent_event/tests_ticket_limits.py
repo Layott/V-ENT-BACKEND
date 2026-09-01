@@ -323,3 +323,64 @@ class LimitsEndpointTests(TestCase):
             content_type='application/json')
         self.assertEqual(buy().status_code, 201)
         self.assertEqual(buy().status_code, 409)
+
+
+class TierDayUpdateTests(TestCase):
+    """Setting a ticket type's day must not 500 after it has already saved.
+
+    Found live on RIVALRY SERIES SEASON 2. `update_tier` assigned the date as a
+    string, Django coerced it on the way to the database, and the instance in
+    memory kept the string. The very next line serialised that instance and
+    called `.isoformat()` on a `str`.
+
+    So the write landed and the caller was told "Failed". They retried, the
+    retry landed on a different ticket type, and the event finished with two
+    types pointed at the same day. A 500 after a successful write is worse than
+    a 500 instead of one, because it invites the retry that does the damage.
+    """
+
+    def setUp(self):
+        self.organiser, self.auth = a_user('tdayA')
+        now = timezone.now()
+        self.event = Event.objects.create(
+            name='Two Day Con', creator=self.organiser, event_type='physical',
+            desc='x', entry_fee=0,
+            start_date=now + timedelta(days=5),
+            end_date=now + timedelta(days=6),
+            reg_start_date=now - timedelta(days=1),
+            reg_end_date=now + timedelta(days=4))
+        self.day_two = (now + timedelta(days=6)).date()
+        self.tier = TicketTier.objects.create(
+            event=self.event, name='General', price=Decimal('0'), quantity=50)
+
+    def patch(self, body):
+        return self.client.patch(
+            '/event/%s/tiers/%s/' % (self.event.event_id, self.tier.id),
+            data=body, content_type='application/json', **self.auth)
+
+    def test_setting_a_day_answers_200_and_saves(self):
+        res = self.patch({'day': self.day_two.isoformat(), 'day_label': 'Day 2'})
+        self.assertEqual(res.status_code, 200, res.content[:400])
+        self.tier.refresh_from_db()
+        self.assertEqual(self.tier.day, self.day_two)
+        self.assertEqual(self.tier.day_label, 'Day 2')
+
+    def test_the_response_carries_the_saved_day_as_a_date(self):
+        """The serialiser calls .isoformat(); it must be given a real date."""
+        res = self.patch({'day': self.day_two.isoformat(), 'day_label': 'Day 2'})
+        self.assertEqual(res.json()['data']['tier']['day'],
+                         self.day_two.isoformat())
+
+    def test_clearing_the_day_makes_it_a_full_pass_again(self):
+        self.patch({'day': self.day_two.isoformat(), 'day_label': 'Day 2'})
+        res = self.patch({'day': '', 'day_label': ''})
+        self.assertEqual(res.status_code, 200, res.content[:400])
+        self.tier.refresh_from_db()
+        self.assertIsNone(self.tier.day)
+
+    def test_a_date_that_is_not_a_date_is_refused_cleanly(self):
+        res = self.patch({'day': 'the fourth'})
+        self.assertEqual(res.status_code, 400, res.content[:300])
+        self.assertEqual(res.json()['code'], 'INVALID_DATE')
+        self.tier.refresh_from_db()
+        self.assertIsNone(self.tier.day)
