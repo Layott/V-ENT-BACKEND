@@ -1356,6 +1356,8 @@ class ShortLink(models.Model):
     walked by counting, which publishes every unlisted event anybody shortened.
     Same alphabet as the rest of the platform, minus the characters that are
     misread when a link is read aloud, which is exactly what these are for.
+    Length is not fixed here: `views_short_links.TOKEN_LENGTH` decides it, and
+    codes of different lengths coexist because a lookup is an exact match.
 
     **A short link is not a tracker.** It counts arrivals and nothing else. No
     address, no user agent, no row per visitor. The organiser's question is

@@ -18,7 +18,8 @@ from django.utils import timezone
 from vent_auth.models import Users, UserWallet
 
 from .models import Event, ShortLink, TicketTier
-from .views_short_links import TOKEN_LENGTH
+from . import views_short_links
+from .views_short_links import TOKEN_LENGTH, new_token
 
 
 def a_user(name):
@@ -73,6 +74,45 @@ class ShortLinkTests(TestCase):
             ShortLink.objects.all().delete()
             token = self.make().json()['data']['link']['token']
             self.assertFalse(set(token) & set('lo01'), token)
+
+    def test_five_characters_is_the_floor(self):
+        """CEO asked for shorter. Four is where it stops being safe.
+
+        Not arithmetic: at four the space is about a million, which anybody can
+        walk in an afternoon, and walking it lists every short link on the
+        platform - including the ones pointing at events an organiser left off
+        the public listing, which stay reachable by their link.
+        """
+        self.assertGreaterEqual(TOKEN_LENGTH, 5)
+        self.assertEqual(len(self.make().json()['data']['link']['token']),
+                         TOKEN_LENGTH)
+
+    def test_a_crowded_space_lengthens_rather_than_hanging(self):
+        """A generator looping forever on a full space is a request that hangs."""
+        from vent_auth.slugs import TOKEN_ALPHABET
+
+        original = views_short_links.TOKEN_LENGTH
+        views_short_links.TOKEN_LENGTH = 1
+        try:
+            # Every one-character code taken.
+            for ch in TOKEN_ALPHABET:
+                ShortLink.objects.create(event=self.event, token=ch,
+                                         target='/events/x')
+            token = new_token()
+        finally:
+            views_short_links.TOKEN_LENGTH = original
+
+        self.assertGreater(len(token), 1)
+        self.assertFalse(ShortLink.objects.filter(token=token).exists())
+
+    def test_codes_of_different_lengths_both_resolve(self):
+        """Shortening the new ones must not strand the ones already printed."""
+        old = ShortLink.objects.create(
+            event=self.event, token='abcdef', target='/events/x?tab=tickets')
+        new = self.make({'target': '/events/y?tab=tickets'}).json()['data']['link']
+        self.assertEqual(len(new['token']), TOKEN_LENGTH)
+        self.assertEqual(self.client.get('/s/%s/' % old.token).status_code, 200)
+        self.assertEqual(self.client.get('/s/%s/' % new['token']).status_code, 200)
 
     def test_asking_twice_returns_the_same_code(self):
         """A second press wants the code already printed, not a new one."""

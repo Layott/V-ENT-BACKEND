@@ -9,7 +9,7 @@ code, so what an organiser is asked to read out on a livestream or print on a
 flyer runs to seventy characters of which most are punctuation.
 
     https://v-ent.co/events/lagos-anime-con-2026?tab=tickets&ref=TEMI
-    https://v-ent.co/s/k7m2qp
+    https://v-ent.co/s/k7m2q
 
 ## The three things this file is careful about
 
@@ -21,10 +21,11 @@ our own origin at redirect time. `//evil.example` is refused precisely because
 a browser reads it as a host.
 
 **The token is opaque and short, not a counter.** Sequential codes can be walked
-by counting, which publishes every unlisted event anybody shortened. Six
+by counting, which publishes every unlisted event anybody shortened - including
+the ones left off the public listing, which stay reachable by their link. Five
 characters from the platform's own alphabet, which already excludes the
-characters that are misread when a link is read aloud - and being read aloud is
-what these are for.
+characters misread when a link is read aloud, and being read aloud is what these
+are for. See `TOKEN_LENGTH` for why five is the floor.
 
 **A short link is not a tracker.** It counts arrivals and nothing else. No
 address, no user agent, no row per visitor. The organiser's question is "did the
@@ -43,7 +44,26 @@ from vent_auth.slugs import TOKEN_ALPHABET
 
 from .models import ShortLink
 
-TOKEN_LENGTH = 6
+# Five characters from a 32 character alphabet: 33.5 million codes.
+#
+# CEO, 1 September: "is it possible to make the links even shorter?"
+#
+# Five is the floor, and the reason is enumeration rather than arithmetic. At
+# four the space is a million, which anybody can walk through in an afternoon,
+# and walking it lists every short link on the platform - including the ones
+# pointing at events the organiser deliberately left off the public listing.
+# Those events stay reachable by their link, so publishing the links publishes
+# the events.
+#
+# What is left to cut after this is the domain and the `/s/`, and both cost more
+# than the character they save: serving tokens at the root would mean a code
+# could shadow a real page, or a new page could break codes already printed.
+TOKEN_LENGTH = 5
+
+# If the short space ever gets crowded, tokens get longer rather than the
+# generator spinning. Old codes keep working whatever their length, because a
+# lookup is an exact string match and nothing anywhere assumes a size.
+MAX_TOKEN_LENGTH = 12
 
 # A path on this site: one leading slash, then anything that is not another
 # slash or a backslash. Both of those are how a relative-looking string turns
@@ -78,15 +98,23 @@ def _frontend_origin():
 def new_token():
     """A token nothing else is using.
 
-    Loops rather than trusting one draw. At six characters from a 32 character
-    alphabet a collision is vanishingly unlikely and completely silent, and a
-    silent collision hands two organisers the same address.
+    Draws rather than counts, and checks, because a silent collision hands two
+    organisers the same address and neither would ever find out.
+
+    After a few failures at one length it tries a longer one. A generator that
+    loops forever on a full space is a request that hangs, and the character
+    saved is not worth that.
     """
+    length = TOKEN_LENGTH
+    attempts = 0
     while True:
-        token = ''.join(secrets.choice(TOKEN_ALPHABET)
-                        for _ in range(TOKEN_LENGTH))
+        token = ''.join(secrets.choice(TOKEN_ALPHABET) for _ in range(length))
         if not ShortLink.objects.filter(token=token).exists():
             return token
+        attempts += 1
+        if attempts >= 8 and length < MAX_TOKEN_LENGTH:
+            length += 1
+            attempts = 0
 
 
 def _serialize(link):
