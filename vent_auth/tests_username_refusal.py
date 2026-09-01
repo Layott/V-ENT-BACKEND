@@ -71,6 +71,24 @@ class UsernameRefusalTests(TestCase):
         self.assertEqual(code, 'USERNAME_TAKEN_WAITLIST')
         self.assertIn('waitlist', message.lower())
 
+    def test_a_reserved_name_somebody_holds_says_waitlist_even_unrecorded(self):
+        """The reservation existing is the fact, not whether the claim was logged.
+
+        Found on production: `layott` is a reserved handle whose reserver holds
+        the account, and `claimed_at` was never written. Requiring the timestamp
+        made it fall back to plain "taken", which is the exact sentence the CEO
+        asked to stop showing. Bookkeeping that was not done is not evidence
+        that the thing did not happen.
+        """
+        a_user('shadowfax', email='ada@example.test')
+        self.assertIsNone(
+            WaitlistReservation.objects.get(username='shadowfax').claimed_at)
+
+        code, message, _ = username_refusal('shadowfax',
+                                            email='stranger@example.test')
+        self.assertEqual(code, 'USERNAME_TAKEN_WAITLIST')
+        self.assertIn('waitlist', message.lower())
+
     def test_an_ordinary_account_gets_the_plain_message(self):
         a_user('temi')
         code, _message, _data = username_refusal('temi',

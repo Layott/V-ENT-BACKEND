@@ -282,13 +282,22 @@ def username_refusal(raw, *, email=None, exclude_user=None):
     holder = holder.first()
 
     if holder is not None:
-        # Somebody has it. Whether that is a waitlist name that has since been
-        # claimed changes what the person typing it should do next.
-        if reservation is not None and reservation.is_claimed:
+        # Somebody has it. If the name was ever reserved on the waitlist, say
+        # so, whatever the reservation row's bookkeeping says.
+        #
+        # This checks the reservation EXISTS rather than that `claimed_at` was
+        # written. Found on production: `layott` is a reserved handle whose
+        # reserver holds the account, and the claim was never recorded, so the
+        # platform could not tell "the reserver has it" from "a stranger took
+        # it" and fell back to the plain message - the exact thing the CEO asked
+        # to stop saying. The reservation existing is the fact that matters; the
+        # claim timestamp is bookkeeping, and bookkeeping that was not done is
+        # not evidence that the thing did not happen.
+        if reservation is not None:
             return ('USERNAME_TAKEN_WAITLIST',
-                    'That name was one of the handles reserved before launch on '
-                    'the V-ENT waitlist, and the member who reserved it has '
-                    'claimed it. Please choose another.',
+                    'That name was one of the handles reserved before launch '
+                    'on the V-ENT waitlist, and it belongs to an account now. '
+                    'Please choose another.',
                     {'username': name})
         return ('USERNAME_ALREADY_TAKEN', 'Username already taken',
                 {'username': name})
