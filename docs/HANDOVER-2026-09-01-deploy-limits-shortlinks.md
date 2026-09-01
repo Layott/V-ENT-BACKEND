@@ -302,3 +302,63 @@ restart died on `EADDRINUSE`. Kill by port instead
    tickets tab (day picker, and the "No date set" flag).
 2. Cut a branch off `origin/main`, commit, PR, merge, deploy.
 3. Then the pricing work, planned in `V-ENT/tasks/todo.md`.
+
+---
+
+# Addendum 2: both features shipped
+
+Deployed in two rounds. `main`: backend `c7662003`, frontend `3894808`.
+
+## Verified on production
+
+- **The ticket card.** "General Admission Day 2" on RIVALRY SERIES SEASON 2 now
+  reads **"All days"** where it printed nothing. Day 1 still reads
+  "Sep 4, 2026 · Day 1". This was the CEO's screenshot, and it is fixed.
+- **The console** shows the same on the tier row, and the limits panel renders
+  with all three scopes.
+- **`/tiers/` serves the event's real days**: Sep 4 and Sep 5, numbered.
+- **The username message**, against real production data:
+
+```
+layott     -> USERNAME_TAKEN_WAITLIST  "one of the handles reserved before launch"
+demo_temi  -> USERNAME_ALREADY_TAKEN   "Username already taken"
+```
+
+Both the availability probe and signup give the same sentence, which was the
+point.
+
+## A fault the production walk found, fixed and shipped
+
+`layott` is a reserved handle whose reserver holds the account, and the
+reservation row's `claimed_at` was **never written**. The helper required that
+timestamp to call it a waitlist name, so it fell through to plain "Username
+already taken" - the exact sentence the CEO asked to stop showing, on the exact
+case they asked about.
+
+The check is now that a reservation **exists**. The reservation is the fact; the
+claim timestamp is bookkeeping, and bookkeeping that was not done is not
+evidence the thing did not happen. The wording dropped the claim with it.
+
+**Worth knowing:** the reservation stores `layott` and the account is `Layott`.
+Everything compares with `__iexact`, so this works - but any script that builds
+a set of usernames and tests membership will get this wrong. One did, while
+writing this.
+
+## NOT verified, and why
+
+- **The "No date set" chip does not render.** The condition is
+  `!row.day && eventDays.length > 1 && /(day|jour|dia)\s*\d/i.test(row.name)`.
+  All three are demonstrably true for that row - the sibling span rendering
+  "All days" proves the first two, and the regex tests true in the page against
+  the exact name - and the compiled predicate in the served chunk is correct.
+  The chip is simply absent from the DOM. **Cause unresolved.** It is cosmetic:
+  the buyer-facing fix and the day picker do not depend on it.
+- **The day picker in the tier edit row was never opened**, and neither feature
+  was walked at 390px. The browser tooling hit its five-hour rate limit
+  mid-walk. Everything above was verified over plain HTTP and SSH instead.
+
+## Next
+
+1. Finish the walk: the day picker, the chip, and both at 390px.
+2. The pricing work in `V-ENT/tasks/todo.md`. Blocked on the CEO signing off
+   what is IN each tier - no document defines it.
