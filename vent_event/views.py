@@ -678,6 +678,18 @@ def edit_event(request, event_id):
                               status.HTTP_400_BAD_REQUEST)
         updated.append('capacity')
 
+    # What the capacity counts. Refused rather than defaulted if it is not one
+    # of the two, because quietly substituting a counting rule the organiser
+    # did not choose is how a venue gets oversold.
+    if 'capacity_mode' in data:
+        mode = str(data.get('capacity_mode') or '').strip()
+        allowed = [c[0] for c in Event._meta.get_field('capacity_mode').choices]
+        if mode not in allowed:
+            return _error('That is not a way of counting capacity.',
+                          'INVALID_CAPACITY_MODE', status.HTTP_400_BAD_REQUEST)
+        event.capacity_mode = mode
+        updated.append('capacity_mode')
+
     value = data.get('entry_fee')
     if value not in (None, ''):
         event.entry_fee = value

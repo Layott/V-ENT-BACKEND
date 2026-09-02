@@ -88,18 +88,31 @@ def event_room(event, day=None):
     ceiling" as "some ceiling I have not reached yet" and then compare against
     it.
 
-    **Capacity is per day, not per event.** A venue that holds 400 holds 400 on
-    Saturday and 400 again on Sunday; it does not hold 200 each. Counting every
-    ticket for a two-day event against a single 400 was what made RIVALRY
-    SERIES SEASON 2 report itself sold out with 186 sold on day one and 114 on
-    day two: 300 tickets across two days, against a ceiling meant for one room
-    on one afternoon.
+    **What the capacity counts is `event.capacity_mode`, and it is the
+    organiser's to set.** Under `per_day` a venue that holds 400 holds 400 on
+    Saturday and 400 again on Sunday; it does not hold 200 each. Counting
+    every ticket for a two-day event against a single 400 was what made
+    RIVALRY SERIES SEASON 2 report itself sold out with 186 sold on day one
+    and 114 on day two. Under `total` the same 400 bounds the whole event,
+    which is right for a residential weekend where nobody goes home.
 
     A ticket with no day is a full pass and counts against every day, which is
     the honest reading: that person is in the room on all of them.
     """
     if not event.capacity:
         return None
+
+    # PER_DAY means the room empties overnight: a 5000-seat venue running two
+    # days sells 5000 for Saturday and 5000 more for Sunday, because those are
+    # different people in the same chairs. TOTAL means the same people stay,
+    # so 5000 is the ceiling across the whole engagement.
+    #
+    # This is the organiser's choice and never inferred. Guessing wrongly is
+    # expensive both ways: guess TOTAL and half the tickets never go on sale,
+    # guess PER_DAY and the room is oversold.
+    if getattr(event, 'capacity_mode', 'per_day') != 'per_day':
+        day = None
+
     used = sold_on_event(event, day) + held_on_event(event)
     return max(int(event.capacity) - used, 0)
 

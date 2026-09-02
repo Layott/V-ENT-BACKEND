@@ -46,6 +46,29 @@ class Event(models.Model):
     location = models.CharField(max_length=255, null=True, blank=True)  # Location for physical events
     event_link = models.CharField(max_length=255, null=True, blank=True)  # Link for virtual events
     capacity = models.PositiveIntegerField(null=True, blank=True)  # Max attendees
+
+    # What that capacity counts, which is the organiser's to decide and not
+    # ours to assume.
+    #
+    # A venue holding 5000 over two days usually means 5000 people on Saturday
+    # who go home, and 5000 more on Sunday: 10000 tickets sold against one
+    # 5000-seat room. That is PER_DAY, and it is the common case for anything
+    # with a daily programme.
+    #
+    # But a residential weekend, a camp, or anything where the same people stay
+    # throughout is bounded by 5000 across the whole engagement however many
+    # days it runs. That is TOTAL.
+    #
+    # Guessing wrongly is expensive in both directions: guess TOTAL and half
+    # the tickets never go on sale, guess PER_DAY and the room is oversold.
+    CAPACITY_PER_DAY = 'per_day'
+    CAPACITY_TOTAL = 'total'
+    CAPACITY_MODES = (
+        (CAPACITY_PER_DAY, 'Each day starts afresh'),
+        (CAPACITY_TOTAL, 'Counted across the whole event'),
+    )
+    capacity_mode = models.CharField(
+        max_length=10, choices=CAPACITY_MODES, default=CAPACITY_PER_DAY)
     logo = models.ImageField(upload_to='event_logos/', null=True, blank=True)  # Event logo upload path
     banner = models.ImageField(upload_to='event_banners/', null=True, blank=True)  # Event banner upload path
     banner_url = models.URLField(max_length=500, null=True, blank=True)  # External banner URL (used when no file upload)

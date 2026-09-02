@@ -250,7 +250,7 @@ class EverythingSetAtCreationCanBeChangedTests(TestCase):
             # when it happens, and when people may sign up
             'start_date', 'end_date', 'reg_start_date', 'reg_end_date',
             # the room, the money, the game
-            'capacity', 'entry_fee', 'currency', 'game',
+            'capacity', 'capacity_mode', 'entry_fee', 'currency', 'game',
             'max_tickets_per_email',
             # the pin, and self check-in
             'latitude', 'longitude',
