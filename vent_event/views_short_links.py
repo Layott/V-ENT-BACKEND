@@ -245,5 +245,124 @@ def resolve_short_link(request, token):
     from django.db.models import F
     ShortLink.objects.filter(pk=link.pk).update(hits=F('hits') + 1)
 
-    return _ok({'target': link.target, 'event': link.event.slug or link.event.pk},
-               'Short link')
+    # `event` is kept for the callers that already read it, and is null on a
+    # tournament link rather than an error: reading .slug off whichever owner
+    # happened to be set is how this broke the moment a second kind existed.
+    owner = link.owner
+    return _ok({
+        'target': link.target,
+        'kind': 'event' if link.event_id else 'tournament',
+        'event': (link.event.slug or link.event.pk) if link.event_id else None,
+        'tournament': ((link.tournament.slug or link.tournament.pk)
+                       if link.tournament_id else None),
+        'owner': (getattr(owner, 'slug', None) or getattr(owner, 'pk', None)),
+    }, 'Short link')
+
+
+# ---------------------------------------------------------------------------
+# The same mechanism, for a tournament
+# ---------------------------------------------------------------------------
+
+def _tournament_and_permission(request, tournament_id):
+    """The tournament and the caller, when the caller may shorten its links.
+
+    Whoever may EDIT the tournament may shorten it. Anything looser hands
+    strangers the ability to mint v-ent.co addresses; anything stricter means
+    an organiser cannot shorten their own.
+    """
+    from vent_tournament.models import Tournament
+    from vent_auth.slugs import resolve_or_redirect
+
+    user, auth_error = actor_from_request(request)
+    if auth_error is not None:
+        return None, None, auth_error
+
+    tournament, moved_to = resolve_or_redirect(
+        tournament_id, entity_type='tournament', id_field='tournament_id',
+        model=Tournament, queryset=Tournament.objects.all())
+    if moved_to:
+        return None, None, Response({
+            'status': 'moved', 'code': 'SLUG_CHANGED',
+            'message': 'This tournament has been renamed.',
+            'data': {'slug': moved_to, 'url': '/tournaments/%s' % moved_to},
+        }, status=status.HTTP_200_OK)
+    if tournament is None:
+        return None, None, _err('No such tournament.', 'NOT_FOUND',
+                                http_status=status.HTTP_404_NOT_FOUND)
+
+    if tournament.tournament_creator_id != user.user_id:
+        if not may_override(user, 'manage_tournaments'):
+            return None, None, _err(
+                'Only the organiser can shorten this tournament.',
+                'ONLY_TOURNAMENT_ORGANIZER_CAN',
+                http_status=status.HTTP_403_FORBIDDEN)
+
+    return tournament, user, None
+
+
+@api_view(['GET', 'POST'])
+def tournament_short_links(request, tournament_id):
+    """GET/POST /tournament/<id>/short-links/
+
+    Deliberately the same shape, the same token alphabet and the same
+    "asking twice returns the code you already printed" rule as the event
+    version. A second implementation would drift, and the two are the same
+    idea about two different records.
+    """
+    tournament, user, err = _tournament_and_permission(request, tournament_id)
+    if err:
+        return err
+
+    if request.method == 'GET':
+        return _ok({'links': [_serialize(l) for l in tournament.short_links.all()],
+                    'origin': _frontend_origin()}, 'Short links')
+
+    target = str(request.data.get('target') or '').strip()
+    if not target:
+        # What the share card asks for: shorten this tournament's own page.
+        target = '/tournaments/%s' % (tournament.slug or tournament.pk)
+
+    if not SAFE_TARGET.match(target):
+        return _err('A short link can only point at a page on this site.',
+                    'INVALID_TARGET', field='target')
+    if len(target) > 500:
+        return _err('That address is too long to shorten.', 'INVALID_TARGET',
+                    field='target')
+
+    label = str(request.data.get('label') or '').strip()[:80]
+
+    existing = tournament.short_links.filter(target=target, is_active=True).first()
+    if existing is not None:
+        if label and label != existing.label:
+            existing.label = label
+            existing.save(update_fields=['label'])
+        return _ok({'link': _serialize(existing)}, 'Short link ready.')
+
+    link = ShortLink.objects.create(
+        token=new_token(), tournament=tournament, target=target, label=label,
+        created_by=user,
+    )
+    return _ok({'link': _serialize(link)}, 'Short link created.',
+               status.HTTP_201_CREATED)
+
+
+@api_view(['DELETE'])
+def delete_tournament_short_link(request, tournament_id, link_id):
+    """DELETE /tournament/<id>/short-links/<id>/
+
+    Switched off rather than deleted, for the same reason as the event one:
+    the address is printed on things that already exist, and a code that comes
+    back to life pointing somewhere else is worse than one that stops.
+    """
+    tournament, _user, err = _tournament_and_permission(request, tournament_id)
+    if err:
+        return err
+
+    link = tournament.short_links.filter(pk=link_id).first()
+    if link is None:
+        return _err('No such short link on this tournament.', 'NOT_FOUND',
+                    http_status=status.HTTP_404_NOT_FOUND)
+
+    link.is_active = False
+    link.save(update_fields=['is_active'])
+    return _ok({'retired': True}, 'Short link retired.')

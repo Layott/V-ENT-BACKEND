@@ -1393,8 +1393,19 @@ class ShortLink(models.Model):
     # Which event this belongs to, so an organiser can find and retire their own
     # links, and so deleting an event does not leave an address pointing at a
     # page that is gone.
+    # Exactly one of the two is set. It was event-only, which is why a
+    # tournament's Share dialog had no shorten option at all: there was
+    # nowhere to hang the link. A tournament is long in the same way and worth
+    # shortening for the same reasons - read aloud on a stream, printed on a
+    # flyer - so it gets the same mechanism rather than a second one that can
+    # drift from it.
     event = models.ForeignKey(Event, on_delete=models.CASCADE,
+                              null=True, blank=True,
                               related_name='short_links')
+    tournament = models.ForeignKey('vent_tournament.Tournament',
+                                   on_delete=models.CASCADE,
+                                   null=True, blank=True,
+                                   related_name='short_links')
     # A path on this site, always beginning with '/'.
     target = models.CharField(max_length=500)
     # What the organiser calls it: "flyer", "Temi's story", "radio read".
@@ -1410,6 +1421,22 @@ class ShortLink(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        constraints = [
+            # Exactly one owner. A link belonging to both, or to neither, has
+            # no answer to "who may retire this" and nothing to delete with.
+            models.CheckConstraint(
+                check=(
+                    models.Q(event__isnull=False, tournament__isnull=True)
+                    | models.Q(event__isnull=True, tournament__isnull=False)
+                ),
+                name='shortlink_has_exactly_one_owner',
+            ),
+        ]
+
+    @property
+    def owner(self):
+        """The thing this link points at, whichever kind it is."""
+        return self.event or self.tournament
 
     def __str__(self):
         return '%s -> %s' % (self.token, self.target)

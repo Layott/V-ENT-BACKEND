@@ -12,6 +12,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 from . import views_formats
+from vent_event import views_short_links as short_link_views
 from . import views_running_order
 from . import views_access
 from . import views_invitations
@@ -47,6 +48,14 @@ urlpatterns = [
     path('<int:tournament_id>/stages/', views_stages.tournament_stages, name='tournament_stages'),
     path('<int:tournament_id>/stages/set/', views_stages.set_stages, name='set_stages'),
     path('<int:tournament_id>/stages/<int:stage_id>/advance/', views_stages.advance_stage, name='advance_stage'),
+    # Short addresses for a tournament, the same mechanism the events side
+    # uses. By slug as well as id, because this is reached from the share
+    # dialog on a page addressed by name.
+    path('<str:tournament_id>/short-links/', short_link_views.tournament_short_links,
+         name='tournament_short_links'),
+    path('<str:tournament_id>/short-links/<int:link_id>/',
+         short_link_views.delete_tournament_short_link,
+         name='delete_tournament_short_link'),
     path('<int:tournament_id>/requirements/', views_requirements.entry_requirements, name='entry_requirements'),
     path('<int:tournament_id>/requirements/set/', views_requirements.set_entry_requirements, name='set_entry_requirements'),
     path('<int:tournament_id>/requirements/mine/', views_requirements.my_entry_status, name='my_entry_status'),
