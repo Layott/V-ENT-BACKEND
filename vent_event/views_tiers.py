@@ -134,10 +134,36 @@ def create_tier(request, event_id):
         # the console could show a type reading "Day 2" with no date and offer
         # no way to give it one, which is exactly what it did.
         from .views_limits import event_days
+        from . import availability
+
+        tiers = list(event.ticket_tiers.all())
+
+        # The venue ceiling, which is a SECOND limit on top of each type's own
+        # quantity and silently wins when it is lower.
+        #
+        # An organiser set two types of 5000, saw "186 of 5000 sold" on this
+        # screen, and could not understand why the public page said the event
+        # was sold out. The event's capacity was 400, set once in the creation
+        # wizard, and appeared nowhere on this console at all. Two ceilings and
+        # only one of them visible is not a number an organiser can reason
+        # about, so both are sent and the screen says when they disagree.
+        offered = sum(int(t.quantity or 0) for t in tiers)
+        capacity = int(event.capacity) if event.capacity else None
         return _ok({
-            'tiers': [serialize_tier(t) for t in event.ticket_tiers.all()],
+            'tiers': [serialize_tier(t) for t in tiers],
             'days': [{'day': row['day'].isoformat(), 'n': row['n']}
                      for row in event_days(event)],
+            'capacity': {
+                'capacity': capacity,
+                'sold': availability.sold_on_event(event),
+                'held': availability.held_on_event(event),
+                'room': availability.event_room(event),
+                'offered_by_tiers': offered,
+                # True when the types promise more than the venue will take, so
+                # the console can say so rather than leaving the organiser to
+                # discover it from a buyer.
+                'over_capacity': capacity is not None and offered > capacity,
+            },
         }, 'Ticket types')
 
     name = str(request.data.get('name') or '').strip()

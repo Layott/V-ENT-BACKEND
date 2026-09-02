@@ -17,6 +17,7 @@ Everything here counts from the tickets themselves rather than from a stored
 the door and a stale counter is exactly what must not be able to oversell a
 room.
 """
+from django.db import models
 from django.db.models import Sum
 
 
@@ -57,13 +58,21 @@ def held_on_event(event):
     return sum(hold.outstanding for hold in rows) + held_by_referrals(event)
 
 
-def sold_on_event(event):
+def sold_on_event(event, day=None):
     """Tickets that exist and have not been cancelled or refunded.
 
     Counted rather than summed from `sold`, deliberately: `TicketTier.sold` is a
     counter and a counter can drift. The tickets cannot.
+
+    `day` narrows it to the tickets admitting on that date. See `event_room`
+    for why that matters.
     """
-    return event.tickets.exclude(status__in=('cancelled', 'refunded')).count()
+    rows = event.tickets.exclude(status__in=('cancelled', 'refunded'))
+    if day is not None:
+        # A ticket with no day of its own is a full pass: it admits on every
+        # day, so it occupies a place on this one too.
+        rows = rows.filter(models.Q(tier__day=day) | models.Q(tier__day__isnull=True))
+    return rows.count()
 
 
 def tier_available(tier):
@@ -72,21 +81,36 @@ def tier_available(tier):
     return max(on_sale - held_on_tier(tier), 0)
 
 
-def event_room(event):
+def event_room(event, day=None):
     """How many more people the venue will take, or None when uncapped.
 
     None rather than a big number, so a caller cannot accidentally treat "no
     ceiling" as "some ceiling I have not reached yet" and then compare against
     it.
+
+    **Capacity is per day, not per event.** A venue that holds 400 holds 400 on
+    Saturday and 400 again on Sunday; it does not hold 200 each. Counting every
+    ticket for a two-day event against a single 400 was what made RIVALRY
+    SERIES SEASON 2 report itself sold out with 186 sold on day one and 114 on
+    day two: 300 tickets across two days, against a ceiling meant for one room
+    on one afternoon.
+
+    A ticket with no day is a full pass and counts against every day, which is
+    the honest reading: that person is in the room on all of them.
     """
     if not event.capacity:
         return None
-    return max(int(event.capacity) - sold_on_event(event) - held_on_event(event), 0)
+    used = sold_on_event(event, day) + held_on_event(event)
+    return max(int(event.capacity) - used, 0)
 
 
 def available(tier):
-    """The real answer: the lower of the type's own room and the venue's."""
-    room = event_room(tier.event)
+    """The real answer: the lower of the type's own room and the venue's.
+
+    The venue's room is measured on the day this type admits, because capacity
+    is a property of the room on a day rather than of the whole engagement.
+    """
+    room = event_room(tier.event, getattr(tier, 'day', None))
     by_tier = tier_available(tier)
     if room is None:
         return by_tier

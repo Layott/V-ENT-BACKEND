@@ -237,7 +237,14 @@ def _room_or_error(event, tier, quantity):
         return _err('Only %s %s ticket(s) left.' % (remaining, tier.name),
                     'INSUFFICIENT_STOCK', status.HTTP_409_CONFLICT)
 
-    room = availability.event_room(event)
+    # On the day this type admits, not across the whole engagement. A venue
+    # that holds 400 holds 400 on each day of a two-day event. Guest checkout
+    # and the signed-in one have to ask the identical question or a buyer is
+    # refused by one and served by the other.
+    room = availability.event_room(event, getattr(tier, 'day', None))
+    if room is not None and room <= 0:
+        return _err('This event is sold out.', 'EVENT_FULL',
+                    status.HTTP_409_CONFLICT)
     if room is not None and quantity > room:
         return _err('Only %s ticket(s) left for this event.' % room,
                     'EVENT_FULL', status.HTTP_409_CONFLICT)
