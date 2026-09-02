@@ -203,6 +203,15 @@ def create_event(request):
     except (ValueError, TypeError):
         entry_fee = 0
 
+    # What that capacity counts is the organiser's decision, not ours. The CEO:
+    # "IF I SET 5000, AND I AM SETTING TICKETS FRO DIFFERENT DAYS, I SHOULD BE
+    # ABLE TO PICK IF THAT DAY MEANS STARTING AFRESH OR IT KEEPS CPUNTING". It
+    # was settable in the console and not at creation, so every new event
+    # started on the default and the organiser had to go and find it.
+    capacity_mode = (data.get('capacity_mode') or '').strip() or 'per_day'
+    if capacity_mode not in ('per_day', 'total'):
+        capacity_mode = 'per_day'
+
     capacity = data.get('capacity')
     try:
         capacity = int(capacity) if capacity not in ('', None) else None
@@ -255,6 +264,7 @@ def create_event(request):
                 location=location,
                 event_link=virtual_link,
                 capacity=capacity,
+                capacity_mode=capacity_mode,
                 banner=request.FILES.get('banner'),
                 banner_url=banner_url,
                 logo=request.FILES.get('logo'),
