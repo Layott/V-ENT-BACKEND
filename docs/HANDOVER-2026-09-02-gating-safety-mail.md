@@ -184,3 +184,66 @@ landed since. Expect to need `rm -rf .next`, `pnpm store prune` and
 `pnpm install --force` **from PowerShell**: a production build damages the pnpm
 store *and* the build output, and the two present as different missing modules
 (`entries.js` for the store, `pages/_app` for `.next`).
+
+---
+
+# Later the same day: shipped to production
+
+Both PRs merged and deployed. Backend #108, frontend #117. Migration 0069
+applied, both services active, maintenance flag down.
+
+**Ledger: 31 of 43.**
+
+## The live bug, and why it was not what it looked like
+
+An event reported itself sold out while showing 4814 tickets remaining. Three
+faults stacked, none of them "the tickets ran out". The full account is in the
+`project_capacity_per_day` memory; the short version:
+
+1. The listing computed `quantity - sold` while the checkout computed venue
+   room. Two functions, two questions, and the buyer was shown the one that did
+   not decide whether they could pay.
+2. **Capacity was counted across days.** 400 is what the room holds on a day,
+   not across a weekend. 186 on day one plus 114 on day two plus 100 held hit
+   a ceiling meant for one afternoon.
+3. Capacity appeared nowhere in the console, so the organiser set 5000 per type
+   and could not see the 400 that was overruling it.
+
+Verified live: 114 remaining on day one, 186 on day two, both Buy buttons
+active.
+
+## Also shipped
+
+- **Tournament edit screen**, which did not exist. Twenty fields, artwork, and
+  an eight-card hub. The game could not be changed at all before.
+- **Clubs**: create, rename, delete. Gate C3 had been marked met by a suite
+  that deletes topics and messages and never a club; it is genuinely closed now.
+- **Esports picture** entry requirement, needing a released image.
+- `actor_from_request` answers 401 rather than 400 to anonymous callers, across
+  52 endpoints.
+
+## Two checkers were lying
+
+- `check-keys` validated a **prefix allowlist**, so it skipped `tEdit`, `club`,
+  `eventEdit`, `org`, `safety`, `req` and `needsAccount` entirely: 4030 of 5243
+  keys checked while reporting 0 missing. Now any dotted identifier, comments
+  stripped.
+- The build caught a duplicate `draft` const that five checkers missed, because
+  none of them parses JavaScript. **A build pass is not optional before
+  claiming done.**
+
+## Still open, 12 gates
+
+The studio flexibility set (D1-D6): organiser HTML upload for events, the
+copyable prompt, binding an element to a chosen tournament or event, templates.
+Gate 4, rules into the creation wizard. And every Chrome and mobile walk:
+A6, B5, C5, D6, 11, 12, 13.
+
+**Mobile remains unverified.** `resize_window` silently does nothing when the
+window is maximised and `javascript_tool` is denied on localhost in this Chrome
+profile, so the iframe trick is out too. The CEO's standing rule wants the
+`evotv_test` emulator for these regardless.
+
+**Credentials still to rotate**, now that the relay is proven healthy: the
+`info@v-ent.co` app password, the old Gmail one, both Brevo keys, the ipinfo
+token.
