@@ -261,6 +261,11 @@ ALIASES = {
     'gsl_groups': 'gsl',
     'aggregate': 'aggregate_2v2',
     'aggregate_2_v_2': 'aggregate_2v2',
+    # Spellings the old map in views.py accepted, kept so a row or a
+    # partner filter written against them still resolves.
+    'aggregate_league': 'aggregate_2v2',
+    'free_for_all': 'battle_royale',
+    'ffa': 'battle_royale',
 }
 
 

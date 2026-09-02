@@ -32,49 +32,31 @@ from django.db.models import Prefetch
 
 
 
-# Bracket format has been written three different ways ("Single Elimination",
-# "single-elimination", "single_elimination"), which broke every format filter.
-# One canonical slug from here on.
-BRACKET_FORMATS = {
-    'single_elimination': 'single_elimination',
-    'double_elimination': 'double_elimination',
-    'round_robin': 'round_robin',
-    'swiss': 'swiss',
-    # The wizard has offered Battle Royale and Swiss System since it was built,
-    # and neither slug was listed here - so normalize_bracket_type quietly
-    # returned the default and a battle royale was created, saved and displayed
-    # as a single elimination bracket.
-    'battle_royale': 'battle_royale',
-    'swiss_system': 'swiss',
-    'free_for_all': 'battle_royale',
-    # A league of team ties, each decided by the total goals across its
-    # per-player fixtures. The scheduling is round robin; what differs is how a
-    # tie is scored and that a table, not a bracket, decides the winner.
-    'aggregate_league': 'aggregate_league',
-    'aggregate': 'aggregate_league',
-    'league': 'aggregate_league',
-}
-
-
+# One resolver for whatever spelling a format arrives in.
+#
+# This file used to keep its OWN alias map here, beside the one in
+# `formats.py`. The two drifted: the wizard grew `gsl`, `aggregate_2v2` and
+# `ladder`, `formats.ALIASES` learned them, this map did not, and anything it
+# did not know became `single_elimination`. So an aggregate league was created,
+# saved, scored and displayed as a knockout, its points and tiebreakers were
+# dropped on the way in, and the rules panel told the organiser "one loss and
+# you are out". Nothing raised. `tests_format_normaliser.py` pins every wizard
+# value through this function against the catalogue; there is no second map to
+# forget.
+from . import formats as _formats
 
 
 def normalize_bracket_type(value, default='single_elimination'):
-    slug = str(value or '').strip().lower().replace('-', '_').replace(' ', '_')
-    return BRACKET_FORMATS.get(slug, default)
-
-
-# What each format is called when a person reads it.
-BRACKET_LABELS = {
-    'single_elimination': 'Single Elimination',
-    'double_elimination': 'Double Elimination',
-    'round_robin': 'Round Robin',
-    'swiss': 'Swiss System',
-    'battle_royale': 'Battle Royale',
-}
+    """The catalogue key for `value`, or `default` when it names no format."""
+    definition = _formats.get(value)
+    return definition.key if definition else default
 
 
 def bracket_label(value):
-    return BRACKET_LABELS.get(normalize_bracket_type(value), 'Single Elimination')
+    """What the format is called when a person reads it."""
+    definition = _formats.get(value) or _formats.get('single_elimination')
+    return definition.label
+
 
 def _card_lookups(tournaments):
     """Bulk-compute the per-tournament numbers the listing cards need.
@@ -704,10 +686,14 @@ def search_tournament(request):
 
 
 def _wants_league(bracket_type):
-    """Whether this format is decided by a table rather than by a bracket."""
-    return str(bracket_type or '').strip().lower().replace('-', '_').replace(
-        ' ', '_') in ('round_robin', 'roundrobin', 'rr', 'league', 'ladder',
-                      'aggregate_2v2')
+    """Whether this format is decided by a table rather than by a bracket.
+
+    Read from the format's own definition rather than from a list kept here,
+    because a list kept here is the fault this function used to sit under: the
+    format was already lost to `single_elimination` by the time it was asked.
+    """
+    definition = _formats.get(bracket_type)
+    return bool(definition and definition.advancement == 'table')
 
 
 def _league_settings(data, team_size):
