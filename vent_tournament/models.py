@@ -486,6 +486,16 @@ class BracketMatch(models.Model):
         ('completed', 'Completed'),
         ('disputed', 'Disputed'),
         ('bye', 'Bye'),
+        # A match nobody turned up for, and one that will not be played.
+        #
+        # Every real league has both and a bracket with neither forces an
+        # organiser to invent a scoreline, which then counts as a genuine
+        # result in the goal columns for ever. The CADE spreadsheet models
+        # them explicitly, with the walkover carrying configurable points and
+        # notional goals, and a cancelled match counting for nothing anywhere.
+        ('walkover_p1', 'Walkover to the first participant'),
+        ('walkover_p2', 'Walkover to the second participant'),
+        ('cancelled', 'Cancelled'),
     ]
 
     # Which sub-bracket the match lives in. Single elim / round robin only use 'winners'.

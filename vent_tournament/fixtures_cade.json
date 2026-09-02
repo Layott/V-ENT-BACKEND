@@ -1,0 +1,1847 @@
+{
+ "settings": {
+  "Win Pts (Winner)": 3.0,
+  "Win Pts (Loser)": 0.0,
+  "Draw Pts (Each)": 1.0,
+  "Loss Pts (Loser) [optional]": 0.0,
+  "Walkover Pts (Winner)": 3.0,
+  "Walkover Pts (Loser)": 0.0,
+  "Walkover Winner Goals For": 3.0,
+  "Walkover Loser Goals For": 0.0
+ },
+ "matches": [
+  {
+   "home": "ANIFE",
+   "away": "MR OGA",
+   "hg": 7.0,
+   "ag": 7.0,
+   "status": "Played"
+  },
+  {
+   "home": "RHYMEZ",
+   "away": "SIMPLYY UZO",
+   "hg": 8.0,
+   "ag": 2.0,
+   "status": "Played"
+  },
+  {
+   "home": "GURU",
+   "away": "BAJI SNR",
+   "hg": 3.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "GAMEWITHJOSH",
+   "away": "BLAISE99",
+   "hg": 2.0,
+   "ag": 10.0,
+   "status": "Played"
+  },
+  {
+   "home": "TACTICAL",
+   "away": "KAYKAY",
+   "hg": 3.0,
+   "ag": 7.0,
+   "status": "Played"
+  },
+  {
+   "home": "SON OF GOD",
+   "away": "DADABOI",
+   "hg": 7.0,
+   "ag": 0.0,
+   "status": "Played"
+  },
+  {
+   "home": "KHALEEDOY",
+   "away": "WOLEVATION",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Away"
+  },
+  {
+   "home": "FLICK",
+   "away": "DRACARYS",
+   "hg": 5.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "KINGNONEX",
+   "away": "BRIGHT",
+   "hg": 5.0,
+   "ag": 1.0,
+   "status": "Played"
+  },
+  {
+   "home": "BALO K",
+   "away": "YEMOLEE",
+   "hg": 3.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "BRIGHT",
+   "away": "YEMOLEE",
+   "hg": 2.0,
+   "ag": 2.0,
+   "status": "Played"
+  },
+  {
+   "home": "RHYMEZ",
+   "away": "TACTICAL",
+   "hg": 4.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "BALO K",
+   "away": "MR OGA",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Home"
+  },
+  {
+   "home": "DADABOI",
+   "away": "KINGNONEX",
+   "hg": 0.0,
+   "ag": 10.0,
+   "status": "Played"
+  },
+  {
+   "home": "GURU",
+   "away": "ANIFE",
+   "hg": 6.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "WOLEVATION",
+   "away": "BLAISE99",
+   "hg": 6.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "FLICK",
+   "away": "SON OF GOD",
+   "hg": 0.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "GAMEWITHJOSH",
+   "away": "BALO K",
+   "hg": 7.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "YEMOLEE",
+   "away": "BAJI SNR",
+   "hg": 6.0,
+   "ag": 1.0,
+   "status": "Played"
+  },
+  {
+   "home": "BRIGHT",
+   "away": "DRACARYS",
+   "hg": 4.0,
+   "ag": 7.0,
+   "status": "Played"
+  },
+  {
+   "home": "TACTICAL",
+   "away": "WOLEVATION",
+   "hg": 3.0,
+   "ag": 7.0,
+   "status": "Played"
+  },
+  {
+   "home": "SIMPLYY UZO",
+   "away": "KINGNONEX",
+   "hg": 1.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "KAYKAY",
+   "away": "DRACARYS",
+   "hg": 5.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "KHALEEDOY",
+   "away": "GURU",
+   "hg": 2.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "BAJI SNR",
+   "away": "ANIFE",
+   "hg": 3.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "BRIGHT",
+   "away": "BLAISE99",
+   "hg": 5.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "KAYKAY",
+   "away": "GAMEWITHJOSH",
+   "hg": 7.0,
+   "ag": 7.0,
+   "status": "Played"
+  },
+  {
+   "home": "FLICK",
+   "away": "WOLEVATION",
+   "hg": 3.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "DADABOI",
+   "away": "SIMPLYY UZO",
+   "hg": 7.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "KINGNONEX",
+   "away": "KHALEEDOY",
+   "hg": 2.0,
+   "ag": 1.0,
+   "status": "Played"
+  },
+  {
+   "home": "DRACARYS",
+   "away": "YEMOLEE",
+   "hg": 3.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "SON OF GOD",
+   "away": "GURU",
+   "hg": 2.0,
+   "ag": 7.0,
+   "status": "Played"
+  },
+  {
+   "home": "TACTICAL",
+   "away": "BALO K",
+   "hg": 3.0,
+   "ag": 2.0,
+   "status": "Played"
+  },
+  {
+   "home": "GAMEWITHJOSH",
+   "away": "DADABOI",
+   "hg": 4.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "BLAISE99",
+   "away": "BAJI SNR",
+   "hg": 6.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "WOLEVATION",
+   "away": "DRACARYS",
+   "hg": 4.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "ANIFE",
+   "away": "BRIGHT",
+   "hg": 6.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "SIMPLYY UZO",
+   "away": "KAYKAY",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Away"
+  },
+  {
+   "home": "KHALEEDOY",
+   "away": "SON OF GOD",
+   "hg": 6.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "YEMOLEE",
+   "away": "FLICK",
+   "hg": 4.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "RHYMEZ",
+   "away": "GAMEWITHJOSH",
+   "hg": 3.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "SIMPLYY UZO",
+   "away": "MR OGA",
+   "hg": 3.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "YEMOLEE",
+   "away": "DADABOI",
+   "hg": 7.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "KAYKAY",
+   "away": "BRIGHT",
+   "hg": 6.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "GAMEWITHJOSH",
+   "away": "SON OF GOD",
+   "hg": 4.0,
+   "ag": 2.0,
+   "status": "Played"
+  },
+  {
+   "home": "RHYMEZ",
+   "away": "BRIGHT",
+   "hg": 5.0,
+   "ag": 2.0,
+   "status": "Played"
+  },
+  {
+   "home": "GURU",
+   "away": "DRACARYS",
+   "hg": 6.0,
+   "ag": 1.0,
+   "status": "Played"
+  },
+  {
+   "home": "BALO K",
+   "away": "SON OF GOD",
+   "hg": 3.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "BAJI SNR",
+   "away": "WOLEVATION",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Away"
+  },
+  {
+   "home": "BAJI SNR",
+   "away": "MR OGA",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Away"
+  },
+  {
+   "home": "TACTICAL",
+   "away": "KINGNONEX",
+   "hg": 4.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "KHALEEDOY",
+   "away": "FLICK",
+   "hg": 10.0,
+   "ag": 2.0,
+   "status": "Played"
+  },
+  {
+   "home": "MR OGA",
+   "away": "BLAISE99",
+   "hg": 6.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "TACTICAL",
+   "away": "KHALEEDOY",
+   "hg": 4.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "GURU",
+   "away": "YEMOLEE",
+   "hg": 3.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "ANIFE",
+   "away": "DADABOI",
+   "hg": 5.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "BAJI SNR",
+   "away": "DRACARYS",
+   "hg": 1.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "RHYMEZ",
+   "away": "BLAISE99",
+   "hg": 6.0,
+   "ag": 2.0,
+   "status": "Played"
+  },
+  {
+   "home": "SON OF GOD",
+   "away": "TACTICAL",
+   "hg": 3.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "MR OGA",
+   "away": "BRIGHT",
+   "hg": 6.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "ANIFE",
+   "away": "KAYKAY",
+   "hg": 7.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "RHYMEZ",
+   "away": "BAJI SNR",
+   "hg": 6.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "KAYKAY",
+   "away": "FLICK",
+   "hg": 6.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "DADABOI",
+   "away": "KHALEEDOY",
+   "hg": 3.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "WOLEVATION",
+   "away": "KINGNONEX",
+   "hg": 0.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "GURU",
+   "away": "BALO K",
+   "hg": 16.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "YEMOLEE",
+   "away": "SON OF GOD",
+   "hg": 6.0,
+   "ag": 7.0,
+   "status": "Played"
+  },
+  {
+   "home": "BRIGHT",
+   "away": "WOLEVATION",
+   "hg": 6.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "MR OGA",
+   "away": "YEMOLEE",
+   "hg": 6.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "BLAISE99",
+   "away": "FLICK",
+   "hg": 4.0,
+   "ag": 8.0,
+   "status": "Played"
+  },
+  {
+   "home": "GAMEWITHJOSH",
+   "away": "KHALEEDOY",
+   "hg": 5.0,
+   "ag": 7.0,
+   "status": "Played"
+  },
+  {
+   "home": "GURU",
+   "away": "SIMPLYY UZO",
+   "hg": 6.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "BRIGHT",
+   "away": "SON OF GOD",
+   "hg": 7.0,
+   "ag": 7.0,
+   "status": "Played"
+  },
+  {
+   "home": "ANIFE",
+   "away": "DRACARYS",
+   "hg": 5.0,
+   "ag": 7.0,
+   "status": "Played"
+  },
+  {
+   "home": "KINGNONEX",
+   "away": "RHYMEZ",
+   "hg": 2.0,
+   "ag": 2.0,
+   "status": "Played"
+  },
+  {
+   "home": "BRIGHT",
+   "away": "BALO K",
+   "hg": 4.0,
+   "ag": 1.0,
+   "status": "Played"
+  },
+  {
+   "home": "GAMEWITHJOSH",
+   "away": "BAJI SNR",
+   "hg": 4.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "DRACARYS",
+   "away": "BLAISE99",
+   "hg": 6.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "KINGNONEX",
+   "away": "GURU",
+   "hg": 5.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "BAJI SNR",
+   "away": "BALO K",
+   "hg": 2.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "WOLEVATION",
+   "away": "RHYMEZ",
+   "hg": 4.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "MR OGA",
+   "away": "TACTICAL",
+   "hg": 6.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "ANIFE",
+   "away": "FLICK",
+   "hg": 16.0,
+   "ag": 2.0,
+   "status": "Played"
+  },
+  {
+   "home": "KHALEEDOY",
+   "away": "SIMPLYY UZO",
+   "hg": 7.0,
+   "ag": 9.0,
+   "status": "Played"
+  },
+  {
+   "home": "KINGNONEX",
+   "away": "ANIFE",
+   "hg": 3.0,
+   "ag": 2.0,
+   "status": "Played"
+  },
+  {
+   "home": "BALO K",
+   "away": "SIMPLYY UZO",
+   "hg": 9.0,
+   "ag": 8.0,
+   "status": "Played"
+  },
+  {
+   "home": "GURU",
+   "away": "BRIGHT",
+   "hg": 6.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "DRACARYS",
+   "away": "DADABOI",
+   "hg": 3.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "SON OF GOD",
+   "away": "KAYKAY",
+   "hg": 5.0,
+   "ag": 13.0,
+   "status": "Played"
+  },
+  {
+   "home": "FLICK",
+   "away": "MR OGA",
+   "hg": 1.0,
+   "ag": 8.0,
+   "status": "Played"
+  },
+  {
+   "home": "TACTICAL",
+   "away": "ANIFE",
+   "hg": 5.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "BAJI SNR",
+   "away": "KHALEEDOY",
+   "hg": 5.0,
+   "ag": 10.0,
+   "status": "Played"
+  },
+  {
+   "home": "BLAISE99",
+   "away": "SON OF GOD",
+   "hg": 0.0,
+   "ag": 3.0,
+   "status": "Walkover_Away"
+  },
+  {
+   "home": "TACTICAL",
+   "away": "GAMEWITHJOSH",
+   "hg": 8.0,
+   "ag": 8.0,
+   "status": "Played"
+  },
+  {
+   "home": "KINGNONEX",
+   "away": "BAJI SNR",
+   "hg": 4.0,
+   "ag": 1.0,
+   "status": "Played"
+  },
+  {
+   "home": "BALO K",
+   "away": "RHYMEZ",
+   "hg": 6.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "MR OGA",
+   "away": "GURU",
+   "hg": 5.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "BLAISE99",
+   "away": "TACTICAL",
+   "hg": 5.0,
+   "ag": 8.0,
+   "status": "Played"
+  },
+  {
+   "home": "RHYMEZ",
+   "away": "KHALEEDOY",
+   "hg": 3.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "GAMEWITHJOSH",
+   "away": "WOLEVATION",
+   "hg": 6.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "KAYKAY",
+   "away": "KINGNONEX",
+   "hg": 4.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "SON OF GOD",
+   "away": "ANIFE",
+   "hg": 4.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "RHYMEZ",
+   "away": "GURU",
+   "hg": 3.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "SIMPLYY UZO",
+   "away": "YEMOLEE",
+   "hg": 5.0,
+   "ag": 7.0,
+   "status": "Played"
+  },
+  {
+   "home": "DADABOI",
+   "away": "FLICK",
+   "hg": 9.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "ANIFE",
+   "away": "BALO K",
+   "hg": 12.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "DRACARYS",
+   "away": "GAMEWITHJOSH",
+   "hg": 5.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "MR OGA",
+   "away": "KHALEEDOY",
+   "hg": 6.0,
+   "ag": 2.0,
+   "status": "Played"
+  },
+  {
+   "home": "GURU",
+   "away": "TACTICAL",
+   "hg": 3.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "BLAISE99",
+   "away": "DADABOI",
+   "hg": 0.0,
+   "ag": 3.0,
+   "status": "Walkover_Away"
+  },
+  {
+   "home": "MR OGA",
+   "away": "KAYKAY",
+   "hg": 5.0,
+   "ag": 8.0,
+   "status": "Played"
+  },
+  {
+   "home": "BAJI SNR",
+   "away": "SIMPLYY UZO",
+   "hg": 3.0,
+   "ag": 0.0,
+   "status": "Walkover_Home"
+  },
+  {
+   "home": "YEMOLEE",
+   "away": "KHALEEDOY",
+   "hg": 5.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "KINGNONEX",
+   "away": "BALO K",
+   "hg": 5.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "RHYMEZ",
+   "away": "ANIFE",
+   "hg": 5.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "BRIGHT",
+   "away": "GAMEWITHJOSH",
+   "hg": 6.0,
+   "ag": 9.0,
+   "status": "Played"
+  },
+  {
+   "home": "WOLEVATION",
+   "away": "SON OF GOD",
+   "hg": 3.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "SIMPLYY UZO",
+   "away": "TACTICAL",
+   "hg": 1.0,
+   "ag": 12.0,
+   "status": "Played"
+  },
+  {
+   "home": "ANIFE",
+   "away": "GAMEWITHJOSH",
+   "hg": 7.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "BLAISE99",
+   "away": "KAYKAY",
+   "hg": 0.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "WOLEVATION",
+   "away": "YEMOLEE",
+   "hg": 5.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "RHYMEZ",
+   "away": "DADABOI",
+   "hg": 5.0,
+   "ag": 2.0,
+   "status": "Played"
+  },
+  {
+   "home": "MR OGA",
+   "away": "SON OF GOD",
+   "hg": 10.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "BRIGHT",
+   "away": "BAJI SNR",
+   "hg": 1.0,
+   "ag": 8.0,
+   "status": "Played"
+  },
+  {
+   "home": "BRIGHT",
+   "away": "DADABOI",
+   "hg": 0.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "TACTICAL",
+   "away": "BAJI SNR",
+   "hg": 3.0,
+   "ag": 0.0,
+   "status": "Played"
+  },
+  {
+   "home": "GAMEWITHJOSH",
+   "away": "MR OGA",
+   "hg": 6.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "BALO K",
+   "away": "WOLEVATION",
+   "hg": 2.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "YEMOLEE",
+   "away": "RHYMEZ",
+   "hg": 6.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "GURU",
+   "away": "FLICK",
+   "hg": 3.0,
+   "ag": 0.0,
+   "status": "Played"
+  },
+  {
+   "home": "KINGNONEX",
+   "away": "DRACARYS",
+   "hg": 4.0,
+   "ag": 1.0,
+   "status": "Played"
+  },
+  {
+   "home": "SIMPLYY UZO",
+   "away": "ANIFE",
+   "hg": 6.0,
+   "ag": 10.0,
+   "status": "Played"
+  },
+  {
+   "home": "GURU",
+   "away": "BLAISE99",
+   "hg": 8.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "BALO K",
+   "away": "KAYKAY",
+   "hg": 1.0,
+   "ag": 7.0,
+   "status": "Played"
+  },
+  {
+   "home": "KINGNONEX",
+   "away": "GAMEWITHJOSH",
+   "hg": 5.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "FLICK",
+   "away": "TACTICAL",
+   "hg": 0.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "BRIGHT",
+   "away": "SIMPLYY UZO",
+   "hg": 6.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "KINGNONEX",
+   "away": "BLAISE99",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Home"
+  },
+  {
+   "home": "MR OGA",
+   "away": "DADABOI",
+   "hg": 3.0,
+   "ag": 7.0,
+   "status": "Played"
+  },
+  {
+   "home": "GAMEWITHJOSH",
+   "away": "FLICK",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Home"
+  },
+  {
+   "home": "RHYMEZ",
+   "away": "DRACARYS",
+   "hg": 6.0,
+   "ag": 2.0,
+   "status": "Played"
+  },
+  {
+   "home": "SON OF GOD",
+   "away": "BAJI SNR",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Home"
+  },
+  {
+   "home": "ANIFE",
+   "away": "WOLEVATION",
+   "hg": 4.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "KHALEEDOY",
+   "away": "BALO K",
+   "hg": 5.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "KAYKAY",
+   "away": "YEMOLEE",
+   "hg": 3.0,
+   "ag": 8.0,
+   "status": "Played"
+  },
+  {
+   "home": "DRACARYS",
+   "away": "SIMPLYY UZO",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Home"
+  },
+  {
+   "home": "RHYMEZ",
+   "away": "SON OF GOD",
+   "hg": 6.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "DADABOI",
+   "away": "WOLEVATION",
+   "hg": 6.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "BLAISE99",
+   "away": "YEMOLEE",
+   "hg": 4.0,
+   "ag": 7.0,
+   "status": "Played"
+  },
+  {
+   "home": "FLICK",
+   "away": "BALO K",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Away"
+  },
+  {
+   "home": "KINGNONEX",
+   "away": "MR OGA",
+   "hg": 7.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "KAYKAY",
+   "away": "KHALEEDOY",
+   "hg": 4.0,
+   "ag": 10.0,
+   "status": "Played"
+  },
+  {
+   "home": "BRIGHT",
+   "away": "KHALEEDOY",
+   "hg": 6.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "FLICK",
+   "away": "BAJI SNR",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Away"
+  },
+  {
+   "home": "KAYKAY",
+   "away": "GURU",
+   "hg": 8.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "SIMPLYY UZO",
+   "away": "WOLEVATION",
+   "hg": 6.0,
+   "ag": 9.0,
+   "status": "Played"
+  },
+  {
+   "home": "GAMEWITHJOSH",
+   "away": "YEMOLEE",
+   "hg": 2.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "BLAISE99",
+   "away": "ANIFE",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Away"
+  },
+  {
+   "home": "KAYKAY",
+   "away": "DADABOI",
+   "hg": 4.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "FLICK",
+   "away": "SIMPLYY UZO",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Away"
+  },
+  {
+   "home": "DRACARYS",
+   "away": "SON OF GOD",
+   "hg": 2.0,
+   "ag": 1.0,
+   "status": "Played"
+  },
+  {
+   "home": "DRACARYS",
+   "away": "KHALEEDOY",
+   "hg": 4.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "RHYMEZ",
+   "away": "MR OGA",
+   "hg": 4.0,
+   "ag": 3.0,
+   "status": "Played"
+  },
+  {
+   "home": "TACTICAL",
+   "away": "DADABOI",
+   "hg": 5.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "DADABOI",
+   "away": "GURU",
+   "hg": 3.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "RHYMEZ",
+   "away": "FLICK",
+   "hg": 7.0,
+   "ag": 2.0,
+   "status": "Played"
+  },
+  {
+   "home": "KINGNONEX",
+   "away": "SON OF GOD",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Home"
+  },
+  {
+   "home": "BLAISE99",
+   "away": "SIMPLYY UZO",
+   "hg": null,
+   "ag": null,
+   "status": "Cancelled"
+  },
+  {
+   "home": "DRACARYS",
+   "away": "MR OGA",
+   "hg": 6.0,
+   "ag": 8.0,
+   "status": "Played"
+  },
+  {
+   "home": "DADABOI",
+   "away": "BALO K",
+   "hg": 9.0,
+   "ag": 1.0,
+   "status": "Played"
+  },
+  {
+   "home": "ANIFE",
+   "away": "YEMOLEE",
+   "hg": 6.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "BRIGHT",
+   "away": "TACTICAL",
+   "hg": 3.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "WOLEVATION",
+   "away": "GURU",
+   "hg": 4.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "FLICK",
+   "away": "KINGNONEX",
+   "hg": 1.0,
+   "ag": 10.0,
+   "status": "Played"
+  },
+  {
+   "home": "YEMOLEE",
+   "away": "TACTICAL",
+   "hg": 4.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "BALO K",
+   "away": "DRACARYS",
+   "hg": 3.0,
+   "ag": 7.0,
+   "status": "Played"
+  },
+  {
+   "home": "WOLEVATION",
+   "away": "KAYKAY",
+   "hg": 3.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "BAJI SNR",
+   "away": "KAYKAY",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Away"
+  },
+  {
+   "home": "BAJI SNR",
+   "away": "DADABOI",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Away"
+  },
+  {
+   "home": "DRACARYS",
+   "away": "TACTICAL",
+   "hg": 6.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "KHALEEDOY",
+   "away": "ANIFE",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Away"
+  },
+  {
+   "home": "GURU",
+   "away": "GAMEWITHJOSH",
+   "hg": 7.0,
+   "ag": 5.0,
+   "status": "Played"
+  },
+  {
+   "home": "FLICK",
+   "away": "BRIGHT",
+   "hg": 5.0,
+   "ag": 4.0,
+   "status": "Played"
+  },
+  {
+   "home": "WOLEVATION",
+   "away": "MR OGA",
+   "hg": 6.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "SON OF GOD",
+   "away": "SIMPLYY UZO",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Home"
+  },
+  {
+   "home": "BLAISE99",
+   "away": "BALO K",
+   "hg": null,
+   "ag": null,
+   "status": "Walkover_Away"
+  },
+  {
+   "home": "GAMEWITHJOSH",
+   "away": "SIMPLYY UZO",
+   "hg": 5.0,
+   "ag": 6.0,
+   "status": "Played"
+  },
+  {
+   "home": "KAYKAY",
+   "away": "RHYMEZ",
+   "hg": 7.0,
+   "ag": 2.0,
+   "status": "Played"
+  },
+  {
+   "home": "KINGNONEX",
+   "away": "YEMOLEE",
+   "hg": 4.0,
+   "ag": 1.0,
+   "status": "Played"
+  }
+ ],
+ "stats": [
+  {
+   "player": "MR OGA",
+   "P": 19,
+   "W": 10,
+   "D": 3,
+   "L": 6,
+   "GF": 101,
+   "GA": 87,
+   "GD": 14,
+   "PtsMatches": 33,
+   "PtsAdj": 0,
+   "TotalPts": 33,
+   "Pos": 6,
+   "CleanSheets": 1,
+   "AvgGF": 5.315789474,
+   "AvgGA": 4.578947368,
+   "WinRate": 0.5263157895,
+   "BiggestWin": 7,
+   "BiggestLoss": 4,
+   "WoGiven": 1,
+   "WoReceived": 1,
+   "PtsPerGame": 1.736842105,
+   "Last5": 4,
+   "Form": 26.67
+  },
+  {
+   "player": "ANIFE",
+   "P": 19,
+   "W": 11,
+   "D": 3,
+   "L": 5,
+   "GF": 117,
+   "GA": 81,
+   "GD": 36,
+   "PtsMatches": 36,
+   "PtsAdj": 0,
+   "TotalPts": 36,
+   "Pos": 4,
+   "CleanSheets": 2,
+   "AvgGF": 6.157894737,
+   "AvgGA": 4.263157895,
+   "WinRate": 0.5789473684,
+   "BiggestWin": 14,
+   "BiggestLoss": 2,
+   "WoGiven": 0,
+   "WoReceived": 2,
+   "PtsPerGame": 1.894736842,
+   "Last5": 11,
+   "Form": 73.33
+  },
+  {
+   "player": "BAJI SNR",
+   "P": 19,
+   "W": 4,
+   "D": 0,
+   "L": 15,
+   "GF": 42,
+   "GA": 70,
+   "GD": -28,
+   "PtsMatches": 12,
+   "PtsAdj": 0,
+   "TotalPts": 12,
+   "Pos": 17,
+   "CleanSheets": 2,
+   "AvgGF": 2.210526316,
+   "AvgGA": 3.684210526,
+   "WinRate": 0.2105263158,
+   "BiggestWin": 7,
+   "BiggestLoss": 5,
+   "WoGiven": 5,
+   "WoReceived": 2,
+   "PtsPerGame": 0.6315789474,
+   "Last5": 3,
+   "Form": 20
+  },
+  {
+   "player": "GURU",
+   "P": 19,
+   "W": 11,
+   "D": 4,
+   "L": 4,
+   "GF": 109,
+   "GA": 76,
+   "GD": 33,
+   "PtsMatches": 37,
+   "PtsAdj": 0,
+   "TotalPts": 37,
+   "Pos": 3,
+   "CleanSheets": 1,
+   "AvgGF": 5.736842105,
+   "AvgGA": 4,
+   "WinRate": 0.5789473684,
+   "BiggestWin": 13,
+   "BiggestLoss": 3,
+   "WoGiven": 0,
+   "WoReceived": 0,
+   "PtsPerGame": 1.947368421,
+   "Last5": 12,
+   "Form": 80
+  },
+  {
+   "player": "KAYKAY",
+   "P": 19,
+   "W": 14,
+   "D": 2,
+   "L": 3,
+   "GF": 108,
+   "GA": 73,
+   "GD": 35,
+   "PtsMatches": 44,
+   "PtsAdj": 0,
+   "TotalPts": 44,
+   "Pos": 2,
+   "CleanSheets": 3,
+   "AvgGF": 5.684210526,
+   "AvgGA": 3.842105263,
+   "WinRate": 0.7368421053,
+   "BiggestWin": 8,
+   "BiggestLoss": 6,
+   "WoGiven": 0,
+   "WoReceived": 2,
+   "PtsPerGame": 2.315789474,
+   "Last5": 15,
+   "Form": 100
+  },
+  {
+   "player": "TACTICAL",
+   "P": 19,
+   "W": 11,
+   "D": 2,
+   "L": 6,
+   "GF": 93,
+   "GA": 75,
+   "GD": 18,
+   "PtsMatches": 35,
+   "PtsAdj": 0,
+   "TotalPts": 35,
+   "Pos": 5,
+   "CleanSheets": 2,
+   "AvgGF": 4.894736842,
+   "AvgGA": 3.947368421,
+   "WinRate": 0.5789473684,
+   "BiggestWin": 11,
+   "BiggestLoss": 4,
+   "WoGiven": 0,
+   "WoReceived": 0,
+   "PtsPerGame": 1.842105263,
+   "Last5": 7,
+   "Form": 46.67
+  },
+  {
+   "player": "WOLEVATION",
+   "P": 19,
+   "W": 10,
+   "D": 3,
+   "L": 6,
+   "GF": 82,
+   "GA": 76,
+   "GD": 6,
+   "PtsMatches": 33,
+   "PtsAdj": 0,
+   "TotalPts": 33,
+   "Pos": 8,
+   "CleanSheets": 2,
+   "AvgGF": 4.315789474,
+   "AvgGA": 4,
+   "WinRate": 0.5263157895,
+   "BiggestWin": 4,
+   "BiggestLoss": 5,
+   "WoGiven": 0,
+   "WoReceived": 2,
+   "PtsPerGame": 1.736842105,
+   "Last5": 5,
+   "Form": 33.33
+  },
+  {
+   "player": "KHALEEDOY",
+   "P": 18,
+   "W": 6,
+   "D": 4,
+   "L": 8,
+   "GF": 84,
+   "GA": 78,
+   "GD": 6,
+   "PtsMatches": 22,
+   "PtsAdj": 0,
+   "TotalPts": 22,
+   "Pos": 14,
+   "CleanSheets": 0,
+   "AvgGF": 4.666666667,
+   "AvgGA": 4.333333333,
+   "WinRate": 0.3333333333,
+   "BiggestWin": 8,
+   "BiggestLoss": 4,
+   "WoGiven": 2,
+   "WoReceived": 0,
+   "PtsPerGame": 1.222222222,
+   "Last5": 7,
+   "Form": 46.67
+  },
+  {
+   "player": "BALO K",
+   "P": 19,
+   "W": 6,
+   "D": 0,
+   "L": 13,
+   "GF": 61,
+   "GA": 106,
+   "GD": -45,
+   "PtsMatches": 18,
+   "PtsAdj": 0,
+   "TotalPts": 18,
+   "Pos": 15,
+   "CleanSheets": 3,
+   "AvgGF": 3.210526316,
+   "AvgGA": 5.578947368,
+   "WinRate": 0.3157894737,
+   "BiggestWin": 3,
+   "BiggestLoss": 13,
+   "WoGiven": 0,
+   "WoReceived": 3,
+   "PtsPerGame": 0.9473684211,
+   "Last5": 6,
+   "Form": 40
+  },
+  {
+   "player": "YEMOLEE",
+   "P": 19,
+   "W": 8,
+   "D": 7,
+   "L": 4,
+   "GF": 97,
+   "GA": 76,
+   "GD": 21,
+   "PtsMatches": 31,
+   "PtsAdj": 0,
+   "TotalPts": 31,
+   "Pos": 11,
+   "CleanSheets": 0,
+   "AvgGF": 5.105263158,
+   "AvgGA": 4,
+   "WinRate": 0.4210526316,
+   "BiggestWin": 5,
+   "BiggestLoss": 3,
+   "WoGiven": 0,
+   "WoReceived": 0,
+   "PtsPerGame": 1.631578947,
+   "Last5": 8,
+   "Form": 53.33
+  },
+  {
+   "player": "RHYMEZ",
+   "P": 19,
+   "W": 10,
+   "D": 2,
+   "L": 7,
+   "GF": 89,
+   "GA": 73,
+   "GD": 16,
+   "PtsMatches": 32,
+   "PtsAdj": 0,
+   "TotalPts": 32,
+   "Pos": 10,
+   "CleanSheets": 0,
+   "AvgGF": 4.684210526,
+   "AvgGA": 3.842105263,
+   "WinRate": 0.5263157895,
+   "BiggestWin": 6,
+   "BiggestLoss": 5,
+   "WoGiven": 0,
+   "WoReceived": 0,
+   "PtsPerGame": 1.684210526,
+   "Last5": 12,
+   "Form": 80
+  },
+  {
+   "player": "SIMPLYY UZO",
+   "P": 18,
+   "W": 3,
+   "D": 1,
+   "L": 14,
+   "GF": 65,
+   "GA": 110,
+   "GD": -45,
+   "PtsMatches": 10,
+   "PtsAdj": 0,
+   "TotalPts": 10,
+   "Pos": 18,
+   "CleanSheets": 1,
+   "AvgGF": 3.611111111,
+   "AvgGA": 6.111111111,
+   "WinRate": 0.1666666667,
+   "BiggestWin": 3,
+   "BiggestLoss": 11,
+   "WoGiven": 4,
+   "WoReceived": 1,
+   "PtsPerGame": 0.5555555556,
+   "Last5": 6,
+   "Form": 40
+  },
+  {
+   "player": "BLAISE99",
+   "P": 17,
+   "W": 2,
+   "D": 0,
+   "L": 15,
+   "GF": 51,
+   "GA": 83,
+   "GD": -32,
+   "PtsMatches": 6,
+   "PtsAdj": 0,
+   "TotalPts": 6,
+   "Pos": 20,
+   "CleanSheets": 0,
+   "AvgGF": 3,
+   "AvgGA": 4.882352941,
+   "WinRate": 0.1176470588,
+   "BiggestWin": 8,
+   "BiggestLoss": 4,
+   "WoGiven": 5,
+   "WoReceived": 0,
+   "PtsPerGame": 0.3529411765,
+   "Last5": 0,
+   "Form": 0
+  },
+  {
+   "player": "GAMEWITHJOSH",
+   "P": 19,
+   "W": 8,
+   "D": 3,
+   "L": 8,
+   "GF": 96,
+   "GA": 100,
+   "GD": -4,
+   "PtsMatches": 27,
+   "PtsAdj": 0,
+   "TotalPts": 27,
+   "Pos": 12,
+   "CleanSheets": 1,
+   "AvgGF": 5.052631579,
+   "AvgGA": 5.263157895,
+   "WinRate": 0.4210526316,
+   "BiggestWin": 3,
+   "BiggestLoss": 8,
+   "WoGiven": 0,
+   "WoReceived": 1,
+   "PtsPerGame": 1.421052632,
+   "Last5": 6,
+   "Form": 40
+  },
+  {
+   "player": "DADABOI",
+   "P": 19,
+   "W": 10,
+   "D": 3,
+   "L": 6,
+   "GF": 81,
+   "GA": 74,
+   "GD": 7,
+   "PtsMatches": 33,
+   "PtsAdj": 0,
+   "TotalPts": 33,
+   "Pos": 7,
+   "CleanSheets": 3,
+   "AvgGF": 4.263157895,
+   "AvgGA": 3.894736842,
+   "WinRate": 0.5263157895,
+   "BiggestWin": 8,
+   "BiggestLoss": 10,
+   "WoGiven": 0,
+   "WoReceived": 2,
+   "PtsPerGame": 1.736842105,
+   "Last5": 9,
+   "Form": 60
+  },
+  {
+   "player": "SON OF GOD",
+   "P": 19,
+   "W": 8,
+   "D": 2,
+   "L": 9,
+   "GF": 78,
+   "GA": 80,
+   "GD": -2,
+   "PtsMatches": 26,
+   "PtsAdj": 0,
+   "TotalPts": 26,
+   "Pos": 13,
+   "CleanSheets": 5,
+   "AvgGF": 4.105263158,
+   "AvgGA": 4.210526316,
+   "WinRate": 0.4210526316,
+   "BiggestWin": 7,
+   "BiggestLoss": 8,
+   "WoGiven": 1,
+   "WoReceived": 3,
+   "PtsPerGame": 1.368421053,
+   "Last5": 6,
+   "Form": 40
+  },
+  {
+   "player": "DRACARYS",
+   "P": 19,
+   "W": 10,
+   "D": 3,
+   "L": 6,
+   "GF": 79,
+   "GA": 73,
+   "GD": 6,
+   "PtsMatches": 33,
+   "PtsAdj": 0,
+   "TotalPts": 33,
+   "Pos": 9,
+   "CleanSheets": 1,
+   "AvgGF": 4.157894737,
+   "AvgGA": 3.842105263,
+   "WinRate": 0.5263157895,
+   "BiggestWin": 4,
+   "BiggestLoss": 5,
+   "WoGiven": 0,
+   "WoReceived": 1,
+   "PtsPerGame": 1.736842105,
+   "Last5": 12,
+   "Form": 80
+  },
+  {
+   "player": "FLICK",
+   "P": 19,
+   "W": 2,
+   "D": 2,
+   "L": 15,
+   "GF": 39,
+   "GA": 111,
+   "GD": -72,
+   "PtsMatches": 8,
+   "PtsAdj": 0,
+   "TotalPts": 8,
+   "Pos": 19,
+   "CleanSheets": 0,
+   "AvgGF": 2.052631579,
+   "AvgGA": 5.842105263,
+   "WinRate": 0.1052631579,
+   "BiggestWin": 4,
+   "BiggestLoss": 14,
+   "WoGiven": 4,
+   "WoReceived": 0,
+   "PtsPerGame": 0.4210526316,
+   "Last5": 3,
+   "Form": 20
+  },
+  {
+   "player": "BRIGHT",
+   "P": 19,
+   "W": 4,
+   "D": 4,
+   "L": 11,
+   "GF": 74,
+   "GA": 100,
+   "GD": -26,
+   "PtsMatches": 16,
+   "PtsAdj": 0,
+   "TotalPts": 16,
+   "Pos": 16,
+   "CleanSheets": 0,
+   "AvgGF": 3.894736842,
+   "AvgGA": 5.263157895,
+   "WinRate": 0.2105263158,
+   "BiggestWin": 3,
+   "BiggestLoss": 7,
+   "WoGiven": 0,
+   "WoReceived": 0,
+   "PtsPerGame": 0.8421052632,
+   "Last5": 4,
+   "Form": 26.67
+  },
+  {
+   "player": "KINGNONEX",
+   "P": 19,
+   "W": 14,
+   "D": 4,
+   "L": 1,
+   "GF": 90,
+   "GA": 37,
+   "GD": 53,
+   "PtsMatches": 46,
+   "PtsAdj": 0,
+   "TotalPts": 46,
+   "Pos": 1,
+   "CleanSheets": 4,
+   "AvgGF": 4.736842105,
+   "AvgGA": 1.947368421,
+   "WinRate": 0.7368421053,
+   "BiggestWin": 10,
+   "BiggestLoss": 1,
+   "WoGiven": 0,
+   "WoReceived": 2,
+   "PtsPerGame": 2.421052632,
+   "Last5": 15,
+   "Form": 100
+  }
+ ],
+ "adjustments": [
+  {
+   "player": "WOLEVATION",
+   "metric": "GF",
+   "value": -3.0,
+   "reason": "Stood up mid match and quit, decided to leave."
+  }
+ ]
+}
