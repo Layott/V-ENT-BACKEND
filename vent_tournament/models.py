@@ -1248,8 +1248,17 @@ class BroadcastSession(models.Model):
     STATUS = [('live', 'Live'), ('ended', 'Ended')]
 
     id = models.AutoField(primary_key=True)
+    # What this broadcast is of. Exactly one of the two, the same shape as
+    # TournamentOverlay. It was tournament-only, so an organiser streaming an
+    # EVENT had the upload-your-own overlays and none of the studio: no
+    # console, no now-and-next, no sponsor wall, no doors count. The audit of
+    # 2 September recorded it as the gap the parity checker had no row for.
     tournament = models.ForeignKey(
-        Tournament, on_delete=models.CASCADE, related_name='broadcast_sessions')
+        Tournament, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='broadcast_sessions')
+    event = models.ForeignKey(
+        'vent_event.Event', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='broadcast_sessions')
     name = models.CharField(max_length=120, blank=True, default='')
     token = models.CharField(max_length=48, unique=True, db_index=True)
     status = models.CharField(max_length=10, choices=STATUS, default='live')
@@ -1264,7 +1273,20 @@ class BroadcastSession(models.Model):
         ordering = ['-started_at']
 
     def __str__(self):
-        return '%s (%s)' % (self.name or 'Broadcast', self.tournament_id)
+        return '%s (%s)' % (self.name or 'Broadcast', self.owner_ref)
+
+    @property
+    def owner(self):
+        """Whatever this broadcast is of, of whichever kind."""
+        return self.tournament or self.event
+
+    @property
+    def kind(self):
+        return 'event' if self.event_id else 'tournament'
+
+    @property
+    def owner_ref(self):
+        return self.event_id if self.event_id else self.tournament_id
 
     @property
     def is_live(self):
@@ -1299,17 +1321,42 @@ class BroadcastElement(models.Model):
     """
 
     # What V-ENT ships. Adding to this list is how the studio grows, and each
-    # one is a page under /studio/<token>/<kind>.
-    KINDS = [
+    # one is a page under /studio/<token>/<kind>. Which kinds a broadcast may
+    # use depends on what it is of: a tournament has a bracket, an event has a
+    # programme. `kinds_for()` is the one place that says which.
+    TOURNAMENT_KINDS = [
         ('scorebar', 'Score bar'),
         ('standings', 'Standings table'),
         ('lower_third', 'Lower third'),
         ('player_card', 'Player card'),
         ('bracket', 'Bracket'),
+        ('sponsors', 'Sponsor wall'),
         ('ticker', 'Ticker'),
         ('intro', 'Intro'),
         ('outro', 'Outro'),
     ]
+    EVENT_KINDS = [
+        ('now_next', 'Now and next'),
+        ('programme', 'Programme'),
+        ('lower_third', 'Lower third'),
+        ('sponsors', 'Sponsor wall'),
+        ('doors', 'Doors'),
+        ('ticker', 'Ticker'),
+        ('intro', 'Intro'),
+        ('outro', 'Outro'),
+    ]
+    # The column's choices: every kind either side may use. Written out rather
+    # than computed, because a class body cannot see its own names from inside
+    # a comprehension.
+    KINDS = TOURNAMENT_KINDS + [
+        ('now_next', 'Now and next'),
+        ('programme', 'Programme'),
+        ('doors', 'Doors'),
+    ]
+
+    @classmethod
+    def kinds_for(cls, kind_of_owner):
+        return cls.EVENT_KINDS if kind_of_owner == 'event' else cls.TOURNAMENT_KINDS
 
     id = models.AutoField(primary_key=True)
     session = models.ForeignKey(

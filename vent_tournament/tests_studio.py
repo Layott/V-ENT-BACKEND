@@ -76,7 +76,7 @@ class StudioTests(TestCase):
 
     def test_every_shipped_element_gets_a_url(self):
         s = self.start().json()['data']['session']
-        for kind, _label in BroadcastElement.KINDS:
+        for kind, _label in BroadcastElement.TOURNAMENT_KINDS:
             self.assertIn(kind, s['urls'], kind)
 
     def test_starting_a_second_broadcast_ends_the_first(self):
