@@ -200,13 +200,44 @@ class AccessTests(TestCase):
                     .values_list('code', flat=True))
         self.assertEqual(codes, {'ALPHA', 'BRAVO', 'CHARLIE'})
 
-    def test_the_free_limit_is_sixty_four(self):
-        self.client.post(self.invites_url(), data={'count': 64},
+    def test_the_limit_follows_the_size_of_the_tournament(self):
+        """CEO: "WHY IS THIS SHOWING 0/64 FOR AN EVENT THAT HAS 10 PLAYERS AND
+        5 TEAMS, IT SHOULD BE MAPPED TO THE EVENT."
+
+        A code is a way IN, so how many are worth minting is bounded by how
+        many places there are. 64 on a five-team bracket is a number with no
+        relationship to anything the organiser set.
+        """
+        self.tournament.max_number_of_teams = 5
+        self.tournament.save(update_fields=['max_number_of_teams'])
+
+        res = self.client.get(self.invites_url(), **self.auth)
+        self.assertEqual(res.json()['data']['limit'], 5)
+
+        self.client.post(self.invites_url(), data={'count': 5},
                          content_type='application/json', **self.auth)
-        res = self.client.post(self.invites_url(), data={'count': 1},
+        over = self.client.post(self.invites_url(), data={'count': 1},
+                                content_type='application/json', **self.auth)
+        self.assertEqual(over.status_code, 409)
+        self.assertEqual(over.json()['code'], 'CODE_LIMIT')
+
+    def test_the_screen_and_the_rule_agree_about_the_limit(self):
+        """Showing 0/5 and then minting 64 is two rules disagreeing about one
+        number, which is worse than either."""
+        self.tournament.max_number_of_teams = 3
+        self.tournament.save(update_fields=['max_number_of_teams'])
+        shown = self.client.get(self.invites_url(), **self.auth).json()['data']['limit']
+        res = self.client.post(self.invites_url(), data={'count': shown + 1},
                                content_type='application/json', **self.auth)
         self.assertEqual(res.status_code, 409)
-        self.assertEqual(res.json()['code'], 'CODE_LIMIT')
+
+    def test_a_tournament_with_no_size_keeps_the_sixty_four_ceiling(self):
+        """The fallback narrows the cap and never raises it."""
+        self.tournament.max_number_of_teams = None
+        self.tournament.player_size = None
+        self.tournament.save(update_fields=['max_number_of_teams', 'player_size'])
+        res = self.client.get(self.invites_url(), **self.auth)
+        self.assertEqual(res.json()['data']['limit'], 64)
 
     def test_generated_codes_avoid_the_letters_people_mistype(self):
         self.client.post(self.invites_url(), data={'count': 20},

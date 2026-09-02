@@ -39,6 +39,26 @@ ALPHABET = ''.join(c for c in string.ascii_uppercase + string.digits
 FREE_CODE_LIMIT = 64
 
 
+def _code_limit(tournament):
+    """How many invite codes this tournament may have.
+
+    CEO: "WHY IS THIS SHOWING 0/64 FOR AN EVENT THAT HAS 10 PLAYERS AND 5
+    TEAMS, IT SHOULD BE MAPPED TO THE EVENT."
+
+    It was a flat 64 for every tournament, which on a five-team bracket is a
+    number with no relationship to anything the organiser set. A code is a way
+    IN, so the number of them worth minting is bounded by how many places
+    there are.
+
+    64 stays as the ceiling for a tournament that has not been given a size,
+    so this narrows the cap and never raises it.
+    """
+    places = tournament.max_number_of_teams or tournament.player_size
+    if not places:
+        return FREE_CODE_LIMIT
+    return max(1, min(FREE_CODE_LIMIT, int(places)))
+
+
 def _ok(data, message='OK', http=status.HTTP_200_OK):
     return Response({'status': 'success', 'data': data, 'message': message},
                     status=http)
@@ -114,7 +134,7 @@ def invites(request, tournament_id):
         return _ok({
             'invites': [_invite_row(i) for i in rows],
             'count': rows.count(),
-            'limit': FREE_CODE_LIMIT,
+            'limit': _code_limit(tournament),
         }, 'Invite codes')
 
     if request.method == 'DELETE':
@@ -149,10 +169,11 @@ def invites(request, tournament_id):
         if count < 1:
             return _err('Say how many codes to make, or send the codes themselves.',
                         'VALIDATION_ERROR')
-        if existing + count > FREE_CODE_LIMIT:
+        if existing + count > _code_limit(tournament):
             return _err(
                 'That would be more than %s codes. Remove some first.'
-                % FREE_CODE_LIMIT, 'CODE_LIMIT', status.HTTP_409_CONFLICT)
+                % _code_limit(tournament), 'CODE_LIMIT',
+                status.HTTP_409_CONFLICT)
         wanted = []
         seen = set(TournamentInvite.objects.filter(tournament=tournament)
                    .values_list('code', flat=True))
@@ -164,9 +185,12 @@ def invites(request, tournament_id):
 
     if not wanted:
         return _err('No codes given.', 'VALIDATION_ERROR')
-    if existing + len(wanted) > FREE_CODE_LIMIT:
+    # The same limit the screen displays. Showing 0/5 and then minting 64 is
+    # two rules disagreeing about one number, which is worse than either.
+    if existing + len(wanted) > _code_limit(tournament):
         return _err('That would be more than %s codes. Remove some first.'
-                    % FREE_CODE_LIMIT, 'CODE_LIMIT', status.HTTP_409_CONFLICT)
+                    % _code_limit(tournament), 'CODE_LIMIT',
+                    status.HTTP_409_CONFLICT)
 
     made = []
     with transaction.atomic():

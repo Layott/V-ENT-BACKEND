@@ -295,3 +295,93 @@ def catalogue():
         }
         for f in FORMATS.values()
     ]
+
+
+# ---------------------------------------------------------------------------
+# Which tiebreakers make sense here
+# ---------------------------------------------------------------------------
+
+# Tiebreakers that mean something whatever is being played. They are about the
+# competition rather than the sport: who beat whom, who has won more, and the
+# organiser deciding when nothing else separates two people.
+UNIVERSAL_TIEBREAKERS = ('head_to_head', 'wins', 'most_recent', 'coin_toss')
+
+# What a game counts. A football game counts goals and has no idea what a kill
+# is; a battle royale counts placement and kills and has no goals. Offering all
+# thirteen to everybody is how an EA FC organiser was asked to choose between
+# "Goals scored" and "Total kills" in the same list.
+#
+# Keyed by a substring of the game's title, matched case-insensitively and
+# LONGEST FIRST, so "ea fc" is tested before "fc" would be. Same ordering rule
+# as the MVP metric catalogue, for the same reason: a short key that is a
+# prefix of a longer one wins by accident otherwise.
+GAME_TIEBREAKERS = {
+    # Football
+    'ea fc': ('goal_difference', 'goals_for', 'aggregate_goals'),
+    'ea sports fc': ('goal_difference', 'goals_for', 'aggregate_goals'),
+    'fifa': ('goal_difference', 'goals_for', 'aggregate_goals'),
+    'efootball': ('goal_difference', 'goals_for', 'aggregate_goals'),
+    'fc mobile': ('goal_difference', 'goals_for', 'aggregate_goals'),
+    'pes': ('goal_difference', 'goals_for', 'aggregate_goals'),
+    # Battle royale: placement and kills, no goals
+    'free fire': ('total_kills', 'best_placement', 'placement_count'),
+    'pubg': ('total_kills', 'best_placement', 'placement_count'),
+    'fortnite': ('total_kills', 'best_placement', 'placement_count'),
+    'warzone': ('total_kills', 'best_placement', 'placement_count'),
+    # Round-based shooters: rounds and maps
+    'valorant': ('rounds_difference', 'maps_won'),
+    'counter-strike': ('rounds_difference', 'maps_won'),
+    'cs2': ('rounds_difference', 'maps_won'),
+    'rainbow six': ('rounds_difference', 'maps_won'),
+    'call of duty': ('rounds_difference', 'maps_won', 'total_kills'),
+    # Fighting and one-on-one: rounds
+    'tekken': ('rounds_difference',),
+    'street fighter': ('rounds_difference',),
+    'mortal kombat': ('rounds_difference',),
+}
+
+
+def tiebreakers_for(format_key=None, game_title=None):
+    """The tiebreakers worth offering for this tournament, in order.
+
+    CEO: "EAFC WAS THE GAME SELECTED AND YET I STILL SEE TIE BREAKER FOR
+    BATTLE ROYALE GAMES".
+
+    The rules screen was sending the whole catalogue of thirteen to every
+    tournament, so an EA FC organiser was offered Total Kills, Maps Won and
+    Best Single-Match Placement beside Goals Scored. Each format already
+    declared the ones it uses and nothing read them.
+
+    The order is deliberate: what the FORMAT prefers first, because that is
+    the closest thing to a house rule, then what the GAME counts, then the
+    universal ones. Duplicates are dropped keeping the earliest position, so a
+    tiebreaker the format leads with stays at the top.
+
+    Falls back to the whole catalogue only when neither the format nor the
+    game is recognised. An unknown game with a short list would be worse than
+    a long one: the organiser could not choose what they needed at all.
+    """
+    ordered = []
+
+    fmt = FORMATS.get(format_key) if format_key else None
+    if fmt is not None:
+        ordered.extend(fmt.tiebreakers)
+
+    if game_title:
+        needle = str(game_title).strip().lower()
+        # Longest key first, so 'ea fc' is not beaten by a shorter substring.
+        for key in sorted(GAME_TIEBREAKERS, key=len, reverse=True):
+            if key in needle:
+                ordered.extend(GAME_TIEBREAKERS[key])
+                break
+
+    ordered.extend(UNIVERSAL_TIEBREAKERS)
+
+    seen = set()
+    out = []
+    for key in ordered:
+        if key in TIEBREAKERS and key not in seen:
+            seen.add(key)
+            out.append(key)
+
+    return out or list(TIEBREAKERS)
