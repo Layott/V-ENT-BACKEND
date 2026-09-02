@@ -89,6 +89,12 @@ urlpatterns = [
     path('club/<str:club_ref>/topic/<int:topic_id>/delete/', clubs.club_delete_topic),
     path('club/<str:club_ref>/message/<int:message_id>/delete/', clubs.club_delete_message),
     path('club/<str:club_ref>/role/', clubs.club_set_role),
+    # Running the club itself. These sit AFTER club/list/ and club/create/ in
+    # this file for the same reason the org routes do: Django matches in
+    # order, and a literal segment placed below a <str:club_ref> pattern is
+    # read as the name of a club.
+    path('club/<str:club_ref>/update/', clubs.club_update),
+    path('club/<str:club_ref>/delete/', clubs.club_delete),
     path('club/<str:club_ref>/remove-member/', clubs.club_remove_member),
     path('club/<str:club_ref>/mute/', clubs.club_mute_member),
 
