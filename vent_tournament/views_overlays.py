@@ -106,7 +106,7 @@ def overlays(request, tournament_id):
                       status.HTTP_401_UNAUTHORIZED)
     if not _may_manage(user, tournament):
         return _error('Only the organiser can manage overlays.',
-                      'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
+                      'NOT_TOURNAMENT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
     if request.method == 'GET':
         rows = TournamentOverlay.objects.filter(tournament=tournament)
@@ -136,7 +136,7 @@ def overlay_detail(request, tournament_id, overlay_id):
                       status.HTTP_404_NOT_FOUND)
     if not _may_manage(_viewer(request), tournament):
         return _error('Only the organiser can remove an overlay.',
-                      'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
+                      'NOT_TOURNAMENT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
     overlay = TournamentOverlay.objects.filter(
         tournament=tournament, pk=overlay_id).first()
@@ -160,7 +160,7 @@ def rotate(request, tournament_id, overlay_id):
                       status.HTTP_404_NOT_FOUND)
     if not _may_manage(_viewer(request), tournament):
         return _error('Only the organiser can rotate a URL.',
-                      'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
+                      'NOT_TOURNAMENT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
     overlay = TournamentOverlay.objects.filter(
         tournament=tournament, pk=overlay_id).first()

@@ -178,7 +178,7 @@ def sessions(request, tournament_id):
         return _err('Tournament not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if not may_use_studio(user, tournament):
         return _err('Only the organiser can run a broadcast for this tournament.',
-                    'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
+                    'NOT_TOURNAMENT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
     if request.method == 'GET':
         return _ok({
@@ -216,7 +216,7 @@ def session_detail(request, tournament_id, session_id):
         return _err('Tournament not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if not may_use_studio(user, tournament):
         return _err('Only the organiser can run a broadcast for this tournament.',
-                    'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
+                    'NOT_TOURNAMENT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
     session = tournament.broadcast_sessions.filter(pk=session_id).first()
     if session is None:
@@ -246,7 +246,7 @@ def element(request, tournament_id, session_id, kind):
         return _err('Tournament not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if not may_use_studio(user, tournament):
         return _err('Only the organiser can run a broadcast for this tournament.',
-                    'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
+                    'NOT_TOURNAMENT_ORGANIZER', status.HTTP_403_FORBIDDEN)
     if kind not in KINDS:
         return _err('There is no element of that kind.', 'UNKNOWN_ELEMENT',
                     status.HTTP_404_NOT_FOUND, field='kind')
