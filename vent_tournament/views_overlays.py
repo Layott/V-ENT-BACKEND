@@ -65,7 +65,9 @@ def _tournament(key):
 
 
 def _may_manage(user, tournament):
-    return user is not None and tournament.tournament_creator_id == user.user_id
+    # One answer for the studio and the overlays; see production_access.
+    from .production_access import may_run_production
+    return may_run_production(user, tournament)
 
 
 def serialize(overlay, request):
@@ -323,6 +325,8 @@ TOURNAMENT_REPEATS = [
      ['ign', 'id', 'img']),
     ('live', 'matches in progress right now',
      ['round', 'match', 'status', 'home', 'away', 'score']),
+    ('sponsors', 'the people who paid for the banners',
+     ['name', 'logo', 'website']),
 ]
 
 #: And on an event. An event has no bracket; it has a programme, a door count,
@@ -490,6 +494,8 @@ TEMPLATES_FOR_TOURNAMENT = [
      'detail': 'One competitor and their record.'},
     {'key': 'bracket', 'name': 'Bracket',
      'detail': 'Where everybody is in the draw.'},
+    {'key': 'sponsors', 'name': 'Sponsor wall',
+     'detail': 'The people who paid for the banners, along the bottom.'},
     {'key': 'ticker', 'name': 'Ticker',
      'detail': 'A line along the bottom for results and announcements.'},
     {'key': 'intro', 'name': 'Starting soon',
@@ -603,7 +609,8 @@ def _event(key):
 
 
 def _may_manage_event(user, event):
-    return user is not None and event.creator_id == user.user_id
+    from .production_access import may_run_production
+    return may_run_production(user, event)
 
 
 @api_view(['GET', 'POST'])

@@ -494,6 +494,7 @@ TOURNAMENT_TEMPLATES = {
     'lower_third': _lower_third,
     'player_card': _player_card,
     'bracket': _bracket,
+    'sponsors': _sponsor_wall,
     'ticker': _ticker,
     'intro': _intro,
     'outro': _outro,

@@ -79,7 +79,7 @@ class StudioUrlTests(TestCase):
     def test_there_is_one_url_per_shipped_element(self):
         session = self.start()
         self.assertEqual(sorted(session['urls']),
-                         sorted(k for k, _label in BroadcastElement.KINDS))
+                         sorted(k for k, _label in BroadcastElement.TOURNAMENT_KINDS))
 
 
 @override_settings(FRONTEND_URL='https://v-ent.co')

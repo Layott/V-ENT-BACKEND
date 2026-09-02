@@ -5,6 +5,7 @@ from django.conf.urls.static import static
 from . import views_guest
 from vent_tournament import views_overlays as overlay_views
 from vent_tournament import views_overlay_feed as overlay_feed_views
+from vent_tournament import views_studio as studio_views
 from . import views_sponsors
 from . import views_holds
 from . import views_announce
@@ -92,6 +93,15 @@ urlpatterns = [
          name="event_overlay_detail"),
     path("<str:event_id>/overlays/<int:overlay_id>/rotate/", overlay_views.event_overlay_rotate,
          name="event_overlay_rotate"),
+    # The production studio for an event: the same three routes a tournament
+    # has, the same console, the same feed. The graphics differ (a programme
+    # rather than a bracket); see BroadcastElement.kinds_for.
+    path("<str:event_id>/studio/sessions/", studio_views.event_sessions,
+         name="event_studio_sessions"),
+    path("<str:event_id>/studio/sessions/<int:session_id>/",
+         studio_views.event_session_detail, name="event_studio_session_detail"),
+    path("<str:event_id>/studio/sessions/<int:session_id>/element/<str:kind>/",
+         studio_views.event_element, name="event_studio_element"),
     path("<str:event_id>/short-links/", views_short_links.short_links,
          name="event_short_links"),
     path("<str:event_id>/short-links/<int:link_id>/",

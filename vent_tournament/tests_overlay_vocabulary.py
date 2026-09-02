@@ -74,6 +74,10 @@ class TournamentVocabularyTests(TestCase):
             start_date_and_time=timezone.now(),
             end_date_and_time=timezone.now(),
             is_draft=False)
+        # A sponsor, so the `sponsors` repeat has a row to check against.
+        from vent_tournament.models import Sponsors
+        self.tournament.sponsors.add(
+            Sponsors.objects.create(name='Vocabulary Telecom', website='https://vt.example'))
         team = Teams.objects.create(
             team_name='Vocabulary XI', game=game, description='x',
             team_creator=self.owner, team_owner=self.owner,

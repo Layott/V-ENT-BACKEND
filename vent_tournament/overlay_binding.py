@@ -102,11 +102,11 @@ KNOWN_FIELDS = [
     'player.ign', 'player.id', 'player.img',
     # Inside a repeat, the row's own fields are addressed without a prefix.
     'place', 'tag', 'name', 'logo', 'played', 'won', 'lost',
-    'points_for', 'points_against', 'ign', 'id', 'img',
+    'points_for', 'points_against', 'ign', 'id', 'img', 'website',
 ]
 
 #: What a `data-vent-repeat` may repeat over.
-KNOWN_REPEATS = ['standings', 'teams', 'players', 'live']
+KNOWN_REPEATS = ['standings', 'teams', 'players', 'live', 'sponsors']
 
 
 def unknown_fields(fields):

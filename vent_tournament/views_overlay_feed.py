@@ -206,6 +206,14 @@ def overlay_feed(request, tournament_id):
                         'participant_2__team', 'participant_2__user')[:8]
     ]
 
+    # The people who paid for the banners. The event feed carried them from
+    # the day it was written and the tournament feed did not, so a sponsor
+    # wall existed for one kind of thing V-ENT runs and not the other.
+    sponsors = [
+        {'name': s.name, 'logo': _url(request, s.logo), 'website': s.website or ''}
+        for s in tournament.sponsors.all()
+    ]
+
     return Response({'status': 'success', 'data': {
         'tournament': {
             'title': tournament.tournament_title,
@@ -216,6 +224,7 @@ def overlay_feed(request, tournament_id):
         },
         'teams': teams,
         'live': live,
+        'sponsors': sponsors,
         # What a polling overlay compares to know whether to redraw. Cheaper
         # than diffing the whole payload, and it is the only thing an overlay
         # running for six hours on a hotspot should have to think about.
