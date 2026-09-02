@@ -120,7 +120,25 @@ def _version(session, elements):
 
 
 def _session_payload(session, request):
-    base = request.build_absolute_uri('/studio/%s' % session.token)
+    # The element pages are FRONTEND routes and the feed is an API route, so
+    # they do not share a host and cannot share a base.
+    #
+    # `request.build_absolute_uri` builds against the host that made the
+    # request, which is always the API, because it is the frontend calling it.
+    # So every URL an organiser copied read
+    #
+    #     https://api.v-ent.co/studio/<token>/scorebar/
+    #
+    # which 404s. There is no such Django route; `/studio/<token>/feed/` is the
+    # only thing under that prefix on the API. Pasted into OBS it gives a blank
+    # browser source, and the one thing this whole feature exists to produce
+    # was unusable. Nothing reported it: the endpoint answered 200 with a
+    # perfectly well-formed URL to a page that does not exist.
+    from django.conf import settings
+
+    frontend = str(getattr(settings, 'FRONTEND_URL', '') or '').rstrip('/')
+    page_base = '%s/studio/%s' % (frontend, session.token)
+    feed_base = request.build_absolute_uri('/studio/%s' % session.token)
     elements = _element_state(session)
     return {
         'id': session.id,
@@ -134,8 +152,8 @@ def _session_payload(session, request):
             'slug': session.tournament.slug,
         },
         # The whole reason the feature exists: URLs somebody can paste.
-        'urls': {kind: '%s/%s/' % (base, kind) for kind in KINDS},
-        'feed': '%s/feed/' % base,
+        'urls': {kind: '%s/%s' % (page_base, kind) for kind in KINDS},
+        'feed': '%s/feed/' % feed_base,
         'elements': elements,
         'version': _version(session, elements),
     }
