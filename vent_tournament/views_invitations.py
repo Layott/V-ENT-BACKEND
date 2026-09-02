@@ -134,7 +134,7 @@ def invitations(request, tournament_id):
                       status.HTTP_401_UNAUTHORIZED)
     if not _may_manage(user, tournament):
         return _error('Only the organiser can see or send invitations.',
-                      'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
+                      'NOT_TOURNAMENT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
     if request.method == 'GET':
         rows = (TournamentInvitation.objects
@@ -207,7 +207,7 @@ def invitation_detail(request, tournament_id, invitation_id):
     user = _viewer(request)
     if not _may_manage(user, tournament):
         return _error('Only the organiser can withdraw an invitation.',
-                      'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
+                      'NOT_TOURNAMENT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
     invitation = TournamentInvitation.objects.filter(
         tournament=tournament, pk=invitation_id).first()
