@@ -28,6 +28,17 @@ from . import views_requirements
 from . import views_stages
 from . import views_rules
 
+# Every tournament route takes `<str:tournament_id>` and resolves a slug or an
+# id through `lookup.find`. Twenty-six of them used to take `<int:>`, which does
+# not match a slug, and the console addresses tournaments by slug because the
+# slug rule says no numeric id appears in an address a person can see.
+#
+# Django answered 404, and the frontend reads a 404 as "the backend has not
+# shipped this endpoint yet", so the organiser was shown "Pending BE deploy" for
+# Cancel & Refund on a feature that had worked for months.
+#
+# Slug or id, everywhere. A route that takes only one of the two is a route half
+# the product cannot call.
 urlpatterns = [
     # The production studio. Operator side is tournament-scoped and signed in;
     # the browser-source side is token-scoped and public, mounted at the root.
@@ -44,11 +55,11 @@ urlpatterns = [
     path('formats/', views_formats.format_catalogue, name='tournament_formats'),
     path('rule-presets/', views_rules.rule_presets, name='rule_presets'),
     # The organiser's own rules: read them, change them, put them back.
-    path('<int:tournament_id>/rules/', views_rules.tournament_rules, name='tournament_rules'),
+    path('<str:tournament_id>/rules/', views_rules.tournament_rules, name='tournament_rules'),
     # Who may enter, what they still owe, and the queue of what a person checks.
-    path('<int:tournament_id>/stages/', views_stages.tournament_stages, name='tournament_stages'),
-    path('<int:tournament_id>/stages/set/', views_stages.set_stages, name='set_stages'),
-    path('<int:tournament_id>/stages/<int:stage_id>/advance/', views_stages.advance_stage, name='advance_stage'),
+    path('<str:tournament_id>/stages/', views_stages.tournament_stages, name='tournament_stages'),
+    path('<str:tournament_id>/stages/set/', views_stages.set_stages, name='set_stages'),
+    path('<str:tournament_id>/stages/<int:stage_id>/advance/', views_stages.advance_stage, name='advance_stage'),
     # Short addresses for a tournament, the same mechanism the events side
     # uses. By slug as well as id, because this is reached from the share
     # dialog on a page addressed by name.
@@ -66,14 +77,14 @@ urlpatterns = [
     path('<str:tournament_id>/short-links/<int:link_id>/',
          short_link_views.delete_tournament_short_link,
          name='delete_tournament_short_link'),
-    path('<int:tournament_id>/requirements/', views_requirements.entry_requirements, name='entry_requirements'),
-    path('<int:tournament_id>/requirements/set/', views_requirements.set_entry_requirements, name='set_entry_requirements'),
-    path('<int:tournament_id>/requirements/mine/', views_requirements.my_entry_status, name='my_entry_status'),
-    path('<int:tournament_id>/requirements/<int:requirement_id>/submit/', views_requirements.submit_requirement, name='submit_requirement'),
-    path('<int:tournament_id>/requirements/queue/', views_requirements.review_queue, name='requirement_queue'),
-    path('<int:tournament_id>/requirements/queue/<int:submission_id>/', views_requirements.review_submission, name='review_submission'),
-    path('<int:tournament_id>/rules/set/', views_rules.set_tournament_rules, name='set_tournament_rules'),
-    path('<int:tournament_id>/rules/reset/', views_rules.reset_tournament_rules, name='reset_tournament_rules'),
+    path('<str:tournament_id>/requirements/', views_requirements.entry_requirements, name='entry_requirements'),
+    path('<str:tournament_id>/requirements/set/', views_requirements.set_entry_requirements, name='set_entry_requirements'),
+    path('<str:tournament_id>/requirements/mine/', views_requirements.my_entry_status, name='my_entry_status'),
+    path('<str:tournament_id>/requirements/<int:requirement_id>/submit/', views_requirements.submit_requirement, name='submit_requirement'),
+    path('<str:tournament_id>/requirements/queue/', views_requirements.review_queue, name='requirement_queue'),
+    path('<str:tournament_id>/requirements/queue/<int:submission_id>/', views_requirements.review_submission, name='review_submission'),
+    path('<str:tournament_id>/rules/set/', views_rules.set_tournament_rules, name='set_tournament_rules'),
+    path('<str:tournament_id>/rules/reset/', views_rules.reset_tournament_rules, name='reset_tournament_rules'),
     path('games/<int:game_id>/modes/', views_formats.game_modes, name='game_modes'),
     path('prize-rates/', prize_rates, name='prize_rates'),
     path("create-tournament/", create_tournament, name="create_tournament"),
@@ -83,17 +94,17 @@ urlpatterns = [
     path("get-all-tournaments/", get_all_tournaments, name="get_all_tournaments"),
     path("view-tournament/<str:tournament_id>/", view_tournament, name="view_tournament"),
     path("view-user-drafted-tournaments/", view_user_drafted_tournaments, name="view_user_drafted_tournaments"),
-    path("get-tournament-brackets/<int:tournament_id>/", get_tournament_brackets, name="get_tournament_brackets"),
-    path("get-tournament-participants/<int:tournament_id>/", get_tournament_participants, name="get_tournament_participants"),
-    path("update-bracket/<int:tournament_id>/", update_bracket, name="update_bracket"),
+    path("get-tournament-brackets/<str:tournament_id>/", get_tournament_brackets, name="get_tournament_brackets"),
+    path("get-tournament-participants/<str:tournament_id>/", get_tournament_participants, name="get_tournament_participants"),
+    path("update-bracket/<str:tournament_id>/", update_bracket, name="update_bracket"),
     path("get-organizer-tournaments/", get_organizer_tournaments, name="get_organizer_tournaments"),
-    path("delete-draft/<int:tournament_id>/", delete_draft, name="delete_draft"),
-    path("edit-tournament/<int:tournament_id>/", edit_tournament, name="edit_tournament"),
+    path("delete-draft/<str:tournament_id>/", delete_draft, name="delete_draft"),
+    path("edit-tournament/<str:tournament_id>/", edit_tournament, name="edit_tournament"),
 
     # --- M1 lifecycle endpoints ------------------------------------------
-    path("<int:tournament_id>/generate-bracket/", generate_bracket, name="generate_bracket"),
-    path("<int:tournament_id>/distribute-prizes/", distribute_prizes, name="distribute_prizes"),
-    path("<int:tournament_id>/cancel/", cancel_tournament, name="cancel_tournament"),
+    path("<str:tournament_id>/generate-bracket/", generate_bracket, name="generate_bracket"),
+    path("<str:tournament_id>/distribute-prizes/", distribute_prizes, name="distribute_prizes"),
+    path("<str:tournament_id>/cancel/", cancel_tournament, name="cancel_tournament"),
     path("match/<int:match_id>/", match_detail, name="match_detail"),
     path("match/<int:match_id>/report-score/", report_match_score, name="report_match_score"),
     path("match/<int:match_id>/confirm-score/", confirm_match_score, name="confirm_match_score"),
@@ -102,15 +113,15 @@ urlpatterns = [
     path("my-disputes/", my_disputes, name="my_disputes"),
 
     # --- check-in ---------------------------------------------------------
-    path("<int:tournament_id>/check-in/", check_in, name="check_in"),
-    path("<int:tournament_id>/check-in/status/", check_in_status, name="check_in_status"),
-    path("<int:tournament_id>/close-check-in/", close_check_in, name="close_check_in"),
-    path("<int:tournament_id>/extend-check-in/", extend_check_in, name="extend_check_in"),
+    path("<str:tournament_id>/check-in/", check_in, name="check_in"),
+    path("<str:tournament_id>/check-in/status/", check_in_status, name="check_in_status"),
+    path("<str:tournament_id>/close-check-in/", close_check_in, name="close_check_in"),
+    path("<str:tournament_id>/extend-check-in/", extend_check_in, name="extend_check_in"),
 
     # --- league: both tables, and the games inside a tie ------------------
     # Public, because a league table is the most shareable thing a tournament
     # produces and putting it behind a sign-in keeps the competition invisible.
-    path("<int:tournament_id>/standings/", standings, name="tournament_standings"),
+    path("<str:tournament_id>/standings/", standings, name="tournament_standings"),
     path("<str:tournament_id>/export/", views_export.export_tournament,
          name="tournament_export"),
     # Telling entrants what they have to do, before they miss it.
@@ -167,5 +178,5 @@ urlpatterns = [
          views_overlays.rotate, name="tournament_overlay_rotate"),
     path("tie/<int:tie_id>/", tie_detail, name="tie_detail"),
     path("tie/<int:tie_id>/record/", record_fixture, name="record_tie_fixture"),
-    path("<int:tournament_id>/league-rules/", set_league_rules, name="set_league_rules"),
+    path("<str:tournament_id>/league-rules/", set_league_rules, name="set_league_rules"),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

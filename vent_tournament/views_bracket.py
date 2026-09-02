@@ -23,6 +23,8 @@ from .services import prizes as prize_service
 from .services import wallet as wallet_service
 from vent_auth.models import Users
 
+from . import lookup
+
 SESSION_TIMEOUT = timedelta(minutes=session_timeout_minutes())
 
 
@@ -134,7 +136,7 @@ def generate_bracket(request, tournament_id):
     if err:
         return err
 
-    tournament = get_object_or_404(Tournament, tournament_id=tournament_id)
+    tournament = lookup.find(tournament_id)
 
     if tournament.tournament_creator_id != user.user_id:
         return _err('Only the tournament organizer can generate the bracket', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
@@ -477,7 +479,7 @@ def distribute_prizes(request, tournament_id):
     if err:
         return err
 
-    tournament = get_object_or_404(Tournament, tournament_id=tournament_id)
+    tournament = lookup.find(tournament_id)
     is_creator = tournament.tournament_creator_id == user.user_id
     if not is_creator and not user.is_staff:
         return _err('Only the organizer or an admin can distribute prizes', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
@@ -515,7 +517,7 @@ def cancel_tournament(request, tournament_id):
     if err:
         return err
 
-    tournament = get_object_or_404(Tournament, tournament_id=tournament_id)
+    tournament = lookup.find(tournament_id)
     if tournament.tournament_creator_id != user.user_id:
         return _err('Only the organizer can cancel this tournament', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
     if tournament.status in ('completed', 'cancelled'):

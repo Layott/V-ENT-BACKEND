@@ -29,6 +29,8 @@ from vent_auth.views_profile import _user_from_bearer
 from . import options as tournament_options
 from .models import Tournament, TournamentRegistration
 
+from . import lookup
+
 
 def _ok(data, message='OK'):
     return Response({'status': 'success', 'data': data, 'message': message}, status=status.HTTP_200_OK)
@@ -66,7 +68,7 @@ def check_in_status(request, tournament_id):
     if err:
         return err
 
-    tournament = Tournament.objects.filter(tournament_id=tournament_id).first()
+    tournament = lookup.find(tournament_id)
     if tournament is None:
         return _err('No such tournament.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
@@ -111,7 +113,7 @@ def check_in(request, tournament_id):
     if err:
         return err
 
-    tournament = Tournament.objects.filter(tournament_id=tournament_id).first()
+    tournament = lookup.find(tournament_id)
     if tournament is None:
         return _err('No such tournament.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
@@ -160,7 +162,7 @@ def close_check_in(request, tournament_id):
     if err:
         return err
 
-    tournament = Tournament.objects.filter(tournament_id=tournament_id).first()
+    tournament = lookup.find(tournament_id)
     if tournament is None:
         return _err('No such tournament.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
@@ -245,7 +247,7 @@ def extend_check_in(request, tournament_id):
     if err:
         return err
 
-    tournament = Tournament.objects.filter(tournament_id=tournament_id).first()
+    tournament = lookup.find(tournament_id)
     if tournament is None:
         return _err('No such tournament.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 

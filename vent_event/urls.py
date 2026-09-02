@@ -149,6 +149,6 @@ urlpatterns = [
     path("<str:event_id>/linkable-tournaments/", linkable_tournaments, name="linkable_tournaments"),
     path("<str:event_id>/link-tournament/", link_tournament, name="link_tournament"),
     path("<str:event_id>/unlink-tournament/", unlink_tournament, name="unlink_tournament"),
-    path("<str:event_id>/tournament/<int:tournament_id>/ticketing/", set_shared_ticketing,
+    path("<str:event_id>/tournament/<str:tournament_id>/ticketing/", set_shared_ticketing,
          name="set_shared_ticketing"),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

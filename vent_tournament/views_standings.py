@@ -62,7 +62,7 @@ def standings(request, tournament_id):
     and putting it behind a sign-in is how a competition stays invisible.
     """
     try:
-        tournament = Tournament.objects.get(pk=tournament_id)
+        tournament = lookup.find(tournament_id)
     except Tournament.DoesNotExist:
         return _err('Tournament not found', 'TOURNAMENT_NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
@@ -212,7 +212,7 @@ def set_league_rules(request, tournament_id):
     the format depends on unreachable by the person running it.
     """
     try:
-        tournament = Tournament.objects.get(pk=tournament_id)
+        tournament = lookup.find(tournament_id)
     except Tournament.DoesNotExist:
         return _err('Tournament not found', 'TOURNAMENT_NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
@@ -257,6 +257,8 @@ def set_league_rules(request, tournament_id):
 # ---------------------------------------------------------------------------
 
 from . import league_stats as _stats
+
+from . import lookup
 
 
 def _stat_choices():
@@ -313,7 +315,7 @@ def _stat_choices():
 def stat_settings(request, tournament_id):
     """GET/POST /tournament/<id>/stat-settings/"""
     try:
-        tournament = Tournament.objects.get(pk=tournament_id)
+        tournament = lookup.find(tournament_id)
     except Tournament.DoesNotExist:
         return _err('Tournament not found', 'TOURNAMENT_NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)
@@ -353,7 +355,7 @@ def league_adjustment(request, tournament_id):
     single adjustment row: "Stood up mid match and quit, decided to leave."
     """
     try:
-        tournament = Tournament.objects.get(pk=tournament_id)
+        tournament = lookup.find(tournament_id)
     except Tournament.DoesNotExist:
         return _err('Tournament not found', 'TOURNAMENT_NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)
@@ -395,7 +397,7 @@ def league_adjustment(request, tournament_id):
 def head_to_head(request, tournament_id):
     """GET /tournament/<id>/head-to-head/?a=&b="""
     try:
-        tournament = Tournament.objects.get(pk=tournament_id)
+        tournament = lookup.find(tournament_id)
     except Tournament.DoesNotExist:
         return _err('Tournament not found', 'TOURNAMENT_NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)

@@ -15,6 +15,8 @@ from vent_auth.actors import actor_from_request, may_override
 from . import formats, stages
 from .models import Tournament, TournamentStage
 
+from . import lookup
+
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
     return Response({'status': 'success', 'data': data, 'message': message},
@@ -57,7 +59,7 @@ def tournament_stages(request, tournament_id):
     Public: the shape of an event is the first thing somebody deciding whether
     to enter wants to know, and none of it is private.
     """
-    tournament = Tournament.objects.filter(pk=tournament_id).first()
+    tournament = lookup.find(tournament_id)
     if tournament is None:
         return _err('No such tournament.', 'TOURNAMENT_NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)
@@ -85,7 +87,7 @@ def set_stages(request, tournament_id):
     if err:
         return err
 
-    tournament = Tournament.objects.filter(pk=tournament_id).first()
+    tournament = lookup.find(tournament_id)
     if tournament is None:
         return _err('No such tournament.', 'TOURNAMENT_NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)
@@ -137,7 +139,7 @@ def advance_stage(request, tournament_id, stage_id):
     if err:
         return err
 
-    tournament = Tournament.objects.filter(pk=tournament_id).first()
+    tournament = lookup.find(tournament_id)
     if tournament is None:
         return _err('No such tournament.', 'TOURNAMENT_NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)
