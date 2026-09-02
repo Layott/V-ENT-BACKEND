@@ -80,8 +80,20 @@ def standings(request, tournament_id):
             'players_per_team': rules.players_per_team,
         },
         # Both, always. A team competition is also an individual one.
-        'team_table': league.team_table(tournament),
-        'player_table': league.player_table(tournament),
+        #
+        # The full tables: the same rows as before with the rest of what a
+        # league keeps merged on - clean sheets, averages, win rate, biggest
+        # win and loss, walkovers both ways, points per game and form. Merged
+        # rather than served from a second endpoint, because two tables about
+        # one fixture list is how they start disagreeing on screen.
+        'team_table': league.team_table_full(tournament),
+        'player_table': league.player_table_full(tournament),
+        # How the metrics with more than one defensible definition are being
+        # worked out, and what each choice means, so the page never keeps its
+        # own copy of the list.
+        'stat_settings': league.stat_settings(tournament),
+        'stat_choices': _stat_choices(),
+        'adjustments': (tournament.options or {}).get('league_adjustments') or [],
     }, 'Standings')
 
 
@@ -238,3 +250,161 @@ def set_league_rules(request, tournament_id):
         'tiebreakers': rules.ordered_tiebreakers(),
         'players_per_team': rules.players_per_team,
     }, 'Rules saved')
+
+
+# ---------------------------------------------------------------------------
+# How the league is worked out, and corrections to it
+# ---------------------------------------------------------------------------
+
+from . import league_stats as _stats
+
+
+def _stat_choices():
+    """The settings with more than one defensible answer, and what each does.
+
+    Only these. A metric with one correct definition is not a choice, and
+    offering one is noise. Noise in a settings screen is how the real settings
+    stop being read.
+    """
+    return [
+        {'key': 'walkover_goals_count', 'type': 'boolean',
+         'label': 'Walkover goals count towards goal difference',
+         'detail': 'A walkover records a scoreline nobody played. Counting it '
+                   'lets a no-show move a goal difference that may decide the '
+                   'title.'},
+        {'key': 'walkover_counts_as_played', 'type': 'boolean',
+         'label': 'A walkover counts as a match played',
+         'detail': 'Changes every average, and points per game.'},
+        {'key': 'clean_sheet_includes_walkover', 'type': 'boolean',
+         'label': 'A walkover can be a clean sheet',
+         'detail': 'Off if a clean sheet is something you earn on the pitch.'},
+        {'key': 'win_rate_method', 'type': 'choice',
+         'label': 'How win rate is worked out',
+         'detail': 'Wins over games played, or a draw counting half. The '
+                   'second changes who leads a tight table.',
+         'options': [
+             {'value': _stats.WIN_RATE_WINS, 'label': 'Wins only'},
+             {'value': _stats.WIN_RATE_WITH_DRAWS, 'label': 'A draw counts half'},
+         ]},
+        {'key': 'biggest_win_method', 'type': 'choice',
+         'label': 'What counts as a bigger win',
+         'detail': 'By margin, or by how many were scored. A 9-2 and an 8-0 '
+                   'are a different answer depending which you mean.',
+         'options': [
+             {'value': _stats.BIGGEST_BY_MARGIN, 'label': 'The margin'},
+             {'value': _stats.BIGGEST_BY_GOALS, 'label': 'Goals scored'},
+         ]},
+        {'key': 'form_window', 'type': 'number',
+         'label': 'How many recent matches make up form',
+         'detail': 'Form is scored out of what a perfect run over that many '
+                   'is worth, rather than a fixed 15.'},
+        {'key': 'walkover_points_winner', 'type': 'number',
+         'label': 'Points to whoever was left waiting'},
+        {'key': 'walkover_points_loser', 'type': 'number',
+         'label': 'Points to whoever did not turn up'},
+        {'key': 'walkover_goals_winner', 'type': 'number',
+         'label': 'Goals recorded for the winner of a walkover'},
+        {'key': 'walkover_goals_loser', 'type': 'number',
+         'label': 'Goals recorded against them'},
+    ]
+
+
+@api_view(['GET', 'POST'])
+def stat_settings(request, tournament_id):
+    """GET/POST /tournament/<id>/stat-settings/"""
+    try:
+        tournament = Tournament.objects.get(pk=tournament_id)
+    except Tournament.DoesNotExist:
+        return _err('Tournament not found', 'TOURNAMENT_NOT_FOUND',
+                    status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        return _ok({'settings': league.stat_settings(tournament),
+                    'defaults': dict(_stats.DEFAULTS),
+                    'choices': _stat_choices()}, 'Scoring')
+
+    _user, err = _organiser_or_admin(request, tournament)
+    if err:
+        return err
+
+    stored = dict((tournament.options or {}).get('league_stats') or {})
+    stored.update(request.data or {})
+    settings, errors = _stats.clean_settings(stored)
+    if errors:
+        # Named, not defaulted. Substituting a rule the organiser did not
+        # choose is how a league runs differently from how it was announced.
+        return _err(errors[0], 'INVALID_LEAGUE_SETTING')
+
+    options = dict(tournament.options or {})
+    options['league_stats'] = settings
+    tournament.options = options
+    tournament.save(update_fields=['options'])
+    return _ok({'settings': league.stat_settings(tournament)}, 'Scoring saved.')
+
+
+@api_view(['POST'])
+def league_adjustment(request, tournament_id):
+    """POST /tournament/<id>/league-adjustment/
+
+    A deduction or award against one entrant's one metric, with the reason.
+
+    The reason is required. A points deduction is a decision somebody has to
+    defend weeks later, and the spreadsheet this came from records one on its
+    single adjustment row: "Stood up mid match and quit, decided to leave."
+    """
+    try:
+        tournament = Tournament.objects.get(pk=tournament_id)
+    except Tournament.DoesNotExist:
+        return _err('Tournament not found', 'TOURNAMENT_NOT_FOUND',
+                    status.HTTP_404_NOT_FOUND)
+
+    user, err = _organiser_or_admin(request, tournament)
+    if err:
+        return err
+
+    player = str(request.data.get('player') or '').strip()
+    metric = str(request.data.get('metric') or '').strip().upper()
+    reason = str(request.data.get('reason') or '').strip()
+
+    if not player:
+        return _err('Say who this is about.', 'VALIDATION_FAILED')
+    if metric not in _stats.ADJUSTABLE:
+        return _err('That is not something that can be adjusted.',
+                    'INVALID_METRIC')
+    if not reason:
+        return _err('An adjustment needs a reason.', 'REASON_REQUIRED')
+    try:
+        value = int(request.data.get('value'))
+    except (TypeError, ValueError):
+        return _err('The amount has to be a whole number.', 'VALIDATION_FAILED')
+    if value == 0:
+        return _err('An adjustment of nothing is not an adjustment.',
+                    'VALIDATION_FAILED')
+
+    options = dict(tournament.options or {})
+    rows = list(options.get('league_adjustments') or [])
+    rows.append({'player': player, 'metric': metric, 'value': value,
+                 'reason': reason[:200], 'by': user.username})
+    options['league_adjustments'] = rows
+    tournament.options = options
+    tournament.save(update_fields=['options'])
+    return _ok({'adjustments': rows}, 'Adjustment recorded.')
+
+
+@api_view(['GET'])
+def head_to_head(request, tournament_id):
+    """GET /tournament/<id>/head-to-head/?a=&b="""
+    try:
+        tournament = Tournament.objects.get(pk=tournament_id)
+    except Tournament.DoesNotExist:
+        return _err('Tournament not found', 'TOURNAMENT_NOT_FOUND',
+                    status.HTTP_404_NOT_FOUND)
+
+    first = str(request.GET.get('a') or '').strip()
+    second = str(request.GET.get('b') or '').strip()
+    if not first or not second:
+        return _err('Name both.', 'VALIDATION_FAILED')
+    if first == second:
+        return _err('That is the same person twice.', 'VALIDATION_FAILED')
+
+    return _ok(league.head_to_head(tournament, first, second), 'Head to head')

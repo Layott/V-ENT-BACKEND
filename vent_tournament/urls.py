@@ -12,6 +12,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 from . import views_formats
+from . import views_standings as standings_views
 from vent_event import views_short_links as short_link_views
 from . import views_running_order
 from . import views_access
@@ -51,6 +52,15 @@ urlpatterns = [
     # Short addresses for a tournament, the same mechanism the events side
     # uses. By slug as well as id, because this is reached from the share
     # dialog on a page addressed by name.
+    # How this league is scored, and corrections to it. The table itself is
+    # already served by the existing standings endpoint, now carrying the rest
+    # of the columns rather than a second endpoint beside it.
+    path('<str:tournament_id>/stat-settings/', standings_views.stat_settings,
+         name='tournament_stat_settings'),
+    path('<str:tournament_id>/league-adjustment/', standings_views.league_adjustment,
+         name='tournament_league_adjustment'),
+    path('<str:tournament_id>/head-to-head/', standings_views.head_to_head,
+         name='tournament_head_to_head'),
     path('<str:tournament_id>/short-links/', short_link_views.tournament_short_links,
          name='tournament_short_links'),
     path('<str:tournament_id>/short-links/<int:link_id>/',
