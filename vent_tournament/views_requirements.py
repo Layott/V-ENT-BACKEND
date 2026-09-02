@@ -22,6 +22,8 @@ from . import partner_check
 from . import requirements as req
 from .models import EntryRequirement, EntrySubmission, Tournament
 
+from . import lookup
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,7 +53,7 @@ def _row(requirement):
 
 
 def _tournament_or_none(tournament_id):
-    return Tournament.objects.filter(pk=tournament_id).first()
+    return lookup.find(tournament_id)
 
 
 def _may_manage(user, tournament):

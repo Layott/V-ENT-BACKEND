@@ -264,7 +264,9 @@ def link_tournament(request, event_id):
     if not tournament_id:
         return _error('tournament_id is required.', 'VALIDATION_FAILED', status.HTTP_400_BAD_REQUEST)
 
-    tournament = Tournament.objects.filter(tournament_id=tournament_id).first()
+    from vent_tournament import lookup
+
+    tournament = lookup.find(tournament_id)
     if tournament is None:
         return _error('Tournament not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if tournament.tournament_creator_id != user.user_id:
@@ -307,12 +309,16 @@ def unlink_tournament(request, event_id):
     if not tournament_id:
         return _error('tournament_id is required.', 'VALIDATION_FAILED', status.HTTP_400_BAD_REQUEST)
 
-    link = EventTournamentLink.objects.filter(event=event, tournament_id=tournament_id).first()
+    from vent_tournament import lookup
+
+    tournament = lookup.find(tournament_id)
+    link = (EventTournamentLink.objects.filter(event=event, tournament=tournament).first()
+            if tournament is not None else None)
     if link is None:
         return _error('That tournament is not linked to this event.',
                       'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     link.delete()
-    return _ok({'tournament_id': int(tournament_id)}, 'Tournament unlinked.')
+    return _ok({'tournament_id': tournament.tournament_id}, 'Tournament unlinked.')
 
 
 @api_view(['POST'])

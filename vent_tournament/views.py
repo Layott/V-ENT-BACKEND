@@ -343,7 +343,9 @@ def join_tournament(request):
         if not tournament_id:
             return Response({ 'code': 'TOURNAMENT_ID_REQUIRED','status': 'error', 'message': 'tournament_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        tournament = get_object_or_404(Tournament, tournament_id=tournament_id, is_draft=False)
+        tournament = lookup.find(tournament_id)
+        if tournament is None or tournament.is_draft:
+            raise Http404('No such tournament.')
 
         # Enforce access type
         # The create wizard sends access as 'teams'/'individuals'/'both';
@@ -1656,7 +1658,9 @@ def view_user_drafted_tournaments(request):
 def get_tournament_participants(request, tournament_id):
     """GET /tournament/get-tournament-participants/{id}/ - registered participants tab."""
     try:
-        tournament = get_object_or_404(Tournament, tournament_id=tournament_id, is_draft=False)
+        tournament = lookup.find(tournament_id)
+        if tournament is None or tournament.is_draft:
+            raise Http404('No such tournament.')
 
         registrations = (
             tournament.registrations
@@ -1744,7 +1748,9 @@ def update_bracket(request, tournament_id):
         if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
             return Response({ 'code': 'SESSION_TOKEN_EXPIRED','status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
 
-        tournament = get_object_or_404(Tournament, tournament_id=tournament_id, is_draft=False)
+        tournament = lookup.find(tournament_id)
+        if tournament is None or tournament.is_draft:
+            raise Http404('No such tournament.')
 
         if tournament.tournament_creator_id != user.user_id:
             return Response({ 'code': 'ONLY_ORGANIZER_CAN_UPDATE_BRACKETS','status': 'error', 'message': 'Only the tournament organizer can update brackets'}, status=status.HTTP_403_FORBIDDEN)
@@ -1849,7 +1855,9 @@ def delete_draft(request, tournament_id):
         if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
             return Response({ 'code': 'SESSION_TOKEN_EXPIRED','status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
 
-        tournament = get_object_or_404(Tournament, tournament_id=tournament_id, tournament_creator=user)
+        tournament = lookup.find(tournament_id)
+        if tournament is None or tournament.tournament_creator_id != user.user_id:
+            raise Http404('No such tournament.')
 
         if not tournament.is_draft:
             return Response(
@@ -1871,6 +1879,8 @@ def delete_draft(request, tournament_id):
 # disagreeing about who is signed in. The local names are kept so the call sites
 # below read the same as before.
 from vent_auth.actors import actor_from_request as _actor_from_request
+
+from . import lookup
 
 
 def _may_override(user):
@@ -1897,7 +1907,7 @@ def edit_tournament(request, tournament_id):
         if auth_error is not None:
             return auth_error
 
-        tournament = get_object_or_404(Tournament, tournament_id=tournament_id)
+        tournament = lookup.find(tournament_id)
 
         # The organiser, or an admin overruling them. Same path, same fields,
         # same validation: an admin edit that went through a separate endpoint
@@ -2327,7 +2337,9 @@ def edit_tournament(request, tournament_id):
 def get_tournament_brackets(request, tournament_id):
     """Return the bracket structure for a tournament, grouped by round."""
     try:
-        tournament = get_object_or_404(Tournament, tournament_id=tournament_id, is_draft=False)
+        tournament = lookup.find(tournament_id)
+        if tournament is None or tournament.is_draft:
+            raise Http404('No such tournament.')
 
         matches = (
             tournament.bracket_matches

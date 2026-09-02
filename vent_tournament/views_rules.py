@@ -20,6 +20,8 @@ from . import formats as fmt
 from . import rules as rules_mod
 from .models import BracketMatch, Tournament, TournamentRuleset
 
+from . import lookup
+
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
     return Response({'status': 'success', 'data': data, 'message': message},
@@ -102,7 +104,7 @@ def tournament_rules(request, tournament_id):
     Public, because a player deciding whether to enter should be able to read
     what a win is worth before they pay an entry fee.
     """
-    tournament = Tournament.objects.filter(pk=tournament_id).first()
+    tournament = lookup.find(tournament_id)
     if tournament is None:
         return _err('No such tournament.', 'TOURNAMENT_NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)
@@ -116,7 +118,7 @@ def set_tournament_rules(request, tournament_id):
     if err:
         return err
 
-    tournament = Tournament.objects.filter(pk=tournament_id).first()
+    tournament = lookup.find(tournament_id)
     if tournament is None:
         return _err('No such tournament.', 'TOURNAMENT_NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)
@@ -161,7 +163,7 @@ def reset_tournament_rules(request, tournament_id):
     if err:
         return err
 
-    tournament = Tournament.objects.filter(pk=tournament_id).first()
+    tournament = lookup.find(tournament_id)
     if tournament is None:
         return _err('No such tournament.', 'TOURNAMENT_NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)
