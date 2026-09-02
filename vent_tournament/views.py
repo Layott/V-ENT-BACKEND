@@ -20,6 +20,7 @@ from rest_framework.permissions import AllowAny
 from django.db import transaction as db_transaction
 from .money import CURRENCIES, from_coins, rates, to_coins
 from . import options as tournament_options
+from django.contrib.contenttypes.models import ContentType
 from vent_auth.models import Organization
 from django.utils import timezone
 from rest_framework.decorators import api_view
@@ -2045,6 +2046,144 @@ def edit_tournament(request, tournament_id):
                 }, status=status.HTTP_400_BAD_REQUEST)
             tournament.score_confirmation_mode = mode
             updated_fields.append('score_confirmation_mode')
+
+        # ------------------------------------------------------------------
+        # What the CREATE WIZARD sends, which this endpoint used to ignore.
+        #
+        # Continuing a draft PUTs to here, and the wizard speaks a different
+        # vocabulary from the columns: it sends min/max_number_of_participants
+        # where the model has min/max_number_of_teams, and it sends sponsors,
+        # prizes, options and the league points as JSON blobs. `create` maps
+        # all of that; this endpoint mapped none of it.
+        #
+        # The result, reported by the CEO: "i set this event to 5 teams and 2
+        # players per team and it still shows 0/32 slots ... the settings are
+        # completely different from what was set, even sponsors i removed all
+        # and it still shows the same." Everything the organiser changed after
+        # the first save was silently dropped. Eight fields in total.
+        # ------------------------------------------------------------------
+
+        # The wizard's word for the slot count. Sent as *_participants; the
+        # columns are *_teams, and player_size is the same number again.
+        for sent, columns in (
+            ('max_number_of_participants',
+             ('max_number_of_teams', 'player_size')),
+            ('min_number_of_participants', ('min_number_of_teams',)),
+        ):
+            if sent not in request.data:
+                continue
+            raw = request.data.get(sent)
+            if raw in (None, ''):
+                continue
+            try:
+                value = int(raw)
+            except (TypeError, ValueError):
+                return Response({
+                    'status': 'error', 'code': 'INVALID_NUMBER', 'field': sent,
+                    'message': '%s has to be a number.' % sent,
+                }, status=status.HTTP_400_BAD_REQUEST)
+            if value < 0:
+                return Response({
+                    'status': 'error', 'code': 'INVALID_NUMBER', 'field': sent,
+                    'message': '%s cannot be negative.' % sent,
+                }, status=status.HTTP_400_BAD_REQUEST)
+            for column in columns:
+                setattr(tournament, column, value)
+                updated_fields.append(column)
+
+        # The 22 organiser settings. clean() drops unknown keys and clamps the
+        # numbers, so what is stored is always a whole valid object.
+        if 'options' in request.data:
+            raw_options = request.data.get('options')
+            if isinstance(raw_options, str):
+                try:
+                    raw_options = json.loads(raw_options) if raw_options.strip() else {}
+                except (json.JSONDecodeError, ValueError):
+                    raw_options = {}
+            if isinstance(raw_options, dict):
+                # Merged onto what is stored, never replacing it. The wizard
+                # sends the whole object so either would do there, but a caller
+                # changing one setting must not wipe the twenty-one it did not
+                # mention. clean() runs over the merged result, so what is
+                # stored is still a whole valid object.
+                merged = dict(tournament.options or {})
+                merged.update(raw_options)
+                tournament.options = tournament_options.clean(merged)
+                updated_fields.append('options')
+
+        # The league points and seat count, for the formats that have them.
+        if _wants_league(tournament.bracket_type):
+            league = _league_settings(request.data, tournament.team_size or 1)
+            merged = dict(tournament.options or {})
+            merged.update(league)
+            tournament.options = merged
+            if 'options' not in updated_fields:
+                updated_fields.append('options')
+
+        # Sponsors, replaced wholesale rather than added to.
+        #
+        # The wizard sends the complete list every time, so the list it sends
+        # IS the answer: anything absent has been removed. Adding to the set
+        # instead is why "i removed all and it still shows the same" - the
+        # organiser deleted MTN, the wizard sent an empty list, and nothing
+        # read it, so MTN stayed for ever with no way to shift it.
+        #
+        # Guarded by the key being present: a caller editing only the title
+        # must not wipe the sponsors by not mentioning them.
+        if 'sponsor_names' in request.data:
+            names = _parse_sponsor_list(request.data, 'sponsor_names')
+            types = _parse_sponsor_list(request.data, 'sponsor_types')
+            usernames = _parse_sponsor_list(request.data, 'sponsor_usernames')
+            logos = request.FILES.getlist('sponsor_logos')
+
+            tournament.sponsors.clear()
+            for index, raw_name in enumerate(names):
+                name = raw_name.strip() if isinstance(raw_name, str) else raw_name
+                if not name:
+                    continue
+                s_type = types[index] if index < len(types) else ''
+                s_type = (s_type or '').strip().lower() if isinstance(s_type, str) else ''
+                username = usernames[index] if index < len(usernames) else ''
+                username = username.strip() if isinstance(username, str) else ''
+                logo = logos[index] if index < len(logos) else None
+                if logo is not None and not getattr(logo, 'size', 0):
+                    logo = None
+
+                sponsor = Sponsors.objects.create(name=name, logo=logo)
+                if username and s_type in ('user', 'team', 'org'):
+                    model = {'user': Users, 'team': Teams, 'org': Organization}[s_type]
+                    field = {'user': 'username', 'team': 'team_name',
+                             'org': 'org_name'}[s_type]
+                    linked = model.objects.filter(**{field: username}).first()
+                    if linked is not None:
+                        sponsor.sponsor_type = ContentType.objects.get_for_model(model)
+                        sponsor.sponsor_id_object = linked.pk
+                        sponsor.save(update_fields=['sponsor_type', 'sponsor_id_object'])
+                tournament.sponsors.add(sponsor)
+
+        # Prize distribution, also a replacement: the wizard sends every row.
+        if 'prize_data' in request.data:
+            prize_data = request.data.get('prize_data') or []
+            if isinstance(prize_data, str):
+                try:
+                    prize_data = json.loads(prize_data) if prize_data.strip() else []
+                except (json.JSONDecodeError, ValueError):
+                    prize_data = []
+            if isinstance(prize_data, list):
+                tournament.prize_distributions.all().delete()
+                for entry in prize_data:
+                    if not isinstance(entry, dict):
+                        continue
+                    try:
+                        position = int(entry.get('position') or 0)
+                        prize = Decimal(str(entry.get('prize') or 0))
+                    except (TypeError, ValueError, InvalidOperation):
+                        continue
+                    if position <= 0:
+                        continue
+                    TournamentPrizeDistribution.objects.create(
+                        tournament=tournament, position=position, prize=prize,
+                        extras=str(entry.get('extras') or '')[:40])
 
         # File fields
         if request.FILES.get('rules_document'):
