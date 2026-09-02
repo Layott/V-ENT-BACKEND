@@ -77,6 +77,15 @@ KINDS = {
         'label': 'Have a profile picture',
         'config': {},
     },
+    'esports_image': {
+        'check': AUTOMATIC,
+        # Not the same thing as a profile picture. This one is a picture the
+        # person has RELEASED for organisers to use on event and tournament
+        # pages, which is what an organiser actually needs for a bracket, a
+        # player card or a broadcast overlay.
+        'label': 'Have released an esports picture',
+        'config': {},
+    },
     'game_account': {
         'check': AUTOMATIC,
         'label': 'Have connected an account for this game',
@@ -257,6 +266,19 @@ def check_automatic(requirement, user, *, tournament=None, team=None):
             return False, 'Add a picture to your profile first.', {
                 'code': 'profile_image', 'params': {}}
 
+    elif kind == 'esports_image':
+        # Both halves, always together. An esports picture with no release is
+        # a picture nobody has granted the organiser anything over, so it does
+        # not satisfy a requirement that exists precisely to obtain that grant.
+        from vent_auth.models import UserGallery
+        released = UserGallery.objects.filter(
+            user=user, kind=UserGallery.KIND_ESPORTS,
+            released_at__isnull=False).exists()
+        if not released:
+            return False, ('Upload an esports picture and release it for '
+                           'organisers before entering.'), {
+                'code': 'esports_image', 'params': {}}
+
     elif kind == 'game_account':
         game = getattr(tournament, 'tournament_game', None)
         if game is None:
@@ -294,7 +316,7 @@ def is_automatic(requirement):
 # rather than once for whoever pressed the button.
 PER_MEMBER = {
     'country', 'min_age', 'verified_email', 'verified_identity',
-    'profile_image', 'game_account', 'game_details',
+    'profile_image', 'esports_image', 'game_account', 'game_details',
 }
 
 
