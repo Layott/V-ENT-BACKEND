@@ -24,12 +24,14 @@ from django.http import HttpResponse
 from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import status
 from rest_framework.decorators import api_view, parser_classes
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
+
+from django.core.files.base import ContentFile
 
 from vent_auth.models import Users
 
-from . import overlay_binding
+from . import overlay_binding, overlay_templates
 from .models import Tournament, TournamentOverlay
 
 #: An overlay is markup. A 5MB one is already unusual; the KON10DR pack reaches
@@ -69,19 +71,29 @@ def _may_manage(user, tournament):
 def serialize(overlay, request):
     # The whole reason the feature exists: a URL somebody can paste.
     url = request.build_absolute_uri('/overlay/%s/' % overlay.token)
+    # What it is bound to, said in words rather than left to be inferred from
+    # which screen it happens to be listed on. An organiser running four
+    # tournaments and two events has one folder of HTML files and no way to
+    # tell from a filename which URL is pointed at which thing.
+    owner = overlay.owner
     return {
         'id': overlay.id,
         'name': overlay.name,
         'url': url,
         'binding': overlay.binding,
         'bound_fields': overlay.bound_fields,
+        'bound_to_kind': 'event' if overlay.event_id else 'tournament',
+        'bound_to': (
+            getattr(owner, 'name', None)
+            or getattr(owner, 'tournament_title', '')) if owner else '',
+        'bound_to_slug': getattr(owner, 'slug', '') or '',
         'created_at': overlay.created_at,
         'updated_at': overlay.updated_at,
     }
 
 
 @api_view(['GET', 'POST'])
-@parser_classes([MultiPartParser, FormParser])
+@parser_classes([MultiPartParser, FormParser, JSONParser])
 def overlays(request, tournament_id):
     tournament = _tournament(tournament_id)
     if tournament is None:
@@ -105,6 +117,8 @@ def overlays(request, tournament_id):
                     # Sent with the list so the page never keeps its own copy
                     # of names the server is the authority on.
                     'fields': BINDINGS_FOR_TOURNAMENT,
+                    'field_help': FIELD_HELP_TOURNAMENT,
+                    'repeat_help': REPEAT_HELP_TOURNAMENT,
                     'prompt': DESIGNER_PROMPT_TOURNAMENT,
                     'templates': TEMPLATES_FOR_TOURNAMENT})
 
@@ -259,75 +273,208 @@ def serve_overlay(request, token):
 # overlay" produces something beautiful that binds to nothing, and the fault
 # only appears on air.
 
-def _prompt_for(kind, fields):
-    # The example is built from THIS list rather than written once and shared.
-    # A designer asked for an event overlay and shown a `home_score` example
-    # binds to a field that does not exist for them, and the mistake only
-    # turns up on air.
-    example = ''.join('  <div data-vent="%s">%s</div>\n' % (key, why.capitalize())
-                      for key, why in fields[:2])
-    return (
-        'Make a single self-contained HTML file for a broadcast overlay.\n'
-        '\n'
-        'Rules it has to follow:\n'
-        '  - One file. Inline the CSS in a <style> tag. No external '
-        'stylesheets, fonts or scripts: it is loaded by OBS with no network '
-        'guarantees.\n'
-        '  - Transparent background on <body>, so the video shows through. '
-        'Do not paint a colour behind everything.\n'
-        '  - Design it at 1920x1080. It is scaled by the streaming software, '
-        'not by the browser.\n'
-        '  - Put each live value in an element carrying a data-vent attribute. '
-        'The runtime finds those and fills them, and anything else stays '
-        'exactly as you drew it.\n'
-        '\n'
-        'The values available for %s are:\n%s\n'
-        '\n'
-        'For example:\n'
-        '%s'
-        '\n'
-        'Whatever is between the tags is placeholder text. It is replaced when '
-        'the overlay is on air, so make it realistic and the right length: an '
-        'overlay drawn around "0" breaks at "12".\n'
-    ) % (kind, '\n'.join('  %s - %s' % (key, why) for key, why in fields),
-         example)
+# The vocabulary is the feed's, not a second one
+# ---------------------------------------------------------------------------
+#
+# The first version of this listed names like `tournament_name` and
+# `home_score`. Nothing sends those. The feed sends `tournament.title` and a
+# `teams` array, and `static/overlay-runtime.js` resolves a dotted path against
+# exactly those roots, so every name in that first list would have resolved to
+# an empty string. A designer would have followed the prompt precisely and got
+# an overlay that filled with nothing, on air, with no error anywhere.
+#
+# That is the one-model rule with the serial numbers filed off: the prompt, the
+# runtime and the feed are three views of ONE vocabulary, and the moment they
+# are written out separately one of them is wrong and silent. So the lists
+# below are the feed's own keys, `tests_overlay_vocabulary.py` asserts they
+# stay that way, and the frontend reads them from here instead of keeping a
+# fourth copy.
 
-
-# What the runtime can fill on a tournament overlay.
-TOURNAMENT_FIELDS = [
-    ('tournament_name', 'the tournament title'),
-    ('home_name', 'the first participant'),
-    ('away_name', 'the second participant'),
-    ('home_score', 'the first score'),
-    ('away_score', 'the second score'),
-    ('round_name', 'which round this match is in'),
-    ('standings', 'the table, repeated per row'),
-    ('position', 'a place in the table, inside standings'),
-    ('player_name', 'a name, inside standings'),
-    ('points', 'points, inside standings'),
-    ('played', 'games played, inside standings'),
-    ('goal_difference', 'goal difference, inside standings'),
+#: Dotted names a tournament overlay can carry, and what each one is.
+TOURNAMENT_NAMES = [
+    ('tournament.title', 'the tournament title'),
+    ('tournament.game', 'which game it is'),
+    ('tournament.logo', 'the tournament logo, on an img'),
+    ('tournament.starts_at', 'when it starts'),
+    ('team.tag', 'the short tag of the team this overlay is pointed at'),
+    ('team.name', 'that team'),
+    ('team.logo', 'that team logo, on an img'),
+    ('team.place', 'where they are in the table'),
+    ('team.played', 'matches they have played'),
+    ('team.won', 'matches won'),
+    ('team.lost', 'matches lost'),
+    ('team.points_for', 'points scored'),
+    ('team.points_against', 'points conceded'),
+    ('player.ign', 'the first player in that team'),
+    ('player.id', 'their in-game id'),
+    ('player.img', 'their picture, on an img'),
 ]
 
-# And on an event. An event has no bracket; it has a programme, a door count
-# and the people who paid for the banners.
-EVENT_FIELDS = [
-    ('event_name', 'the event title'),
-    ('venue', 'where it is'),
-    ('starts_at', 'when it starts'),
-    ('now_on', 'what is happening now, from the programme'),
-    ('next_on', 'what is on next'),
-    ('room', 'which room the current session is in'),
-    ('attending', 'how many are in'),
-    ('tickets_sold', 'how many tickets have gone'),
-    ('sponsor_name', 'a sponsor, repeated per row'),
+#: What `data-vent-repeat` may be on a tournament overlay, and the bare field
+#: names addressable inside one.
+TOURNAMENT_REPEATS = [
+    ('standings', 'the table, best record first',
+     ['place', 'tag', 'name', 'logo', 'played', 'won', 'lost',
+      'points_for', 'points_against']),
+    ('teams', 'everybody in the tournament, same fields as standings',
+     ['place', 'tag', 'name', 'logo', 'played', 'won', 'lost',
+      'points_for', 'points_against']),
+    ('players', 'the roster of the team this overlay is pointed at',
+     ['ign', 'id', 'img']),
+    ('live', 'matches in progress right now',
+     ['round', 'match', 'status', 'score']),
 ]
 
-DESIGNER_PROMPT_TOURNAMENT = _prompt_for('a tournament', TOURNAMENT_FIELDS)
-DESIGNER_PROMPT_EVENT = _prompt_for('an event', EVENT_FIELDS)
+#: And on an event. An event has no bracket; it has a programme, a door count,
+#: ticket sales and the people who paid for the banners.
+EVENT_NAMES = [
+    ('event.name', 'the event title'),
+    ('event.venue', 'where it is'),
+    ('event.starts_at', 'when it starts'),
+    ('event.now_on', 'what is happening now, read from the programme'),
+    ('event.room', 'which room that is in'),
+    ('event.next_on', 'what is on next'),
+    ('event.next_room', 'which room that is in'),
+    ('event.attending', 'how many people are through the door'),
+    ('event.tickets_sold', 'how many tickets have gone'),
+    ('event.capacity', 'how many the room holds'),
+]
 
-BINDINGS_FOR_TOURNAMENT = [k for k, _why in TOURNAMENT_FIELDS]
-BINDINGS_FOR_EVENT = [k for k, _why in EVENT_FIELDS]
+EVENT_REPEATS = [
+    ('programme', 'the running order for the day',
+     ['title', 'room', 'starts_at', 'ends_at', 'speaker']),
+    ('sponsors', 'the people who paid for the banners',
+     ['name', 'logo']),
+]
+
+
+def _prompt_for(kind, names, repeats, pointing):
+    """The text an organiser copies into whatever tool drew their design.
+
+    Written out in full rather than summarised. Somebody pasting this along
+    with their file should get back something that works here and looks exactly
+    as it did, without coming back to read anything else. It is built from the
+    lists above so it cannot describe a name the feed does not send.
+    """
+    first = names[0][0]
+    second = names[1][0]
+    an_image = next((k for k, why in names if 'img' in why or 'logo' in k), None)
+    a_repeat = repeats[0]
+    row_example = ''.join(
+        '<td data-vent="%s">%s</td>' % (f, f) for f in a_repeat[2][:3])
+
+    lines = ['  %s  %s' % (key.ljust(24), why) for key, why in names]
+    repeat_lines = [
+        '  %s  %s\n      inside it: %s'
+        % (key.ljust(12), why, ', '.join(fields))
+        for key, why, fields in repeats]
+
+    return """I have an HTML file for a livestream overlay. I want to upload it to V-ENT so
+it fills itself from a live %(kind)s and keeps updating while the stream runs.
+
+Please edit my file so the parts that should follow the %(kind)s are marked,
+and change NOTHING else. Keep every style, animation, keyframe, font, gradient,
+image and piece of layout exactly as it is. Do not reformat, do not tidy, do not
+rename a class, and do not remove anything you think is unused. I need to open
+the file afterwards and recognise it.
+
+HOW TO MARK IT
+
+- A single value: add data-vent="..." to the element and LEAVE ITS CURRENT TEXT
+  in place as the placeholder, so the file still looks right opened on its own.
+    <div class="headline" data-vent="%(first)s">Whatever it says now</div>
+
+- An image: add data-vent-src="..." and leave the existing src alone.
+    <img class="crest" src="logos/ax.png" data-vent-src="%(image)s" alt="">
+
+- A repeating list: put data-vent-repeat="..." on the container and keep
+  EXACTLY ONE child inside it as the template. Delete the other repeated
+  children. Inside the template, address the row's own fields with no prefix.
+    <tbody data-vent-repeat="%(repeat)s">
+      <tr>%(row)s</tr>
+    </tbody>
+
+- Something that should disappear when there is no value:
+    <div data-vent-show="%(second)s">Only drawn when there is one</div>
+
+THE ONLY NAMES THAT EXIST
+
+%(names)s
+
+  data-vent-repeat may be one of:
+
+%(repeats)s
+
+Use only those names. If part of my design has no matching name, LEAVE IT
+EXACTLY AS IT IS and list at the end which parts you left alone and why.
+
+WHAT NOT TO DO
+
+- Do not add a <script>. V-ENT injects its own runtime ahead of the file.
+- Do not fetch, XMLHttpRequest or WebSocket anything. The runtime does that.
+- Do not add an <iframe>.
+- Do not touch document.cookie or localStorage.
+- Do not add a background colour to <body> unless my design already had one:
+  an overlay is composited over video and its background must stay transparent.
+- Do not change the pixel dimensions of the stage. It is designed for a
+  1920x1080 browser source.
+
+%(pointing)s
+
+Give me back the complete file.""" % {
+        'kind': kind,
+        'first': first,
+        'second': second,
+        'image': an_image or first,
+        'repeat': a_repeat[0],
+        'row': row_example,
+        'names': '\n'.join(lines),
+        'repeats': '\n'.join(repeat_lines),
+        'pointing': pointing,
+    }
+
+
+DESIGNER_PROMPT_TOURNAMENT = _prompt_for(
+    'tournament', TOURNAMENT_NAMES, TOURNAMENT_REPEATS,
+    """WHICH TEAM IT SHOWS
+
+The overlay is pointed at a team with ?t=TAG on its URL. Do not add any
+selection logic for that: the runtime reads it and picks the team.""")
+
+DESIGNER_PROMPT_EVENT = _prompt_for(
+    'event', EVENT_NAMES, EVENT_REPEATS,
+    """WHAT IT SHOWS
+
+An event overlay always shows the whole event: what is on now, what is next,
+the door count and the sponsors. There is nothing to point it at, so do not
+add any selection logic.""")
+
+
+def _accepted(names, repeats):
+    """Every name the runtime can resolve on this kind of overlay.
+
+    Both the dotted paths and the bare row fields, because a file legitimately
+    writes `data-vent="name"` inside a repeat, and a warning that fires on
+    correct markup is a warning people learn to ignore.
+    """
+    out = [key for key, _why in names]
+    for key, _why, fields in repeats:
+        out.append(key)
+        out.extend(fields)
+    return sorted(set(out))
+
+
+BINDINGS_FOR_TOURNAMENT = _accepted(TOURNAMENT_NAMES, TOURNAMENT_REPEATS)
+BINDINGS_FOR_EVENT = _accepted(EVENT_NAMES, EVENT_REPEATS)
+
+#: What the frontend shows as a picker. The dotted names alone, with their
+#: descriptions, because a bare row field is meaningless out of its repeat.
+FIELD_HELP_TOURNAMENT = [{'name': k, 'detail': w} for k, w in TOURNAMENT_NAMES]
+FIELD_HELP_EVENT = [{'name': k, 'detail': w} for k, w in EVENT_NAMES]
+REPEAT_HELP_TOURNAMENT = [
+    {'name': k, 'detail': w, 'fields': f} for k, w, f in TOURNAMENT_REPEATS]
+REPEAT_HELP_EVENT = [
+    {'name': k, 'detail': w, 'fields': f} for k, w, f in EVENT_REPEATS]
 
 # Something to start from. Named for the moment they are used rather than for
 # their shape, because an organiser is choosing a job and not a rectangle.
@@ -352,6 +499,8 @@ TEMPLATES_FOR_TOURNAMENT = [
 ]
 
 TEMPLATES_FOR_EVENT = [
+    {'key': 'programme', 'name': 'Programme',
+     'detail': 'The whole running order, for the wall or a break.'},
     {'key': 'now_next', 'name': 'Now and next',
      'detail': 'What is happening in this room, and what follows it.'},
     {'key': 'lower_third', 'name': 'Lower third',
@@ -373,7 +522,24 @@ def _create_overlay(request, tournament=None, event=None, user=None):
     the same job whichever kind of thing the overlay is for, and a second copy
     would drift.
     """
-    upload = request.FILES.get('file')
+    # Start from one of ours instead of uploading. The organiser owns the file
+    # from that moment: it lands in exactly the same place an upload does, and
+    # is editable, rotatable and removable the same way. A template that could
+    # only be used as-is would be a fourth thing to maintain rather than a
+    # starting point.
+    template_key = str(request.data.get('template') or '').strip()
+    if template_key:
+        kind = 'event' if event is not None else 'tournament'
+        markup = overlay_templates.render(kind, template_key)
+        if markup is None:
+            return _error('There is no template by that name.',
+                          'UNKNOWN_TEMPLATE')
+        upload = ContentFile(markup.encode('utf-8'),
+                             name='%s-%s.html' % (kind, template_key))
+        default_name = template_key.replace('_', ' ').capitalize()
+    else:
+        upload = request.FILES.get('file')
+        default_name = None
     if upload is None:
         return _error('Choose an HTML file.', 'VALIDATION_ERROR')
     if not str(upload.name).lower().endswith(('.html', '.htm')):
@@ -402,7 +568,7 @@ def _create_overlay(request, tournament=None, event=None, user=None):
 
     overlay = TournamentOverlay.objects.create(
         tournament=tournament, event=event,
-        name=str(request.data.get('name') or upload.name)[:120],
+        name=str(request.data.get('name') or default_name or upload.name)[:120],
         file=upload, binding=binding, bound_fields=fields,
         created_by=user or _viewer(request))
 
@@ -441,7 +607,7 @@ def _may_manage_event(user, event):
 
 
 @api_view(['GET', 'POST'])
-@parser_classes([MultiPartParser, FormParser])
+@parser_classes([MultiPartParser, FormParser, JSONParser])
 def event_overlays(request, event_id):
     """GET/POST /event/<id>/overlays/"""
     event = _event(event_id)
@@ -461,6 +627,8 @@ def event_overlays(request, event_id):
         return _ok({'overlays': [serialize(o, request) for o in rows],
                     'count': rows.count(),
                     'fields': BINDINGS_FOR_EVENT,
+                    'field_help': FIELD_HELP_EVENT,
+                    'repeat_help': REPEAT_HELP_EVENT,
                     'prompt': DESIGNER_PROMPT_EVENT,
                     'templates': TEMPLATES_FOR_EVENT}, 'Overlays')
 

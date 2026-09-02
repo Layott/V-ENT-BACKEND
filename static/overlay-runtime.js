@@ -53,7 +53,13 @@
     var parts = String(path).split('|')[0].trim().split('.');
     var root;
     if (parts.length === 1) {
-      root = scope || {};
+      /* Inside a repeat, `scope` is the row and a bare field means that row's
+         own field, which is the documented rule. At the top level `scope` is
+         null, and this used to fall back to an empty object, so a bare name
+         anywhere outside a repeat resolved to '' silently for ever. Falling
+         back to the feed root instead means a bare name means what a reader
+         would expect it to mean in both places. */
+      root = scope || data;
     } else if (parts[0] === 'tournament') {
       root = data.tournament; parts.shift();
     } else if (parts[0] === 'team') {
