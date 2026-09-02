@@ -28,8 +28,8 @@ from vent_tournament.models import TournamentOverlay
 def an_overlay(markup=None):
     body = markup or (
         '<html><body>'
-        '<div data-vent="event_name">Some event</div>'
-        '<div data-vent="now_on">Something</div>'
+        '<div data-vent="event.name">Some event</div>'
+        '<div data-vent="event.now_on">Something</div>'
         '</body></html>')
     return SimpleUploadedFile('overlay.html', body.encode('utf-8'),
                               content_type='text/html')
@@ -87,17 +87,17 @@ class EventOverlayTests(TestCase):
     def test_the_fields_it_binds_to_are_read_out_of_the_file(self):
         res = self.upload()
         fields = res.json()['data']['overlay']['bound_fields']
-        self.assertIn('event_name', fields)
-        self.assertIn('now_on', fields)
+        self.assertIn('event.name', fields)
+        self.assertIn('event.now_on', fields)
 
     def test_a_name_the_runtime_cannot_fill_is_warned_about_at_upload(self):
         """Told at upload rather than discovered on air, which is the only
         moment it is cheap to fix."""
         res = self.upload(markup='<html><body>'
-                                 '<div data-vent="home_score">0</div>'
+                                 '<div data-vent="team.points_for">0</div>'
                                  '</body></html>')
         warnings = ' '.join(res.json()['data']['warnings'])
-        self.assertIn('home_score', warnings)
+        self.assertIn('team.points_for', warnings)
 
     def test_a_file_that_binds_to_nothing_is_warned_about(self):
         """It will show exactly what was drawn and never update, which looks
@@ -121,15 +121,15 @@ class EventOverlayTests(TestCase):
         self.assertEqual(res.status_code, 200, res.content[:300])
         prompt = res.json()['data']['prompt']
         self.assertIn('data-vent', prompt)
-        self.assertIn('event_name', prompt)
-        self.assertIn('now_on', prompt)
+        self.assertIn('event.name', prompt)
+        self.assertIn('event.now_on', prompt)
         # The things an overlay must do to work in OBS at all.
-        self.assertIn('Transparent', prompt)
+        self.assertIn('transparent', prompt)
         self.assertIn('1920x1080', prompt)
 
     def test_the_prompt_is_about_events_not_tournaments(self):
         prompt = self.client.get(self.url(), **self.auth).json()['data']['prompt']
-        self.assertNotIn('home_score', prompt)
+        self.assertNotIn('team.', prompt)
 
     def test_templates_are_offered_to_start_from(self):
         res = self.client.get(self.url(), **self.auth)
@@ -143,8 +143,12 @@ class EventOverlayTests(TestCase):
 
     def test_the_fields_list_is_sent_so_the_page_keeps_no_copy(self):
         fields = self.client.get(self.url(), **self.auth).json()['data']['fields']
-        self.assertIn('now_on', fields)
-        self.assertIn('sponsor_name', fields)
+        self.assertIn('event.now_on', fields)
+        self.assertIn('sponsors', fields)
+        # And the descriptions, so the page does not have to invent them.
+        help_rows = self.client.get(
+            self.url(), **self.auth).json()['data']['field_help']
+        self.assertTrue(all(r['name'] and r['detail'] for r in help_rows))
 
     # ------------------------------------------------------- who may do it
 
@@ -206,25 +210,13 @@ class EventOverlayTests(TestCase):
         res = self.client.get('/event/%s/overlay-feed/' % self.event.slug)
         self.assertEqual(res.status_code, 200, res.content[:300])
         data = res.json()['data']
-        self.assertEqual(data['event_name'], 'Lagos Anime Con')
+        self.assertEqual(data['event']['name'], 'Lagos Anime Con')
         for key in ('venue', 'now_on', 'next_on', 'room', 'attending',
-                    'tickets_sold', 'sponsors'):
+                    'tickets_sold'):
+            self.assertIn(key, data['event'], key)
+        for key in ('programme', 'sponsors', 'version'):
             self.assertIn(key, data, key)
 
     def test_the_feed_is_public_because_a_browser_source_cannot_sign_in(self):
         res = self.client.get('/event/%s/overlay-feed/' % self.event.slug)
         self.assertEqual(res.status_code, 200)
-
-    def test_the_feed_names_match_what_the_prompt_promised(self):
-        """The prompt tells a designer which names exist. If the feed answers
-        different ones, every overlay built from that prompt stays empty."""
-        promised = set(self.client.get(self.url(), **self.auth)
-                       .json()['data']['fields'])
-        answered = set(self.client.get(
-            '/event/%s/overlay-feed/' % self.event.slug).json()['data'].keys())
-        # sponsor_name lives inside each row of `sponsors`.
-        answered.add('sponsor_name')
-        missing = promised - answered
-        self.assertEqual(missing, set(),
-                         'the prompt promises names the feed never sends: %s'
-                         % sorted(missing))

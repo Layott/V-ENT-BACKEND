@@ -247,7 +247,12 @@ def event_overlay_feed(request, event_id):
     # What is on, and what follows it. Read from the programme rather than
     # typed by an operator, so a screen behind a stage cannot disagree with the
     # schedule the audience is holding.
-    sessions = list(EventSession.objects.filter(event=event).order_by('starts_at'))
+    #
+    # `stage` is the model's name for the room. An earlier draft of this read
+    # `.room`, which does not exist, so every overlay would have shown an empty
+    # room for ever and looked like a design problem rather than a typo.
+    sessions = list(EventSession.objects.filter(
+        event=event, is_published=True).order_by('starts_at'))
     now_on = next((s for s in sessions
                    if s.starts_at and s.ends_at
                    and s.starts_at <= now <= s.ends_at), None)
@@ -258,21 +263,43 @@ def event_overlay_feed(request, event_id):
     attending = Ticket.objects.filter(
         event=event, checked_in_at__isnull=False).count()
 
-    # This module has no `_ok`; it answers with Response directly. I wrote
-    # `_ok` from memory of a sibling file and no test called the feed, so it
-    # would have raised NameError the first time an event overlay refreshed -
-    # on air, four seconds in.
+    sponsors = [
+        {'name': s.name, 'logo': _url(request, s.logo)}
+        for s in Sponsor.objects.filter(event=event)
+    ]
+    programme = [
+        {
+            'title': s.title,
+            'room': s.stage or '',
+            'speaker': s.description or '',
+            'starts_at': s.starts_at,
+            'ends_at': s.ends_at,
+        }
+        for s in sessions
+    ]
+
     return Response({'status': 'success', 'data': {
-        'event_name': event.name,
-        'venue': event.venue_name or event.location or '',
-        'starts_at': event.start_date,
-        'now_on': getattr(now_on, 'title', '') or '',
-        'room': getattr(now_on, 'stage', '') or '',
-        'next_on': getattr(next_on, 'title', '') or '',
-        'attending': attending,
-        'tickets_sold': sold,
-        'sponsors': [
-            {'sponsor_name': s.name, 'logo': _url(request, s.logo)}
-            for s in Sponsor.objects.filter(event=event)
-        ],
+        # Nested under `event` for the same reason a tournament feed nests
+        # under `tournament`: the runtime resolves a dotted path against a
+        # named root, and a flat key at the top level resolves to nothing.
+        'event': {
+            'name': event.name,
+            'venue': event.venue_name or event.location or '',
+            'starts_at': event.start_date,
+            'now_on': getattr(now_on, 'title', '') or '',
+            'room': getattr(now_on, 'stage', '') or '',
+            'next_on': getattr(next_on, 'title', '') or '',
+            'next_room': getattr(next_on, 'stage', '') or '',
+            'attending': attending,
+            'tickets_sold': sold,
+            'capacity': getattr(event, 'capacity', 0) or 0,
+        },
+        'programme': programme,
+        'sponsors': sponsors,
+        # What a polling overlay compares to know whether to redraw. Without
+        # it every poll after the first sees `undefined === undefined`, decides
+        # nothing moved, and the overlay freezes at its first frame for the
+        # rest of the broadcast.
+        'version': '%s-%s-%s-%s' % (
+            len(programme), len(sponsors), attending, sold),
     }, 'message': 'Overlay feed'})
