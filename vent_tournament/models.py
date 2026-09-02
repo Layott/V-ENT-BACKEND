@@ -1161,8 +1161,18 @@ class TournamentOverlay(models.Model):
     """
 
     id = models.AutoField(primary_key=True)
+    # What this overlay belongs to. Exactly one of the two.
+    #
+    # It was tournament-only, so an organiser running an EVENT had nowhere to
+    # upload a design and no URL to paste into OBS - the same shape of gap as
+    # short links, and the reason `tools/check-parity.py` has a row for it. An
+    # event has a programme, a door count and sponsors worth putting on a
+    # screen just as a tournament has a bracket.
     tournament = models.ForeignKey(
-        Tournament, on_delete=models.CASCADE, related_name='overlays')
+        Tournament, on_delete=models.CASCADE, null=True, blank=True, related_name='overlays')
+    event = models.ForeignKey(
+        'vent_event.Event', on_delete=models.CASCADE,
+        null=True, blank=True, related_name='overlays')
     name = models.CharField(max_length=120)
     file = models.FileField(upload_to='tournament_overlays/')
 
@@ -1180,6 +1190,11 @@ class TournamentOverlay(models.Model):
     created_by = models.ForeignKey(
         Users, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='tournament_overlays')
+
+    @property
+    def owner(self):
+        """Whatever this overlay is for, of whichever kind."""
+        return self.tournament or self.event
 
     class Meta:
         ordering = ['-created_at']
