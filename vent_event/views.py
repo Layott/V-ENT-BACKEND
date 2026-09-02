@@ -14,6 +14,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 
+from vent_auth import org_link
 from vent_auth.models import Games, Users
 from .models import Event, TicketTier, Sponsor, SponsorLink, SocialLink, VendorInvite
 from .serializers import serialize_event_card, serialize_event_detail
@@ -208,6 +209,16 @@ def create_event(request):
     # ABLE TO PICK IF THAT DAY MEANS STARTING AFRESH OR IT KEEPS CPUNTING". It
     # was settable in the console and not at creation, so every new event
     # started on the default and the organiser had to go and find it.
+    # Whose name this runs in. `Event.organization` existed from the beginning
+    # and nothing could set it, so following an organisation showed an empty
+    # feed for everybody.
+    organization, org_error = org_link.resolve(data.get('organization'), user)
+    if org_error == 'ORG_NOT_FOUND':
+        return _error('That organization does not exist.', 'ORG_NOT_FOUND')
+    if org_error == 'ORG_NOT_YOURS':
+        return _error("You cannot run an event in that organization's name.",
+                      'ORG_NOT_YOURS', status.HTTP_403_FORBIDDEN)
+
     capacity_mode = (data.get('capacity_mode') or '').strip() or 'per_day'
     if capacity_mode not in ('per_day', 'total'):
         capacity_mode = 'per_day'
@@ -265,6 +276,7 @@ def create_event(request):
                 event_link=virtual_link,
                 capacity=capacity,
                 capacity_mode=capacity_mode,
+                organization=organization,
                 banner=request.FILES.get('banner'),
                 banner_url=banner_url,
                 logo=request.FILES.get('logo'),
@@ -573,6 +585,18 @@ def edit_event(request, event_id):
         # enough to travel to.
         'venue_name', 'map_link', 'directions',
     ]
+    # The organisation, a foreign key and so not a text field. An empty string
+    # means "take it off again", which an organiser has to be able to do.
+    if 'organization' in data:
+        organization, org_error = org_link.resolve(data.get('organization'), user)
+        if org_error == 'ORG_NOT_FOUND':
+            return _error('That organization does not exist.', 'ORG_NOT_FOUND')
+        if org_error == 'ORG_NOT_YOURS':
+            return _error("You cannot run an event in that organization's name.",
+                          'ORG_NOT_YOURS', status.HTTP_403_FORBIDDEN)
+        event.organization = organization
+        updated.append('organization')
+
     # The pin. Editable by hand for a venue whose map link carries no
     # coordinate, and validated rather than trusted: a bad number here puts the
     # venue in the sea, which nobody notices until somebody drives there.

@@ -170,3 +170,37 @@ def following_feed(request):
         'upcoming': sum(1 for i in items
                         if i['starts_at'] and i['starts_at'] >= now),
     }, 'From the organizations you follow')
+
+
+# ---------------------------------------------------------------------------
+# The organisations somebody may run something in the name of
+# ---------------------------------------------------------------------------
+#
+# What fills the picker in the tournament and event wizards. Separate from
+# `/organization/list/`, which is every organisation on the platform: this is
+# the short list of the ones this person may speak for, and most people have
+# none, in which case the wizards do not show the field at all.
+
+@api_view(['GET'])
+def my_organizations(request):
+    """GET /organization/mine/ - the organisations I can run things under."""
+    user = _viewer(request)
+    if user is None:
+        return _error('You need an account to see this.',
+                      'NOT_AUTHENTICATED', status.HTTP_401_UNAUTHORIZED)
+
+    from vent_auth import org_link
+
+    rows = [
+        {
+            'id': org.org_id,
+            'slug': org.slug or '',
+            'name': org.org_name,
+            'tag': org.tag or '',
+            'role': org_link.role_of(org, user),
+            'logo': _media(request, getattr(org, 'logo', None)),
+        }
+        for org in org_link.mine(user)
+    ]
+    return _ok({'organizations': rows, 'count': len(rows)},
+               'Organizations you can run things under.')
