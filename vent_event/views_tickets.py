@@ -87,7 +87,28 @@ def _new_code():
 
 
 def serialize_tier(tier):
-    remaining = max(int(tier.quantity) - int(tier.sold), 0)
+    # `remaining` is what somebody can ACTUALLY buy, which is the lower of this
+    # type's own room and the room left in the venue.
+    #
+    # It used to be `quantity - sold` alone, and that is how a page came to
+    # advertise "4814 remaining" on a type while the checkout answered "This
+    # event is sold out": two tiers of 5000 against a venue capacity of 400,
+    # 300 sold and 100 held. Both numbers were correct about different
+    # questions, and the one the buyer was shown was not the one that decided
+    # whether they could pay. That is a false advertisement of stock, which
+    # costs a sale and the trust with it.
+    #
+    # `availability.available()` was already the single answer to this and this
+    # function simply was not asking it. Availability is one function.
+    from . import availability
+
+    remaining = availability.available(tier)
+    # The type's own room, kept separately: an organiser looking at the console
+    # still needs to see 186 of 5000 sold rather than a number the venue
+    # ceiling has already flattened.
+    tier_only = availability.tier_available(tier)
+    room = availability.event_room(tier.event, getattr(tier, 'day', None))
+
     return {
         'id': tier.id,
         'name': tier.name,
@@ -97,6 +118,14 @@ def serialize_tier(tier):
         'quantity': tier.quantity,
         'sold': tier.sold,
         'remaining': remaining,
+        'tier_remaining': tier_only,
+        # Why it cannot be bought, so a screen can say "the venue is full"
+        # rather than "sold out" next to a type that plainly has thousands
+        # left. A bare contradiction reads as a broken site.
+        'unavailable_reason': (
+            None if remaining > 0
+            else 'venue_full' if (room is not None and room <= 0)
+            else 'tier_sold_out'),
         'sold_out': remaining == 0,
         'perks': [p.strip() for p in (tier.perks or '').split(',') if p.strip()],
         # Which day this ticket is for. A multi-day event sells "Day 1" and
@@ -285,7 +314,9 @@ def buy_ticket(request, event_id):
             user=user, status='offered',
             offer_expires_at__gt=timezone.now()).first()
 
-        room = availability.event_room(event)
+        # Same day as the type being bought, so this and the listing
+        # answer the same question. They disagreed once already.
+        room = availability.event_room(event, getattr(tier, 'day', None))
         if room is not None and offer is None:
             if room <= 0:
                 return _error('This event is sold out.', 'EVENT_FULL',

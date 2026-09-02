@@ -36,9 +36,14 @@ def actor_from_request(request):
     """
     header = request.headers.get('Authorization')
     if not header or not header.startswith('Bearer '):
-        return None, _error('AUTHORIZATION_HEADER_REQUIRED',
-                            'Authorization header is required',
-                            status.HTTP_400_BAD_REQUEST)
+        # 401, not 400. "You need to sign in" and "your request was malformed"
+        # are different answers, and a client that cannot tell them apart shows
+        # somebody a validation error when what they needed was a login link.
+        # The project rule is explicit: a gated endpoint refuses an anonymous
+        # caller with 401 or 403.
+        return None, _error('NOT_AUTHENTICATED',
+                            'You need to be signed in to do that.',
+                            status.HTTP_401_UNAUTHORIZED)
 
     token = header.split(' ', 1)[1]
 

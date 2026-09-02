@@ -17,7 +17,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 
-from .models import Club, ClubMember, ClubMessage, ClubTopic, Users
+from .models import Club, ClubMember, ClubMessage, ClubTopic, Games, Users
 from .views_community import _authenticate, _created, _error, _ok, _optional_user, _person
 from .views_clubs import (
     MAX_BODY, _capabilities, _club_or_error, _may_read, _membership, _moved,
@@ -496,3 +496,123 @@ def club_mute_member(request, club_ref):
     target.save(update_fields=['muted_until'])
     return _ok({'member': _serialize_member(request, target)},
                'Mute lifted.' if minutes == 0 else 'Member muted.')
+
+
+# ---------------------------------------------------------------------------
+# Running the club itself
+# ---------------------------------------------------------------------------
+
+@api_view(['POST'])
+def club_update(request, club_ref):
+    """Rename a club, or change what it says about itself.
+
+    CEO, 2 September: "users should be able to create, manage, delete clubs
+    (they created)". Creating and joining existed; there was no way to correct
+    a name, a description or the privacy setting once the club was made.
+
+    Renaming is deliberately an admin power rather than a moderator one,
+    because the name IS the address: `sync_slug` moves the club to a new URL
+    and files the old one in SlugHistory so links already shared keep working.
+    A moderator was given the power to tidy messages, not to move the room.
+    """
+    club, moved_to, err = _club_or_error(club_ref)
+    if moved_to:
+        return _moved(moved_to)
+    if err:
+        return err
+
+    user, auth_error = _authenticate(request)
+    if auth_error:
+        return auth_error
+
+    membership = _membership(club, user)
+    if membership is None or not _capabilities(membership)['can_edit_club']:
+        return _error('Only an admin of this club can change it.',
+                      'CLUB_NOT_ADMIN', status.HTTP_403_FORBIDDEN)
+
+    fields = []
+
+    if 'name' in request.data:
+        name = (request.data.get('name') or '').strip()
+        if not name:
+            return _error('A club needs a name.', 'VALIDATION_ERROR',
+                          status.HTTP_400_BAD_REQUEST)
+        if len(name) > 120:
+            return _error('That name is too long.', 'VALIDATION_ERROR',
+                          status.HTTP_400_BAD_REQUEST)
+        # Its own name is not a clash. Comparing without this refuses every
+        # save where somebody edited the description and left the name alone.
+        clash = Club.objects.filter(name__iexact=name).exclude(pk=club.pk)
+        if clash.exists():
+            return _error('A club with that name already exists.',
+                          'DUPLICATE', status.HTTP_409_CONFLICT)
+        club.name = name
+        fields.append('name')
+
+    if 'description' in request.data:
+        club.description = (request.data.get('description') or '').strip()[:2000]
+        fields.append('description')
+
+    if 'is_private' in request.data:
+        club.is_private = bool(request.data.get('is_private'))
+        fields.append('is_private')
+
+    if 'game' in request.data:
+        title = (request.data.get('game') or '').strip()
+        club.game = Games.objects.filter(game_title__iexact=title).first() if title else None
+        fields.append('game')
+
+    if not fields:
+        return _error('Nothing to change.', 'VALIDATION_ERROR',
+                      status.HTTP_400_BAD_REQUEST)
+
+    # save() is what calls sync_slug, and sync_slug adds 'slug' to
+    # update_fields itself. Passing update_fields without that would compute
+    # the new slug and silently drop it, which is the whole rename.
+    club.save(update_fields=fields)
+    club.refresh_from_db()
+
+    return _ok({
+        'club': {
+            'id': club.id,
+            'slug': club.slug,
+            'name': club.name,
+            'description': club.description,
+            'is_private': club.is_private,
+            'game': club.game.game_title if club.game else None,
+        },
+        'url': '/community/club/%s' % club.slug,
+    }, 'Club updated.')
+
+
+@api_view(['POST'])
+def club_delete(request, club_ref):
+    """Delete a club. The owner only, and only with the name typed back.
+
+    Deleting takes every topic and message with it and cannot be undone, so
+    it asks for the club's name rather than a yes. A confirmation somebody can
+    give by pressing return without reading is not a confirmation.
+    """
+    club, moved_to, err = _club_or_error(club_ref)
+    if moved_to:
+        return _moved(moved_to)
+    if err:
+        return err
+
+    user, auth_error = _authenticate(request)
+    if auth_error:
+        return auth_error
+
+    membership = _membership(club, user)
+    if membership is None or membership.role != ClubMember.ROLE_OWNER:
+        return _error('Only the owner can delete this club.',
+                      'CLUB_NOT_OWNER', status.HTTP_403_FORBIDDEN)
+
+    typed = (request.data.get('confirm_name') or '').strip()
+    if typed.casefold() != club.name.strip().casefold():
+        return _error('Type the club name to confirm.',
+                      'CONFIRM_NAME_MISMATCH', status.HTTP_400_BAD_REQUEST)
+
+    name = club.name
+    club.delete()
+    return _ok({'deleted': True, 'name': name}, 'Club deleted.')

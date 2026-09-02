@@ -73,6 +73,63 @@ def catalogue():
     return [{'kind': k, 'label': label} for k, label in _KINDS]
 
 
+# Nigeria, because that is where the platform is. An organiser running an event
+# elsewhere gets whatever code the buyer types; this only decides what happens
+# when they type none.
+DEFAULT_DIALLING_CODE = '+234'
+
+
+def clean_phone(raw, label='Phone number', field_id='phone'):
+    """A number somebody can actually be rung on.
+
+    CEO, 2 September 2026: "if its a phone number, then the users must input a
+    country code".
+
+    The reason it matters is what the number is FOR. A door list, a "we could
+    not find you" call on the day, a cancellation. A number without a country
+    code is a number that works from one country and fails from every other,
+    and the person holding the phone at the venue is not always in Nigeria.
+
+    Three cases, and the middle one is the whole point:
+
+      +234 803 000 0000   kept as it is
+      0803 000 0000       a Nigerian national number: the 0 is replaced by +234
+      803 000 0000        no code, no leading 0, so it is refused - guessing
+                          here would invent a country
+
+    Kept deliberately loose about spacing and punctuation, because Nigerian
+    numbers are written half a dozen ways and a strict pattern refuses more real
+    numbers than fake ones.
+    """
+    value = str(raw or '').strip()
+    if not value:
+        raise CheckoutError('%s is needed.' % label, field_id)
+
+    # Somebody typing 00234 means +234. Common on printed cards.
+    if value.startswith('00'):
+        value = '+' + value[2:]
+
+    compact = re.sub(r'[\s\-().]', '', value)
+    digits = re.sub(r'\D', '', compact)
+
+    if compact.startswith('+'):
+        if len(digits) < 8 or len(digits) > 15:
+            raise CheckoutError('%s does not look like a phone number.' % label,
+                                field_id)
+        return '+' + digits
+
+    # A national number: one leading zero, then the subscriber number. This is
+    # how almost everybody in Nigeria writes their own number, so converting it
+    # is far better than refusing it.
+    if compact.startswith('0') and len(digits) >= 10:
+        return DEFAULT_DIALLING_CODE + digits[1:]
+
+    # Anything else has no country in it and nothing to infer one from.
+    raise CheckoutError(
+        'Start %s with a country code, like %s.' % (label, DEFAULT_DIALLING_CODE),
+        field_id)
+
+
 def clean_email(raw):
     email = str(raw or '').strip().lower()
     if not email:
@@ -115,11 +172,7 @@ def answer_for(field, raw):
                             field.id)
 
     if field.kind == 'phone':
-        # Deliberately loose. Nigerian numbers are written half a dozen ways
-        # and a strict pattern refuses more real numbers than fake ones.
-        if len(re.sub(r'\D', '', value)) < 7:
-            raise CheckoutError('%s does not look like a phone number.'
-                                % field.label, field.id)
+        return clean_phone(value, field.label, field.id)
 
     return value[:400]
 

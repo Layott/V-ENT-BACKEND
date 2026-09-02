@@ -1094,6 +1094,17 @@ def dm_send(request, conversation_id):
         if user.user_id not in (convo.user_a_id, convo.user_b_id):
             return _error('This conversation is not yours.', 'FORBIDDEN', status.HTTP_403_FORBIDDEN)
 
+        # A block has to stop an EXISTING conversation too, not only a new one.
+        # Somebody who has already been in touch is exactly who a block is for,
+        # and checking only at the point a conversation is opened would leave
+        # every prior thread wide open.
+        from .views_safety import is_blocked_between
+        counterpart = convo.user_b if convo.user_a_id == user.user_id else convo.user_a
+        if is_blocked_between(user, counterpart):
+            return _error(
+                'You cannot send messages in this conversation.',
+                'DM_BLOCKED', status.HTTP_403_FORBIDDEN)
+
     message = DirectMessage.objects.create(conversation=convo, sender=user, body=body)
     convo.last_message_at = timezone.now()
     convo.save(update_fields=['last_message_at'])

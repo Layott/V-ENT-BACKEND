@@ -1925,3 +1925,151 @@ class ScrimResult(models.Model):
         if self.score_b > self.score_a:
             return 'b'
         return 'draw'
+
+
+# ---------------------------------------------------------------------------
+# Blocking, muting and reporting
+# ---------------------------------------------------------------------------
+#
+# CEO, 2 September 2026: "build and fix them all fully".
+#
+# All three existed as buttons that showed a toast and made no request. Somebody
+# who blocked a harasser was told "Block requested" and nothing happened. That is
+# worse than the feature being absent: an absent control sends somebody to look
+# for another way to protect themselves, and a fake one stops them looking.
+
+class UserBlock(models.Model):
+    """One person has decided they want nothing from another.
+
+    **Blocking is one-directional and asymmetric on purpose.** The blocker stops
+    receiving; the blocked person is not told. Telling them converts "I want to
+    be left alone" into a notification that somebody has been rebuffed, which is
+    exactly the message a harasser reacts to.
+
+    What it does, and the list is deliberately short so each part is enforced
+    rather than implied:
+
+    * they cannot start a conversation with you, or send into an existing one
+    * you do not see their messages, posts or comments
+    * they are removed from your followers and cannot follow you again
+
+    What it does NOT do: hide public content from them. A block is not a ban,
+    and pretending a public tournament page is hidden would be a promise the
+    platform cannot keep.
+    """
+
+    id = models.AutoField(primary_key=True)
+    blocker = models.ForeignKey(
+        'Users', on_delete=models.CASCADE, related_name='blocks_made')
+    blocked = models.ForeignKey(
+        'Users', on_delete=models.CASCADE, related_name='blocks_received')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('blocker', 'blocked')
+        indexes = [models.Index(fields=['blocker', 'blocked'])]
+
+    def __str__(self):
+        return '%s blocked %s' % (self.blocker_id, self.blocked_id)
+
+    @staticmethod
+    def between(a, b):
+        """Is there a block in EITHER direction?
+
+        Almost every caller wants this rather than a one-way check. If A blocked
+        B, then B must not be able to message A either - otherwise the block
+        stops the wrong half of the conversation and the person who asked to be
+        left alone still receives.
+        """
+        if not a or not b or a.pk == b.pk:
+            return False
+        return UserBlock.objects.filter(
+            models.Q(blocker=a, blocked=b) | models.Q(blocker=b, blocked=a)
+        ).exists()
+
+
+class UserMute(models.Model):
+    """Quieter, not gone.
+
+    A mute hides somebody's posts and messages from your feeds without cutting
+    the connection: they can still reach you, you simply are not shown them
+    unprompted. It is the thing people actually want for somebody who is loud
+    rather than dangerous, and offering only Block for that makes Block carry
+    weight it should not.
+
+    Expires by itself when `until` is set, because "mute for a week" is the
+    common case and a mute nobody remembers setting is a mute nobody undoes.
+    """
+
+    id = models.AutoField(primary_key=True)
+    muter = models.ForeignKey(
+        'Users', on_delete=models.CASCADE, related_name='mutes_made')
+    muted = models.ForeignKey(
+        'Users', on_delete=models.CASCADE, related_name='mutes_received')
+    until = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('muter', 'muted')
+
+    def __str__(self):
+        return '%s muted %s' % (self.muter_id, self.muted_id)
+
+    @property
+    def is_active(self):
+        from django.utils import timezone
+        return self.until is None or timezone.now() < self.until
+
+
+class UserReport(models.Model):
+    """Somebody told us about somebody else, and a human has to read it.
+
+    The point of a report is the queue. A report that goes nowhere is the same
+    fake as the toast this replaces, so the row carries a status an admin moves
+    through and a note saying what was done.
+
+    `context` holds where it was reported from - a profile, a message, a post -
+    because "this person is abusive" without a location is a report nobody can
+    action.
+    """
+
+    REASONS = [
+        ('harassment', 'Harassment or abuse'),
+        ('spam', 'Spam'),
+        ('cheating', 'Cheating'),
+        ('impersonation', 'Impersonation'),
+        ('scam', 'Scam or fraud'),
+        ('other', 'Something else'),
+    ]
+
+    STATUS = [
+        ('open', 'Open'),
+        ('reviewing', 'Being reviewed'),
+        ('actioned', 'Actioned'),
+        ('dismissed', 'Dismissed'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    reporter = models.ForeignKey(
+        'Users', on_delete=models.CASCADE, related_name='reports_made')
+    reported = models.ForeignKey(
+        'Users', on_delete=models.CASCADE, related_name='reports_received')
+    reason = models.CharField(max_length=20, choices=REASONS, default='other')
+    detail = models.TextField(blank=True, default='')
+    # Where it happened: 'profile', 'dm:<id>', 'post:<token>', 'club:<slug>'.
+    context = models.CharField(max_length=120, blank=True, default='')
+
+    status = models.CharField(max_length=12, choices=STATUS, default='open')
+    admin_note = models.TextField(blank=True, default='')
+    reviewed_by = models.ForeignKey(
+        'Users', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reports_reviewed')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['status', '-created_at'])]
+
+    def __str__(self):
+        return 'report %s on %s (%s)' % (self.id, self.reported_id, self.status)

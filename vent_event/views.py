@@ -590,6 +590,49 @@ def edit_event(request, event_id):
             setattr(event, field, value)
             updated.append(field)
 
+    # The game, which was settable in the creation wizard and then frozen, so
+    # an organiser who picked the wrong one had to build the event again. Same
+    # gap the tournament edit had.
+    if 'game' in data:
+        from vent_auth.models import Games
+        raw = data.get('game')
+        if raw in (None, '', 'null'):
+            event.game = None
+        else:
+            game = (Games.objects.filter(game_id=raw).first()
+                    if str(raw).isdigit()
+                    else Games.objects.filter(game_title__iexact=str(raw).strip()).first())
+            if game is None:
+                return _error('That game is not one we know.', 'GAME_NOT_FOUND',
+                              status.HTTP_400_BAD_REQUEST)
+            event.game = game
+        updated.append('game')
+
+    # The registration window. Present-means-set, empty-means-clear, because
+    # taking a closing date off again is a real thing an organiser does and is
+    # a different request from not touching it.
+    for field in ('reg_start_date', 'reg_end_date'):
+        if field not in data:
+            continue
+        raw = data.get(field)
+        if raw in (None, ''):
+            setattr(event, field, None)
+        else:
+            parsed = parse_datetime(raw) if isinstance(raw, str) else raw
+            if parsed is None:
+                return _error('%s is not a date we can read.' % field,
+                              'INVALID_DATE', status.HTTP_400_BAD_REQUEST)
+            setattr(event, field, parsed)
+        updated.append(field)
+
+    if 'currency' in data:
+        raw = (data.get('currency') or '').strip().upper()
+        if raw and len(raw) > 3:
+            return _error('A currency is three letters.', 'INVALID_CURRENCY',
+                          status.HTTP_400_BAD_REQUEST)
+        event.currency = raw
+        updated.append('currency')
+
     # Whether an attendee may admit themselves, and how long before the doors.
     # A boolean cannot go through the loop above: `False` is a value the
     # organiser is expressing, and `if value is not None` would keep it while
@@ -612,17 +655,33 @@ def edit_event(request, event_id):
         event.self_check_in_opens_minutes = minutes
         updated.append('self_check_in_opens_minutes')
 
-    # Numbers, guarded: a capacity of "soon" must not reach the column.
-    for field in ('entry_fee', 'capacity'):
-        value = data.get(field)
-        if value in (None, ''):
-            continue
-        try:
-            setattr(event, field, int(float(value)) if field == 'capacity' else value)
-        except (TypeError, ValueError):
-            return _error('%s must be a number.' % field, 'INVALID_NUMBER',
-                          status.HTTP_400_BAD_REQUEST)
-        updated.append(field)
+    # Capacity, where absent and empty mean different things.
+    #
+    # "No limit" is a real setting an organiser has to be able to choose, and
+    # it is not the same as not touching the field. Treating both as
+    # "unchanged" meant the venue ceiling could be raised but never removed,
+    # so an event capped at 400 by accident stayed capped for ever. The key
+    # being PRESENT is the signal, exactly as it is for the per-email limit
+    # documented below.
+    if 'capacity' in data:
+        raw = data.get('capacity')
+        if raw in (None, ''):
+            event.capacity = None
+        else:
+            try:
+                event.capacity = int(float(raw))
+            except (TypeError, ValueError):
+                return _error('capacity must be a number.', 'INVALID_NUMBER',
+                              status.HTTP_400_BAD_REQUEST)
+            if event.capacity < 0:
+                return _error('capacity cannot be negative.', 'INVALID_NUMBER',
+                              status.HTTP_400_BAD_REQUEST)
+        updated.append('capacity')
+
+    value = data.get('entry_fee')
+    if value not in (None, ''):
+        event.entry_fee = value
+        updated.append('entry_fee')
 
     # How many tickets one email address may hold. Nullable on purpose, and an
     # empty string means "no limit" rather than "unchanged", because turning

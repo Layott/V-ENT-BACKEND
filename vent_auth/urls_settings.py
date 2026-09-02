@@ -6,6 +6,8 @@ Included at root in vent/urls.py.
 from django.urls import path
 
 from . import views_settings as v
+from . import views_safety as safety
+from . import views_org_following as org_following
 from . import views_usersearch as usersearch
 from . import views_profile as prof
 from . import views_account_security as sec
@@ -33,6 +35,11 @@ urlpatterns = [
     # are single segments and would otherwise be read as an organisation name.
     path('organization/invites/mine/', orgm.my_org_invites),
     path('organization/invite/<str:token>/respond/', orgm.respond_to_invite),
+    # Literal routes BEFORE the <str:org_id> catch-all, which otherwise reads
+    # "following" as the name of an organisation and answers 404. Django matches
+    # in order; there is no specificity rule to save you.
+    path('organization/following/', org_following.following),
+    path('organization/following/feed/', org_following.following_feed),
     path('organization/<str:org_id>/', orgs.org_detail),
     path('organization/<str:org_id>/members/', orgs.org_members),
     path('organization/<str:org_id>/promote/', orgs.org_promote),
@@ -82,6 +89,12 @@ urlpatterns = [
     path('club/<str:club_ref>/topic/<int:topic_id>/delete/', clubs.club_delete_topic),
     path('club/<str:club_ref>/message/<int:message_id>/delete/', clubs.club_delete_message),
     path('club/<str:club_ref>/role/', clubs.club_set_role),
+    # Running the club itself. These sit AFTER club/list/ and club/create/ in
+    # this file for the same reason the org routes do: Django matches in
+    # order, and a literal segment placed below a <str:club_ref> pattern is
+    # read as the name of a club.
+    path('club/<str:club_ref>/update/', clubs.club_update),
+    path('club/<str:club_ref>/delete/', clubs.club_delete),
     path('club/<str:club_ref>/remove-member/', clubs.club_remove_member),
     path('club/<str:club_ref>/mute/', clubs.club_mute_member),
 
@@ -104,6 +117,12 @@ urlpatterns = [
     path('scrim/<str:scrim_id>/result/', challenges.report_result),
     path('scrim/<str:scrim_id>/result/confirm/', challenges.confirm_result),
 
+    # Block, mute and report. All three were toasts that made no request; a
+    # person who blocked a harasser was told it worked.
+    path('user/<str:username>/block/', safety.block_user),
+    path('user/<str:username>/mute/', safety.mute_user),
+    path('user/<str:username>/report/', safety.report_user),
+    path('user/<str:username>/safety/', safety.my_safety_state),
     path('dm/list/', community.dm_list),
     path('dm/new/send/', community.dm_send, {'conversation_id': 'new'}),
     # `str`, not `int`: the address is the conversation's token. A numeric id

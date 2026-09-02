@@ -92,6 +92,7 @@ def _capabilities(membership):
             'is_member': False, 'role': None, 'can_post': False,
             'can_moderate': False, 'can_manage_topics': False,
             'can_manage_roles': False, 'can_remove_members': False,
+            'can_edit_club': False, 'can_delete_club': False,
             'is_muted': False, 'muted_until': None,
         }
     rank = membership.rank
@@ -105,6 +106,11 @@ def _capabilities(membership):
         'can_manage_topics': rank >= ClubMember.RANK[ClubMember.ROLE_ADMIN],
         'can_manage_roles': rank >= ClubMember.RANK[ClubMember.ROLE_ADMIN],
         'can_remove_members': rank >= ClubMember.RANK[ClubMember.ROLE_MODERATOR],
+        # Renaming a club changes its address, so it sits with the other
+        # admin powers. Deleting it is the owner's alone: an admin was
+        # appointed to help run the club, not to end it.
+        'can_edit_club': rank >= ClubMember.RANK[ClubMember.ROLE_ADMIN],
+        'can_delete_club': membership.role == ClubMember.ROLE_OWNER,
         'is_muted': muted,
         'muted_until': membership.muted_until,
     }
