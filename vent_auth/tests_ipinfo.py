@@ -208,3 +208,46 @@ class SuggestionTests(TestCase):
         self.assertEqual(self.user.country, 'Nigeria')
         self.assertFalse((self.user.state or '').strip())
         self.assertTrue(self.user.country_is_guess)
+
+
+class IPinfoLiteShapeTests(TestCase):
+    """The free plan answers differently, and reading it wrong fails silently.
+
+    IPinfo has two products. The account this runs on is **Lite**:
+
+        standard  {"country": "US", "city": "Mountain View"}
+        Lite      {"country_code": "US", "country": "United States", "asn": ...}
+
+    Lite puts the full NAME in `country`. The parser converted `country` from a
+    two-letter code, so on Lite it produced nothing: the request succeeded, the
+    answer was None, and the platform fell back to the local file for ever with
+    no error anywhere. Exactly the class of fault nobody notices.
+    """
+
+    @override_settings(IPINFO_TOKEN='tok')
+    def test_the_lite_shape_yields_a_country_name(self):
+        payload = {
+            'ip': '102.89.34.7', 'asn': 'AS29465', 'as_name': 'MTN Nigeria',
+            'country_code': 'NG', 'country': 'Nigeria',
+            'continent_code': 'AF', 'continent': 'Africa',
+        }
+        with mock.patch('requests.get', return_value=a_response(payload=payload)):
+            country, city = ipinfo.lookup('102.89.34.7')
+        self.assertEqual(country, 'Nigeria')
+        self.assertIsNone(city, 'Lite carries no city, and none should be invented')
+
+    @override_settings(IPINFO_TOKEN='tok')
+    def test_the_standard_shape_still_works(self):
+        payload = {'ip': '8.8.8.8', 'country': 'US', 'city': 'Mountain View'}
+        with mock.patch('requests.get', return_value=a_response(payload=payload)):
+            country, city = ipinfo.lookup('8.8.8.8')
+        self.assertEqual(country, 'United States')
+        self.assertEqual(city, 'Mountain View')
+
+    @override_settings(IPINFO_TOKEN='tok')
+    def test_a_full_name_in_country_is_not_mangled(self):
+        """Belt and braces: even without `country_code`, a name stays a name."""
+        payload = {'ip': '1.2.3.4', 'country': 'Ghana'}
+        with mock.patch('requests.get', return_value=a_response(payload=payload)):
+            country, _city = ipinfo.lookup('1.2.3.4')
+        self.assertEqual(country, 'Ghana')

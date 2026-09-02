@@ -137,11 +137,33 @@ def lookup(ip):
         logger.info('ipinfo: lookup failed for %r, falling back', ip, exc_info=True)
         return None, None
 
-    # ipinfo returns a two-letter country code. The rest of the platform stores
-    # and compares country NAMES - a tournament open to "Nigeria" is checked
-    # against this field - so a code written here would silently fail to match
-    # every restriction in the product.
-    country = _country_name(payload.get('country'))
+    # Two response shapes, because ipinfo has two products and the account this
+    # runs on is on the free one.
+    #
+    #   standard  {"country": "US", "city": "Mountain View", "region": "..."}
+    #   Lite      {"country_code": "US", "country": "United States", "asn": ...}
+    #
+    # Lite puts the FULL NAME in `country` and the code in `country_code`, so
+    # reading `country` and converting it from a code - which is what this did -
+    # produces nothing at all on a Lite account. Silently: the lookup succeeds,
+    # returns None, and the platform quietly falls back to the local file for
+    # ever with no error anywhere.
+    #
+    # The rest of the platform stores and compares country NAMES: a tournament
+    # open to "Nigeria" is checked against this field, so a two-letter code
+    # written here would fail to match every restriction in the product.
+    code = payload.get('country_code')
+    if code:
+        country = _country_name(code)
+    else:
+        raw = (payload.get('country') or '').strip()
+        # A code on the standard API, already a name on Lite.
+        country = _country_name(raw) if len(raw) == 2 else (raw or None)
+
+    # Lite carries no city at all. That costs nothing here, because a city is
+    # never written from an address anyway - it is only ever OFFERED - but it
+    # does mean the "looks like Lagos, use it?" suggestion has nothing to show
+    # on a Lite account.
     city = (payload.get('city') or '').strip() or None
     if payload.get('bogon'):
         country, city = None, None
