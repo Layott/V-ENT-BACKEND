@@ -1889,6 +1889,10 @@ def edit_tournament(request, tournament_id):
             'game_mode', 'start_date_and_time', 'end_date_and_time',
             'facebook_link', 'twitter_link', 'instagram_link', 'youtube_link',
             'twitch_link', 'kick_link', 'tiktok_link', 'bigolive_link',
+            # Announced prize money. Set at creation and then frozen for ever,
+            # so an organiser who won a sponsor after publishing could not say
+            # so, and one who typed the wrong figure was stuck with it.
+            'prize_currency', 'prize_pool_total', 'prize_pool_total_vc',
         ]
 
         # These reach integer and decimal columns. The loop below used to
@@ -1897,6 +1901,8 @@ def edit_tournament(request, tournament_id):
         # matters more now the console offers all of them rather than seven.
         numeric = {
             'entry_fee_price': 'decimal',
+            'prize_pool_total': 'decimal',
+            'prize_pool_total_vc': 'decimal',
             'team_size': 'int',
             'player_size': 'int',
             'min_number_of_teams': 'int',
@@ -1919,6 +1925,37 @@ def edit_tournament(request, tournament_id):
             if sent in request.data:
                 setattr(tournament, column, request.data.get(sent) or None)
                 updated_fields.append(column)
+
+        # The game itself. Missing until now, so an organiser who picked the
+        # wrong one in the wizard had no way to correct it and had to make the
+        # tournament again.
+        #
+        # It is handled BEFORE the series below, because a series belongs to a
+        # game: changing the game while keeping a series from the old one would
+        # leave a pairing that means nothing.
+        if 'tournament_game' in request.data:
+            raw = request.data.get('tournament_game')
+            game = None
+            if raw not in (None, '', 'null'):
+                game = (Games.objects.filter(game_id=raw).first()
+                        if str(raw).isdigit()
+                        else Games.objects.filter(game_title__iexact=str(raw).strip()).first())
+                if game is None:
+                    return Response({
+                        'status': 'error',
+                        'code': 'GAME_NOT_FOUND',
+                        'field': 'tournament_game',
+                        'message': 'That game is not one we know.',
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            if game is not None and game.pk != tournament.tournament_game_id:
+                # Changing the game invalidates a series chosen under the old
+                # one, and every game-specific entry requirement. Clearing the
+                # series here is the honest half; the requirements are the
+                # organiser's to review, and the response says so.
+                tournament.tournament_series = None
+                updated_fields.append('tournament_series')
+            tournament.tournament_game = game
+            updated_fields.append('tournament_game')
 
         if 'series_id' in request.data:
             from vent_auth.models import GameSeries
@@ -1981,7 +2018,38 @@ def edit_tournament(request, tournament_id):
                 'message': 'The fewest entrants cannot be more than the most.',
             }, status=status.HTTP_400_BAD_REQUEST)
 
+        # A boolean cannot go through the loop above: "false" arriving as a
+        # string is truthy, so switching approvals OFF would silently turn it
+        # on. The absent-means-unchanged rule still holds.
+        if 'approve_registrations' in request.data:
+            raw = request.data.get('approve_registrations')
+            tournament.approve_registrations = (
+                raw if isinstance(raw, bool)
+                else str(raw).strip().lower() in ('1', 'true', 'yes', 'on'))
+            updated_fields.append('approve_registrations')
+
+        # How a result becomes final. A value outside the set would leave
+        # scoring with no rule at all, so it is refused rather than defaulted:
+        # silently substituting a different mode from the one an organiser
+        # picked is worse than telling them.
+        if 'score_confirmation_mode' in request.data:
+            mode = str(request.data.get('score_confirmation_mode') or '').strip()
+            allowed = [c[0] for c in
+                       Tournament._meta.get_field('score_confirmation_mode').choices]
+            if mode not in allowed:
+                return Response({
+                    'status': 'error',
+                    'code': 'INVALID_SCORE_MODE',
+                    'field': 'score_confirmation_mode',
+                    'message': 'That is not one of the ways a score can be confirmed.',
+                }, status=status.HTTP_400_BAD_REQUEST)
+            tournament.score_confirmation_mode = mode
+            updated_fields.append('score_confirmation_mode')
+
         # File fields
+        if request.FILES.get('rules_document'):
+            tournament.rules_document = request.FILES['rules_document']
+            updated_fields.append('rules_document')
         if request.FILES.get('tournament_logo'):
             tournament.tournament_logo = request.FILES['tournament_logo']
             updated_fields.append('tournament_logo')
