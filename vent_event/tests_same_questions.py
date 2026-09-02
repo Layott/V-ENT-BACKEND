@@ -123,7 +123,13 @@ class SameQuestionsBothWaysTests(TestCase):
         self.buy([{'answers': {str(self.size.id): 'M',
                                str(self.phone.id): '08031234567'}}])
         ticket = Ticket.objects.get(user=self.buyer)
-        self.assertEqual(ticket.attendee_phone, '08031234567')
+        # Stored with a country code, not as typed. CEO, 2 September 2026:
+        # "if its a phone number, then the users must input a country code".
+        # A national number is converted rather than refused, because almost
+        # everybody in Nigeria writes their own as 0803..., and the number is
+        # for ringing somebody on the day from a phone that may not be in
+        # Nigeria.
+        self.assertEqual(ticket.attendee_phone, '+2348031234567')
 
     def test_a_guest_phone_answer_reaches_it_too(self):
         # The same assertion against the other checkout. A free tier, because a
@@ -140,7 +146,13 @@ class SameQuestionsBothWaysTests(TestCase):
             content_type='application/json')
         self.assertEqual(res.status_code, 201, res.json())
         ticket = Ticket.objects.get(attendee_email='ada@example.test')
-        self.assertEqual(ticket.attendee_phone, '08099999999')
+        # Stored with a country code, not as typed. CEO, 2 September 2026:
+        # "if its a phone number, then the users must input a country code".
+        # A national number is converted rather than refused, because almost
+        # everybody in Nigeria writes their own as 0803..., and the number is
+        # for ringing somebody on the day from a phone that may not be in
+        # Nigeria.
+        self.assertEqual(ticket.attendee_phone, '+2348099999999')
 
     def test_an_explicit_number_wins_over_the_answer(self):
         # Somebody who gave a number in the field meant for it is not
