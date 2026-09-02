@@ -322,7 +322,7 @@ TOURNAMENT_REPEATS = [
     ('players', 'the roster of the team this overlay is pointed at',
      ['ign', 'id', 'img']),
     ('live', 'matches in progress right now',
-     ['round', 'match', 'status', 'score']),
+     ['round', 'match', 'status', 'home', 'away', 'score']),
 ]
 
 #: And on an event. An event has no bracket; it has a programme, a door count,

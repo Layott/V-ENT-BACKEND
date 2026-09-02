@@ -177,15 +177,33 @@ def overlay_feed(request, tournament_id):
     for place, team in enumerate(teams, start=1):
         team['place'] = place
 
+    # Who is playing, not only what the score is. This used to carry the round,
+    # the match number, the status and the score and nothing else, so the
+    # bracket graphic went on air reading "R2  0 - 0" and named nobody. A
+    # scoreline with no names tells an audience less than no graphic at all.
+    def _side(registration):
+        if registration is None:
+            return ''
+        if registration.team_id:
+            return registration.team.team_name
+        if registration.user_id:
+            return (registration.user.full_name
+                    or registration.user.username or '')
+        return ''
+
     live = [
         {
             'round': m.round_number,
             'match': m.match_number,
             'status': m.status,
+            'home': _side(m.participant_1),
+            'away': _side(m.participant_2),
             'score': [m.score_p1 or 0, m.score_p2 or 0],
         }
         for m in BracketMatch.objects.filter(
-            tournament=tournament, status='in_progress')[:8]
+            tournament=tournament, status='in_progress')
+        .select_related('participant_1__team', 'participant_1__user',
+                        'participant_2__team', 'participant_2__user')[:8]
     ]
 
     return Response({'status': 'success', 'data': {

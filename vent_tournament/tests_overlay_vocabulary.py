@@ -119,10 +119,29 @@ class TournamentVocabularyTests(TestCase):
         for key, _why, fields in TOURNAMENT_REPEATS:
             rows = self.rows_for(key, data)
             if key == 'live':
-                continue          # nothing is in progress in this fixture
+                continue          # covered by its own test, with a live match
             self.assertTrue(rows, 'no %s in the fixture to check' % key)
             for field in fields:
                 self.assertIn(field, rows[0], '%s.%s' % (key, field))
+
+
+    def test_a_live_match_names_who_is_playing(self):
+        """The bracket graphic used to go on air reading "R2  0 - 0" and name
+        nobody, because the feed sent the round, the score and nothing else. A
+        scoreline with no names tells an audience less than no graphic."""
+        from vent_tournament.models import BracketMatch
+
+        registration = TournamentRegistration.objects.get()
+        BracketMatch.objects.create(
+            tournament=self.tournament, round_number=2, match_number=1,
+            participant_1=registration, status='in_progress',
+            score_p1=2, score_p2=1)
+
+        live = self.feed()['live']
+        self.assertEqual(len(live), 1)
+        self.assertEqual(live[0]['home'], 'Vocabulary XI')
+        self.assertIn('away', live[0])
+        self.assertEqual(live[0]['score'], [2, 1])
 
     def test_the_prompt_text_lists_exactly_those_names(self):
         for name, _why in TOURNAMENT_NAMES:
