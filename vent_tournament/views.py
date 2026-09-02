@@ -21,6 +21,7 @@ from django.db import transaction as db_transaction
 from .money import CURRENCIES, from_coins, rates, to_coins
 from . import options as tournament_options
 from django.contrib.contenttypes.models import ContentType
+from vent_auth import org_link
 from vent_auth.models import Organization
 from django.utils import timezone
 from rest_framework.decorators import api_view
@@ -878,10 +879,29 @@ def create_tournament(request):
 
                 series = GameSeries.objects.filter(series_id=series_id, game=game).first()
 
+            # Whose name this runs in. `tournament_organization` existed from
+            # the beginning and nothing could ever set it, so following an
+            # organisation showed an empty feed for everybody: 0 of 10
+            # tournaments and 0 of 5 events carried one.
+            organization, org_error = org_link.resolve(
+                request.data.get('organization')
+                or request.data.get('tournament_organization'),
+                creator)
+            if org_error == 'ORG_NOT_FOUND':
+                return Response({'status': 'error', 'code': 'ORG_NOT_FOUND',
+                                 'message': 'That organization does not exist.',
+                                 'data': {}}, status=status.HTTP_400_BAD_REQUEST)
+            if org_error == 'ORG_NOT_YOURS':
+                return Response({'status': 'error', 'code': 'ORG_NOT_YOURS',
+                                 'message': "You cannot run a tournament in "
+                                            "that organization's name.",
+                                 'data': {}}, status=status.HTTP_403_FORBIDDEN)
+
             # Create Tournament
             tournament = Tournament.objects.create(
                 tournament_title=tournament_title,
                 tournament_creator=creator,
+                tournament_organization=organization,
                 tournament_game=game,
                 tournament_series=series,
                 game_mode=game_mode,
@@ -1593,7 +1613,7 @@ def view_user_drafted_tournaments(request):
                     "bracket_type": t.bracket_type,
                     "format_label": bracket_label(t.bracket_type),
                     "tournament_creator_id": t.tournament_creator.user_id,
-                    "tournament_organization": t.tournament_organization.name if t.tournament_organization else None,
+                    "tournament_organization": t.tournament_organization.org_name if t.tournament_organization else None,
                     "start_date_and_time": t.start_date_and_time,
                     "end_date_and_time": t.end_date_and_time,
                     "tournament_visibility": t.tournament_visibility,
@@ -1919,7 +1939,25 @@ def edit_tournament(request, tournament_id):
             'max_number_of_teams': 'int',
         }
 
-        updated_fields = []
+        # The organisation, which is a foreign key and so cannot ride in
+        # `editable_text`. An empty string means "take it off again".
+        if 'organization' in request.data or 'tournament_organization' in request.data:
+            raw = request.data.get('organization',
+                                   request.data.get('tournament_organization'))
+            organization, org_error = org_link.resolve(raw, user)
+            if org_error == 'ORG_NOT_FOUND':
+                return Response({'status': 'error', 'code': 'ORG_NOT_FOUND',
+                                 'message': 'That organization does not exist.',
+                                 'data': {}}, status=status.HTTP_400_BAD_REQUEST)
+            if org_error == 'ORG_NOT_YOURS':
+                return Response({'status': 'error', 'code': 'ORG_NOT_YOURS',
+                                 'message': "You cannot run a tournament in "
+                                            "that organization's name.",
+                                 'data': {}}, status=status.HTTP_403_FORBIDDEN)
+            tournament.tournament_organization = organization
+            updated_fields = ['tournament_organization']
+        else:
+            updated_fields = []
 
         # The registration window and the edition, under the names the create
         # wizard sends. Kept out of `editable_text` because they map onto

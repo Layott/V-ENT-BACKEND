@@ -38,6 +38,7 @@ urlpatterns = [
     # Literal routes BEFORE the <str:org_id> catch-all, which otherwise reads
     # "following" as the name of an organisation and answers 404. Django matches
     # in order; there is no specificity rule to save you.
+    path('organization/mine/', org_following.my_organizations),
     path('organization/following/', org_following.following),
     path('organization/following/feed/', org_following.following_feed),
     path('organization/<str:org_id>/', orgs.org_detail),
