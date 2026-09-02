@@ -229,10 +229,10 @@ def _maybe_complete(tournament_id):
 
 def assign_final_positions(tournament):
     """Write TournamentRegistration.final_position (1 = winner) for a finished bracket."""
-    from ..services.bracket import normalize_bracket_type
+    from ..services.bracket import decided_by_table, normalize_bracket_type
 
     btype = normalize_bracket_type(tournament.bracket_type)
-    if btype == 'round_robin':
+    if decided_by_table(btype):
         _positions_round_robin(tournament)
     else:
         _positions_elimination(tournament)

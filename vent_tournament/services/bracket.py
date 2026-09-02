@@ -19,22 +19,32 @@ from . import advance
 # ---------------------------------------------------------------------------
 
 def normalize_bracket_type(raw):
-    """Map any stored/label variant to a canonical key."""
+    """Map any stored/label variant to a canonical key.
+
+    Resolved through the format catalogue, which is the only alias list. A
+    value the catalogue does not know passes through unchanged so a caller can
+    still see what it was handed; `generate_bracket` treats it as a knockout.
+    """
+    from .. import formats
     if not raw:
         return 'single_elimination'
-    key = str(raw).strip().lower().replace('-', '_').replace(' ', '_')
-    aliases = {
-        'single_elimination': 'single_elimination',
-        'single_elim': 'single_elimination',
-        'single': 'single_elimination',
-        'double_elimination': 'double_elimination',
-        'double_elim': 'double_elimination',
-        'double': 'double_elimination',
-        'round_robin': 'round_robin',
-        'roundrobin': 'round_robin',
-        'rr': 'round_robin',
-    }
-    return aliases.get(key, key)
+    definition = formats.get(raw)
+    if definition:
+        return definition.key
+    return str(raw).strip().lower().replace('-', '_').replace(' ', '_')
+
+
+def decided_by_table(btype):
+    """Whether this format is a table (round robin, aggregate ties, ladder).
+
+    Those all schedule as a round robin; what differs between them is how a tie
+    is scored, and that lives in the league rules and the scoring module, not
+    here. The branch below used to test `== 'round_robin'` alone, so an
+    aggregate league or a ladder would have been drawn as a knockout.
+    """
+    from .. import formats
+    definition = formats.get(btype)
+    return bool(definition and definition.advancement == 'table')
 
 
 def next_power_of_2(n):
@@ -198,7 +208,7 @@ def generate(tournament, generated_by, seed_strategy='random', manual_order=None
             reg.save(update_fields=['seed'])
 
     with advance.suspend_advance():
-        if btype == 'round_robin':
+        if decided_by_table(btype):
             summary = _generate_round_robin(tournament, ordered)
         elif btype == 'double_elimination':
             summary = _generate_double_elimination(tournament, ordered)
