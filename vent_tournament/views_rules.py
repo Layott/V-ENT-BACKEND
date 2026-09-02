@@ -59,9 +59,26 @@ def _payload(ruleset, tournament):
             'summary': definition.summary,
             'notes': definition.notes,
         } if definition else None,
-        # Everything the editor needs to offer, so the frontend never carries
-        # its own copy of the list and never drifts from what is accepted.
+        # What the editor should offer THIS tournament, so the frontend never
+        # carries its own copy of the list and never drifts from what is
+        # accepted.
+        #
+        # It used to send all thirteen to everybody, so an EA FC organiser was
+        # asked to choose between "Goals scored" and "Total kills" in the same
+        # row. Each format already declared the ones it uses and nothing read
+        # them; the game narrows it further, because a football game has no
+        # idea what a kill is.
         'available_tiebreakers': [
+            {'key': k, 'label': fmt.TIEBREAKERS[k]}
+            for k in fmt.tiebreakers_for(
+                tournament.bracket_type,
+                tournament.tournament_game.game_title
+                if tournament.tournament_game else None)
+        ],
+        # The whole catalogue as well, for an organiser who wants something
+        # unusual. Offered separately rather than mixed in, so the ordinary
+        # list stays short and right.
+        'all_tiebreakers': [
             {'key': k, 'label': v} for k, v in fmt.TIEBREAKERS.items()
         ],
         'placement_presets': rules_mod.PLACEMENT_PRESETS,
