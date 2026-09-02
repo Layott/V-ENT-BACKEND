@@ -53,6 +53,20 @@ def may_message(viewer, owner):
         return False
     if viewer is not None and viewer.pk == owner.pk:
         return False                       # nobody messages themselves
+
+    # A block, in EITHER direction, ends it before any privacy setting is
+    # consulted. Checked both ways because enforcing one direction stops the
+    # wrong half of the conversation: if A blocked B and only B is stopped, A
+    # can still write to the person they said they wanted nothing from, and if
+    # only A is stopped then B still reaches the person who blocked them.
+    #
+    # Here rather than at the call sites, because this function is already the
+    # single gate for "may A message B" and a second copy of the rule is a
+    # second thing to forget.
+    from .views_safety import is_blocked_between
+    if is_blocked_between(viewer, owner):
+        return False
+
     setting = privacy_of(owner).get('allow_direct_messages', 'anyone')
     if setting in (False, 'nobody', 'none'):
         return False
