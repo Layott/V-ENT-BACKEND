@@ -299,6 +299,37 @@ def feed(request, token):
         return _err('This broadcast link is not valid any more.', 'NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)
 
+    # A retired link answers, once, with nothing on it.
+    #
+    # The console promises that the URLs "stop working when you end it", and
+    # this used to keep serving the whole payload for ever, which made the
+    # sentence a shade stronger than the code.
+    #
+    # It is deliberately not a 404. The runtime keeps its last good frame on
+    # anything that is not a success, precisely so a dropped connection does
+    # not blank a graphic mid-match - so refusing here would freeze whatever
+    # was on screen when the operator pressed End, at the exact moment they
+    # wanted it gone. Answering with `retired` clears the screen and tells the
+    # page to stop asking, which is what "stops working" has to mean for a
+    # browser source.
+    if session.status != 'live':
+        return _ok({
+            'session': {
+                'id': session.id,
+                'name': session.name,
+                'is_live': False,
+                'retired': True,
+            },
+            'retired': True,
+            'elements': {kind: {'kind': kind, 'active': False, 'payload': {},
+                                'updated_at': None}
+                         for kind, _label in BroadcastElement.KINDS},
+            'tournament': {},
+            'teams': [],
+            'live': [],
+            'version': 'retired-%s' % session.id,
+        }, 'This broadcast has ended.')
+
     elements = _element_state(session)
 
     # The bracket's own numbers, computed where they are already computed. The
