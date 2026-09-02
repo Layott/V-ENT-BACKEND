@@ -1399,11 +1399,20 @@ def view_tournament(request, tournament_id):
         prize_pool_total = sum(int(p.prize) for p in prize_distributions) if prize_distributions else 0
         confirmed_count = TournamentRegistration.objects.filter(tournament=tournament, status='confirmed').count()
         creator = tournament.tournament_creator
-        creator_obj = {
-            "user_id": creator.user_id,
-            "username": creator.username,
-            "full_name": creator.full_name,
-        } if creator else None
+        # The SAME person shape every other surface uses, rather than a
+        # hand-built dict with three of its keys.
+        #
+        # This one carried user_id, username and full_name and nothing else,
+        # so the organiser panel had no picture to draw and fell back to an
+        # initial in a circle, and the founder badge could not appear because
+        # nothing said whether to show it. Both are the same fault: a second
+        # description of a person that quietly lacks half the fields.
+        #
+        # `_person` is where that shape lives, and its own comment records the
+        # last time this happened - the badge showed on a profile and nowhere
+        # else for exactly this reason.
+        from vent_auth.views_community import _person
+        creator_obj = _person(request, creator) if creator else None
 
         # Build the response
         data = {
