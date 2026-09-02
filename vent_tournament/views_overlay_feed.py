@@ -205,3 +205,74 @@ def overlay_feed(request, tournament_id):
             len(teams),
             sum(t['played'] + t['points_for'] for t in teams)),
     }, 'message': ''})
+
+
+# ---------------------------------------------------------------------------
+# The same feed, for an event
+# ---------------------------------------------------------------------------
+#
+# An event overlay is pointed at this by `serve_overlay`. Without it the
+# runtime would fetch a 404 every four seconds and the overlay would sit on
+# screen showing whatever placeholder text the designer drew - which looks
+# like a working overlay with stale data rather than a broken one, and is
+# therefore the worse failure.
+#
+# An event has no bracket. What it has is a programme, a door count, ticket
+# sales and the people who paid for the banners, so those are the names.
+
+@api_view(['GET'])
+def event_overlay_feed(request, event_id):
+    """GET /event/<id>/overlay-feed/ - what an event overlay fills itself from.
+
+    Public for the same reason the overlay itself is: a browser source in OBS
+    has no session and cannot sign in. Nothing here is private - it is the
+    same programme and sponsor list the public event page shows.
+    """
+    from django.utils import timezone as _tz
+    from vent_event.models import Event, EventSession, Sponsor, Ticket
+
+    def _find(key):
+        if str(key).isdigit():
+            found = Event.objects.filter(event_id=int(key)).first()
+            if found:
+                return found
+        return Event.objects.filter(slug=str(key)).first()
+
+    event = _find(event_id)
+    if event is None:
+        return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+
+    now = _tz.now()
+
+    # What is on, and what follows it. Read from the programme rather than
+    # typed by an operator, so a screen behind a stage cannot disagree with the
+    # schedule the audience is holding.
+    sessions = list(EventSession.objects.filter(event=event).order_by('starts_at'))
+    now_on = next((s for s in sessions
+                   if s.starts_at and s.ends_at
+                   and s.starts_at <= now <= s.ends_at), None)
+    next_on = next((s for s in sessions if s.starts_at and s.starts_at > now), None)
+
+    sold = Ticket.objects.filter(event=event).exclude(
+        status__in=('cancelled', 'refunded')).count()
+    attending = Ticket.objects.filter(
+        event=event, checked_in_at__isnull=False).count()
+
+    # This module has no `_ok`; it answers with Response directly. I wrote
+    # `_ok` from memory of a sibling file and no test called the feed, so it
+    # would have raised NameError the first time an event overlay refreshed -
+    # on air, four seconds in.
+    return Response({'status': 'success', 'data': {
+        'event_name': event.name,
+        'venue': event.venue_name or event.location or '',
+        'starts_at': event.start_date,
+        'now_on': getattr(now_on, 'title', '') or '',
+        'room': getattr(now_on, 'stage', '') or '',
+        'next_on': getattr(next_on, 'title', '') or '',
+        'attending': attending,
+        'tickets_sold': sold,
+        'sponsors': [
+            {'sponsor_name': s.name, 'logo': _url(request, s.logo)}
+            for s in Sponsor.objects.filter(event=event)
+        ],
+    }, 'message': 'Overlay feed'})

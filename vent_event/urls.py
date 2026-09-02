@@ -3,6 +3,8 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 from . import views_guest
+from vent_tournament import views_overlays as overlay_views
+from vent_tournament import views_overlay_feed as overlay_feed_views
 from . import views_sponsors
 from . import views_holds
 from . import views_announce
@@ -79,6 +81,17 @@ urlpatterns = [
     # edits them together should not have to write them one request at a time.
     path("<str:event_id>/email-limits/", views_limits.email_limits,
          name="email_limits"),
+    # Stream overlays for an event, the same mechanism tournaments have.
+    # What an event overlay fills itself from. Public by design: a browser
+    # source in OBS has no session and cannot sign in.
+    path("<str:event_id>/overlay-feed/", overlay_feed_views.event_overlay_feed,
+         name="event_overlay_feed"),
+    path("<str:event_id>/overlays/", overlay_views.event_overlays,
+         name="event_overlays"),
+    path("<str:event_id>/overlays/<int:overlay_id>/", overlay_views.event_overlay_detail,
+         name="event_overlay_detail"),
+    path("<str:event_id>/overlays/<int:overlay_id>/rotate/", overlay_views.event_overlay_rotate,
+         name="event_overlay_rotate"),
     path("<str:event_id>/short-links/", views_short_links.short_links,
          name="event_short_links"),
     path("<str:event_id>/short-links/<int:link_id>/",
