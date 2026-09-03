@@ -29,6 +29,14 @@ urlpatterns = [
     # The URL an organiser pastes into OBS or vMix. Root-mounted and short,
     # because it is typed into a machine at a venue, and public by token,
     # because a browser source cannot sign in.
+    # The named address: the tournament or event, then the overlay's own name,
+    # then the token. The names are a label and the token is the credential, so
+    # a stale name still opens the right overlay rather than 404ing somebody
+    # mid-broadcast. Listed first because it is the more specific pattern.
+    path("overlay/<str:owner>/<str:label>/<str:token>/",
+         overlay_views.serve_overlay, name="serve_overlay_named"),
+    # The bare address. Every URL ever handed out keeps working: this one is
+    # pasted into an OBS scene collection that may not be opened for months.
     path("overlay/<str:token>/", overlay_views.serve_overlay, name="serve_overlay"),
     # A shortened ticket link. Root-mounted and two characters long because the
     # length of the address is the entire feature: it is read aloud on a
