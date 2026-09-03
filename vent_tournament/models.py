@@ -680,6 +680,16 @@ class TieFixture(models.Model):
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default='scheduled')
     completed_at = models.DateTimeField(null=True, blank=True)
 
+    # Who entered this seat's score, and when. Results can be recorded by a
+    # scorekeeper the organiser named, so "who put this in" has more than one
+    # answer and it gets asked. The knockout path stored it from the day
+    # scorekeepers existed; this one did not, and a live walk on 3 September
+    # found a settled tie whose author was nobody.
+    recorded_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='fixtures_recorded')
+    recorded_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ['tie_id', 'slot']
         constraints = [

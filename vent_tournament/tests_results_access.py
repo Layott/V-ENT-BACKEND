@@ -191,6 +191,36 @@ class ResultsAccessTests(TestCase):
         self.match.refresh_from_db()
         self.assertEqual(self.match.recorded_by_id, self.organiser.user_id)
 
+    def test_a_league_seat_says_who_entered_it_and_so_does_the_settled_tie(self):
+        """Found by walking it live on 3 September: a settled tie had no author.
+
+        The knockout path stored `recorded_by` from the day scorekeepers
+        existed and the league path did not, so the one format V-ENT runs most
+        recorded results by nobody."""
+        self.add_keeper(self.league)
+        self.assertEqual(self.record_tie(self.keeper_auth).status_code, 200)
+        seat_one = TieFixture.objects.get(tie=self.tie, slot=1)
+        self.assertEqual(seat_one.recorded_by_id, self.keeper.user_id)
+        self.assertIsNotNone(seat_one.recorded_at)
+        # Not settled yet, so the tie has no author of its own.
+        self.tie.refresh_from_db()
+        self.assertIsNone(self.tie.recorded_by_id)
+        # The seat that settles it is the one the tie is attributed to.
+        res = self.client.post(
+            '/tournament/tie/%s/record/' % self.tie.pk,
+            data={'slot': 2, 'goals_1': 0, 'goals_2': 2},
+            content_type='application/json', **self.auth)
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.tie.refresh_from_db()
+        self.assertEqual(self.tie.status, 'completed')
+        self.assertEqual(self.tie.recorded_by_id, self.organiser.user_id)
+        self.assertEqual(TieFixture.objects.get(tie=self.tie, slot=2).recorded_by_id,
+                         self.organiser.user_id)
+        # And the aggregate decided it, not the count of seats won: each side
+        # won one seat, and 3-1 plus 0-2 is 3-3, a draw.
+        self.assertEqual((self.tie.score_p1, self.tie.score_p2), (3, 3))
+        self.assertIsNone(self.tie.winner_id)
+
     # ------------------------------------------------ nothing else gained
 
     def test_a_scorekeeper_gains_nothing_else(self):
