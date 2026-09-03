@@ -1280,6 +1280,11 @@ class BroadcastSession(models.Model):
     token = models.CharField(max_length=48, unique=True, db_index=True)
     status = models.CharField(max_length=10, choices=STATUS, default='live')
 
+    # The house style for this broadcast: how graphics arrive, how they leave,
+    # whether a surface stays behind. Any one graphic may differ; see
+    # `presentation.resolve`.
+    defaults = models.JSONField(default=dict, blank=True)
+
     started_by = models.ForeignKey(
         Users, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='broadcast_sessions')
@@ -1348,6 +1353,7 @@ class BroadcastElement(models.Model):
         ('player_card', 'Player card'),
         ('bracket', 'Bracket'),
         ('sponsors', 'Sponsor wall'),
+        ('media', 'Clip or picture'),
         ('ticker', 'Ticker'),
         ('intro', 'Intro'),
         ('outro', 'Outro'),
@@ -1358,6 +1364,7 @@ class BroadcastElement(models.Model):
         ('lower_third', 'Lower third'),
         ('sponsors', 'Sponsor wall'),
         ('doors', 'Doors'),
+        ('media', 'Clip or picture'),
         ('ticker', 'Ticker'),
         ('intro', 'Intro'),
         ('outro', 'Outro'),
@@ -1370,6 +1377,10 @@ class BroadcastElement(models.Model):
         ('programme', 'Programme'),
         ('doors', 'Doors'),
     ]
+
+    # Graphics that draw a clip or a picture the organiser uploaded, rather
+    # than data the platform computes.
+    MEDIA_KINDS = ['media']
 
     @classmethod
     def kinds_for(cls, kind_of_owner):
@@ -1435,3 +1446,84 @@ class TournamentStaff(models.Model):
 
     def __str__(self):
         return '%s on %s (%s)' % (self.user.username, self.tournament_id, self.role)
+
+
+class StudioAsset(models.Model):
+    """A clip or a picture kept in the studio, to be called on whenever.
+
+    CEO, 3 September 2026: "i want to be able use player brolls on the site if
+    possible maybe the videos are uploaded to a place in the studio and then
+    can be called on whenever, same for other videos or images that can be
+    uploaded and then linked to differnet things like mayabe particular teams
+    or players, or texts or IDS etc, then when those things are needed, can be
+    triggered into a live overlay."
+
+    So an asset is uploaded once, to a tournament's or an event's studio, and
+    is then addressable three ways: by its own id, by a tag the organiser gave
+    it, or by what it is about. A b-roll of a player is tagged with that
+    player; a team's walk-on is tagged with the team; a sting is tagged with a
+    word the operator will remember at 9pm with a match starting.
+
+    `tags` is free text on purpose. An operator under time pressure types what
+    they think of, not what a schema anticipated, and the alternative is a
+    dropdown of somebody else's categories.
+    """
+
+    KINDS = [('video', 'Video'), ('image', 'Image')]
+
+    id = models.AutoField(primary_key=True)
+    # What studio it belongs to. Exactly one, the same shape as the broadcast
+    # session and the overlay.
+    tournament = models.ForeignKey(
+        Tournament, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='studio_assets')
+    event = models.ForeignKey(
+        'vent_event.Event', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='studio_assets')
+
+    kind = models.CharField(max_length=8, choices=KINDS)
+    name = models.CharField(max_length=140)
+    file = models.FileField(upload_to='studio_assets/')
+    size_bytes = models.BigIntegerField(default=0)
+
+    # How long a clip runs, so the console can take it off air by itself
+    # rather than leaving a finished video frozen on a last frame.
+    duration_ms = models.PositiveIntegerField(default=0)
+
+    # What it is about. Any of these may be empty; an asset with none is still
+    # perfectly usable by name.
+    tags = models.JSONField(default=list, blank=True)
+    team_tag = models.CharField(max_length=40, blank=True, default='')
+    player = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='studio_assets')
+
+    uploaded_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='studio_assets_uploaded')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return '%s (%s)' % (self.name, self.kind)
+
+    @property
+    def owner(self):
+        return self.tournament or self.event
+
+    @property
+    def owner_kind(self):
+        return 'event' if self.event_id else 'tournament'
+
+    def matches(self, word):
+        """Whether this asset answers to `word`: its tag, team or player."""
+        needle = str(word or '').strip().lower()
+        if not needle:
+            return False
+        if needle == (self.team_tag or '').lower():
+            return True
+        if self.player_id and needle == (self.player.username or '').lower():
+            return True
+        return any(needle == str(t).strip().lower() for t in (self.tags or []))

@@ -170,14 +170,14 @@ class StudioTests(TestCase):
     def test_the_feed_needs_no_account(self):
         """A browser source cannot sign in. That is the whole point."""
         s = self.start().json()['data']['session']
-        token = s['urls']['scorebar'].split('/studio/')[1].split('/')[0]
+        token = s['token']
         self.client.cookies.clear()
         res = self.client.get('/studio/%s/feed/' % token)
         self.assertEqual(res.status_code, 200, res.content[:400])
 
     def test_the_feed_carries_every_element_in_one_request(self):
         s = self.start().json()['data']['session']
-        token = s['urls']['scorebar'].split('/studio/')[1].split('/')[0]
+        token = s['token']
         self.element(s['id'], 'scorebar',
                      {'active': True, 'payload': {'home': 'Nigeria'}})
 
@@ -190,7 +190,7 @@ class StudioTests(TestCase):
     def test_the_version_moves_when_something_is_triggered(self):
         """So an overlay can ask "has anything changed" without diffing."""
         s = self.start().json()['data']['session']
-        token = s['urls']['scorebar'].split('/studio/')[1].split('/')[0]
+        token = s['token']
         before = self.client.get('/studio/%s/feed/' % token).json()['data']['version']
         self.element(s['id'], 'scorebar', {'active': True})
         after = self.client.get('/studio/%s/feed/' % token).json()['data']['version']
@@ -203,7 +203,7 @@ class StudioTests(TestCase):
     def test_the_feed_survives_a_restart_because_state_is_on_the_server(self):
         """OBS reopening the URL must get the graphic back exactly as it was."""
         s = self.start().json()['data']['session']
-        token = s['urls']['scorebar'].split('/studio/')[1].split('/')[0]
+        token = s['token']
         self.element(s['id'], 'scorebar',
                      {'active': True, 'payload': {'home': 'Nigeria', 'score': '3-1'}})
 

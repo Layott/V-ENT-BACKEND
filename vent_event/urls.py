@@ -6,6 +6,7 @@ from . import views_guest
 from vent_tournament import views_overlays as overlay_views
 from vent_tournament import views_overlay_feed as overlay_feed_views
 from vent_tournament import views_studio as studio_views
+from vent_tournament import views_assets as asset_views
 from . import views_sponsors
 from . import views_holds
 from . import views_announce
@@ -96,6 +97,10 @@ urlpatterns = [
     # The production studio for an event: the same three routes a tournament
     # has, the same console, the same feed. The graphics differ (a programme
     # rather than a bracket); see BroadcastElement.kinds_for.
+    path("<str:event_id>/studio/assets/", asset_views.event_assets,
+         name="event_studio_assets"),
+    path("<str:event_id>/studio/assets/<int:asset_id>/",
+         asset_views.event_asset_detail, name="event_studio_asset_detail"),
     path("<str:event_id>/studio/sessions/", studio_views.event_sessions,
          name="event_studio_sessions"),
     path("<str:event_id>/studio/sessions/<int:session_id>/",

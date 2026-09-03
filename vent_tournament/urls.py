@@ -21,6 +21,7 @@ from . import views_overlay_feed
 from . import views_overlays
 from . import views_studio
 from . import views_staff
+from . import views_assets
 from . import views_export
 from . import views_mvp
 from . import views_reminders
@@ -48,6 +49,12 @@ urlpatterns = [
     path("<str:tournament_id>/staff/", views_staff.staff, name="tournament_staff"),
     path("<str:tournament_id>/staff/<int:user_id>/", views_staff.staff_remove,
          name="tournament_staff_remove"),
+    # The studio's media library: clips and pictures uploaded once and
+    # called on whenever. See views_assets.
+    path("<str:tournament_id>/studio/assets/", views_assets.assets,
+         name="studio_assets"),
+    path("<str:tournament_id>/studio/assets/<int:asset_id>/",
+         views_assets.asset_detail, name="studio_asset_detail"),
     path("<str:tournament_id>/studio/sessions/", views_studio.sessions,
          name="studio_sessions"),
     path("<str:tournament_id>/studio/sessions/<int:session_id>/",

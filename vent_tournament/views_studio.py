@@ -47,9 +47,11 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
+from . import presentation
 from .models import BroadcastElement, BroadcastSession
 from .production_access import (
     REFUSAL_CODE, find_owner, kind_of, may_run_production, viewer as _viewer)
+from .views_assets import library_for, resolve_asset, serialize as serialize_asset
 
 # Kept under its old name: the tests and the handovers call it this, and it
 # is the one line the plan check will sit on when plans exist.
@@ -83,10 +85,16 @@ def _element_state(session):
     out = {}
     for kind in _kinds(session):
         row = rows.get(kind)
+        payload = (row.payload if row else {}) or {}
         out[kind] = {
             'kind': kind,
             'active': bool(row and row.is_active),
-            'payload': (row.payload if row else {}) or {},
+            'payload': payload,
+            # How this graphic arrives and leaves, already merged with the
+            # broadcast's house style, so the page never has to know which
+            # level a value came from. See presentation.py.
+            'presentation': presentation.resolve(session.defaults,
+                                                 payload.get('options')),
             'updated_at': row.updated_at.isoformat() if row else None,
         }
     return out
@@ -131,6 +139,10 @@ def _session_payload(session, request):
 
     frontend = str(getattr(settings, 'FRONTEND_URL', '') or '').rstrip('/')
     page_base = '%s/studio/%s' % (frontend, session.token)
+    owner = session.owner
+    owner_slug = getattr(owner, 'slug', None) or (
+        session.event_id or session.tournament_id)
+    named_base = '%s/studio/%s' % (frontend, owner_slug)
     feed_base = request.build_absolute_uri('/studio/%s' % session.token)
     elements = _element_state(session)
     kinds = _kinds(session)
@@ -140,12 +152,31 @@ def _session_payload(session, request):
         'status': session.status,
         'is_live': session.is_live,
         'kind': session.kind,
+        # Published rather than left to be parsed out of a URL. Every reader
+        # was pulling it from `urls.scorebar` by position, so moving the token
+        # to the end of a named address broke all of them at once. It goes
+        # only to somebody who may run production, and it is already inside
+        # every URL in this payload.
+        'token': session.token,
         'started_at': session.started_at.isoformat(),
         'ended_at': session.ended_at.isoformat() if session.ended_at else None,
         # The whole reason the feature exists: URLs somebody can paste.
-        'urls': {kind: '%s/%s' % (page_base, kind) for kind in kinds},
+        # The address carries the name of the thing being broadcast and the
+        # name of the graphic, because an operator pastes eight of these into
+        # OBS and then reads them back in a list of browser sources.
+        # `/studio/<token>/scorebar` told them nothing about which broadcast it
+        # belonged to. The token stays in it: it is still the credential, and
+        # the slug is a label. CEO, 3 September 2026.
+        'urls': {kind: '%s/%s/%s' % (named_base, kind, session.token)
+                 for kind in kinds},
+        # What the URLs were before this, so a source already pasted into a
+        # machine at a venue keeps working for ever.
+        'legacy_urls': {kind: '%s/%s' % (page_base, kind) for kind in kinds},
         'feed': '%s/feed/' % feed_base,
         'elements': elements,
+        # The house style, and what a console may offer for it.
+        'defaults': presentation.resolve(session.defaults, None),
+        'presentation_options': presentation.catalogue(),
         'version': _version(session, elements),
     }
     # Named by what it is of, and `tournament` kept as the key the console
@@ -202,6 +233,15 @@ def _session_detail(request, owner, kind, session_id):
     if session is None:
         return _err('No such broadcast.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
+    if request.method == 'POST' and 'defaults' in request.data:
+        # The house style for the whole broadcast. Set once, and any single
+        # graphic may still differ.
+        try:
+            session.defaults = presentation.clean(request.data.get('defaults'))
+        except presentation.PresentationError as err:
+            return _err(str(err), 'INVALID_PRESENTATION', field=err.field)
+        session.save(update_fields=['defaults'])
+
     if request.method == 'POST' and request.data.get('end'):
         # Ending clears every element, because the alternative is a graphic
         # left on screen after the show with nobody watching the console.
@@ -244,6 +284,13 @@ def _element(request, owner, kind, session_id, element_kind):
     if isinstance(payload, dict):
         merged = dict(row.payload or {})
         merged.update(payload)
+        if 'options' in payload:
+            # Validated here rather than at read time, so a typo is refused at
+            # the press that made it and not discovered on air.
+            try:
+                merged['options'] = presentation.clean(payload.get('options'))
+            except presentation.PresentationError as err:
+                return _err(str(err), 'INVALID_PRESENTATION', field=err.field)
         row.payload = merged
 
     if 'active' in request.data:
@@ -317,8 +364,10 @@ def _retired(session):
         'kind': session.kind,
         'retired': True,
         'elements': {kind: {'kind': kind, 'active': False, 'payload': {},
-                            'updated_at': None}
+                            'presentation': presentation.resolve(None, None),
+                            'asset': None, 'updated_at': None}
                      for kind in _kinds(session)},
+        'assets': [],
         'tournament': {},
         'event': {},
         'teams': [],
@@ -354,6 +403,29 @@ def feed(request, token):
     elements = _element_state(session)
     raw = request._request if hasattr(request, '_request') else request
 
+    # The media library, and the one asset a `media` graphic is pointed at,
+    # already resolved. An element page must not have to look anything up: it
+    # is a browser source with one request, and a second round trip to turn a
+    # tag into a URL is a second chance to fail with a clip half on screen.
+    owner, owner_kind = session.owner, session.kind
+    assets = [serialize_asset(a, request) for a in library_for(owner, owner_kind)]
+    by_id = {a['id']: a for a in assets}
+    for kind in BroadcastElement.MEDIA_KINDS:
+        state = elements.get(kind)
+        if not state:
+            continue
+        payload = state['payload'] or {}
+        chosen = None
+        if payload.get('asset_id'):
+            try:
+                chosen = by_id.get(int(payload['asset_id']))
+            except (TypeError, ValueError):
+                chosen = None
+        if chosen is None and payload.get('tag'):
+            found = resolve_asset(owner, owner_kind, word=payload['tag'])
+            chosen = by_id.get(found.id) if found else None
+        state['asset'] = chosen
+
     # The numbers come from where they are already computed. The studio does
     # no arithmetic: standings, scores, what is on now, how many are through
     # the door are the tournament's or the event's answers, and a second
@@ -370,7 +442,9 @@ def feed(request, token):
             'event': data.get('event', {}),
             'programme': data.get('programme', []),
             'sponsors': data.get('sponsors', []),
-            'version': '%s|%s' % (_version(session, elements), data.get('version', '')),
+            'assets': assets,
+            'version': '%s|%s|%s' % (_version(session, elements),
+                                     data.get('version', ''), len(assets)),
         }, 'Studio feed')
 
     from .views_overlay_feed import overlay_feed
@@ -384,5 +458,7 @@ def feed(request, token):
         'teams': data.get('teams', []),
         'live': data.get('live', []),
         'sponsors': data.get('sponsors', []),
-        'version': '%s|%s' % (_version(session, elements), data.get('version', '')),
+        'assets': assets,
+        'version': '%s|%s|%s' % (_version(session, elements),
+                                 data.get('version', ''), len(assets)),
     }, 'Studio feed')
