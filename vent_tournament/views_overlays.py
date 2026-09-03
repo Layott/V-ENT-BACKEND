@@ -417,6 +417,11 @@ TOURNAMENT_REPEATS = [
      ['name', 'logo', 'website']),
     ('assets', 'everything uploaded to this studio, newest first',
      ['id', 'name', 'kind', 'url', 'slot', 'team_tag', 'player']),
+    ('lineups', 'the EAFC squads players picked, one row per player',
+     ['player', 'formation', 'complete']),
+    ('slots', "inside a lineup: the cards, the eleven first then the bench",
+     ['slot_index', 'position', 'name', 'rating', 'club', 'nation',
+      'item_type', 'image_url', 'frame_url']),
 ]
 
 #: And on an event. An event has no bracket; it has a programme, a door count,

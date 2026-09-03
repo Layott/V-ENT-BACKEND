@@ -95,6 +95,8 @@ INSTALLED_APPS = [
     "vent_marketplace",
     "vent_tournament",
     "vent_partners",
+    # EAFC cards scraped from Futbin, and the lineups players build.
+    "vent_cards",
     'django.contrib.sites',
     'allauth',
     'allauth.account',
@@ -372,3 +374,8 @@ WAITLIST_HOLD_DAYS = int(os.environ.get('WAITLIST_HOLD_DAYS', '90'))
 # `manage.py grant_founding_bonus` can pay everyone already marked as founding
 # without anyone having been promised money we did not have.
 WAITLIST_CLAIM_BONUS_VC = int(os.environ.get('WAITLIST_CLAIM_BONUS_VC', '0'))
+
+# The key the Futbin scraper posts with. Empty means ingest is off, which is
+# the right default: a write endpoint with no key set must refuse everybody
+# rather than accept anybody.
+CARDS_INGEST_KEY = os.environ.get("CARDS_INGEST_KEY", "")
