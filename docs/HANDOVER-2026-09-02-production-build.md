@@ -279,3 +279,82 @@ the studio and I started to "fix" it. `TournamentStaff` has exactly one role by
 design: a scorekeeper may record results and may not run the studio. The refusal
 was correct. I had written `role='admin'`, which is not a valid choice, and I
 reverted it.
+
+---
+
+## 3 September, evening: squads, email invitations, and five gates closed
+
+**Shipped.** BE #137 named overlay addresses, #138 squads + direct entrants +
+email invitations, #139 the format-catalogue checker. FE #159 one preview
+component, #160 the clip-upload fix, #161 the squads console, #162 the event to
+tournament link, #163 email on the profile + the event-tabs checker, #164 the
+same row on the panel that is actually rendered. All deployed and walked.
+
+### The CEO's Team Nigeria case, proved on production
+
+```
+SIDE: Nigeria | tag NGA
+    Layott       -> represents: V-ENT ESPORT
+    naijagameevo -> represents: Asset Proof Alpha
+```
+
+Two players, two different clubs, one side, both facts kept. `TournamentSquad`
+is a THIRD kind of entrant on the same `TournamentRegistration`, never a second
+Tournament: everything reads `registration.entrant`, so a squad seeds, brackets,
+scores and stands in the table exactly as a club does. Who a member represents
+is a snapshot taken when they are added, because a transfer in October must not
+rewrite September.
+
+### Faults found by looking, not by reading
+
+1. **Every clip upload hung for ever and said nothing.** A promise resolved only
+   by `onloadedmetadata` and `onerror` on a DETACHED video element, where Chrome
+   fires neither. Pictures were fine because they skip the probe, which is why
+   it survived the tests and a walk of the console. Catcher:
+   `scripts/check-unbounded-await.mjs`.
+2. **The upload warning contradicted the feature.** `asset.hero` filled
+   correctly and the console said it would stay empty: two copies of the
+   known-names list.
+3. **The preview I added rendered every value on its placeholder.**
+   `sandbox="allow-scripts"` puts the frame on an opaque origin, so its feed
+   request goes out as `Origin: null`.
+4. **Thirty-two Portuguese entries were overwritten with French** by my own
+   patch script, and dict-parity stayed green because it counts keys. Catcher:
+   `scripts/check-language-blocks.mjs`.
+5. **The email row went into dead code.** `edit-user-profile/` is not rendered;
+   `edit-profile-panels/ProfileInfoPanel` is. Found by loading the deployed page
+   and seeing a City field where my file said State/Province.
+
+### Three readings that were NOT bugs, and how they were told apart
+
+- The clip "not playing": the Chrome window was 0x0, so the whole viewport was
+  0x0. Walking up the element chain showed `innerWidth: 0` and stopped me
+  editing correct CSS.
+- The clip "not playing" again: the tab was hidden, and Chrome does not advance
+  video in a background tab.
+- A 503 on the media file: my own deploy's maintenance window.
+
+The emulator settled all three. **Watch a media claim on the device, not in an
+automated tab.**
+
+### E2 abandoned, with the reason
+
+`endpoint-callers.py` cannot be made strict by grepping. Requiring path segments
+in order on one line reported 49 endpoints that are called on every load,
+because screens build URLs through helpers holding part of the path; dropping
+the app prefix still reported 22. A false "orphaned" costs an hour chasing a
+working endpoint, so the loose rule stays. What did land: the run went from over
+ten minutes to 0.7s, slug/id twins are one endpoint, and
+`event/<id>/overlay-feed/` joined DELIBERATE beside its tournament twin.
+
+### Ledgers
+
+GATES-STUDIO-MEDIA 18/18, GATES-SQUADS 17/17, GATES-PRODUCTION-AUDIT 10/10,
+GATES-RESULTS-DESK 21 met with E2 abandoned. Still open: GATES-PRODUCTION-BUILD
+A4 (Rivalry rows, needs the CEO's answer) and B5 (event kinds with real data).
+
+### Production test data to remove
+
+Tournaments `studio-test-safe-to-delete`, `scorekeeper-test-safe-to-delete`,
+`asset-proof-safe-to-delete` (id 32), team `Asset Proof Alpha`, squad Nigeria,
+three StudioAssets and two overlays on 32.
