@@ -70,9 +70,45 @@ def _may_manage(user, tournament):
     return may_run_production(user, tournament)
 
 
+def overlay_label(overlay):
+    """The overlay's own name, as one word for a URL.
+
+    `Score bar.html` becomes `score-bar`. The extension goes, because it is an
+    artefact of how the file arrived and means nothing to the person reading
+    the address.
+    """
+    from django.utils.text import slugify
+    import os
+    stem = os.path.splitext(str(overlay.name or ''))[0]
+    return slugify(stem)[:60] or 'overlay'
+
+
+def overlay_path(overlay):
+    """The address an organiser reads, or the bare one when it has no owner.
+
+    CEO, 3 September 2026: "can the urls for the overlays posses the names of
+    the overlays, depending on the project or event or tournament the studio is
+    working with, so slugs for the urls also."
+
+    The studio's own graphics were given named addresses and the files people
+    upload were not, which is the wrong half to miss: an organiser has one
+    folder of HTML and eight tabs of identical-looking token URLs, and the
+    whole problem is telling them apart.
+
+    The token is still the entire credential. The two names in front of it are
+    a label, so a stale one still opens the right overlay, exactly as a renamed
+    tournament's old address does.
+    """
+    owner = overlay.owner
+    owner_slug = getattr(owner, 'slug', '') or ''
+    if not owner_slug:
+        return '/overlay/%s/' % overlay.token
+    return '/overlay/%s/%s/%s/' % (owner_slug, overlay_label(overlay), overlay.token)
+
+
 def serialize(overlay, request):
     # The whole reason the feature exists: a URL somebody can paste.
-    url = request.build_absolute_uri('/overlay/%s/' % overlay.token)
+    url = request.build_absolute_uri(overlay_path(overlay))
     # What it is bound to, said in words rather than left to be inferred from
     # which screen it happens to be listed on. An organiser running four
     # tournaments and two events has one folder of HTML files and no way to
@@ -239,12 +275,18 @@ def _inject(markup, runtime_tag):
 
 
 @xframe_options_exempt
-def serve_overlay(request, token):
+def serve_overlay(request, token, owner=None, label=None):
     """The URL pasted into OBS, vMix, or anything else with a browser source.
 
     Public by token, because a browser source cannot sign in. Deliberately not
     a DRF view: it answers HTML, and a DRF `Response` would content-negotiate
     its way into JSON.
+
+    `owner` and `label` are the readable half of the address and are ignored on
+    purpose. They exist so an organiser can tell eight tabs apart; the token is
+    the credential. A renamed tournament must not break a URL already sitting
+    in somebody's scene collection, which is the same rule SlugHistory keeps
+    for an ordinary page.
     """
     overlay = (TournamentOverlay.objects
                .select_related('tournament')

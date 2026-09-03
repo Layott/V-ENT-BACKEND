@@ -22,7 +22,14 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from vent_auth.models import Games, Users
-from vent_tournament.models import BroadcastElement, Tournament
+from datetime import timedelta
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+from rest_framework.test import APIRequestFactory
+
+from vent_tournament import views_overlays
+from vent_tournament.models import (
+    BroadcastElement, Tournament, TournamentOverlay)
 
 
 @override_settings(FRONTEND_URL='https://v-ent.co')
@@ -185,3 +192,85 @@ class RetiredSessionTests(TestCase):
             data={'name': 'Second show'}, content_type='application/json',
             **self.auth)
         self.assertTrue(self.feed().json()['data']['retired'])
+
+
+class UploadedOverlayAddressTests(TestCase):
+    """An uploaded overlay's URL says what it is.
+
+    CEO, 3 September 2026: "can the urls for the overlays posses the names of
+    the overlays, depending on the project or event or tournament the studio is
+    working with, so slugs for the urls also."
+
+    The studio's own graphics got named addresses. The files people upload did
+    not, which is the wrong half to miss: an organiser has one folder of HTML
+    and eight tabs of identical token URLs, and telling them apart IS the
+    problem.
+    """
+
+    def setUp(self):
+        self.owner = Users.objects.create(
+            username='ovAddr', email='ov@vent.test', is_active=True,
+            login_session_token='ovaddrtoken1234')
+        game = Games.objects.create(game_title='EA FC ADDR')
+        now = timezone.now()
+        self.tournament = Tournament.objects.create(
+            tournament_title='Address Cup', tournament_game=game,
+            tournament_creator=self.owner,
+            start_date_and_time=now + timedelta(days=1),
+            end_date_and_time=now + timedelta(days=2),
+            tournament_visibility='public', tournament_type='online',
+            prize_type='no_prize', tournament_access='team',
+            entry_fee='Free', is_draft=False, bracket_type='round_robin')
+        self.overlay = TournamentOverlay.objects.create(
+            tournament=self.tournament, name='Score bar.html',
+            file=SimpleUploadedFile('score-bar.html',
+                                    b'<div data-vent="team.name"></div>'),
+            binding='marked', bound_fields=['team.name'])
+
+    def url_of(self):
+        request = APIRequestFactory().get('/')
+        return views_overlays.serialize(self.overlay, request)['url']
+
+    def test_the_address_carries_the_tournament_and_the_overlay_name(self):
+        url = self.url_of()
+        self.assertIn('/overlay/%s/score-bar/%s/'
+                      % (self.tournament.slug, self.overlay.token), url)
+        # The extension is an artefact of how the file arrived, not a name.
+        self.assertNotIn('.html', url)
+
+    def test_the_named_address_opens_the_overlay(self):
+        res = self.client.get('/overlay/%s/score-bar/%s/'
+                              % (self.tournament.slug, self.overlay.token))
+        self.assertEqual(res.status_code, 200)
+        self.assertIn(b'data-vent="team.name"', res.content)
+
+    def test_the_bare_address_still_opens_it_for_ever(self):
+        """Already pasted into a scene collection that may not open for months."""
+        res = self.client.get('/overlay/%s/' % self.overlay.token)
+        self.assertEqual(res.status_code, 200)
+        self.assertIn(b'data-vent="team.name"', res.content)
+
+    def test_a_stale_name_still_opens_it(self):
+        """A rename must not 404 somebody mid-broadcast. The token decides."""
+        res = self.client.get('/overlay/last-months-name/whatever-it-was/%s/'
+                              % self.overlay.token)
+        self.assertEqual(res.status_code, 200)
+        self.assertIn(b'data-vent="team.name"', res.content)
+
+    def test_a_wrong_token_is_refused_however_right_the_names_look(self):
+        res = self.client.get('/overlay/%s/score-bar/notatoken/'
+                              % self.tournament.slug)
+        self.assertEqual(res.status_code, 404)
+
+    def test_the_address_follows_a_rename(self):
+        self.overlay.name = 'Lower third.html'
+        self.overlay.save()
+        self.assertIn('/lower-third/', self.url_of())
+
+    def test_a_name_that_slugifies_to_nothing_still_makes_an_address(self):
+        self.overlay.name = '...html'
+        self.overlay.save()
+        url = self.url_of()
+        self.assertIn('/overlay/', url)
+        self.assertIn(self.overlay.token, url)
+        self.assertNotIn('//overlay', url.replace('https://', ''))
