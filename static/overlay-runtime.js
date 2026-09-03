@@ -153,11 +153,37 @@
     document.documentElement.setAttribute('data-vent-ready', '1');
   }
 
+  /* One request in flight at a time, and a pause after a refusal.
+
+     On 3 September 2026 an overlay open in OBS asked for the feed about
+     twenty-five times a second for six seconds, three times in an hour. A
+     four-second timer cannot do that on its own; whatever OBS's browser did
+     (a burst of queued timer callbacks on becoming visible is the likeliest),
+     the page must not let it through. Every one of those requests counted
+     against the organiser's own address at the API, so for a minute
+     afterwards their console read "Could not reach the server". */
+  var inFlight = false;
+  var pausedUntil = 0;
+  var failures = 0;
+
   function poll() {
+    if (inFlight) return;
+    if (Date.now() < pausedUntil) return;
+    inFlight = true;
     fetch(FEED, { cache: 'no-store' })
-      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        if (r.status === 429 || r.status >= 500) {
+          /* Asked to slow down, or the server is struggling: wait longer each
+             time, up to a minute, then try again. Nothing on screen changes. */
+          failures += 1;
+          pausedUntil = Date.now() + Math.min(60000, EVERY * Math.pow(2, failures));
+          return null;
+        }
+        return r.json();
+      })
       .then(function (body) {
         if (!body || body.status !== 'success') return;
+        failures = 0;
         var data = body.data;
         /* Redraw only when something moved. A browser source runs for six hours
            at a venue, often on a hotspot, and re-rendering an animation every
@@ -169,7 +195,10 @@
       .catch(function () {
         /* Keep whatever is on screen. A scoreboard that freezes at the last
            good numbers is recoverable; one that blanks is not. */
-      });
+        failures += 1;
+        pausedUntil = Date.now() + Math.min(60000, EVERY * Math.pow(2, failures));
+      })
+      .then(function () { inFlight = false; });
   }
 
   poll();
