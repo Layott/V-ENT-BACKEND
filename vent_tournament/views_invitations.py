@@ -30,6 +30,9 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+
 from vent_auth.models import Teams, Users
 
 from .models import Tournament, TournamentInvitation
@@ -92,11 +95,51 @@ def serialize(invitation):
         'team': ({'name': invitation.team.team_name,
                   'slug': getattr(invitation.team, 'slug', None)}
                  if invitation.team_id else None),
+        'email': invitation.email or None,
     }
+
+
+def _email_them(invitation, tournament):
+    """Ask somebody who has no account here yet.
+
+    They cannot be notified in an app they have never opened, so this is the
+    one invitation that has to be an email. It carries the tournament's public
+    address: a signed-out visitor can read the whole page and decide, which is
+    the point of the public-by-default rule, and the sign-up only comes when
+    they want to enter.
+    """
+    from django.conf import settings
+    from vent_auth.views_helpers import send_email
+
+    base = (getattr(settings, 'FRONTEND_URL', '') or 'https://v-ent.co').rstrip('/')
+    link = '%s/tournaments/%s' % (base, tournament.slug or tournament.tournament_id)
+    organiser = getattr(tournament.tournament_creator, 'username', 'The organiser')
+    note = invitation.message or ''
+
+    body = (
+        '<p>%s has invited you to <strong>%s</strong> on V-ENT.</p>'
+        '%s'
+        '<p><a href="%s">Have a look at the tournament</a></p>'
+        '<p>You can read everything about it without an account. '
+        'You will need one to enter.</p>'
+    ) % (organiser, tournament.tournament_title,
+         ('<p>%s</p>' % note) if note else '', link)
+
+    try:
+        send_email(invitation.email,
+                   'You have been invited to %s' % tournament.tournament_title,
+                   body)
+    except Exception:                                       # noqa: BLE001
+        # Same reasoning as the notification below: an invitation that exists
+        # and was not announced is recoverable, one that was not created is not.
+        pass
 
 
 def _tell_them(invitation, tournament):
     """Say it, once, to whoever can answer it."""
+    if invitation.email and not invitation.user_id:
+        _email_them(invitation, tournament)
+        return
     if invitation.user_id:
         recipient = invitation.user
     elif invitation.team_id:
@@ -145,12 +188,31 @@ def invitations(request, tournament_id):
 
     username = str(request.data.get('username') or '').strip()
     team_ref = str(request.data.get('team') or '').strip()
-    if bool(username) == bool(team_ref):
-        return _error('Name either a player or a team.', 'VALIDATION_ERROR')
+    email = str(request.data.get('email') or '').strip().lower()
+    given = [bool(username), bool(team_ref), bool(email)]
+    if sum(given) != 1:
+        return _error('Name a player, a team, or an email address.',
+                      'VALIDATION_ERROR')
 
     invited_user = None
     invited_team = None
-    if username:
+    if email:
+        try:
+            validate_email(email)
+        except ValidationError:
+            return _error('That is not an email address.', 'VALIDATION_ERROR',
+                          extra={'field': 'email'})
+        # An address that already belongs to somebody becomes an invitation to
+        # THEM, so it appears in their invitations in the app rather than only
+        # in a mailbox they may never open. The organiser typed an address
+        # because that is what they had, not because they wanted email.
+        invited_user = Users.objects.filter(email__iexact=email).first()
+        if invited_user is not None:
+            if invited_user.user_id == user.user_id:
+                return _error('You do not need to invite yourself.',
+                              'VALIDATION_ERROR')
+            email = ''
+    elif username:
         invited_user = Users.objects.filter(username__iexact=username).first()
         if invited_user is None:
             return _error('No player by that name.', 'NOT_FOUND',
@@ -166,8 +228,12 @@ def invitations(request, tournament_id):
             return _error('No team by that name.', 'NOT_FOUND',
                           status.HTTP_404_NOT_FOUND)
 
-    existing = TournamentInvitation.objects.filter(
-        tournament=tournament, user=invited_user, team=invited_team).first()
+    if email:
+        existing = TournamentInvitation.objects.filter(
+            tournament=tournament, email=email).first()
+    else:
+        existing = TournamentInvitation.objects.filter(
+            tournament=tournament, user=invited_user, team=invited_team).first()
     if existing is not None:
         if existing.status == TournamentInvitation.PENDING:
             # Asking again is a reminder, not a second invitation.
@@ -188,6 +254,7 @@ def invitations(request, tournament_id):
 
     invitation = TournamentInvitation.objects.create(
         tournament=tournament, user=invited_user, team=invited_team,
+        email=email,
         message=str(request.data.get('message') or '').strip()[:280],
         invited_by=user)
     _tell_them(invitation, tournament)

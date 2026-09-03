@@ -133,6 +133,39 @@ def _players_of(registration, request, extra=None):
     avatar the player uploaded.
     """
     extra = extra or {}
+    if registration.squad_id:
+        # A side assembled for this tournament. Each player carries the club
+        # they actually play for, which is the entire reason a squad exists:
+        # a broadcast puts "Nigeria" on the scorebar and the player's own badge
+        # on the player card.
+        out = []
+        members = (registration.squad.members
+                   .select_related('user', 'represents_team'))
+        for member in members:
+            user = member.user
+            if user is None:
+                continue
+            profile = getattr(user, 'userprofile_set', None)
+            picture = None
+            if profile is not None:
+                first = profile.first()
+                picture = getattr(first, 'profile_picture', None) if first else None
+            shots = extra.get((user.username or '').lower(), [])
+            out.append({
+                'ign': user.username,
+                'id': str(user.user_id),
+                'img': _url(request, picture) or (shots[0] if shots else None),
+                'pictures': shots,
+                'represents': member.represents_name or (
+                    member.represents_team.team_name
+                    if member.represents_team_id else ''),
+                'represents_logo': (
+                    _url(request, member.represents_team.team_logo)
+                    if member.represents_team_id else None),
+                'is_captain': member.is_captain,
+            })
+        return out
+
     if registration.team_id:
         from vent_auth.models import TeamMembers
 
@@ -157,12 +190,28 @@ def _players_of(registration, request, extra=None):
                 # never uploaded one.
                 'img': _url(request, picture) or (shots[0] if shots else None),
                 'pictures': shots,
+                # A club's player represents that club. Carried on every player
+                # row and not only on a squad's, because a name that is present
+                # on some rows and absent on others fills with '' silently in a
+                # repeat, which is the fault this vocabulary exists to prevent.
+                'represents': registration.team.team_name,
+                'represents_logo': _url(request, registration.team.team_logo),
+                'is_captain': bool(getattr(row, 'is_captain', False)),
             })
         return out
 
     if registration.user_id:
         user = registration.user
-        return [{'ign': user.username, 'id': str(user.user_id), 'img': ''}]
+        return [{
+            'ign': user.username,
+            'id': str(user.user_id),
+            'img': '',
+            'pictures': [],
+            # Entering alone, so they represent nobody but themselves.
+            'represents': '',
+            'represents_logo': None,
+            'is_captain': False,
+        }]
     return []
 
 
@@ -219,13 +268,18 @@ def overlay_feed(request, tournament_id):
     registrations = (TournamentRegistration.objects
                      .filter(tournament=tournament)
                      .filter(Q(status='confirmed') | Q(status='pending'))
-                     .select_related('team', 'user'))
+                     .select_related('team', 'user', 'squad'))
 
     table = _standings(tournament)
 
     teams = []
     for registration in registrations:
-        if registration.team_id:
+        if registration.squad_id:
+            squad = registration.squad
+            tag = (squad.tag or squad.name or '')[:6].upper().replace(' ', '')
+            name = squad.name
+            logo = _url(request, squad.logo)
+        elif registration.team_id:
             tag = (registration.team.team_name or '')[:6].upper().replace(' ', '')
             name = registration.team.team_name
             logo = _url(request, registration.team.team_logo)
@@ -264,6 +318,8 @@ def overlay_feed(request, tournament_id):
     def _side(registration):
         if registration is None:
             return ''
+        if registration.squad_id:
+            return registration.squad.name
         if registration.team_id:
             return registration.team.team_name
         if registration.user_id:

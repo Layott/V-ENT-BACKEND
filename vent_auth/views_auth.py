@@ -291,6 +291,17 @@ def issue_session(user, request, method='password', with_2fa=False):
     user.login_session_2fa_at = timezone.now() if with_2fa else None
     user.save()
 
+    # Anybody who was invited by email before they had an account gets those
+    # invitations attached now, so they find them in the app rather than only
+    # in a mailbox. A no-op once there is nothing addressed to their address.
+    try:
+        from vent_tournament.invitation_binding import bind_invitations_for
+        bind_invitations_for(user)
+    except Exception:                                       # noqa: BLE001
+        # An unbound invitation is a missing row in a list. A failed sign-in is
+        # a person locked out. Never trade the second for the first.
+        pass
+
     # First sign-in of the day sets the profile's location from where the
     # request actually came from, so nobody has to pick their own city off a
     # list and no profile quietly says Lagos two years after a move.
