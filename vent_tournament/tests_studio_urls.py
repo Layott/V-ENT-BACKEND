@@ -58,12 +58,20 @@ class StudioUrlTests(TestCase):
             self.assertNotIn('api.v-ent.co', url, kind)
 
     def test_the_url_carries_no_trailing_slash(self):
-        """Next serves `/studio/<token>/<kind>` without one. The API's own
-        trailing-slash convention is what had put one there, which is the sort
-        of detail that only matters when the two ends are different servers."""
-        url = self.start()['urls']['scorebar']
+        """Next serves these without one. The API's own trailing-slash
+        convention is what had put one there, which is the sort of detail that
+        only matters when the two ends are different servers.
+
+        The address gained the owner's name on 3 September, so it now reads
+        `/studio/<slug>/<graphic>/<token>` and the token is last. The old
+        shape is still published as `legacy_urls` and still resolves."""
+        session = self.start()
+        url = session['urls']['scorebar']
         self.assertFalse(url.endswith('/'), url)
-        self.assertRegex(url, r'^https://v-ent\.co/studio/[^/]+/scorebar$')
+        self.assertRegex(url, r'^https://v-ent\.co/studio/[^/]+/scorebar/[^/]+$')
+        legacy = session['legacy_urls']['scorebar']
+        self.assertFalse(legacy.endswith('/'), legacy)
+        self.assertRegex(legacy, r'^https://v-ent\.co/studio/[^/]+/scorebar$')
 
     def test_the_feed_stays_on_the_api(self):
         """It IS an API route. Pointing it at the frontend would break the
@@ -115,7 +123,7 @@ class RetiredSessionTests(TestCase):
             '/tournament/%s/studio/sessions/' % self.tournament.slug,
             data={'name': 'Show'}, content_type='application/json', **self.auth)
         self.session = res.json()['data']['session']
-        self.token = self.session['urls']['scorebar'].rstrip('/').split('/')[-2]
+        self.token = self.session['token']
 
     def put_on_air(self):
         return self.client.post(
