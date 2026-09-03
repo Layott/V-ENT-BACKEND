@@ -574,7 +574,7 @@ def _create_overlay(request, tournament=None, event=None, user=None):
     # Told at upload rather than discovered on air, which is the only moment
     # it is cheap to fix.
     known = set(BINDINGS_FOR_EVENT if event is not None else BINDINGS_FOR_TOURNAMENT)
-    unknown = [f for f in fields if f not in known]
+    unknown = overlay_binding.unknown_fields(fields, known)
     if unknown:
         warnings.append(
             'These names are not ones the overlay runtime knows how to fill, '

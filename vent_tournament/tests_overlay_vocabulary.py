@@ -262,3 +262,45 @@ class EventVocabularyTests(TestCase):
             event=self.event, title='Closing', stage='Main hall',
             starts_at=timezone.now() + timezone.timedelta(hours=4))
         self.assertNotEqual(before, self.feed()['version'])
+
+
+class OneJudgeOfWhatIsKnownTests(TestCase):
+    """The upload warning and `unknown_fields` must agree.
+
+    They did not. `unknown_fields` learned that `asset.<name>` is whatever the
+    organiser assigned that name to, and the upload path went on doing its own
+    set membership against its own list. So an organiser uploading an overlay
+    that used their own picture was told, on the one screen where that warning
+    is ever read, that it would stay empty. It filled correctly.
+
+    Two copies of one question is the fault this codebase keeps paying for, so
+    this test asserts there is one.
+    """
+
+    def test_an_asset_name_is_not_reported_as_undriveable_on_upload(self):
+        from vent_tournament import overlay_binding
+        from vent_tournament.views_overlays import (
+            BINDINGS_FOR_EVENT, BINDINGS_FOR_TOURNAMENT)
+
+        for known in (BINDINGS_FOR_TOURNAMENT, BINDINGS_FOR_EVENT):
+            self.assertEqual(
+                overlay_binding.unknown_fields(['asset.hero'], set(known)), [],
+                'an organiser own picture must not be reported as unfillable')
+
+    def test_a_real_typo_is_still_reported(self):
+        from vent_tournament import overlay_binding
+        from vent_tournament.views_overlays import BINDINGS_FOR_TOURNAMENT
+
+        self.assertEqual(
+            overlay_binding.unknown_fields(
+                ['tournament.titel', 'asset.'], set(BINDINGS_FOR_TOURNAMENT)),
+            ['tournament.titel', 'asset.'])
+
+    def test_the_upload_path_asks_the_same_question(self):
+        """Not just the same answer today: the same function."""
+        import inspect as _inspect
+        from vent_tournament import views_overlays
+
+        source = _inspect.getsource(views_overlays._create_overlay)
+        self.assertIn('overlay_binding.unknown_fields(', source)
+        self.assertNotIn('[f for f in fields if f not in known]', source)

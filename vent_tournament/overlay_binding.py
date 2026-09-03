@@ -112,12 +112,24 @@ KNOWN_REPEATS = ['standings', 'teams', 'players', 'live', 'sponsors',
                  'assets', 'pictures', 'programme']
 
 
-def unknown_fields(fields):
-    """Names in the file that the runtime will not be able to fill."""
+def unknown_fields(fields, known=None):
+    """Names in the file that the runtime will not be able to fill.
+
+    `known` is the vocabulary to judge against, for a caller that has a more
+    exact one: the upload path knows whether this is a tournament or an event
+    and can refuse an event name on a tournament overlay. It defaults to
+    everything this module knows.
+
+    Every caller must come through here. The upload path used to do its own
+    set membership against its own list, so when `asset.<name>` was allowed
+    here it went on telling people their asset names would stay empty, on the
+    one screen where anybody reads that warning.
+    """
+    allowed = set(known) if known is not None else set(KNOWN_FIELDS) | set(KNOWN_REPEATS)
     out = []
     for field in fields:
         bare = field.split('|')[0].strip()
-        if bare in KNOWN_FIELDS or bare in KNOWN_REPEATS:
+        if bare in allowed:
             continue
         # `asset.<name>` is whatever the organiser assigned that name to in
         # the studio, so the name half cannot be known here. A designer writes
