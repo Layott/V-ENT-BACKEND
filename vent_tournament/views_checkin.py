@@ -50,11 +50,7 @@ def _registration_for(tournament, user):
 
 
 def _label(registration):
-    if registration.team_id:
-        return registration.team.team_name
-    if registration.user_id:
-        return registration.user.username
-    return 'Unknown entrant'
+    return registration.entrant_name or 'Unknown entrant'
 
 
 def _window(tournament):

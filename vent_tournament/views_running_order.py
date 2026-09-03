@@ -64,15 +64,12 @@ def _organiser_or_admin(request, tournament):
 
 
 def _side(registration):
+    # Through the shared accessors: a hand-built branch here knew teams and
+    # lone players only, so a squad came back as 'unknown' with no name.
     if registration is None:
         return None
-    if registration.team_id:
-        return {'type': 'team', 'id': registration.team_id,
-                'name': registration.team.team_name}
-    if registration.user_id:
-        return {'type': 'user', 'id': registration.user_id,
-                'name': registration.user.full_name or registration.user.username}
-    return None
+    return {'type': registration.entrant_kind, 'id': registration.entrant_id,
+            'name': registration.entrant_name}
 
 
 def _row(match):

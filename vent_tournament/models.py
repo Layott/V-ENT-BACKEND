@@ -493,6 +493,67 @@ class TournamentRegistration(models.Model):
         return self.squad or self.team or self.user
 
     @property
+    def entrant_kind(self):
+        """'team', 'user', 'squad', or 'unknown'. One answer, not five copies."""
+        if self.squad_id:
+            return 'squad'
+        if self.team_id:
+            return 'team'
+        if self.user_id:
+            return 'user'
+        return 'unknown'
+
+    @property
+    def entrant_id(self):
+        """The id of whichever kind of side this is."""
+        return self.squad_id or self.team_id or self.user_id
+
+    @property
+    def people(self):
+        """Every user behind this side.
+
+        A club registration reaches every member, not the captain: the captain
+        is not reliably the person who turns up, and one member reading a
+        reminder is what prevents the forfeit. A squad reaches its members for
+        the same reason.
+
+        Anything that has to tell a side something, or pay it, goes through
+        here. Written once because it was written four times and every copy
+        answered nothing at all for a squad: no reminders, no refund, no prize
+        label.
+        """
+        if self.squad_id:
+            return [m.user for m in self.squad.members.select_related('user')
+                    if m.user_id]
+        if self.team_id:
+            from vent_auth.models import TeamMembers
+            return [m.user for m in TeamMembers.objects
+                    .filter(team_id=self.team_id).select_related('user')
+                    if m.user_id]
+        return [self.user] if self.user_id else []
+
+    @property
+    def acting_user(self):
+        """The one person who acts for this side, and whose wallet it uses.
+
+        A lone entrant is themselves. A club is its owner, because entering and
+        being paid commit the club. A squad has no owner - the organiser
+        assembled it - so it is the captain, and the first member added when
+        nobody has been made captain. An organiser who wants somebody else paid
+        makes them captain, which is a visible decision rather than a hidden
+        rule.
+        """
+        if self.user_id:
+            return self.user
+        if self.team_id:
+            return getattr(self.team, 'team_owner', None)
+        if self.squad_id:
+            member = (self.squad.members.select_related('user')
+                      .order_by('-is_captain', 'added_at', 'pk').first())
+            return member.user if member else None
+        return None
+
+    @property
     def entrant_name(self):
         side = self.entrant
         if side is None:
@@ -683,9 +744,12 @@ class BracketMatch(models.Model):
         for slot, reg in ((1, self.participant_1), (2, self.participant_2)):
             if reg is None:
                 continue
-            if reg.user_id and reg.user_id == user.user_id:
-                return slot
-            if reg.team_id and reg.team.team_owner_id == user.user_id:
+            # `acting_user` is the one person who acts for a side, whichever
+            # kind it is. Written by hand this knew a club owner and a lone
+            # player, so nobody could act for a squad: its captain could not
+            # confirm a score in their own tie.
+            person = reg.acting_user
+            if person is not None and person.user_id == user.user_id:
                 return slot
         return None
 

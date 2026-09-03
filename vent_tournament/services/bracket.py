@@ -79,11 +79,9 @@ def confirmed_registrations(tournament):
 
 
 def _display_name(reg):
-    if reg.user_id:
-        return (reg.user.username or '').lower()
-    if reg.team_id:
-        return (reg.team.team_name or '').lower()
-    return ''
+    # `entrant_name` covers all three kinds. Branching here by hand is how a
+    # squad sorted as the empty string and drifted to the front of the draw.
+    return (getattr(reg, 'entrant_name', '') or '').lower()
 
 
 def _seed_by_record(regs):
@@ -372,6 +370,18 @@ def _seat_players(registration, seats):
     if registration.user_id:
         # An individual entrant fills seat one and nothing else.
         return [registration.user] + [None] * (seats - 1)
+
+    if registration.squad_id:
+        # A squad is a side assembled for this tournament out of people from
+        # several clubs. Its members sit the seats in the order the organiser
+        # built it, captain first. Without this branch every seat of every
+        # nation in a Rivalry Series was empty, the player table had no rows,
+        # and the results desk could not say who was playing.
+        members = list(
+            registration.squad.members.select_related('user')
+            .order_by('-is_captain', 'added_at', 'pk')[:seats])
+        people = [m.user for m in members]
+        return (people + [None] * seats)[:seats]
 
     if not registration.team_id:
         return [None] * seats

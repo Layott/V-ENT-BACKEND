@@ -60,13 +60,11 @@ def _organiser(request, tournament):
 
 
 def _entrant_name(reg):
+    # `entrant_name` covers a club, a lone player and a squad. Branching
+    # here by hand is how a squad came back blank.
     if reg is None:
         return ''
-    if reg.team_id:
-        return reg.team.team_name
-    if reg.user_id:
-        return reg.user.full_name or reg.user.username
-    return ''
+    return getattr(reg, 'entrant_name', '') or ''
 
 
 def _csv(rows, header, filename):
@@ -109,7 +107,8 @@ def export_tournament(request, tournament_id):
         return _csv(
             [[
                 r.pk,
-                'team' if r.team_id else 'player',
+                # `entrant_kind` knows a squad; this read 'player' for one.
+                'team' if r.entrant_kind == 'team' else r.entrant_kind,
                 _entrant_name(r),
                 r.user.email if r.user_id else '',
                 r.status,

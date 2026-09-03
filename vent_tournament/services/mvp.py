@@ -80,13 +80,12 @@ def table(tournament):
             sides[stat.player_id] = stat.registration
 
     def side_name(registration):
+        # One accessor for all three kinds of side. This branch knew teams and
+        # lone players only, so a squad's players had no side against their
+        # name in the stats.
         if registration is None:
             return ''
-        if registration.team_id:
-            return registration.team.team_name
-        if registration.user_id:
-            return registration.user.full_name or registration.user.username
-        return ''
+        return getattr(registration, 'entrant_name', '') or ''
 
     out = []
     for player_id, per_metric in totals.items():

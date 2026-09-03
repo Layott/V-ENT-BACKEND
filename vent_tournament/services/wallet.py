@@ -21,11 +21,11 @@ def _owner_user_id(registration):
     `TeamWallet` with an auditable Transaction needs a vent_auth schema change -
     flagged for consolidation.)
     """
-    if registration.user_id:
-        return registration.user_id
-    if registration.team_id and registration.team.team_owner_id:
-        return registration.team.team_owner_id
-    return None
+    # Through `acting_user`, which knows all three kinds of side. This branch
+    # knew two, so a squad's entry fee could never be refunded: it answered
+    # None and the refund silently went nowhere.
+    person = registration.acting_user
+    return person.user_id if person is not None else None
 
 
 def lock_wallet_for_registration(registration):

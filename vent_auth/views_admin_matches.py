@@ -33,15 +33,14 @@ OVERRIDE_ROLES = ['super_admin', 'mod_admin']
 
 def _side(reg):
     """A participant, named. The whole point of this endpoint."""
+    # Through the shared accessors: a hand-built branch here knew teams and
+    # lone players only, so a squad came back as 'unknown' with no name.
     if reg is None:
         return None
-    if reg.team_id:
-        return {'registration_id': reg.id, 'type': 'team',
-                'name': reg.team.team_name}
-    if reg.user_id:
-        return {'registration_id': reg.id, 'type': 'player',
-                'name': reg.user.username}
-    return {'registration_id': reg.id, 'type': 'unknown', 'name': None}
+    kind = reg.entrant_kind
+    return {'registration_id': reg.id,
+            'type': 'player' if kind == 'user' else kind,
+            'name': reg.entrant_name or None}
 
 
 @api_view(['GET'])
