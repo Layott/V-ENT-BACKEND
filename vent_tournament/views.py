@@ -1738,8 +1738,12 @@ def update_bracket(request, tournament_id):
         if tournament is None or tournament.is_draft:
             raise Http404('No such tournament.')
 
-        if tournament.tournament_creator_id != user.user_id:
-            return Response({ 'code': 'ONLY_ORGANIZER_CAN_UPDATE_BRACKETS','status': 'error', 'message': 'Only the tournament organizer can update brackets'}, status=status.HTTP_403_FORBIDDEN)
+        # The organiser, a scorekeeper they named, or an admin overriding.
+        # One question, asked in access.py, so the league fixture path and
+        # this one cannot drift apart on who may enter a result.
+        from .access import may_record_results
+        if not may_record_results(user, tournament):
+            return Response({ 'code': 'ONLY_ORGANIZER_CAN_UPDATE_BRACKETS','status': 'error', 'message': 'Only the tournament organizer or a scorekeeper can record a result'}, status=status.HTTP_403_FORBIDDEN)
 
         match_id = request.data.get('match_id')
         score_p1 = request.data.get('score_p1')
@@ -1760,7 +1764,10 @@ def update_bracket(request, tournament_id):
         match.winner = winner_reg
         match.status = 'completed'
         match.completed_at = timezone.now()
-        match.save(update_fields=['score_p1', 'score_p2', 'winner', 'status', 'completed_at'])
+        match.recorded_by = user
+        match.recorded_at = timezone.now()
+        match.save(update_fields=['score_p1', 'score_p2', 'winner', 'status', 'completed_at',
+                                  'recorded_by', 'recorded_at'])
 
         return Response({'status': 'success', 'message': 'Match updated'}, status=status.HTTP_200_OK)
 

@@ -59,6 +59,12 @@ ROLE_PERMISSIONS = {
     'approve_kyc':           {'super_admin', 'finance_admin', 'mod_admin'},
     'reject_kyc':            {'super_admin', 'finance_admin', 'mod_admin'},
     'cancel_tournament':     {'super_admin', 'mod_admin'},
+    # Named in production_access.py and access.py since 1 September, and
+    # absent from here until 3 September, so may_override always said no and
+    # the admin path through the studio quietly did not exist. The same
+    # roles that may cancel a tournament may run its production and its
+    # results desk.
+    'manage_tournaments':    {'super_admin', 'mod_admin'},
     'manage_events':         {'super_admin', 'mod_admin'},
     'resolve_dispute':       {'super_admin', 'mod_admin'},
     'override_match_score':  {'super_admin', 'mod_admin'},

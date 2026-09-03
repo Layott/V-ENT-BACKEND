@@ -20,6 +20,7 @@ from . import views_invitations
 from . import views_overlay_feed
 from . import views_overlays
 from . import views_studio
+from . import views_staff
 from . import views_export
 from . import views_mvp
 from . import views_reminders
@@ -42,6 +43,11 @@ from . import views_rules
 urlpatterns = [
     # The production studio. Operator side is tournament-scoped and signed in;
     # the browser-source side is token-scoped and public, mounted at the root.
+    # Who may enter results, and what this viewer may do. See access.py.
+    path("<str:tournament_id>/access/", views_staff.access, name="tournament_access"),
+    path("<str:tournament_id>/staff/", views_staff.staff, name="tournament_staff"),
+    path("<str:tournament_id>/staff/<int:user_id>/", views_staff.staff_remove,
+         name="tournament_staff_remove"),
     path("<str:tournament_id>/studio/sessions/", views_studio.sessions,
          name="studio_sessions"),
     path("<str:tournament_id>/studio/sessions/<int:session_id>/",
