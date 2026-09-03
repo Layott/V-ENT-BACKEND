@@ -19,6 +19,7 @@ from . import views_access
 from . import views_invitations
 from . import views_overlay_feed
 from . import views_overlays
+from . import views_squads
 from . import views_studio
 from . import views_staff
 from . import views_assets
@@ -182,6 +183,20 @@ urlpatterns = [
     # nothing that is not already on the public tournament page.
     path("<str:tournament_id>/overlay-feed/", views_overlay_feed.overlay_feed,
          name="tournament_overlay_feed"),
+    # Sides assembled for one tournament out of people from anywhere, and
+    # entrants an organiser puts in directly rather than by invitation.
+    path("<str:tournament_id>/squads/", views_squads.squads,
+         name="tournament_squads"),
+    path("<str:tournament_id>/squads/<int:squad_id>/", views_squads.squad_detail,
+         name="tournament_squad_detail"),
+    path("<str:tournament_id>/squads/<int:squad_id>/members/",
+         views_squads.squad_members, name="tournament_squad_members"),
+    path("<str:tournament_id>/squads/<int:squad_id>/members/<str:username>/",
+         views_squads.squad_member_detail, name="tournament_squad_member_detail"),
+    path("<str:tournament_id>/squads/<int:squad_id>/enter/",
+         views_squads.squad_enter, name="tournament_squad_enter"),
+    path("<str:tournament_id>/entrants/", views_squads.entrants,
+         name="tournament_entrants"),
     # Uploading an overlay and getting the URL that goes into OBS.
     path("<str:tournament_id>/overlays/", views_overlays.overlays,
          name="tournament_overlays"),

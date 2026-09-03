@@ -454,6 +454,11 @@ class TournamentRegistration(models.Model):
     # Either team or individual - one will be null
     team = models.ForeignKey(Teams, on_delete=models.CASCADE, null=True, blank=True, related_name='tournament_registrations')
     user = models.ForeignKey(Users, on_delete=models.CASCADE, null=True, blank=True, related_name='tournament_registrations')
+    # A side assembled for this one tournament out of people from anywhere.
+    # See TournamentSquad. Exactly one of team, user and squad is set.
+    squad = models.ForeignKey(
+        'TournamentSquad', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='registrations')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     registered_at = models.DateTimeField(auto_now_add=True)
     entry_fee_paid = models.BooleanField(default=False)
@@ -471,11 +476,112 @@ class TournamentRegistration(models.Model):
         unique_together = [
             ('tournament', 'team'),
             ('tournament', 'user'),
+            ('tournament', 'squad'),
         ]
 
     def __str__(self):
-        participant = self.team.team_name if self.team else self.user.username
-        return f"{participant} @ {self.tournament.tournament_title}"
+        return f"{self.entrant_name} @ {self.tournament.tournament_title}"
+
+    @property
+    def entrant(self):
+        """The side this registration is, whichever kind it happens to be.
+
+        Three kinds now: a club, a lone player, and a squad assembled for this
+        tournament. Everything that reads a registration goes through here, so
+        adding the third did not mean editing every caller and missing one.
+        """
+        return self.squad or self.team or self.user
+
+    @property
+    def entrant_name(self):
+        side = self.entrant
+        if side is None:
+            return ''
+        return (getattr(side, 'name', None)
+                or getattr(side, 'team_name', None)
+                or getattr(side, 'username', ''))
+
+
+class TournamentSquad(models.Model):
+    """A side assembled for one tournament out of people from anywhere.
+
+    CEO, 3 September 2026: "each player for team nigeria in the rivalry series
+    is registered to a different team, but both nigerian players will be working
+    together as a team for nigeria... so we can invite players from different
+    orgs and then they play as a team on the site, while still representing
+    their individual teams or orgs on the site."
+
+    Before this a tournament accepted two kinds of entrant: a `Teams` row, or a
+    lone player. Team Nigeria is neither. Entering it as a club meant inventing
+    a club called Nigeria and throwing away the fact that its two players play
+    for two different ones; entering the players separately meant throwing away
+    the fact that they are one side. Both lose something that was true.
+
+    So: a squad belongs to ONE tournament, is named by the organiser, and its
+    members each keep the club or organisation they actually play for. National
+    sides, all-star sides, and any mixed-club side are the same shape.
+
+    It is a third kind of entrant on the same `TournamentRegistration`, not a
+    second tournament model. Everything that reads an entrant reads
+    `registration.entrant`, so a squad plays exactly as a club does: it seeds,
+    it appears in the bracket, it is scored, it stands in the table.
+
+    It is deliberately NOT a `Teams` row. A club has an owner, a wallet, a
+    membership list people join and leave, and a life beyond any one event. A
+    squad has none of that and should not inherit it.
+    """
+
+    id = models.AutoField(primary_key=True)
+    tournament = models.ForeignKey(
+        Tournament, on_delete=models.CASCADE, related_name='squads')
+    name = models.CharField(max_length=80)
+    #: The short form a broadcast uses. `NGA` on a scorebar.
+    tag = models.CharField(max_length=8, blank=True, default='')
+    logo = models.ImageField(upload_to='squad_logos/', null=True, blank=True)
+    created_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='squads_created')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+        unique_together = [('tournament', 'name')]
+
+    def __str__(self):
+        return '%s (squad in tournament %s)' % (self.name, self.tournament_id)
+
+
+class SquadMember(models.Model):
+    """One player in a squad, and who they represent while playing in it.
+
+    `represents_team` and `represents_org` are a SNAPSHOT, taken when the player
+    is added. A player transferring to another club in October must not rewrite
+    who they played for in September: the record of an event is a record of what
+    was true at the time, and a live foreign key would quietly falsify it.
+    """
+
+    id = models.AutoField(primary_key=True)
+    squad = models.ForeignKey(
+        TournamentSquad, on_delete=models.CASCADE, related_name='members')
+    user = models.ForeignKey(
+        Users, on_delete=models.CASCADE, related_name='squad_memberships')
+    represents_team = models.ForeignKey(
+        Teams, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='squad_representations')
+    represents_org = models.ForeignKey(
+        Organization, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='squad_representations')
+    #: The name as it was on the day, kept even if the club is renamed or gone.
+    represents_name = models.CharField(max_length=148, blank=True, default='')
+    is_captain = models.BooleanField(default=False)
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-is_captain', 'user__username']
+        unique_together = [('squad', 'user')]
+
+    def __str__(self):
+        return '%s in %s' % (self.user.username, self.squad_id)
 
 
 class BracketMatch(models.Model):
@@ -1125,6 +1231,19 @@ class TournamentInvitation(models.Model):
         Teams, on_delete=models.CASCADE, null=True, blank=True,
         related_name='tournament_invitations')
 
+    #: Somebody who may not have an account yet.
+    #:
+    #: CEO, 3 September 2026: "lets be able to invite through email also". An
+    #: organiser's list of who they want is a list of email addresses, and
+    #: half of those people have never heard of V-ENT. Requiring a username
+    #: first means the organiser has to chase every one of them to sign up
+    #: before they can even be asked.
+    #:
+    #: Stored lowercase. If it turns out to belong to an account the row is
+    #: bound to that account instead, so it lands in their invitations in the
+    #: app rather than only in a mailbox they may not read.
+    email = models.EmailField(blank=True, default='')
+
     message = models.CharField(max_length=280, blank=True, default='')
     status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=PENDING)
 
@@ -1145,11 +1264,15 @@ class TournamentInvitation(models.Model):
                 fields=['tournament', 'team'],
                 condition=models.Q(team__isnull=False),
                 name='one_invitation_per_team'),
+            models.UniqueConstraint(
+                fields=['tournament', 'email'],
+                condition=~models.Q(email=''),
+                name='one_invitation_per_email'),
         ]
 
     def __str__(self):
         who = self.team.team_name if self.team_id else (
-            self.user.username if self.user_id else '?')
+            self.user.username if self.user_id else (self.email or '?'))
         return 'invitation to %s for tournament %s' % (who, self.tournament_id)
 
 

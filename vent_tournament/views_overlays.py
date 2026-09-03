@@ -390,6 +390,9 @@ TOURNAMENT_NAMES = [
     ('player.ign', 'the first player in that team'),
     ('player.id', 'their in-game id'),
     ('player.img', 'their picture, on an img'),
+    ('player.represents',
+     'the club that player actually plays for, when the side is a squad '
+     'assembled for this tournament rather than a club'),
     ('asset.<name>',
      'a picture or clip uploaded to the studio, on an img or a video. '
      'The organiser types the name when they upload it, so write '
@@ -406,7 +409,8 @@ TOURNAMENT_REPEATS = [
      ['place', 'tag', 'name', 'logo', 'played', 'won', 'lost',
       'points_for', 'points_against']),
     ('players', 'the roster of the team this overlay is pointed at',
-     ['ign', 'id', 'img', 'pictures']),
+     ['ign', 'id', 'img', 'pictures', 'represents', 'represents_logo',
+      'is_captain']),
     ('live', 'matches in progress right now',
      ['round', 'match', 'status', 'home', 'away', 'score']),
     ('sponsors', 'the people who paid for the banners',
