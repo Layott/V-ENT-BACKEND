@@ -81,7 +81,10 @@ class BuildingALineupTests(LineupTestCase):
         self.assertEqual(lineup['formation'], '4-3-3')
         self.assertEqual(len(lineup['slots']), 11)
         self.assertTrue(lineup['complete'])
-        self.assertIsNotNone(lineup['submitted_at'])
+        # Saving is not submitting: eleven cards saved is a draft until the
+        # player says it is their answer. See tests_review.
+        self.assertEqual(lineup['status'], 'draft')
+        self.assertIsNone(lineup['submitted_at'])
 
     def test_each_slot_keeps_the_position_it_was_picked_for(self):
         self.save()

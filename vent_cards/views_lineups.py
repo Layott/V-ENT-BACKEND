@@ -12,7 +12,8 @@ from vent_auth.models import Users
 
 from . import formations as formation_catalogue
 from . import windows
-from .models import GameCard, Lineup, LineupRules, LineupSlot
+from . import squad_rules as rules_engine
+from .models import GameCard, Lineup, LineupRules, LineupSlot, SquadRules
 from .views import _err, _ok, _tournament, _viewer, serialize_lineup
 
 
@@ -130,10 +131,19 @@ def my_lineup(request, tournament_id):
     window = windows.window_for(tournament)
 
     if request.method == 'GET':
+        mine = _my_lineup(tournament, user)
+        rules = SquadRules.objects.filter(tournament=tournament).first()
+        body = serialize_lineup(mine)
+        slots = (body or {}).get('slots') or []
         return _ok({
-            'lineup': serialize_lineup(_my_lineup(tournament, user)),
+            'lineup': body,
             'window': window.payload(),
             'formations': formation_catalogue.catalogue(),
+            # The rules, and exactly where this squad stands against them, so a
+            # player builds to them rather than discovering them on a refusal.
+            'squad_rules': rules_engine.payload(rules),
+            'violations': rules_engine.violations(slots, rules),
+            'spend': rules_engine.spend(slots),
         })
 
     if window.state == 'off':
@@ -209,8 +219,15 @@ def my_lineup(request, tournament_id):
                        position=formation_catalogue.slot_position(formation, index))
             for index, card in prepared
         ])
-        if lineup.is_complete and lineup.submitted_at is None:
-            lineup.submitted_at = timezone.now()
+        # Saving is NOT submitting. A player fiddles with a squad for an hour;
+        # the moment they submit is the moment it is theirs to be judged on.
+        # Editing an already-reviewed squad puts it back in the queue, because
+        # an organiser who accepted eleven cards did not accept these.
+        if lineup.status in (Lineup.SUBMITTED, Lineup.ACCEPTED, Lineup.REJECTED):
+            lineup.status = Lineup.DRAFT
+            lineup.reviewed_by = None
+            lineup.reviewed_at = None
+            lineup.review_note = ''
         lineup.save()
 
     lineup = _my_lineup(tournament, user)

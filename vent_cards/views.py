@@ -100,7 +100,15 @@ def serialize_lineup(lineup):
         return None
     return {
         'formation': lineup.formation,
+        # Saving and submitting are different acts, so the state is its own
+        # field: draft, submitted, accepted or rejected. `complete` is a
+        # different question again - eleven cards is not the same as an answer.
+        'status': lineup.status,
         'submitted_at': lineup.submitted_at,
+        'reviewed_at': lineup.reviewed_at,
+        'reviewed_by': (lineup.reviewed_by.username
+                        if lineup.reviewed_by_id else None),
+        'review_note': lineup.review_note,
         'updated_at': lineup.updated_at,
         'complete': lineup.is_complete,
         'player': lineup.user.username,

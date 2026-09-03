@@ -179,6 +179,50 @@ class LineupRules(models.Model):
         return 'lineup rules for tournament %s' % self.tournament_id
 
 
+class SquadRules(models.Model):
+    """What a squad has to satisfy before it may be submitted.
+
+    CEO, 3 September 2026: "also a place for admins to set rules for the squads
+    that the players are submitting to use if not they wont be able to submit."
+
+    The last clause is the important one, and it is enforced rather than
+    documented: with no rules row a player CANNOT submit, and is told the
+    organiser has not set them yet. Letting submissions through and checking
+    later is how a league ends up with twenty squads nobody can compare.
+
+    The shape is CADE's, because it is the one that has actually run a season:
+    a budget, a minimum number of players from one nation, and item types that
+    are not allowed. Each is optional on its own, so an organiser who only
+    cares about the budget sets only that.
+    """
+
+    id = models.AutoField(primary_key=True)
+    tournament = models.OneToOneField(
+        Tournament, on_delete=models.CASCADE, related_name='squad_rules')
+
+    #: In coins, the sum of every card in the eleven. 0 means no cap.
+    max_budget_coins = models.BigIntegerField(default=0)
+
+    #: "At least three Nigerians." The nation is written rather than chosen
+    #: from a list, because Futbin's names are the ones on the cards.
+    required_nation = models.CharField(max_length=120, blank=True, default='')
+    min_from_nation = models.PositiveSmallIntegerField(default=0)
+
+    #: Item types that may not be used at all: `icon`, `hero`, and so on.
+    banned_item_types = models.JSONField(default=list, blank=True)
+
+    #: A ceiling on any one card, for a league that wants a level field.
+    max_card_rating = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    notes = models.CharField(max_length=280, blank=True, default='')
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return 'squad rules for tournament %s' % self.tournament_id
+
+
 class Lineup(models.Model):
     """One player's side for one tournament.
 
@@ -196,10 +240,39 @@ class Lineup(models.Model):
     formation = models.CharField(
         max_length=16, default=formation_catalogue.DEFAULT_FORMATION)
 
-    #: Set the first time it is saved with a full eleven. A lineup with nine
-    #: cards in it is a draft, not a submission, and an organiser reading the
-    #: list needs to know which is which.
+    DRAFT = 'draft'
+    SUBMITTED = 'submitted'
+    ACCEPTED = 'accepted'
+    REJECTED = 'rejected'
+    STATUSES = [
+        (DRAFT, 'Still being built'),
+        (SUBMITTED, 'Submitted, waiting to be checked'),
+        (ACCEPTED, 'Accepted'),
+        (REJECTED, 'Rejected'),
+    ]
+
+    #: Saving and submitting are different acts.
+    #:
+    #: CEO, 3 September 2026: "there should be a place where the players can
+    #: like select the cards they want to submit and submit it, then a place for
+    #: admins to accept or reject."
+    #:
+    #: A player fiddles with a squad for an hour; the moment they SUBMIT it is
+    #: the moment it is theirs to be judged on. Without that line an organiser
+    #: cannot tell a half-built draft from a final answer, and a player cannot
+    #: tell whether anybody has looked.
+    status = models.CharField(max_length=12, choices=STATUSES, default=DRAFT)
+
+    #: Set the first time it is submitted, not saved.
     submitted_at = models.DateTimeField(null=True, blank=True)
+
+    reviewed_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='lineups_reviewed')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    #: Why it was rejected. Required on a rejection: "no" with no reason is a
+    #: message a player cannot act on, and they will ask anyway.
+    review_note = models.CharField(max_length=280, blank=True, default='')
     updated_at = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
