@@ -243,6 +243,22 @@ def squad_members(request, tournament_id, squad_id):
                       'Add them anyway?' % player.username,
                       'ALREADY_ENTERED_ALONE', status.HTTP_409_CONFLICT)
 
+    # And their club may be entered, which is the same problem wearing a
+    # different hat. Found on production running the Rivalry Series: seat 1 of
+    # the first fixture came out as "naijagameevo v naijagameevo", because they
+    # were in a club that had entered AND in the squad facing it. A player
+    # cannot represent two sides, and a fixture where somebody plays themselves
+    # has no result.
+    club = (TournamentRegistration.objects
+            .filter(tournament=tournament, team__isnull=False,
+                    team__teammembers__user=player)
+            .select_related('team').first())
+    if club is not None and not request.data.get('anyway'):
+        return _error('%s already plays for %s in this tournament. Putting '
+                      'them in this squad as well would have them face '
+                      'themselves.' % (player.username, club.team.team_name),
+                      'ALREADY_PLAYING_FOR_A_CLUB', status.HTTP_409_CONFLICT)
+
     home = home_of(player)
     SquadMember.objects.create(
         squad=squad, user=player,
