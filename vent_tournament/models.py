@@ -1490,6 +1490,18 @@ class StudioAsset(models.Model):
     # rather than leaving a finished video frozen on a last frame.
     duration_ms = models.PositiveIntegerField(default=0)
 
+    # The name this asset fills inside an uploaded overlay.
+    #
+    # CEO, 3 September 2026: "should still be able to upload images and media
+    # that they want to be used and assign them to names or text or areas
+    # inside the overlays so those medias are pulled and shown inside the
+    # overlay when the overlays are triggered."
+    #
+    # A designer marks a slot in their HTML with `data-vent-src="asset.hero"`,
+    # and whatever is assigned to `hero` here is what appears there. One word,
+    # because it is typed into an attribute by hand.
+    slot = models.CharField(max_length=40, blank=True, default='', db_index=True)
+
     # What it is about. Any of these may be empty; an asset with none is still
     # perfectly usable by name.
     tags = models.JSONField(default=list, blank=True)

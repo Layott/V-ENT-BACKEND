@@ -51,12 +51,19 @@ def resolve(path, data):
         teams = data.get('teams') or []
         players = (teams[0].get('players') if teams else None) or []
         root, parts = (players[0] if players else None), parts[1:]
+    elif parts[0] == 'asset':
+        root, parts = data.get('asset'), parts[1:]
     else:
         root = data
     value = root
     for part in parts:
         if not isinstance(value, dict):
             return KeyError
+        # `asset.<name>` is documented as a shape, not a key: the name half is
+        # whatever the organiser typed in the studio, so the vocabulary can
+        # only promise that the place to look it up exists.
+        if part.startswith('<') and part.endswith('>'):
+            return value
         if part not in value:
             return KeyError
         value = value[part]
@@ -78,6 +85,15 @@ class TournamentVocabularyTests(TestCase):
         from vent_tournament.models import Sponsors
         self.tournament.sponsors.add(
             Sponsors.objects.create(name='Vocabulary Telecom', website='https://vt.example'))
+        # A clip in the studio, so the `assets` repeat has a row to check and
+        # `asset.<slot>` has something behind it.
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from vent_tournament.models import StudioAsset
+        StudioAsset.objects.create(
+            tournament=self.tournament, kind='image', name='Hero shot',
+            slot='hero', team_tag='VOC',
+            file=SimpleUploadedFile('hero.png', b'a picture',
+                                    content_type='image/png'))
         team = Teams.objects.create(
             team_name='Vocabulary XI', game=game, description='x',
             team_creator=self.owner, team_owner=self.owner,
@@ -184,6 +200,12 @@ class EventVocabularyTests(TestCase):
             starts_at=timezone.now() + timezone.timedelta(hours=2),
             ends_at=timezone.now() + timezone.timedelta(hours=3))
         Sponsor.objects.create(event=self.event, name='Vermillion Encore')
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from vent_tournament.models import StudioAsset
+        StudioAsset.objects.create(
+            event=self.event, kind='image', name='Poster', slot='hero',
+            file=SimpleUploadedFile('poster.png', b'a picture',
+                                    content_type='image/png'))
 
     def feed(self):
         res = self.client.get('/event/%s/overlay-feed/' % self.event.slug)

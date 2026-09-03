@@ -296,3 +296,109 @@ class EventStudioMediaTests(TestCase):
         self.assertEqual(asset.event_id, self.event.event_id)
         self.assertIsNone(asset.tournament_id)
         self.assertEqual(asset.owner_kind, 'event')
+
+
+@override_settings(FRONTEND_URL='https://v-ent.co')
+class AssetsFillNamesInOverlaysTests(TestCase):
+    """An uploaded overlay pulls pictures out of the studio.
+
+    CEO, 3 September 2026: "should still be able to upload images and media
+    that they want to be used and assign them to names or text or areas inside
+    the overlays so those medias are pulled and shown inside the overlay when
+    the overlays are triggered." And: "should be able to upload more pictures
+    for players apart from the ones in their profiles also."
+
+    So a designer writes `data-vent-src="asset.hero"` without knowing what hero
+    will be, and the organiser decides that later by uploading a picture and
+    typing one word.
+    """
+
+    def setUp(self):
+        self.organiser, self.auth = a_user('slot_org')
+        self.star, _ = a_user('slot_star')
+        game = Games.objects.create(game_title='EA FC SLOT')
+        now = timezone.now()
+        self.tournament = Tournament.objects.create(
+            tournament_title='Slot Cup', tournament_game=game,
+            tournament_creator=self.organiser,
+            start_date_and_time=now + timedelta(days=2),
+            end_date_and_time=now + timedelta(days=4),
+            tournament_visibility='public', tournament_type='online',
+            prize_type='no_prize', tournament_access='team',
+            entry_fee='Free', is_draft=False, bracket_type='round_robin')
+        team = Teams.objects.create(
+            team_name='Slot Alpha', game=game, team_creator=self.organiser,
+            team_owner=self.organiser, description='', penalty_points=0,
+            number_of_members=1)
+        TeamMembers.objects.create(team=team, user=self.star)
+        TournamentRegistration.objects.create(
+            tournament=self.tournament, team=team, status='confirmed')
+        self.ref = self.tournament.slug or self.tournament.tournament_id
+        self.url = '/tournament/%s/studio/assets/' % self.ref
+
+    def feed(self):
+        res = self.client.get('/tournament/%s/overlay-feed/' % self.ref)
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        return res.json()['data']
+
+    def test_a_picture_assigned_to_a_name_is_reachable_by_that_name(self):
+        res = self.client.post(self.url, data={
+            'file': a_picture(), 'name': 'Hero shot', 'slot': 'Hero'}, **self.auth)
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.assertEqual(res.json()['data']['added']['slot'], 'hero')
+
+        data = self.feed()
+        self.assertIn('hero', data['asset'])
+        self.assertTrue(data['asset']['hero'])
+        self.assertEqual([a['slot'] for a in data['assets']], ['hero'])
+
+    def test_the_newest_picture_wins_the_name(self):
+        for name in ('Old hero', 'New hero'):
+            self.client.post(self.url, data={
+                'file': a_picture(), 'name': name, 'slot': 'hero'}, **self.auth)
+        newest = StudioAsset.objects.filter(slot='hero').order_by('-created_at').first()
+        self.assertEqual(newest.name, 'New hero')
+        # An organiser replaces the hero shot at 8pm by uploading a new one,
+        # not by editing anything, so the name follows the newest.
+        self.assertTrue(self.feed()['asset']['hero'].endswith(newest.file.name))
+
+    def test_a_name_with_a_space_is_refused_because_it_goes_in_an_attribute(self):
+        res = self.client.post(self.url, data={
+            'file': a_picture(), 'name': 'Hero', 'slot': 'hero shot'}, **self.auth)
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()['code'], 'INVALID_SLOT')
+
+    def test_an_overlay_using_a_name_is_not_reported_as_undriveable(self):
+        from . import overlay_binding
+        self.assertEqual(overlay_binding.unknown_fields(
+            ['asset.hero', 'team.name', 'assets', 'pictures']), [])
+        # And something that is not a name at all still is.
+        self.assertEqual(overlay_binding.unknown_fields(['asset.', 'nonsense']),
+                         ['asset.', 'nonsense'])
+
+    def test_a_player_carries_the_studios_own_pictures_of_them(self):
+        res = self.client.post(self.url, data={
+            'file': a_picture(), 'name': 'Zainab, proper shot',
+            'player': 'slot_star'}, **self.auth)
+        self.assertEqual(res.status_code, 200, res.content[:300])
+
+        team = self.feed()['teams'][0]
+        player = team['players'][0]
+        self.assertEqual(player['ign'], 'slot_star')
+        self.assertEqual(len(player['pictures']), 1)
+        # They have no profile picture, so the studio's own stands in rather
+        # than the broadcast drawing nothing.
+        self.assertEqual(player['img'], player['pictures'][0])
+
+    def test_a_clip_is_not_offered_as_a_players_picture(self):
+        self.client.post(self.url, data={
+            'file': a_clip(), 'name': 'Zainab walk-on', 'player': 'slot_star'},
+            **self.auth)
+        player = self.feed()['teams'][0]['players'][0]
+        self.assertEqual(player['pictures'], [])
+
+    def test_the_version_moves_when_a_picture_is_added(self):
+        before = self.feed()['version']
+        self.client.post(self.url, data={
+            'file': a_picture(), 'name': 'Hero', 'slot': 'hero'}, **self.auth)
+        self.assertNotEqual(self.feed()['version'], before)

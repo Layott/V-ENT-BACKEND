@@ -67,6 +67,14 @@
     } else if (parts[0] === 'player') {
       root = (data.__team && data.__team.players && data.__team.players[0]) || {};
       parts.shift();
+    } else if (parts[0] === 'asset') {
+      /* Whatever the organiser assigned that name to in the studio's media
+         library. Always read from the feed and never from the row, so
+         `asset.hero` means the same thing inside a repeat as outside one.
+         Without this branch it fell to the `scope || data` case below and
+         resolved to '' inside every repeat, which is the silent kind of wrong
+         that is discovered on air. */
+      root = data.asset || {}; parts.shift();
     } else {
       root = scope || data;
     }
@@ -78,16 +86,30 @@
     return value === null || value === undefined ? '' : value;
   }
 
+  /* Everything under `root` carrying `selector`, and `root` itself when it
+     carries it too.
+
+     `querySelectorAll` only ever descends, so a repeat whose template IS the
+     marked element - `<div data-vent-repeat="pictures"><img data-vent-src="url">`
+     - had its rows cloned and then never filled. Nothing errored: the overlay
+     drew the right number of empty images. */
+  function within(root, selector) {
+    var out = [];
+    if (typeof root.matches === 'function' && root.matches(selector)) out.push(root);
+    root.querySelectorAll(selector).forEach(function (el) { out.push(el); });
+    return out;
+  }
+
   function fill(root, scope, data) {
     /* Text. Only written when it differs, so an overlay mid-animation is not
        restarted four times a minute by a value that did not move. */
-    root.querySelectorAll('[data-vent]').forEach(function (el) {
+    within(root, '[data-vent]').forEach(function (el) {
       if (el.closest('[data-vent-repeat]') && el.closest('[data-vent-repeat]') !== root) return;
       var next = String(read(el.getAttribute('data-vent'), scope, data));
       if (el.textContent !== next) el.textContent = next;
     });
 
-    root.querySelectorAll('[data-vent-src]').forEach(function (el) {
+    within(root, '[data-vent-src]').forEach(function (el) {
       if (el.closest('[data-vent-repeat]') && el.closest('[data-vent-repeat]') !== root) return;
       var next = String(read(el.getAttribute('data-vent-src'), scope, data));
       if (next && el.getAttribute('src') !== next) el.setAttribute('src', next);
@@ -96,19 +118,37 @@
     /* Drawn only when there is something to draw. A zero, an empty string and a
        missing value are all "nothing", because on a stream an empty box is
        worse than an absent one. */
-    root.querySelectorAll('[data-vent-show]').forEach(function (el) {
+    within(root, '[data-vent-show]').forEach(function (el) {
       var value = read(el.getAttribute('data-vent-show'), scope, data);
       var on = !(value === '' || value === 0 || value === false);
       el.style.display = on ? '' : 'none';
     });
   }
 
-  function repeat(data) {
-    document.querySelectorAll('[data-vent-repeat]').forEach(function (host) {
+  /* A row of a repeat is usually an object. `pictures` is a list of URLs, and
+     a bare string has no fields to address, so it is given the two names a
+     designer would reach for. */
+  function row_of(row) {
+    if (typeof row !== 'string') return row;
+    return { url: row, img: row, name: row };
+  }
+
+  function repeat(root, scope, data) {
+    root.querySelectorAll('[data-vent-repeat]').forEach(function (host) {
+      /* A repeat inside another repeat belongs to its row, and is filled when
+         that row is built. Filling it here as well would read it from the
+         wrong place, and would corrupt the template the outer repeat caches
+         from its first child. */
+      if (host.parentElement && host.parentElement.closest('[data-vent-repeat]')) return;
+
       var what = host.getAttribute('data-vent-repeat');
-      var rows = what === 'players'
-        ? ((data.__team && data.__team.players) || [])
-        : (data[what === 'standings' ? 'teams' : what] || []);
+      /* Inside a row, a repeat over one of that row's own lists: a player's
+         `pictures`, say. The row wins, because a name that exists on the row
+         cannot have meant the one at the top of the feed. */
+      var rows = (scope && Array.isArray(scope[what])) ? scope[what]
+        : (what === 'players'
+          ? ((data.__team && data.__team.players) || [])
+          : (data[what === 'standings' ? 'teams' : what] || []));
 
       /* The first child is the template, kept off-screen rather than removed,
          so the file remains something a designer can open and edit. */
@@ -118,9 +158,13 @@
         host.__ventTemplate = first.cloneNode(true);
       }
       host.innerHTML = '';
-      rows.forEach(function (row) {
+      rows.forEach(function (raw) {
+        var row = row_of(raw);
         var el = host.__ventTemplate.cloneNode(true);
         fill(el, row, data);
+        /* Still detached, so a repeat inside it has no outer host above it and
+           is built here with this row as its scope. */
+        repeat(el, row, data);
         host.appendChild(el);
       });
     });
@@ -138,7 +182,7 @@
     window.VENT = data;
 
     fill(document, null, data);
-    repeat(data);
+    repeat(document, null, data);
 
     if (typeof window.build === 'function') {
       try {
