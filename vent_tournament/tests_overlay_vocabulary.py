@@ -370,3 +370,52 @@ class RuntimeReachesAnOverlayAlreadyOpenTests(TestCase):
         one = hashlib.sha256(b'runtime one').hexdigest()[:12]
         two = hashlib.sha256(b'runtime two').hexdigest()[:12]
         self.assertNotEqual(one, two)
+
+
+class ThePromptNamesEverythingTests(TestCase):
+    """The prompt a designer is handed cannot fall behind the feed.
+
+    CEO, 3 September 2026: "the prompt that will be used to convert videos or
+    images into usable prompts for the broadcast should be updated by now
+    right?"
+
+    It is, and by construction rather than by anybody remembering: both prompts
+    are BUILT from the same lists the feed is checked against, so a name added
+    to the vocabulary is in the prompt the same second. This test is what stops
+    somebody turning that into a hand-written copy, which is the shape this
+    codebase keeps having to undo.
+
+    The other direction, that every name the prompt promises actually resolves
+    in the feed, is checked above.
+    """
+
+    def test_the_tournament_prompt_names_every_tournament_name(self):
+        from vent_tournament.views_overlays import (
+            DESIGNER_PROMPT_TOURNAMENT, TOURNAMENT_NAMES, TOURNAMENT_REPEATS)
+        missing = [n for n, _ in TOURNAMENT_NAMES
+                   if n not in DESIGNER_PROMPT_TOURNAMENT]
+        missing += [k for k, _, _ in TOURNAMENT_REPEATS
+                    if k not in DESIGNER_PROMPT_TOURNAMENT]
+        self.assertEqual(missing, [],
+                         'a designer is never told about: %s' % missing)
+
+    def test_the_event_prompt_names_every_event_name(self):
+        from vent_tournament.views_overlays import (
+            DESIGNER_PROMPT_EVENT, EVENT_NAMES, EVENT_REPEATS)
+        missing = [n for n, _ in EVENT_NAMES if n not in DESIGNER_PROMPT_EVENT]
+        missing += [k for k, _, _ in EVENT_REPEATS
+                    if k not in DESIGNER_PROMPT_EVENT]
+        self.assertEqual(missing, [],
+                         'a designer is never told about: %s' % missing)
+
+    def test_the_prompt_names_the_things_added_today(self):
+        """Named one by one, so a regression says WHICH feature vanished."""
+        from vent_tournament.views_overlays import DESIGNER_PROMPT_TOURNAMENT as prompt
+        for name in ('asset.<name>', 'assets', 'pictures', 'represents',
+                     'record', 'lineups', 'slots'):
+            self.assertIn(name, prompt, name)
+
+    def test_a_bracket_is_not_offered_on_an_event(self):
+        """The prompts are different documents, and must stay different."""
+        from vent_tournament.views_overlays import DESIGNER_PROMPT_EVENT
+        self.assertNotIn('data-vent-repeat="standings"', DESIGNER_PROMPT_EVENT)
