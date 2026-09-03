@@ -184,6 +184,42 @@ _HEAD = re.compile(r'<head[^>]*>', re.I)
 _HTML = re.compile(r'<html[^>]*>', re.I)
 
 
+_RUNTIME_VERSION = []
+
+
+def _runtime_version():
+    """A short fingerprint of the runtime, put on its own URL.
+
+    Found on 3 September 2026, on production, by watching an overlay draw the
+    right number of empty images. The page is `no-store`, so the markup was
+    fresh every time, and the runtime it pulled in was a copy the browser had
+    cached weeks earlier. Three fixes had shipped into a file nobody was
+    loading.
+
+    A browser source at a venue is the worst place for this: it is opened once
+    and left running for a day, on a machine whose cache nobody will clear, and
+    the failure is silent because a stale runtime still fills most of the page.
+
+    Content-addressed rather than a version number, so it changes when the file
+    changes and never when it does not, which is what makes the cache useful
+    the rest of the time.
+    """
+    if not _RUNTIME_VERSION:
+        import hashlib
+        import os
+        path = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), 'static', 'overlay-runtime.js')
+        try:
+            with open(path, 'rb') as handle:
+                digest = hashlib.sha256(handle.read()).hexdigest()[:12]
+        except OSError:
+            # Never fail an on-air page over a cache hint. Falling back to a
+            # constant means the overlay still loads, just without the bust.
+            digest = 'x'
+        _RUNTIME_VERSION.append(digest)
+    return _RUNTIME_VERSION[0]
+
+
 def _inject(markup, runtime_tag):
     """Put the runtime in front of the uploader's own scripts.
 
@@ -242,10 +278,12 @@ def serve_overlay(request, token):
         owner = overlay.tournament
         feed = request.build_absolute_uri(
             '/tournament/%s/overlay-feed/' % (owner.slug or owner.tournament_id))
-    runtime = request.build_absolute_uri('/static/overlay-runtime.js')
+    runtime = request.build_absolute_uri(
+        '/static/overlay-runtime.js?v=%s' % _runtime_version())
 
     # The runtime is configured through a data attribute rather than a query
-    # string, so an overlay's own `?t=AX` reaches the overlay untouched.
+    # string on the OVERLAY, so an overlay's own `?t=AX` reaches it untouched.
+    # The `?v=` above is on the RUNTIME's own URL and is a different thing.
     tag = (
         '<script id="vent-overlay-runtime" '
         'data-feed="%s" data-every="4000" src="%s"></script>'

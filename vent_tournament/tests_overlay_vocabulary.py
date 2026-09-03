@@ -304,3 +304,40 @@ class OneJudgeOfWhatIsKnownTests(TestCase):
         source = _inspect.getsource(views_overlays._create_overlay)
         self.assertIn('overlay_binding.unknown_fields(', source)
         self.assertNotIn('[f for f in fields if f not in known]', source)
+
+
+class RuntimeReachesAnOverlayAlreadyOpenTests(TestCase):
+    """A changed runtime must reach overlays that already exist.
+
+    Found on production by watching an overlay draw the right number of empty
+    images. The overlay page is `no-store`, so its markup was fresh every time,
+    and the runtime it pulled in was a copy the browser had cached weeks
+    earlier. Three fixes had shipped into a file nobody was loading.
+
+    A browser source at a venue is the worst case: opened once, left running
+    all day, on a machine whose cache nobody will clear, and the failure is
+    silent because a stale runtime still fills most of the page.
+    """
+
+    def test_the_runtime_url_carries_a_fingerprint_of_the_file(self):
+        import hashlib
+        import os
+        from vent_tournament.views_overlays import _runtime_version
+
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(
+                __import__('vent_tournament').__file__))),
+            'static', 'overlay-runtime.js')
+        with open(path, 'rb') as handle:
+            expected = hashlib.sha256(handle.read()).hexdigest()[:12]
+
+        self.assertEqual(_runtime_version(), expected)
+        self.assertNotEqual(_runtime_version(), 'x',
+                            'the runtime file must be readable from the app')
+
+    def test_the_version_moves_when_the_file_moves(self):
+        """Not a constant somebody has to remember to bump."""
+        import hashlib
+        one = hashlib.sha256(b'runtime one').hexdigest()[:12]
+        two = hashlib.sha256(b'runtime two').hexdigest()[:12]
+        self.assertNotEqual(one, two)
