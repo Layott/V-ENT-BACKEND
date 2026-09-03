@@ -15,6 +15,7 @@ wrote, and this is footage. They are stored apart, they are listed apart, and
 the only thing they share is the studio they belong to.
 """
 import os
+import re
 
 from rest_framework import status
 from rest_framework.decorators import api_view, parser_classes
@@ -60,6 +61,7 @@ def serialize(asset, request):
         'url': url,
         'size_bytes': asset.size_bytes,
         'duration_ms': asset.duration_ms,
+        'slot': asset.slot or '',
         'tags': asset.tags or [],
         'team_tag': asset.team_tag or '',
         'player': asset.player.username if asset.player_id else '',
@@ -151,6 +153,13 @@ def _assets(request, owner, kind):
     except (TypeError, ValueError):
         duration = 0
 
+    # The name this fills inside an uploaded overlay. One word, because a
+    # designer types it into an attribute by hand: `data-vent-src="asset.hero"`.
+    slot = str(request.data.get('slot') or '').strip().lower()
+    if slot and not re.fullmatch(r'[a-z0-9_]{1,40}', slot):
+        return _err('A name for an overlay is one word: letters, numbers and '
+                    'underscores.', 'INVALID_SLOT', field='slot')
+
     asset = StudioAsset.objects.create(
         tournament=owner if kind == 'tournament' else None,
         event=owner if kind == 'event' else None,
@@ -160,6 +169,7 @@ def _assets(request, owner, kind):
         size_bytes=upload.size,
         duration_ms=max(0, duration),
         tags=tags,
+        slot=slot,
         team_tag=str(request.data.get('team_tag') or '')[:40],
         player=player,
         uploaded_by=user,

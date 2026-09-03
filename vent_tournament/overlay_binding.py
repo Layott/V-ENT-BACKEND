@@ -103,10 +103,13 @@ KNOWN_FIELDS = [
     # Inside a repeat, the row's own fields are addressed without a prefix.
     'place', 'tag', 'name', 'logo', 'played', 'won', 'lost',
     'points_for', 'points_against', 'ign', 'id', 'img', 'website',
+    # Inside a repeat over the studio's media library.
+    'kind', 'url', 'slot', 'team_tag', 'player', 'pictures',
 ]
 
 #: What a `data-vent-repeat` may repeat over.
-KNOWN_REPEATS = ['standings', 'teams', 'players', 'live', 'sponsors']
+KNOWN_REPEATS = ['standings', 'teams', 'players', 'live', 'sponsors',
+                 'assets', 'pictures', 'programme']
 
 
 def unknown_fields(fields):
@@ -115,6 +118,13 @@ def unknown_fields(fields):
     for field in fields:
         bare = field.split('|')[0].strip()
         if bare in KNOWN_FIELDS or bare in KNOWN_REPEATS:
+            continue
+        # `asset.<name>` is whatever the organiser assigned that name to in
+        # the studio, so the name half cannot be known here. A designer writes
+        # `data-vent-src="asset.hero"` and the organiser decides later what
+        # hero is; reporting it as undriveable at upload would be wrong, and
+        # would push them to edit the file instead of uploading a picture.
+        if bare.startswith('asset.') and len(bare) > len('asset.'):
             continue
         out.append(field)
     return out

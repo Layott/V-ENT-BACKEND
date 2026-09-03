@@ -60,8 +60,79 @@ def _url(request, image):
         return ''
 
 
-def _players_of(registration, request):
-    """The people a registration puts on the field."""
+def studio_assets_for(owner, kind, request):
+    """What an overlay can pull out of the studio's media library.
+
+    CEO, 3 September 2026: "should still be able to upload images and media
+    that they want to be used and assign them to names or text or areas inside
+    the overlays so those medias are pulled and shown inside the overlay when
+    the overlays are triggered."
+
+    Three shapes, because a designer reaches for different ones:
+
+      `asset.<slot>`  a URL, so `data-vent-src="asset.hero"` fills a picture
+                      the designer has already positioned in their own HTML.
+      `assets`        a repeat, for a strip of everything uploaded.
+      `pictures`      inside a player row; see `_players_of`.
+
+    A slot is one word, typed into an attribute by hand, and the newest asset
+    assigned to it wins so an organiser can replace the hero shot at 8pm by
+    uploading a new one rather than by editing anything.
+    """
+    from .models import StudioAsset
+
+    field = 'event' if kind == 'event' else 'tournament'
+    rows = StudioAsset.objects.filter(**{field: owner}).select_related('player')
+
+    by_slot = {}
+    listed = []
+    for row in rows:
+        url = _url(request, row.file)
+        listed.append({
+            'id': row.id,
+            'name': row.name,
+            'kind': row.kind,
+            'url': url,
+            'slot': row.slot or '',
+            'team_tag': row.team_tag or '',
+            'player': row.player.username if row.player_id else '',
+        })
+        # `rows` is newest first, so the first one to claim a slot is the
+        # newest and keeps it.
+        if row.slot and row.slot not in by_slot:
+            by_slot[row.slot] = url
+    return by_slot, listed
+
+
+def player_pictures(owner, kind, request):
+    """Extra shots per player, beyond the one on their profile.
+
+    CEO, same message: "should be able to upload more pictures for players
+    apart from the ones in their profiles also." An organiser has a proper
+    photograph of somebody that the player never uploaded, and a broadcast
+    should use it.
+    """
+    from .models import StudioAsset
+
+    field = 'event' if kind == 'event' else 'tournament'
+    out = {}
+    rows = (StudioAsset.objects
+            .filter(**{field: owner}, kind='image')
+            .exclude(player__isnull=True)
+            .select_related('player'))
+    for row in rows:
+        out.setdefault(row.player.username.lower(), []).append(_url(request, row.file))
+    return out
+
+
+def _players_of(registration, request, extra=None):
+    """The people a registration puts on the field.
+
+    `extra` is the studio's own pictures of them, keyed by username, so a
+    broadcast can use a photograph the organiser took rather than only the
+    avatar the player uploaded.
+    """
+    extra = extra or {}
     if registration.team_id:
         from vent_auth.models import TeamMembers
 
@@ -78,10 +149,14 @@ def _players_of(registration, request):
             if profile is not None:
                 first = profile.first()
                 picture = getattr(first, 'profile_picture', None) if first else None
+            shots = extra.get((user.username or '').lower(), [])
             out.append({
                 'ign': user.username,
                 'id': str(user.user_id),
-                'img': _url(request, picture),
+                # The profile picture, or the studio's own if the player
+                # never uploaded one.
+                'img': _url(request, picture) or (shots[0] if shots else None),
+                'pictures': shots,
             })
         return out
 
@@ -136,6 +211,11 @@ def overlay_feed(request, tournament_id):
         return _error('Tournament not found.', 'NOT_FOUND',
                       status.HTTP_404_NOT_FOUND)
 
+    # The studio's own pictures of these players, and whatever the organiser
+    # assigned to a name an overlay can address.
+    extra_shots = player_pictures(tournament, 'tournament', request)
+    asset_slots, asset_list = studio_assets_for(tournament, 'tournament', request)
+
     registrations = (TournamentRegistration.objects
                      .filter(tournament=tournament)
                      .filter(Q(status='confirmed') | Q(status='pending'))
@@ -163,7 +243,7 @@ def overlay_feed(request, tournament_id):
             'tag': tag,
             'name': name,
             'logo': logo,
-            'players': _players_of(registration, request),
+            'players': _players_of(registration, request, extra_shots),
             'played': stats.get('played', 0),
             'won': stats.get('won', 0),
             'lost': stats.get('lost', 0),
@@ -225,12 +305,17 @@ def overlay_feed(request, tournament_id):
         'teams': teams,
         'live': live,
         'sponsors': sponsors,
+        # What an uploaded overlay can pull: `asset.<slot>` for a picture the
+        # designer positioned themselves, and `assets` for a strip of them.
+        'asset': asset_slots,
+        'assets': asset_list,
         # What a polling overlay compares to know whether to redraw. Cheaper
         # than diffing the whole payload, and it is the only thing an overlay
         # running for six hours on a hotspot should have to think about.
-        'version': '%s-%s' % (
+        'version': '%s-%s-%s' % (
             len(teams),
-            sum(t['played'] + t['points_for'] for t in teams)),
+            sum(t['played'] + t['points_for'] for t in teams),
+            len(asset_list)),
     }, 'message': ''})
 
 
@@ -270,6 +355,9 @@ def event_overlay_feed(request, event_id):
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
     now = _tz.now()
+
+    # Whatever the organiser assigned to a name an overlay can address.
+    asset_slots, asset_list = studio_assets_for(event, 'event', request)
 
     # What is on, and what follows it. Read from the programme rather than
     # typed by an operator, so a screen behind a stage cannot disagree with the
@@ -323,10 +411,12 @@ def event_overlay_feed(request, event_id):
         },
         'programme': programme,
         'sponsors': sponsors,
+        'asset': asset_slots,
+        'assets': asset_list,
         # What a polling overlay compares to know whether to redraw. Without
         # it every poll after the first sees `undefined === undefined`, decides
         # nothing moved, and the overlay freezes at its first frame for the
         # rest of the broadcast.
-        'version': '%s-%s-%s-%s' % (
+        'version': '%s-%s-%s-%s-%s' % (len(asset_list),
             len(programme), len(sponsors), attending, sold),
     }, 'message': 'Overlay feed'})

@@ -310,6 +310,10 @@ TOURNAMENT_NAMES = [
     ('player.ign', 'the first player in that team'),
     ('player.id', 'their in-game id'),
     ('player.img', 'their picture, on an img'),
+    ('asset.<name>',
+     'a picture or clip uploaded to the studio, on an img or a video. '
+     'The organiser types the name when they upload it, so write '
+     'asset.hero and whatever they call hero appears there'),
 ]
 
 #: What `data-vent-repeat` may be on a tournament overlay, and the bare field
@@ -322,11 +326,13 @@ TOURNAMENT_REPEATS = [
      ['place', 'tag', 'name', 'logo', 'played', 'won', 'lost',
       'points_for', 'points_against']),
     ('players', 'the roster of the team this overlay is pointed at',
-     ['ign', 'id', 'img']),
+     ['ign', 'id', 'img', 'pictures']),
     ('live', 'matches in progress right now',
      ['round', 'match', 'status', 'home', 'away', 'score']),
     ('sponsors', 'the people who paid for the banners',
      ['name', 'logo', 'website']),
+    ('assets', 'everything uploaded to this studio, newest first',
+     ['id', 'name', 'kind', 'url', 'slot', 'team_tag', 'player']),
 ]
 
 #: And on an event. An event has no bracket; it has a programme, a door count,
@@ -342,6 +348,10 @@ EVENT_NAMES = [
     ('event.attending', 'how many people are through the door'),
     ('event.tickets_sold', 'how many tickets have gone'),
     ('event.capacity', 'how many the room holds'),
+    ('asset.<name>',
+     'a picture or clip uploaded to the studio, on an img or a video. '
+     'The organiser types the name when they upload it, so write '
+     'asset.hero and whatever they call hero appears there'),
 ]
 
 EVENT_REPEATS = [
@@ -349,6 +359,8 @@ EVENT_REPEATS = [
      ['title', 'room', 'starts_at', 'ends_at', 'speaker']),
     ('sponsors', 'the people who paid for the banners',
      ['name', 'logo']),
+    ('assets', 'everything uploaded to this studio, newest first',
+     ['id', 'name', 'kind', 'url', 'slot', 'team_tag', 'player']),
 ]
 
 
