@@ -69,13 +69,12 @@ def _match_number_label(match):
 
 
 def _participant_brief(reg):
+    # Through the shared accessors: a hand-built branch here knew teams and
+    # lone players only, so a squad came back as 'unknown' with no name.
     if reg is None:
         return None
-    if reg.team_id:
-        return {'registration_id': reg.id, 'type': 'team', 'id': reg.team_id, 'name': reg.team.team_name}
-    if reg.user_id:
-        return {'registration_id': reg.id, 'type': 'user', 'id': reg.user_id, 'name': reg.user.username}
-    return {'registration_id': reg.id, 'type': 'unknown', 'name': None}
+    return {'registration_id': reg.id, 'type': reg.entrant_kind,
+            'id': reg.entrant_id, 'name': reg.entrant_name or None}
 
 
 def _notify_dispute_raised(tournament):

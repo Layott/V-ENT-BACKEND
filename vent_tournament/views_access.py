@@ -277,10 +277,10 @@ def registrations(request, tournament_id):
                 'status': r.status,
                 'entry_fee_paid': r.entry_fee_paid,
                 'registered_at': r.registered_at,
-                'name': (r.team.team_name if r.team_id
-                         else (r.user.full_name or r.user.username) if r.user_id
-                         else ''),
-                'type': 'team' if r.team_id else 'user',
+                # One accessor, so a squad is listed by its own name rather
+                # than blank and typed as a team.
+                'name': r.entrant_name,
+                'type': r.entrant_kind,
             } for r in rows],
             'pending': rows.filter(status='pending').count(),
         }, 'Registrations')

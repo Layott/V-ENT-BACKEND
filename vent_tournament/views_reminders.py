@@ -72,23 +72,18 @@ def people_behind(registration):
     not reliably the person who turns up, and one member reading it is what
     prevents the forfeit.
     """
-    if registration.user_id:
-        return [registration.user]
-    if registration.team_id:
-        return [m.user for m in TeamMembers.objects
-                .filter(team=registration.team).select_related('user')
-                if m.user_id]
-    return []
+    # `people` on the registration knows all three kinds of side. This branch
+    # knew two, so nobody in a squad was ever reminded of anything.
+    return list(registration.people)
 
 
 def _entrant_name(registration):
+    # `entrant_name` covers a club, a lone player and a squad. Branching
+    # here by hand is how a squad came back blank.
     if registration is None:
         return 'an opponent yet to be decided'
-    if registration.team_id:
-        return registration.team.team_name
-    if registration.user_id:
-        return registration.user.full_name or registration.user.username
-    return 'an opponent yet to be decided'
+    return (getattr(registration, 'entrant_name', '')
+            or 'an opponent yet to be decided')
 
 
 def _link(tournament):

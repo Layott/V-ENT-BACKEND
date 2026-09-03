@@ -113,6 +113,23 @@ def rankings(request):
                 agg = team_stats.setdefault(reg.team_id, {'wins': 0, 'played': 0})
                 agg['wins'] += rec['wins']
                 agg['played'] += rec['played']
+            if reg.squad_id:
+                # A squad is assembled for one tournament and is not a club, so
+                # it earns no club ranking. Its PLAYERS did play those fixtures
+                # though, and before this they counted towards nothing at all:
+                # not the club, because a squad is not one, and not themselves,
+                # because `reg.user_id` is null. Four fixtures for Nigeria
+                # showed as zero.
+                #
+                # They are credited with the side's record, which is what this
+                # endpoint measures for a club's members too. A player's own
+                # per-seat record is a different question and lives in
+                # `league.player_table`.
+                for person in reg.people:
+                    agg = user_stats.setdefault(
+                        person.user_id, {'wins': 0, 'played': 0})
+                    agg['wins'] += rec['wins']
+                    agg['played'] += rec['played']
 
         # ---- players ----
         user_qs = Users.objects.all()

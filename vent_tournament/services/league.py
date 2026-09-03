@@ -228,6 +228,15 @@ def team_table(tournament):
 
 
 def _entrant_name(reg):
+    """Whatever this side is called, whichever kind of side it is.
+
+    Through `registration.entrant_name`, not a fourth copy of the branch. This
+    function knew about teams and lone players, so when squads arrived every
+    nation in a Rivalry Series table read "Entrant 3" instead of "Nigeria".
+    """
+    name = getattr(reg, 'entrant_name', '')
+    if name:
+        return name
     if reg.team_id:
         return getattr(reg.team, 'team_name', None) or f'Team {reg.team_id}'
     user = reg.user

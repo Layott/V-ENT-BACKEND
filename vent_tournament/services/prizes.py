@@ -103,11 +103,9 @@ def distribute(tournament, *, triggered_by=None, auto=False, force_recompute=Fal
 
 
 def _participant_label(reg):
-    if reg.user_id:
-        return reg.user.username
-    if reg.team_id:
-        return reg.team.team_name
-    return ''
+    # One accessor for all three kinds. A squad used to come back as the empty
+    # string, so a prize for Nigeria was recorded against nobody.
+    return getattr(reg, 'entrant_name', '') or ''
 
 
 def _result(payout, label=None):
