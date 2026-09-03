@@ -410,7 +410,7 @@ TOURNAMENT_REPEATS = [
       'points_for', 'points_against']),
     ('players', 'the roster of the team this overlay is pointed at',
      ['ign', 'id', 'img', 'pictures', 'represents', 'represents_logo',
-      'is_captain']),
+      'is_captain', 'record']),
     ('live', 'matches in progress right now',
      ['round', 'match', 'status', 'home', 'away', 'score']),
     ('sponsors', 'the people who paid for the banners',
