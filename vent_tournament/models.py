@@ -526,6 +526,13 @@ class BracketMatch(models.Model):
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default='scheduled')
     scheduled_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    # Who entered this result and when. Results can now be recorded by a
+    # scorekeeper the organiser named, so "who put this score in" is a
+    # question with more than one answer, and it gets asked.
+    recorded_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='results_recorded')
+    recorded_at = models.DateTimeField(null=True, blank=True)
 
     # The running order, which belongs to the organiser and is not derived.
     #
@@ -1377,3 +1384,44 @@ class BroadcastElement(models.Model):
 
     def __str__(self):
         return '%s %s' % (self.kind, 'on' if self.is_active else 'off')
+
+
+# ---------------------------------------------------------------------------
+# Who may enter results
+# ---------------------------------------------------------------------------
+
+class TournamentStaff(models.Model):
+    """Somebody the organiser has let record results for one tournament.
+
+    CEO, 3 September 2026: "only those given the access to, should be able to"
+    input results. A scorekeeper is named by username by the organiser, may
+    record a knockout score or a league fixture on this tournament, and may do
+    nothing else: not edit the tournament, not run the studio, not add another
+    scorekeeper. Removing the row revokes it at once. Mirrors EventManager's
+    door staff, which is the same idea for a ticket desk.
+
+    A row per tournament rather than a platform role, because the person who
+    keeps score at one league is a stranger to every other.
+    """
+
+    ROLE_CHOICES = [
+        ('scorekeeper', 'Scorekeeper'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    tournament = models.ForeignKey(
+        Tournament, on_delete=models.CASCADE, related_name='staff')
+    user = models.ForeignKey(
+        Users, on_delete=models.CASCADE, related_name='tournament_staff_roles')
+    role = models.CharField(max_length=16, choices=ROLE_CHOICES, default='scorekeeper')
+    added_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='tournament_staff_added')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('tournament', 'user')
+        ordering = ['user__username']
+
+    def __str__(self):
+        return '%s on %s (%s)' % (self.user.username, self.tournament_id, self.role)

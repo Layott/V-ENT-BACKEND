@@ -42,15 +42,29 @@ def _organiser_or_admin(request, tournament):
     user, err = actor_from_request(request)
     if err:
         return None, err
-    if tournament.tournament_creator_id == user.user_id:
-        return user, None
-    # The same roles that may cancel a tournament outright. There is no
-    # 'manage_tournaments' permission; naming one that does not exist means
-    # may_override always says no, and the admin path quietly stops working.
-    if may_override(user, 'cancel_tournament'):
+    # The organiser or an admin overriding: the people who may set the points
+    # and correct the table. One question, asked in access.py.
+    from .access import may_manage
+    if may_manage(user, tournament):
         return user, None
     return None, _err(
         'Only the tournament organizer can do that.',
+        'ONLY_TOURNAMENT_ORGANIZER_CAN', status.HTTP_403_FORBIDDEN)
+
+
+def _recorder(request, tournament):
+    """(user, error). Anybody who may enter a result: the organiser, a
+    scorekeeper they named, or an admin overriding. Wider than
+    `_organiser_or_admin` on purpose: keeping score is delegated, setting the
+    points is not."""
+    user, err = actor_from_request(request)
+    if err:
+        return None, err
+    from .access import may_record_results
+    if may_record_results(user, tournament):
+        return user, None
+    return None, _err(
+        'Only the tournament organizer or a scorekeeper can record a result.',
         'ONLY_TOURNAMENT_ORGANIZER_CAN', status.HTTP_403_FORBIDDEN)
 
 
@@ -156,7 +170,7 @@ def record_fixture(request, tie_id):
     except BracketMatch.DoesNotExist:
         return _err('Match not found', 'MATCH_NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
-    _user, err = _organiser_or_admin(request, tie.tournament)
+    _user, err = _recorder(request, tie.tournament)
     if err:
         return err
 
