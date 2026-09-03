@@ -32,7 +32,32 @@ from .production_access import find_owner, may_run_production, viewer as _viewer
 VIDEO_TYPES = {'.mp4': 'video', '.webm': 'video', '.mov': 'video', '.m4v': 'video'}
 IMAGE_TYPES = {'.png': 'image', '.jpg': 'image', '.jpeg': 'image',
                '.webp': 'image', '.gif': 'image'}
+
+# Fonts, so an overlay can be set in a typeface the organiser owns.
+#
+# CEO, 3 September 2026: "what of fonts when html files are uploaded, should
+# organizers be able to upload fonts in the studio also or should the fonts come
+# with the html file being uploaded also or both should be available."
+#
+# Both, and they answer different problems.
+#
+# A file that carries its own font as a base64 data URI always works, needs
+# nothing from this server, and is what the standalone-HTML rule already
+# requires. That path needs no code at all and is the safe default.
+#
+# Uploading a font here is for the other half: a 400KB font inlined into eight
+# overlays is eight copies a browser source downloads separately, and an
+# organiser who wants to restyle should not have to go back to the designer to
+# re-export a file. Uploaded once, it is one file the browser caches across
+# every overlay in the broadcast.
+#
+# woff2 first because it is half the size of ttf and every browser that can run
+# a browser source supports it. The others are accepted because a client sends
+# what they have.
+FONT_TYPES = {'.woff2': 'font', '.woff': 'font', '.ttf': 'font', '.otf': 'font'}
+
 ACCEPTED = dict(VIDEO_TYPES, **IMAGE_TYPES)
+ACCEPTED.update(FONT_TYPES)
 
 MAX_FILE_BYTES = 200 * 1024 * 1024      # one clip
 MAX_LIBRARY_BYTES = 2 * 1024 * 1024 * 1024   # everything one studio holds

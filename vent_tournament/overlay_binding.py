@@ -58,6 +58,21 @@ _DANGER = [
 ]
 
 
+def font_problems(markup):
+    """Fonts this file asks for that will not arrive.
+
+    Kept as a name because tests and callers use it, but the work lives in
+    `overlay_audit`, which checks fonts alongside every other thing a file can
+    get wrong silently. Two copies of "will this URL resolve" is exactly the
+    shape this codebase keeps paying for.
+    """
+    from . import overlay_audit
+
+    text = markup if isinstance(markup, str) else markup.decode('utf-8', 'replace')
+    return [src for src in overlay_audit.FONT_SRC.findall(text)
+            if overlay_audit._is_local(src)]
+
+
 def inspect(markup):
     """What this file is, what it binds to, and anything worth refusing over.
 
