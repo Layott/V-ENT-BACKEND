@@ -182,6 +182,36 @@ class SquadTests(TestCase):
         res = self.client.post(self.base, data={'name': 'Theirs'})
         self.assertEqual(res.status_code, 401)
 
+    def test_a_player_whose_club_is_entered_cannot_also_be_in_a_squad(self):
+        """Found on production: seat 1 came out as one player against themselves.
+
+        naijagameevo was in a club that had entered the tournament AND in the
+        squad facing it, so the first seat of the first fixture was
+        "naijagameevo v naijagameevo". A player cannot represent two sides, and
+        a fixture where somebody plays themselves has no result.
+        """
+        TournamentRegistration.objects.create(
+            tournament=self.tournament, team=self.lagos, status='confirmed')
+        squad = self.make_nigeria()
+
+        res = self.add(squad, 'tolu')
+        self.assertEqual(res.status_code, 409, res.content[:300])
+        self.assertEqual(res.json()['code'], 'ALREADY_PLAYING_FOR_A_CLUB')
+        self.assertIn('Lagos Lions', res.json()['message'])
+
+    def test_the_organiser_can_still_say_do_it_anyway(self):
+        """Their call: an exhibition, or a club entered by mistake."""
+        TournamentRegistration.objects.create(
+            tournament=self.tournament, team=self.lagos, status='confirmed')
+        squad = self.make_nigeria()
+        res = self.add(squad, 'tolu', anyway='1')
+        self.assertEqual(res.status_code, 200, res.content[:300])
+
+    def test_a_player_whose_club_is_not_entered_is_added_without_fuss(self):
+        squad = self.make_nigeria()
+        res = self.add(squad, 'tolu')
+        self.assertEqual(res.status_code, 200, res.content[:300])
+
     # ------------------------------------------------------------- the feed
 
     def test_the_feed_carries_the_squad_as_a_side_and_the_clubs_as_badges(self):
