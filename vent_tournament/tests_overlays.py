@@ -141,6 +141,11 @@ class OverlayUploadTests(TestCase):
                         body.index('data-vent="team.name"'),
                         'the runtime arrives after the overlay reads it')
         self.assertIn('overlay-feed', body)
+        # And the runtime's own URL carries a fingerprint of the file, so a
+        # browser source that has been open all day picks up a fixed runtime
+        # on its next load instead of a copy cached weeks ago.
+        from vent_tournament.views_overlays import _runtime_version
+        self.assertIn('overlay-runtime.js?v=%s' % _runtime_version(), body)
 
     def test_the_page_is_not_cached(self):
         url = self._upload().data['data']['overlay']['url']
