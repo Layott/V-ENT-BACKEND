@@ -335,3 +335,57 @@ class FormationCatalogueTests(TestCase):
         listed = [f['key'] for f in formations.catalogue()]
         self.assertEqual(listed, formations.FORMATION_KEYS)
         self.assertIn(formations.DEFAULT_FORMATION, listed)
+
+
+class TheOverlayFollowsAChangeTests(LineupTestCase):
+    """CEO: "updated automatically for each player".
+
+    An element page redraws only when the feed's `version` moves. A lineup
+    lives in its own table, so nothing in the tournament feed's version moved
+    when a player changed their squad: the page compared the same version,
+    skipped the redraw, and the squad depth graphic froze on the first lineup
+    it ever saw. Found on production by changing a lineup and watching the
+    overlay not follow.
+    """
+
+    def version(self):
+        res = self.client.get('/tournament/%s/overlay-feed/' % self.ref)
+        self.assertEqual(res.status_code, 200, res.content[:200])
+        return res.json()['data']['version']
+
+    def test_saving_a_lineup_moves_the_version(self):
+        before = self.version()
+        self.save()
+        self.assertNotEqual(self.version(), before,
+                            'the overlay would never have redrawn')
+
+    def test_swapping_one_card_moves_the_version(self):
+        """A count alone would not: eleven cards before, eleven after."""
+        self.save()
+        before = self.version()
+        swapped = self.eleven()
+        swapped[5] = {'slot_index': 5, 'card_id': self.cards[20].id}
+        self.save(swapped)
+        self.assertNotEqual(self.version(), before,
+                            'a swap left the version identical')
+
+    def test_changing_only_the_formation_moves_the_version(self):
+        self.save()
+        before = self.version()
+        self.save(formation='4-4-2')
+        self.assertNotEqual(self.version(), before)
+
+    def test_the_version_holds_still_when_nothing_changed(self):
+        """The other half: an overlay must not redraw four times a minute."""
+        self.save()
+        self.assertEqual(self.version(), self.version())
+
+    def test_the_feed_carries_every_lineup_for_an_uploaded_overlay(self):
+        self.save()
+        res = self.client.get('/tournament/%s/overlay-feed/' % self.ref)
+        lineups = res.json()['data']['lineups']
+        self.assertEqual(len(lineups), 1)
+        self.assertEqual(lineups[0]['player'], 'ln_player')
+        # Each slot carries the card's own fields, so a repeat can read them.
+        self.assertIn('name', lineups[0]['slots'][0])
+        self.assertIn('rating', lineups[0]['slots'][0])
