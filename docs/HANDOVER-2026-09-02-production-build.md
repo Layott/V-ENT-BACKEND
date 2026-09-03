@@ -217,3 +217,65 @@ address published as `legacy_urls` and still resolving for ever.
 `check-pollers` (a poller with no backoff), `check-format-catalogue` (a second
 copy of the format list), and the apiMessage self-test inside `check-error-ui`,
 proven both ways.
+
+---
+
+## 3 September, continued: studio media, and four faults found by looking
+
+**Shipped.** BE #133 (studio media fills names in overlays), #134 (one judge of
+which overlay names are fillable), #135 (a changed runtime reaches overlays that
+already exist). FE #155 (name a studio upload), #156 (previews on uploaded
+overlays), #157 (the preview has to fill, not just draw), #158 (previews replay
+in a loop). Migration 0038 applied. All deployed.
+
+**What the feature is.** A designer writes `data-vent-src="asset.hero"` without
+knowing what hero will be. The organiser uploads a picture, types `hero`, and it
+appears there. Newest upload wins a name, so replacing the hero shot at 8pm is an
+upload rather than an edit. A picture assigned to a player reaches that player's
+row as `pictures` and stands in for `img` when they have no profile photo.
+
+**Four faults, every one silent, three of them only visible on production:**
+
+1. `asset.hero` inside a repeat fell through to the row and resolved to ''.
+2. A repeat inside a repeat read from the top of the feed, not from its row.
+3. A repeat whose template IS the marked element was cloned and never filled,
+   because `querySelectorAll` only descends. The right number of empty images.
+4. **The browser was running a runtime cached weeks ago.** 8536 bytes against
+   10807 on the server. Fixes 1-3 shipped into a file nobody was loading. The
+   runtime URL now carries a content hash. A browser source at a venue is opened
+   once and left all day; this is the worst possible place for a stale cache.
+
+The tell for 3 and 4 was the same and worth remembering: **the right number of
+things, all empty.** That shape means a template was cloned and never filled.
+
+**Two more found by looking at the screen, not the code:** the upload warning
+said `asset.hero` would stay empty while it filled correctly (two copies of the
+known-names list), and the preview I added rendered every value on its
+placeholder because `sandbox="allow-scripts"` puts the frame on an opaque origin
+and its feed request goes out as `Origin: null`.
+
+**New catcher.** `tools/check-overlay-runtime.mjs`. The runtime had no test and
+is the piece that fails without saying so. It ships its own small DOM (no DOM
+library here, and the pnpm store on this machine has a history of breaking) and
+a `--self-test` that breaks the runtime four ways and fails if any break passes.
+
+**Still open** (GATES-STUDIO-MEDIA.md, 13 met / 5 open):
+
+- **CC4: uploaded overlay URLs are still bare tokens.** `/overlay/<token>/` with
+  no slug and no name. Element URLs were named; these were missed. This is half
+  of what the CEO asked for on naming.
+- A6: the media element page has never been watched playing a clip on air.
+- B3: entry/exit/hold animations not watched.
+- C2: previews are not limited to cards on screen (no IntersectionObserver), and
+  the feed request budget is unmeasured.
+- D3: no emulator walk of the media library.
+
+**Test data on production to remove:** tournaments 30 `studio-test-safe-to-delete`,
+31 `scorekeeper-test-safe-to-delete`, 32 `asset-proof-safe-to-delete`, team 27
+`Asset Proof Alpha`, and the StudioAssets and overlays on 32.
+
+**One wrong turn, recorded as one.** A tournament admin appeared to be refused by
+the studio and I started to "fix" it. `TournamentStaff` has exactly one role by
+design: a scorekeeper may record results and may not run the studio. The refusal
+was correct. I had written `role='admin'`, which is not a valid choice, and I
+reverted it.
