@@ -104,6 +104,53 @@ def studio_assets_for(owner, kind, request):
     return by_slot, listed
 
 
+def studio_fonts(owner, kind, request):
+    """Every font uploaded to this studio, named by its slot.
+
+    CEO, 3 September 2026, asking whether fonts should be uploaded to the
+    studio or carried inside the HTML: both, and this is the studio half.
+
+    A font gets a slot exactly as a picture does, and the runtime turns each
+    one into a `@font-face` whose family IS the slot. A designer then writes
+
+        font-family: 'hero';
+
+    with no URL to paste and nothing to base64. The organiser decides later
+    what hero is, and can change it without the designer re-exporting a file.
+
+    The other half needs no code: a font inlined into the HTML as a data URI
+    is just part of the file, always works, and is what the standalone-HTML
+    rule already asks for.
+    """
+    from .models import StudioAsset
+
+    field = 'event' if kind == 'event' else 'tournament'
+    rows = (StudioAsset.objects
+            .filter(**{field: owner}, kind='font')
+            .order_by('-created_at'))
+
+    seen = set()
+    out = []
+    for row in rows:
+        # A slot is what a designer writes, so a font with none cannot be
+        # named and is not offered. The newest wins a slot, as with pictures.
+        if not row.slot or row.slot in seen:
+            continue
+        seen.add(row.slot)
+        name = (row.file.name or '').lower()
+        out.append({
+            'slot': row.slot,
+            'name': row.name,
+            'url': _url(request, row.file),
+            # The browser needs to be told the format or it will not use it.
+            'format': ('woff2' if name.endswith('.woff2')
+                       else 'woff' if name.endswith('.woff')
+                       else 'opentype' if name.endswith('.otf')
+                       else 'truetype'),
+        })
+    return out
+
+
 def player_pictures(owner, kind, request):
     """Extra shots per player, beyond the one on their profile.
 
@@ -323,6 +370,7 @@ def overlay_feed(request, tournament_id):
     records = player_records(tournament)
     lineups = lineups_for(tournament)
     asset_slots, asset_list = studio_assets_for(tournament, 'tournament', request)
+    fonts = studio_fonts(tournament, 'tournament', request)
 
     registrations = (TournamentRegistration.objects
                      .filter(tournament=tournament)
@@ -429,6 +477,9 @@ def overlay_feed(request, tournament_id):
         # designer positioned themselves, and `assets` for a strip of them.
         'asset': asset_slots,
         'assets': asset_list,
+        # Fonts the organiser uploaded, each named by its slot. The
+        # runtime turns these into @font-face rules.
+        'fonts': fonts,
         # What a polling overlay compares to know whether to redraw. Cheaper
         # than diffing the whole payload, and it is the only thing an overlay
         # running for six hours on a hotspot should have to think about.
@@ -490,6 +541,7 @@ def event_overlay_feed(request, event_id):
 
     # Whatever the organiser assigned to a name an overlay can address.
     asset_slots, asset_list = studio_assets_for(event, 'event', request)
+    fonts = studio_fonts(event, 'event', request)
 
     # What is on, and what follows it. Read from the programme rather than
     # typed by an operator, so a screen behind a stage cannot disagree with the
@@ -545,6 +597,9 @@ def event_overlay_feed(request, event_id):
         'sponsors': sponsors,
         'asset': asset_slots,
         'assets': asset_list,
+        # Fonts the organiser uploaded, each named by its slot. The
+        # runtime turns these into @font-face rules.
+        'fonts': fonts,
         # What a polling overlay compares to know whether to redraw. Without
         # it every poll after the first sees `undefined === undefined`, decides
         # nothing moved, and the overlay freezes at its first frame for the

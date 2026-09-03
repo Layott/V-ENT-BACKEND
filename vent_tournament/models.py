@@ -1657,7 +1657,7 @@ class StudioAsset(models.Model):
     dropdown of somebody else's categories.
     """
 
-    KINDS = [('video', 'Video'), ('image', 'Image')]
+    KINDS = [('video', 'Video'), ('image', 'Image'), ('font', 'Font')]
 
     id = models.AutoField(primary_key=True)
     # What studio it belongs to. Exactly one, the same shape as the broadcast

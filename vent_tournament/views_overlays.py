@@ -157,7 +157,8 @@ def overlays(request, tournament_id):
                     'fields': BINDINGS_FOR_TOURNAMENT,
                     'field_help': FIELD_HELP_TOURNAMENT,
                     'repeat_help': REPEAT_HELP_TOURNAMENT,
-                    'prompt': DESIGNER_PROMPT_TOURNAMENT,
+                    'prompt': prompt_with_studio(
+                        DESIGNER_PROMPT_TOURNAMENT, tournament, 'tournament'),
                     'templates': TEMPLATES_FOR_TOURNAMENT})
 
     # One implementation for both owners. The validation, the inspection of
@@ -453,6 +454,46 @@ EVENT_REPEATS = [
 ]
 
 
+def prompt_with_studio(prompt, owner, kind):
+    """The prompt, plus the names this particular studio already holds.
+
+    CEO, 3 September 2026: "how will the site know what fonts to use and where
+    inside the html files uploaded?"
+
+    It does not, and that is the design: the uploaded file carries its own
+    look, and V-ENT only fills the values that are marked. Nothing here
+    restyles anybody's overlay.
+
+    What the site CAN do is tell the designer what is already available, so a
+    tool converting a design knows that `font-family: 'hero'` will resolve and
+    that `asset.crowd` is a picture it may use. Without that the prompt
+    describes a general capability and the designer has to guess the names.
+    """
+    from .models import StudioAsset
+
+    field = 'event' if kind == 'event' else 'tournament'
+    rows = StudioAsset.objects.filter(**{field: owner}).exclude(slot='')
+
+    fonts = sorted({r.slot for r in rows if r.kind == 'font'})
+    pictures = sorted({r.slot for r in rows if r.kind == 'image'})
+
+    if not fonts and not pictures:
+        return prompt + (
+            '\n\nTHIS STUDIO HAS NO UPLOADED FONTS OR PICTURES YET\n\n'
+            'So put every font and every design picture inside the file, as '
+            'described above.')
+
+    lines = ['\n\nWHAT THIS STUDIO ALREADY HOLDS\n']
+    if fonts:
+        lines.append('Fonts, usable directly as a font-family with no '
+                     '@font-face of your own:')
+        lines.extend("  font-family: '%s';" % slot for slot in fonts)
+    if pictures:
+        lines.append('\nPictures, usable on an img with data-vent-src:')
+        lines.extend('  <img data-vent-src="asset.%s">' % slot
+                     for slot in pictures)
+    return prompt + '\n'.join(lines)
+
 def _prompt_for(kind, names, repeats, pointing):
     """The text an organiser copies into whatever tool drew their design.
 
@@ -512,6 +553,41 @@ THE ONLY NAMES THAT EXIST
 
 Use only those names. If part of my design has no matching name, LEAVE IT
 EXACTLY AS IT IS and list at the end which parts you left alone and why.
+
+WHAT HAS TO TRAVEL INSIDE THE FILE
+
+Once uploaded, my file is served on its own. There is no folder beside it, so
+anything it loads by a relative path is simply not there, and the browser
+substitutes SILENTLY: the overlay goes on air in the wrong typeface, or with a
+missing picture, and nothing says so.
+
+- FONTS. Put every font INSIDE the file as a base64 data URI:
+    @font-face { font-family: 'Head';
+                 src: url(data:font/woff2;base64,d09GMgAB...) format('woff2'); }
+  A font on a public host (Google Fonts, a CDN) also works. A relative path
+  like url(fonts/Head.woff2) does NOT.
+  If the organiser has uploaded fonts to their V-ENT studio, they are already
+  available by name and need no @font-face at all: just use the name they gave
+  it, for example font-family: 'hero'. The list of names they have is at the
+  bottom of this prompt.
+
+- PICTURES that are part of the DESIGN rather than the data: same rule. A data
+  URI, or an absolute URL. Anything a relative path points at is gone.
+
+- Pictures the tournament fills are different and need none of this: mark them
+  with data-vent-src and the runtime supplies the address.
+
+ANIMATED OR STILL, BOTH ARE FINE
+
+Some designs are motion and some are a single frame. Keep whichever mine is.
+
+- If it animates in, leave the animation exactly as it is. It plays when the
+  browser source loads, which is when the operator brings it up.
+- Do not add an animation to a still design to make it feel livelier.
+- Avoid `infinite` unless my design genuinely never stops, like a ticker. A
+  broadcast runs for six hours and a graphic that breathes for all of it is
+  both distracting and real work for the machine.
+- Respect prefers-reduced-motion if you are adding anything at all.
 
 WHAT NOT TO DO
 
@@ -668,6 +744,13 @@ def _create_overlay(request, tournament=None, event=None, user=None):
         warnings.append(
             'These names are not ones the overlay runtime knows how to fill, '
             'so they will stay empty: %s' % ', '.join(unknown))
+    # Everything a file can get wrong that nothing errors on: a font or a
+    # picture that will not arrive, a background that blacks out the stream, a
+    # stage that is not the size of a browser source, something that animates
+    # for ever. See overlay_audit.
+    from . import overlay_audit
+    warnings.extend(overlay_audit.problems(markup))
+
     if not fields:
         warnings.append(
             'Nothing in this file carries a data-vent attribute, so it will '
@@ -737,7 +820,8 @@ def event_overlays(request, event_id):
                     'fields': BINDINGS_FOR_EVENT,
                     'field_help': FIELD_HELP_EVENT,
                     'repeat_help': REPEAT_HELP_EVENT,
-                    'prompt': DESIGNER_PROMPT_EVENT,
+                    'prompt': prompt_with_studio(
+                        DESIGNER_PROMPT_EVENT, event, 'event'),
                     'templates': TEMPLATES_FOR_EVENT}, 'Overlays')
 
     return _create_overlay(request, event=event, user=user)

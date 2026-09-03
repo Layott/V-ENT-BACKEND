@@ -170,8 +170,46 @@
     });
   }
 
+  /* Every font the organiser uploaded, declared as a family named by its slot.
+
+     CEO, 3 September 2026, asking whether fonts should be uploaded to the
+     studio or carried inside the HTML file: both. This is the studio half. A
+     designer writes `font-family: 'hero'` and the organiser decides later what
+     hero is, with no URL to paste and nothing to base64.
+
+     The other half needs nothing from here: a font inlined as a data URI is
+     part of the file and always works, which is why it stays the safe default.
+
+     Written once and only when the list changes. A stylesheet rebuilt every
+     four seconds would make a browser re-evaluate every rule on the page for
+     six hours. */
+  var fontsWritten = '';
+
+  function writeFonts(fonts) {
+    var list = fonts || [];
+    var key = list.map(function (f) { return f.slot + ':' + f.url; }).join('|');
+    if (key === fontsWritten) return;
+    fontsWritten = key;
+
+    var style = document.getElementById('vent-overlay-fonts');
+    if (!style) {
+      style = document.createElement('style');
+      style.id = 'vent-overlay-fonts';
+      /* Ahead of the overlay's own styles, so the file can still override
+         anything here. It is their design. */
+      document.head.insertBefore(style, document.head.firstChild);
+    }
+    style.textContent = list.map(function (f) {
+      /* The slot is already restricted to letters, digits and underscores at
+         upload, so it cannot carry a quote out of a font name and into CSS. */
+      return "@font-face{font-family:'" + f.slot + "';src:url('" + f.url
+        + "') format('" + f.format + "');font-display:swap;}";
+    }).join('\n');
+  }
+
   function apply(data) {
     var want = wantedTag();
+    writeFonts(data.fonts);
     var teams = data.teams || [];
     data.__team = teams.filter(function (t) {
       return String(t.tag).toUpperCase() === want;
