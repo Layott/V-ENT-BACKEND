@@ -1541,6 +1541,7 @@ class BroadcastElement(models.Model):
         ('bracket', 'Bracket'),
         ('sponsors', 'Sponsor wall'),
         ('media', 'Clip or picture'),
+        ('squad_depth', 'Squad depth'),
         ('ticker', 'Ticker'),
         ('intro', 'Intro'),
         ('outro', 'Outro'),

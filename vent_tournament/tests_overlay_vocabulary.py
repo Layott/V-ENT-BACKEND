@@ -94,6 +94,20 @@ class TournamentVocabularyTests(TestCase):
             slot='hero', team_tag='VOC',
             file=SimpleUploadedFile('hero.png', b'a picture',
                                     content_type='image/png'))
+        # An EAFC lineup, so the `lineups` repeat and the `slots` repeat
+        # inside it both have a row to check.
+        from vent_cards.models import GameCard, Lineup, LineupSlot
+        card = GameCard.objects.create(
+            source='futbin', source_id='voc1', name='Vocabulary Striker',
+            slug='vocabulary_striker', rating=91, position='ST',
+            item_type='gold', club='Vocab FC', nation='Nigeria',
+            image_url='https://cdn.futbin.com/img/players/1.png',
+            frame_url='https://cdn.futbin.com/img/cards/tiny/gold.png')
+        lineup = Lineup.objects.create(
+            tournament=self.tournament, user=self.owner, formation='4-3-3')
+        LineupSlot.objects.create(lineup=lineup, card=card, slot_index=9,
+                                  position='ST')
+
         team = Teams.objects.create(
             team_name='Vocabulary XI', game=game, description='x',
             team_creator=self.owner, team_owner=self.owner,
@@ -127,6 +141,18 @@ class TournamentVocabularyTests(TestCase):
         if key == 'players':
             teams = data.get('teams') or []
             return (teams[0].get('players') if teams else []) or []
+        # A repeat can live INSIDE another repeat's row: `slots` belongs to a
+        # lineup, `pictures` to a player. The runtime supports that (a nested
+        # `data-vent-repeat` is filled with its row as the scope), so the
+        # vocabulary has to check it where it actually is rather than
+        # pretending every list is at the top of the feed.
+        if key == 'slots':
+            lineups = data.get('lineups') or []
+            return (lineups[0].get('slots') if lineups else []) or []
+        if key == 'pictures':
+            teams = data.get('teams') or []
+            players = (teams[0].get('players') if teams else []) or []
+            return (players[0].get('pictures') if players else []) or []
         return data.get('teams' if key == 'standings' else key)
 
     def test_every_repeat_is_a_list_in_the_feed(self):
@@ -138,8 +164,11 @@ class TournamentVocabularyTests(TestCase):
         data = self.feed()
         for key, _why, fields in TOURNAMENT_REPEATS:
             rows = self.rows_for(key, data)
-            if key == 'live':
-                continue          # covered by its own test, with a live match
+            if key in ('live', 'pictures'):
+                # `live` has its own test with a real match in progress, and
+                # `pictures` is empty unless the studio holds a photograph of
+                # somebody, which is covered in tests_studio_media.
+                continue
             self.assertTrue(rows, 'no %s in the fixture to check' % key)
             for field in fields:
                 self.assertIn(field, rows[0], '%s.%s' % (key, field))

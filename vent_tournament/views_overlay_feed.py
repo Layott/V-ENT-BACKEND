@@ -125,6 +125,22 @@ def player_pictures(owner, kind, request):
     return out
 
 
+def lineups_for(tournament):
+    """Every EAFC lineup submitted for this tournament, by player.
+
+    A list rather than a map so an overlay can repeat over it, and each row
+    carries the player it belongs to. Empty and cheap for the tournaments not
+    using lineups, which is nearly all of them.
+    """
+    try:
+        from vent_cards.models import Lineup
+        from vent_cards.views import serialize_lineup
+    except Exception:                                       # noqa: BLE001
+        return []
+    rows = (Lineup.objects.filter(tournament=tournament)
+            .select_related('user').prefetch_related('slots__card'))
+    return [serialize_lineup(row) for row in rows]
+
 def player_records(tournament):
     """Each player's OWN record, by username.
 
@@ -305,6 +321,7 @@ def overlay_feed(request, tournament_id):
     # assigned to a name an overlay can address.
     extra_shots = player_pictures(tournament, 'tournament', request)
     records = player_records(tournament)
+    lineups = lineups_for(tournament)
     asset_slots, asset_list = studio_assets_for(tournament, 'tournament', request)
 
     registrations = (TournamentRegistration.objects
@@ -401,6 +418,11 @@ def overlay_feed(request, tournament_id):
             'starts_at': tournament.start_date_and_time,
         },
         'teams': teams,
+        # Every lineup submitted for this tournament, keyed by the player who
+        # picked it, so an uploaded overlay can draw a team sheet without a
+        # second request. Empty for a tournament not using lineups, which is
+        # almost all of them.
+        'lineups': lineups,
         'live': live,
         'sponsors': sponsors,
         # What an uploaded overlay can pull: `asset.<slot>` for a picture the

@@ -20,6 +20,7 @@ from . import views_invitations
 from . import views_overlay_feed
 from . import views_overlays
 from . import views_squads
+from vent_cards import views_lineups
 from . import views_studio
 from . import views_staff
 from . import views_assets
@@ -183,6 +184,16 @@ urlpatterns = [
     # nothing that is not already on the public tournament page.
     path("<str:tournament_id>/overlay-feed/", views_overlay_feed.overlay_feed,
          name="tournament_overlay_feed"),
+    # A player's EAFC lineup for this tournament, and the deadline the
+    # organiser sets for it.
+    path("<str:tournament_id>/lineup/", views_lineups.my_lineup,
+         name="tournament_my_lineup"),
+    path("<str:tournament_id>/lineup/<str:username>/", views_lineups.player_lineup,
+         name="tournament_player_lineup"),
+    path("<str:tournament_id>/lineups/", views_lineups.tournament_lineups,
+         name="tournament_lineups"),
+    path("<str:tournament_id>/lineup-rules/", views_lineups.lineup_rules,
+         name="tournament_lineup_rules"),
     # Sides assembled for one tournament out of people from anywhere, and
     # entrants an organiser puts in directly rather than by invitation.
     path("<str:tournament_id>/squads/", views_squads.squads,

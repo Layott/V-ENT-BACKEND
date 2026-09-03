@@ -33,6 +33,8 @@ urlpatterns = [
     # then the token. The names are a label and the token is the credential, so
     # a stale name still opens the right overlay rather than 404ing somebody
     # mid-broadcast. Listed first because it is the more specific pattern.
+    # The EAFC card catalogue: scraped from Futbin, shared by every tournament.
+    path("cards/", include("vent_cards.urls")),
     path("overlay/<str:owner>/<str:label>/<str:token>/",
          overlay_views.serve_overlay, name="serve_overlay_named"),
     # The bare address. Every URL ever handed out keeps working: this one is

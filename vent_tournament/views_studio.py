@@ -426,6 +426,36 @@ def feed(request, token):
             chosen = by_id.get(found.id) if found else None
         state['asset'] = chosen
 
+    # The squad depth graphic: one player's EAFC lineup, already resolved.
+    #
+    # CEO, 3 September 2026: "what they picked and formation they selected was
+    # shown inside the player squad depth overlay design, updated automatically
+    # for each player." Automatic is the whole ask, so the feed carries the
+    # lineup rather than the page fetching it: the page already polls this, and
+    # a lineup saved at 8pm is on screen within one poll with nobody pressing
+    # anything.
+    squad = elements.get('squad_depth')
+    if squad is not None:
+        squad['lineup'] = None
+        squad['formation_slots'] = []
+        wanted = str((squad['payload'] or {}).get('player') or '').strip()
+        if wanted and session.kind == 'tournament':
+            try:
+                from vent_cards import formations as _formations
+                from vent_cards.models import Lineup
+                from vent_cards.views import serialize_lineup
+                row = (Lineup.objects
+                       .filter(tournament=session.tournament,
+                               user__username__iexact=wanted)
+                       .prefetch_related('slots__card').first())
+                if row is not None:
+                    squad['lineup'] = serialize_lineup(row)
+                    squad['formation_slots'] = _formations.get(row.formation) or []
+            except Exception:                               # noqa: BLE001
+                # A graphic must never be taken down by a lookup. An empty
+                # lineup draws the empty state, which is a designed thing.
+                pass
+
     # The numbers come from where they are already computed. The studio does
     # no arithmetic: standings, scores, what is on now, how many are through
     # the door are the tournament's or the event's answers, and a second
