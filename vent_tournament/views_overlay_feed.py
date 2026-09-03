@@ -125,7 +125,41 @@ def player_pictures(owner, kind, request):
     return out
 
 
-def _players_of(registration, request, extra=None):
+def player_records(tournament):
+    """Each player's OWN record, by username.
+
+    CEO's rule for the Rivalry Series: "a player can win their match while
+    their country loses the fixture, and both must record it." The player card
+    used to draw the player's name above their SIDE's record, so on production
+    it read "Layott 0W 1L" on the day Layott won their match 2-0 and Nigeria
+    lost the tie 2-3. That is the one thing the two tables exist to keep apart.
+
+    Empty for a tournament that is not a league, where a player has no record
+    of their own and the side's is the only one there is.
+    """
+    try:
+        from .services import league
+        rows = league.player_table(tournament)
+    except Exception:                                       # noqa: BLE001
+        # A graphic must never be taken down by a table that will not compute.
+        return {}
+    out = {}
+    for row in rows:
+        name = str(row.get('name') or '')
+        if not name:
+            continue
+        out[name.lower()] = {
+            'played': row.get('played', 0),
+            'won': row.get('won', 0),
+            'drawn': row.get('drawn', 0),
+            'lost': row.get('lost', 0),
+            'goals_for': row.get('goals_for', 0),
+            'goals_against': row.get('goals_against', 0),
+        }
+    return out
+
+
+def _players_of(registration, request, extra=None, records=None):
     """The people a registration puts on the field.
 
     `extra` is the studio's own pictures of them, keyed by username, so a
@@ -133,6 +167,7 @@ def _players_of(registration, request, extra=None):
     avatar the player uploaded.
     """
     extra = extra or {}
+    records = records or {}
     if registration.squad_id:
         # A side assembled for this tournament. Each player carries the club
         # they actually play for, which is the entire reason a squad exists:
@@ -156,6 +191,8 @@ def _players_of(registration, request, extra=None):
                 'id': str(user.user_id),
                 'img': _url(request, picture) or (shots[0] if shots else None),
                 'pictures': shots,
+                'record': records.get((user.username or '').lower())
+                          or {'played': 0, 'won': 0, 'drawn': 0, 'lost': 0, 'goals_for': 0, 'goals_against': 0},
                 'represents': member.represents_name or (
                     member.represents_team.team_name
                     if member.represents_team_id else ''),
@@ -194,6 +231,8 @@ def _players_of(registration, request, extra=None):
                 # row and not only on a squad's, because a name that is present
                 # on some rows and absent on others fills with '' silently in a
                 # repeat, which is the fault this vocabulary exists to prevent.
+                'record': records.get((user.username or '').lower())
+                          or {'played': 0, 'won': 0, 'drawn': 0, 'lost': 0, 'goals_for': 0, 'goals_against': 0},
                 'represents': registration.team.team_name,
                 'represents_logo': _url(request, registration.team.team_logo),
                 'is_captain': bool(getattr(row, 'is_captain', False)),
@@ -208,6 +247,8 @@ def _players_of(registration, request, extra=None):
             'img': '',
             'pictures': [],
             # Entering alone, so they represent nobody but themselves.
+            'record': records.get((user.username or '').lower())
+                      or {'played': 0, 'won': 0, 'drawn': 0, 'lost': 0, 'goals_for': 0, 'goals_against': 0},
             'represents': '',
             'represents_logo': None,
             'is_captain': False,
@@ -263,6 +304,7 @@ def overlay_feed(request, tournament_id):
     # The studio's own pictures of these players, and whatever the organiser
     # assigned to a name an overlay can address.
     extra_shots = player_pictures(tournament, 'tournament', request)
+    records = player_records(tournament)
     asset_slots, asset_list = studio_assets_for(tournament, 'tournament', request)
 
     registrations = (TournamentRegistration.objects
@@ -297,7 +339,7 @@ def overlay_feed(request, tournament_id):
             'tag': tag,
             'name': name,
             'logo': logo,
-            'players': _players_of(registration, request, extra_shots),
+            'players': _players_of(registration, request, extra_shots, records),
             'played': stats.get('played', 0),
             'won': stats.get('won', 0),
             'lost': stats.get('lost', 0),
@@ -318,14 +360,7 @@ def overlay_feed(request, tournament_id):
     def _side(registration):
         if registration is None:
             return ''
-        if registration.squad_id:
-            return registration.squad.name
-        if registration.team_id:
-            return registration.team.team_name
-        if registration.user_id:
-            return (registration.user.full_name
-                    or registration.user.username or '')
-        return ''
+        return registration.entrant_name or ''
 
     live = [
         {
@@ -337,9 +372,16 @@ def overlay_feed(request, tournament_id):
             'score': [m.score_p1 or 0, m.score_p2 or 0],
         }
         for m in BracketMatch.objects.filter(
-            tournament=tournament, status='in_progress')
+            tournament=tournament,
+            # In progress first, then what has just been played and what is
+            # next. A graphic showing ONLY matches in progress is blank for
+            # most of a matchday: on a Rivalry Series day an operator puts the
+            # fixture list up between ties and used to get nothing at all.
+            status__in=('in_progress', 'completed', 'scheduled'))
         .select_related('participant_1__team', 'participant_1__user',
-                        'participant_2__team', 'participant_2__user')[:8]
+                        'participant_1__squad', 'participant_2__team',
+                        'participant_2__user', 'participant_2__squad')
+        .order_by('status', 'round_number', 'match_number')[:8]
     ]
 
     # The people who paid for the banners. The event feed carried them from
