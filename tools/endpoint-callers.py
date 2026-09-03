@@ -81,6 +81,10 @@ DELIBERATE = {
     # scans. Proved end to end by `scripts/overlay-probe.mjs`.
     'tournament/<str:tournament_id>/overlay-feed/':
         'fetched by the overlay runtime inside OBS, not by the site',
+    # The event twin of the line above, missed when events got a studio. It is
+    # fetched by exactly the same runtime for exactly the same reason.
+    'event/<str:event_id>/overlay-feed/':
+        'fetched by the overlay runtime inside OBS, not by the site',
 }
 
 
@@ -133,6 +137,106 @@ def literal_segments(route):
             if s and '\x00' not in s]
 
 
+def matchable_segments(route):
+    """The segments a caller's own line actually has to show.
+
+    The app prefix is dropped when there is anything after it. Almost every
+    screen builds its URLs through a helper that already knows the prefix:
+
+        const call = (path) => fetch(`${API}/event/${eventRef}${path}`)
+        call('/money/')
+
+    so the word `event` is never on the same line as `money`. Requiring it
+    reported 49 endpoints as uncalled that are in fact called on every load of
+    the event console, and a checker reporting 49 things nobody should act on
+    is one people stop reading.
+
+    What is kept is everything that tells one endpoint from another, which is
+    where the fault this exists to catch actually lives:
+    `tournament/tie/<id>/record/` still needs `tie` and then `record` on one
+    line, and nothing built that URL for weeks.
+    """
+    segments = literal_segments(route)
+    return segments[1:] if len(segments) > 1 else segments
+
+
+#: A word a path segment could be, for the candidate index.
+WORD = re.compile(r'[a-z0-9-]{3,}')
+
+
+def frontend_strings(haystack):
+    """The frontend as lines.
+
+    Lines, not string literals extracted by regex: a pattern matching balanced
+    quotes across a multi-megabyte blob backtracks pathologically and took this
+    check from seconds to over ten minutes. A URL is built on one line in
+    practice, so a line is both cheap and precise enough.
+    """
+    return [line for line in haystack.splitlines() if '/' in line]
+
+
+def index_by_segment(strings):
+    """Which lines contain each word, so a route only scans plausible ones.
+
+    Scanning every line for every route is quadratic. The first literal segment
+    of a path is a strong filter: only lines containing it can match all of them.
+    """
+    index = {}
+    for text in strings:
+        for word in set(WORD.findall(text)):
+            index.setdefault(word, []).append(text)
+    return index
+
+
+def called_from(segments, haystack, strings=None, index=None):
+    """Do all these segments appear IN ORDER on ONE line.
+
+    The old test was that each segment appeared SOMEWHERE in the whole
+    frontend. On a codebase this size almost every word appears somewhere, so a
+    multi-segment path passed on coincidence: `tournament/tie/<id>/record/` was
+    reported as called because the words "tournament", "tie" and "record" all
+    exist, while nothing had ever built that URL. The endpoint had no screen
+    for weeks.
+
+    A caller writes one line, `${API}/tournament/tie/${id}/record/`, so the
+    segments must appear in order on a single line. Interpolations sit between
+    them, which is why this is a subsequence test and not an equality.
+
+    NOT USED, and kept here with the reason.
+
+    Tried on 3 September 2026 to close gate E2 and abandoned after measuring
+    it. Almost every screen builds URLs through a helper that already holds
+    part of the path:
+
+        const base = `${API}/${kind}/${ownerRef}/studio/`;
+        fetch(`${base}sessions/`)
+
+    so `studio` and `sessions` are on different lines for an endpoint that is
+    called on every load of the studio. Requiring the app prefix reported 49
+    such endpoints; dropping the prefix still reported 22. Every one sampled was
+    a helper, not an orphan.
+
+    A false "orphaned" costs somebody an hour chasing a working endpoint; a
+    false "called" costs a missed warning. The second is much cheaper, which is
+    the trade this file has always made, and a stricter rule that cries wolf 22
+    times is worse than the loose one. Closing this properly needs the frontend
+    parsed rather than grepped, which is a different tool.
+    """
+    if strings is None:
+        strings = frontend_strings(haystack)
+    candidates = strings if index is None else index.get(segments[0], ())
+    for text in candidates:
+        at = 0
+        for seg in segments:
+            found = text.find(seg, at)
+            if found < 0:
+                break
+            at = found + len(seg)
+        else:
+            return True
+    return False
+
+
 def is_deliberate(full):
     for prefix, reason in DELIBERATE.items():
         if full.startswith(prefix):
@@ -142,6 +246,8 @@ def is_deliberate(full):
 
 def analyse():
     haystack = frontend_text()
+    strings = frontend_strings(haystack)
+    index = index_by_segment(strings)
     called, orphaned, skipped = [], [], []
 
     for row in backend_routes():
@@ -150,7 +256,7 @@ def analyse():
             skipped.append(dict(row, reason=reason))
             continue
 
-        segments = literal_segments(row['full'])
+        segments = matchable_segments(row['full'])
         if not segments:
             # A route that is entirely parameters cannot be matched this way,
             # and guessing would produce exactly the false orphan this must not
@@ -158,18 +264,34 @@ def analyse():
             skipped.append(dict(row, reason='no literal segment to match on'))
             continue
 
-        # Every literal segment has to appear somewhere. The last one carries
-        # the most meaning, so it is required verbatim with its slash.
+        # Deliberately the loose rule: every literal segment somewhere, and the
+        # last one in a path-like position. A stricter rule was tried on
+        # 3 September 2026 and abandoned, see `called_from`.
         tail = segments[-1]
-        if all(s in haystack for s in segments) and ('%s/' % tail in haystack
-                                                     or "'%s'" % tail in haystack
-                                                     or '"%s"' % tail in haystack
-                                                     or '/%s' % tail in haystack):
+        if all(seg in haystack for seg in segments) and (
+                '%s/' % tail in haystack
+                or "'%s'" % tail in haystack
+                or '"%s"' % tail in haystack
+                or '/%s' % tail in haystack):
             called.append(row)
         else:
             orphaned.append(row)
 
-    return called, orphaned, skipped
+    # The same endpoint is often registered twice, once taking an id and once a
+    # slug, so the console can send either (see project_slug_or_id_routes). They
+    # have identical literal segments and are one endpoint: if either is called,
+    # both are. Without this the slug twin of every called route is reported as
+    # an orphan, which is four false findings today and is how a checker stops
+    # being read.
+    reachable = {tuple(matchable_segments(r['full'])) for r in called}
+    still_orphaned = []
+    for row in orphaned:
+        if tuple(matchable_segments(row['full'])) in reachable:
+            skipped.append(dict(row, reason='the slug or id twin of a called route'))
+        else:
+            still_orphaned.append(row)
+
+    return called, still_orphaned, skipped
 
 
 def main():
