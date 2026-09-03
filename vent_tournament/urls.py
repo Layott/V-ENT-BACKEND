@@ -20,7 +20,7 @@ from . import views_invitations
 from . import views_overlay_feed
 from . import views_overlays
 from . import views_squads
-from vent_cards import views_lineups
+from vent_cards import views_lineups, views_review
 from . import views_studio
 from . import views_staff
 from . import views_assets
@@ -188,12 +188,23 @@ urlpatterns = [
     # organiser sets for it.
     path("<str:tournament_id>/lineup/", views_lineups.my_lineup,
          name="tournament_my_lineup"),
+    # BEFORE the `<str:username>` route below, which would otherwise swallow
+    # it and look for a player called "submit". Django takes the first match,
+    # so a literal segment must be declared above a parameter in the same
+    # position or it is unreachable.
+    path("<str:tournament_id>/lineup/submit/", views_review.submit_lineup,
+         name="tournament_submit_lineup"),
     path("<str:tournament_id>/lineup/<str:username>/", views_lineups.player_lineup,
          name="tournament_player_lineup"),
     path("<str:tournament_id>/lineups/", views_lineups.tournament_lineups,
          name="tournament_lineups"),
     path("<str:tournament_id>/lineup-rules/", views_lineups.lineup_rules,
          name="tournament_lineup_rules"),
+    # Checking a submitted squad, and the rules it has to satisfy.
+    path("<str:tournament_id>/squad-rules/", views_review.squad_rules_view,
+         name="tournament_squad_rules"),
+    path("<str:tournament_id>/lineups/<str:username>/review/",
+         views_review.review_lineup, name="tournament_review_lineup"),
     # Sides assembled for one tournament out of people from anywhere, and
     # entrants an organiser puts in directly rather than by invitation.
     path("<str:tournament_id>/squads/", views_squads.squads,
