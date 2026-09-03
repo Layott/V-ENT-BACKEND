@@ -432,10 +432,22 @@ def overlay_feed(request, tournament_id):
         # What a polling overlay compares to know whether to redraw. Cheaper
         # than diffing the whole payload, and it is the only thing an overlay
         # running for six hours on a hotspot should have to think about.
-        'version': '%s-%s-%s' % (
+        # A lineup lives in another table entirely, so nothing above moves when
+        # a player changes their squad. Without this the version never changed,
+        # the element page's `if version === last: return` skipped every
+        # redraw, and the squad depth graphic froze on the first lineup it ever
+        # saw. Found on production by changing a lineup and watching the
+        # overlay not follow, which is the CEO's whole ask for that graphic:
+        # "updated automatically for each player".
+        #
+        # The count alone is not enough: swapping one card for another leaves
+        # it identical. The latest `updated_at` is what actually moves.
+        'version': '%s-%s-%s-%s-%s' % (
             len(teams),
             sum(t['played'] + t['points_for'] for t in teams),
-            len(asset_list)),
+            len(asset_list),
+            len(lineups),
+            max([str(l.get('updated_at') or '') for l in lineups] or [''])),
     }, 'message': ''})
 
 
