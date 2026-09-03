@@ -7,6 +7,7 @@ So one endpoint answers with both rather than making the page ask twice and
 reconcile them - two round trips is how a team table and a player table end up
 disagreeing on screen about the same fixture.
 """
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -197,11 +198,21 @@ def record_fixture(request, tie_id):
     fixture.goals_1 = goals_1
     fixture.goals_2 = goals_2
     fixture.status = 'completed'
-    fixture.save(update_fields=['goals_1', 'goals_2', 'status'])
+    # Who entered it. A scorekeeper the organiser named may record results, so
+    # the author is a real question; it is stored on the seat, and on the tie
+    # when the seat that settles it goes in.
+    fixture.recorded_by = _user
+    fixture.recorded_at = timezone.now()
+    fixture.save(update_fields=['goals_1', 'goals_2', 'status',
+                                'recorded_by', 'recorded_at'])
 
     # Settles only when every slot is in, so a half-recorded tie stays open.
     winner = league.settle(tie)
     tie.refresh_from_db()
+    if tie.status == 'completed' and tie.recorded_by_id is None:
+        tie.recorded_by = _user
+        tie.recorded_at = timezone.now()
+        tie.save(update_fields=['recorded_by', 'recorded_at'])
 
     return _ok({
         'tie_id': tie.pk,
