@@ -523,6 +523,143 @@
       .then(function () { inFlight = false; });
   }
 
+
+  /* -------------------------------------------------- where the file sits
+
+     CEO, 4 September 2026: "should be able to change position even for the
+     overlays you upload". The Sits control reached V-ENT's own graphics only,
+     and what I had told them, that an uploaded file is moved by editing its
+     own CSS, is true and is not an answer: the person holding the file at a
+     venue is an operator, not its designer.
+
+     An uploaded file positions itself however its designer chose, so moving it
+     means measuring what it actually drew and translating that. The drawn box
+     is the union of every visible element's rectangle, not the body's own,
+     because a body that fills the frame while its content sits bottom left is
+     the normal case and its rectangle says nothing.
+
+     Then the box is moved so it sits at the requested anchor inside a 5%
+     safe area, which is 96px across and 54px down at 1920x1080, the same
+     margin the studio's own graphics use.
+
+     Three things this deliberately does NOT do:
+
+     - it never runs when nobody has moved the overlay. No attribute, no
+       measurement, no transform, and the file is byte for byte what its
+       designer wrote
+     - it does not scale. Only translation, so nothing is ever drawn above its
+       own resolution by a control meant to nudge it
+     - it does not fight the file. A design that animates its own position
+       keeps animating: the transform is on a wrapper the runtime owns, and the
+       file's own transforms are untouched underneath. */
+
+  function readSits() {
+    var raw = tag && tag.getAttribute('data-sits');
+    if (!raw) return null;
+    try {
+      var value = JSON.parse(raw);
+      return value && value.position ? value : null;
+    } catch (err) {
+      if (window.console) console.warn('V-ENT overlay: position unreadable', err);
+      return null;
+    }
+  }
+
+  var SITS = readSits();
+
+  /* The union of what the document actually painted. Elements with no size,
+     and the wrapper itself, are skipped: an empty container that stretches to
+     the frame would otherwise make the box the whole frame and the move a
+     no-op, which reads as the control being broken. */
+  function drawnBox() {
+    var nodes = document.body ? document.body.querySelectorAll('*') : [];
+    var left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+    for (var i = 0; i < nodes.length; i += 1) {
+      var el = nodes[i];
+      if (el.id === 'vent-sits' || el.id === 'vent-layers') continue;
+      var style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden'
+          || Number(style.opacity) === 0) continue;
+      var box = el.getBoundingClientRect();
+      if (box.width < 2 || box.height < 2) continue;
+      if (box.width >= window.innerWidth && box.height >= window.innerHeight) continue;
+      left = Math.min(left, box.left);
+      top = Math.min(top, box.top);
+      right = Math.max(right, box.right);
+      bottom = Math.max(bottom, box.bottom);
+    }
+    if (!isFinite(left) || right <= left) return null;
+    return { left: left, top: top, width: right - left, height: bottom - top };
+  }
+
+  function placeFile() {
+    if (!SITS || !document.body) return;
+
+    var wrap = document.getElementById('vent-sits');
+    if (!wrap) {
+      /* A wrapper the runtime owns, so the file's own transforms are left
+         alone. Everything the document drew moves into it once. */
+      wrap = document.createElement('div');
+      wrap.id = 'vent-sits';
+      wrap.style.cssText = 'position:absolute;left:0;top:0;width:100%;'
+        + 'height:100%;transform-origin:top left';
+      while (document.body.firstChild) {
+        wrap.appendChild(document.body.firstChild);
+      }
+      document.body.appendChild(wrap);
+    }
+
+    /* Measured with the wrapper back at zero, or the second call would move it
+       again by the amount of the first. */
+    wrap.style.transform = 'none';
+    var box = drawnBox();
+    if (!box) return;
+
+    var frameW = window.innerWidth;
+    var frameH = window.innerHeight;
+    var safeX = frameW * 0.05;
+    var safeY = frameH * 0.05;
+
+    var wantLeft = box.left;
+    var wantTop = box.top;
+    var where = String(SITS.position || '');
+
+    if (where.indexOf('left') !== -1) wantLeft = safeX;
+    else if (where.indexOf('right') !== -1) wantLeft = frameW - safeX - box.width;
+    else if (where.indexOf('centre') !== -1 || where === 'centre') {
+      wantLeft = (frameW - box.width) / 2;
+    }
+
+    if (where.indexOf('top') === 0) wantTop = safeY;
+    else if (where.indexOf('bottom') === 0) wantTop = frameH - safeY - box.height;
+    else if (where.indexOf('middle') === 0 || where === 'centre') {
+      wantTop = (frameH - box.height) / 2;
+    }
+
+    /* The nudge is in pixels at 1920x1080, so it scales with the frame the
+       same way every other measurement on a broadcast graphic does. */
+    var unit = frameW / 1920;
+    var dx = wantLeft - box.left + (Number(SITS.offset_x) || 0) * unit;
+    var dy = wantTop - box.top + (Number(SITS.offset_y) || 0) * unit;
+
+    wrap.style.transform = 'translate(' + Math.round(dx) + 'px,'
+      + Math.round(dy) + 'px)';
+  }
+
+  /* Re-measured after the fonts land, because a headline in the fallback face
+     is a different width and the box would be wrong by exactly that. */
+  function watchPlacement() {
+    if (!SITS) return;
+    placeFile();
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(placeFile).catch(function () {});
+    }
+    /* Once more after the first paint settles, and on resize, which is what a
+       browser source does when somebody changes its size in OBS. */
+    setTimeout(placeFile, 400);
+    window.addEventListener('resize', placeFile);
+  }
+
   /* The runtime is injected into the head, ahead of the document it decorates,
      so there is usually no body to append a layer to yet. */
   function whenReady(fn) {
@@ -534,6 +671,7 @@
   }
 
   whenReady(buildLayers);
+  whenReady(watchPlacement);
 
   poll();
   if (EVERY > 0) setInterval(poll, EVERY);

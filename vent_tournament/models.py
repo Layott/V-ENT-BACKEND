@@ -1389,6 +1389,20 @@ class TournamentOverlay(models.Model):
     binding = models.CharField(max_length=20, default='none')
     bound_fields = models.JSONField(default=list, blank=True)
 
+    # Where it sits on the frame, in the SAME nine places and the same pixel
+    # nudge a V-ENT graphic uses. See `presentation.py`, which is the one list.
+    #
+    # CEO, 4 September 2026: "should be able to change position even for the
+    # overlays you upload". I had said an uploaded file is moved by editing its
+    # own CSS, which is true and is not an answer: the person holding the file
+    # at a venue is an operator, not its designer.
+    #
+    # `as_designed` is the default and it means the file is served byte for
+    # byte as it was uploaded, with nothing injected to move it. That is not a
+    # convenience: an overlay already pasted into a machine must not move
+    # because this column appeared.
+    options = models.JSONField(default=dict, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(

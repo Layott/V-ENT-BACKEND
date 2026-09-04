@@ -181,6 +181,16 @@ PAIRS = [
                        r'tournament_element_layers'),
     ),
     (
+        'an uploaded overlay can be moved on both sides',
+        'The Sits control reached the studio graphics only until 4 September. '
+        'An event broadcast has a lower third that has to clear a bug in the '
+        'corner exactly as a tournament does.',
+        'event', (BACKEND, 'vent_tournament/views_overlays.py',
+                  r"def event_overlay_detail"),
+        'tournament', (BACKEND, 'vent_tournament/views_overlays.py',
+                       r"def overlay_detail"),
+    ),
+    (
         'the payload says which organisation runs this',
         'A column both endpoints accept and no payload reports is a column no '
         'screen can show, which is how the organisation field sat unused on '
