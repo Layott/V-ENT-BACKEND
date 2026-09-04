@@ -152,7 +152,13 @@ class TicketingSetupTests(TestCase):
 
     # --------------------------------------------------------------- managers
     def test_a_personal_event_cannot_be_handed_to_anybody(self):
-        """The door list and the attendee data go with management."""
+        """The door list and the attendee data go with management.
+
+        CEO, 4 September 2026, after being offered the alternative: "dont
+        ulock it, instead do a way to add events to an oganization". So this
+        stays refused, and the way out is to move the event into an
+        organisation, which is now something a screen can do.
+        """
         res = self.client.post('/event/%s/managers/' % self.event.event_id,
                                data=json.dumps({'username': self.other.username}),
                                content_type='application/json', **self.owner_auth)

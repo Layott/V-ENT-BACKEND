@@ -150,7 +150,32 @@ def serialize_event_card(request, event):
         'interaction_count': event.interaction_count,
         'game': event.game.game_title if event.game else None,
         'ticket_types': [serialize_ticket_tier(t) for t in tiers],
+        # Whether there is a published run of show to link to. On the CARD as
+        # well as the detail, because the sitemap reads the listing and a page
+        # nothing points at is a page nobody finds. A field that is added to
+        # the detail payload only, and left on the card to be "done later", is
+        # the same bug in slower motion.
+        'has_run_of_show': _has_public_run_of_show(event),
     }
+
+
+def _has_public_run_of_show(event):
+    """Whether a run of show exists here that anybody may open.
+
+    Reads an annotation when the queryset supplied one, so a listing of forty
+    events asks once rather than forty times. Falls back to its own query for
+    a single record, where one more query costs nothing and the alternative is
+    every caller having to remember to annotate.
+
+    Only `public` counts. A link only sheet is unlisted by definition, and a
+    page advertising it would be the one thing that unlists it.
+    """
+    annotated = getattr(event, 'has_public_run_sheet', None)
+    if annotated is not None:
+        return bool(annotated)
+    from vent_tournament.models import RunSheet
+    return RunSheet.objects.filter(event=event,
+                                   visibility=RunSheet.PUBLIC).exists()
 
 
 def _linked_tournaments(request, event):
@@ -171,6 +196,12 @@ def _linked_tournaments(request, event):
     return [serialize_linked_tournament(request, link, viewer) for link in links]
 
 
+def _person(request, user):
+    """Deferred: views_community imports models this module is loaded beside."""
+    from vent_auth.views_community import _person as shared
+    return shared(request, user)
+
+
 def serialize_event_detail(request, event):
     """Full shape for the view-event page (Overview / Tickets / Schedule tabs)."""
     data = serialize_event_card(request, event)
@@ -180,11 +211,18 @@ def serialize_event_detail(request, event):
         'last_updated': event.last_updated,
         'reg_start_date': event.reg_start_date,
         'reg_end_date': event.reg_end_date,
-        'organizer': {
-            'user_id': creator.user_id,
-            'username': creator.username,
-            'full_name': creator.full_name,
-        } if creator else None,
+        # The SAME person shape every other surface uses.
+        #
+        # This was a hand-built dict with three keys, so the event page had no
+        # picture to draw and fell back to an initial in a circle, and the
+        # founder badge could not appear because nothing said whether to show
+        # it. The tournament payload carried the identical fault and was fixed
+        # on 2 September; this one was not, which is the two-surfaces shape
+        # again: the same job done on one of the two screens V-ENT has.
+        #
+        # `_person` is where that shape lives. Adding a field there is adding it
+        # everywhere a person is named, which is the whole point of it.
+        'organizer': _person(request, creator) if creator else None,
         # How many one email may hold. The buyer's form needs it so it can cap
         # the quantity there rather than refusing after they have filled in a
         # form, and the edit screen needs it to draw its own switch.

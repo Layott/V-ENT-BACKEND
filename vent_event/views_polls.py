@@ -56,12 +56,10 @@ def _event(event_id):
 
 
 def _may_manage(user, event):
-    if user is None:
-        return False
-    if event.creator_id == user.user_id:
-        return True
-    return EventManager.objects.filter(
-        event=event, user=user, role='manager').exists()
+    # One rule, in permissions.py, so the organisation's own managers reach
+    # this screen exactly as they reach every other one.
+    from .permissions import may_run_event
+    return may_run_event(user, event)
 
 
 def _votable_ticket(event, code, viewer):

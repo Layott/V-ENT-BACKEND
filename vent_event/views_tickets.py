@@ -7,7 +7,7 @@ Tier prices are set in NGN; the charge is in VENT COINS at the platform rate, an
 both are stored on the ticket so a later rate change never rewrites history.
 """
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.contrib.auth.hashers import check_password
 from django.db import transaction
@@ -537,19 +537,50 @@ def check_in_ticket(request, code):
     if ticket is None:
         return _error('No ticket with that code.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
-    # The creator, or somebody they put on the door. EventManager has had a
-    # `door` role since it was written - "check tickets in, nothing else" - and
-    # this path never consulted it, so in practice one person scanned or the
-    # organiser handed over their own account.
-    from .models import EventManager
-    is_creator = ticket.event.creator_id == user.user_id
-    on_the_door = EventManager.objects.filter(
-        event=ticket.event, user=user, role__in=('manager', 'door')).exists()
-    if not is_creator and not on_the_door:
+    # The creator, somebody they put on the door, or the organisation's own
+    # people. EventManager has had a `door` role since it was written, "check
+    # tickets in, nothing else", and this path never consulted it, so in
+    # practice one person scanned or the organiser handed over their account.
+    from .permissions import may_work_the_door
+    if not may_work_the_door(user, ticket.event):
         return _error('Only the event organizer or their door staff can check '
                       'tickets in.', 'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
     gate = str(request.data.get('gate') or '').strip()[:60]
+
+    # WHICH DAY this door is admitting for.
+    #
+    # CEO, 4 September 2026: "maybe there should also be different scanners for
+    # different days. so that people dont come and show day 2 tickets on day one
+    # and its work because tehre is just one scanner."
+    #
+    # `TicketTier.day` has carried the date since the tier was written, and
+    # nothing had ever read it at the door, so a Saturday ticket opened Friday's
+    # gate. A tier with no day admits on any day, which is what a single day
+    # event and a full run pass both want, so the check only ever narrows.
+    #
+    # The scanner sends the day; without one, today at the venue is meant. The
+    # API decides it either way, because a door that enforces this only in the
+    # browser is a door anybody can walk through with a second browser.
+    scan_day, day_error = _scan_day(request)
+    if day_error:
+        return day_error
+
+    tier_day = ticket.tier.day if ticket.tier_id else None
+    if tier_day and scan_day and tier_day != scan_day:
+        return _error(
+            'This ticket is for another day.', 'WRONG_DAY',
+            status.HTTP_409_CONFLICT,
+            extra={
+                'ticket': serialize_ticket(ticket),
+                # The frontend translates by code and builds the sentence from
+                # these, because a date formatted in Python is a date in the
+                # server's language.
+                'ticket_day': tier_day.isoformat(),
+                'ticket_day_label': ticket.tier.day_label or '',
+                'scanning_day': scan_day.isoformat(),
+            },
+        )
 
     if ticket.status == 'checked_in':
         # WHEN, WHERE and WHO. "Already scanned" sends a steward to a
@@ -601,6 +632,23 @@ def check_in_ticket(request, code):
 # GET /event/<id>/attendees/ - organizer only
 # ---------------------------------------------------------------------------
 
+def _scan_day(request):
+    """The date this door is admitting for, or an error.
+
+    Explicit beats implicit: a steward may open Saturday's door on Friday night
+    to test it, and a scanner pinned to a date is the only way that is possible.
+    Absent, it is today, which is what a door standing open right now means.
+    """
+    raw = str(request.data.get('day') or '').strip()
+    if not raw:
+        return timezone.localdate(), None
+    try:
+        return datetime.strptime(raw[:10], '%Y-%m-%d').date(), None
+    except ValueError:
+        return None, _error('That day could not be read.', 'INVALID_DAY',
+                            status.HTTP_400_BAD_REQUEST)
+
+
 @api_view(['GET'])
 def event_attendees(request, event_id):
     user, auth_error = _authenticate(request)
@@ -614,13 +662,12 @@ def event_attendees(request, event_id):
              else Event.objects.filter(slug=str(event_id)).first())
     if event is None:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    # The creator, or somebody on the door. The scanner downloads this list
-    # before the gates open, so a steward who cannot load it cannot scan at all
-    # - which is the same fault the check-in path had until tonight.
-    from .models import EventManager
-    on_the_door = EventManager.objects.filter(
-        event=event, user=user, role__in=('manager', 'door')).exists()
-    if event.creator_id != user.user_id and not on_the_door:
+    # The creator, somebody on the door, or the organisation's own people. The
+    # scanner downloads this list before the gates open, so a steward who
+    # cannot load it cannot scan at all, which is the same fault the check-in
+    # path had until tonight.
+    from .permissions import may_work_the_door
+    if not may_work_the_door(user, event):
         return _error('Only the event organizer or their door staff can see the '
                       'attendee list.', 'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
@@ -641,6 +688,10 @@ def event_attendees(request, event_id):
             # labelled list to find it.
             'attendee_phone': t.attendee_phone,
             'tier': t.tier.name,
+            # Which day this ticket admits on, so a scanner with no network can
+            # still refuse a ticket for another day. Null means the whole run.
+            'tier_day': t.tier.day.isoformat() if t.tier.day else None,
+            'tier_day_label': t.tier.day_label or '',
             'status': t.status,
             'purchased_at': t.purchased_at,
             'checked_in_at': t.checked_in_at,

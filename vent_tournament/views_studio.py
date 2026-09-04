@@ -48,6 +48,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from . import presentation
+from . import text_layers
 from .models import BroadcastElement, BroadcastSession
 from .production_access import (
     REFUSAL_CODE, find_owner, kind_of, may_run_production, viewer as _viewer)
@@ -81,7 +82,10 @@ def _kinds(session):
 
 
 def _element_state(session):
-    rows = {e.kind: e for e in session.elements.all()}
+    # The layers come with the elements in one query. An element page is a
+    # browser source with one request, and a second round trip per graphic is a
+    # second chance to fail with a caption half on screen.
+    rows = {e.kind: e for e in session.elements.prefetch_related('text_layers')}
     out = {}
     for kind in _kinds(session):
         row = rows.get(kind)
@@ -95,6 +99,13 @@ def _element_state(session):
             # level a value came from. See presentation.py.
             'presentation': presentation.resolve(session.defaults,
                                                  payload.get('options')),
+            # The words an operator put on top of this graphic. Active only,
+            # and in paint order, so the page draws the list it is given rather
+            # than deciding anything. Filtered in Python off the prefetch,
+            # because a filtered query per element is a query per element.
+            'layers': text_layers.serialize_many(
+                text_layers.active_of(list(row.text_layers.all()))
+            ) if row else [],
             'updated_at': row.updated_at.isoformat() if row else None,
         }
     return out
@@ -108,10 +119,21 @@ def _version(session, elements):
     """
     stamp = max(
         [e['updated_at'] or '' for e in elements.values()] or [''])
-    return '%s-%s-%s' % (
+    # The look is in here on purpose. An element page skips its redraw when the
+    # version has not moved, so a broadcast switched from the house look to the
+    # Rivalry pack would keep drawing the old one until something else changed.
+    #
+    # The text layers are in here for exactly the same reason, and they need
+    # their own stamp rather than riding on `updated_at`: `updated_at` belongs
+    # to the ELEMENT, and adding, editing, reordering or removing a layer does
+    # not touch it. A layer edited under a stale version is a change nobody on
+    # air ever sees, which has already happened twice here.
+    return '%s-%s-%s-%s-%s' % (
         session.id,
+        session.theme,
         sum(1 for e in elements.values() if e['active']),
-        stamp)
+        stamp,
+        text_layers.stamp(elements))
 
 
 def _owner_summary(session):
@@ -177,6 +199,12 @@ def _session_payload(session, request):
         # The house style, and what a console may offer for it.
         'defaults': presentation.resolve(session.defaults, None),
         'presentation_options': presentation.catalogue(),
+        # Which look the graphics are drawn in, and the looks that exist. A
+        # list rather than a hardcoded pair in the console, so a look added
+        # here appears there without a second change.
+        'theme': session.theme,
+        'themes': [{'value': v, 'label': label}
+                   for v, label in BroadcastSession.THEMES],
         'version': _version(session, elements),
     }
     # Named by what it is of, and `tournament` kept as the key the console
@@ -241,6 +269,17 @@ def _session_detail(request, owner, kind, session_id):
         except presentation.PresentationError as err:
             return _err(str(err), 'INVALID_PRESENTATION', field=err.field)
         session.save(update_fields=['defaults'])
+
+    if request.method == 'POST' and 'theme' in request.data:
+        # Which look this broadcast is drawn in. Refused rather than ignored
+        # when it is not one that exists: an operator who set a look and saw
+        # nothing change would set it again rather than read a name back.
+        wanted = str(request.data.get('theme') or '').strip()
+        if wanted not in dict(BroadcastSession.THEMES):
+            return _err('There is no broadcast look called %s.' % wanted,
+                        'INVALID_THEME', field='theme')
+        session.theme = wanted
+        session.save(update_fields=['theme'])
 
     if request.method == 'POST' and request.data.get('end'):
         # Ending clears every element, because the alternative is a graphic
@@ -354,6 +393,8 @@ def _retired(session):
     Answering with `retired` clears the screen and tells the page to stop
     asking, which is what "stops working" has to mean for a browser source.
     """
+    from .views_overlay_feed import BLANK_RIVALRY, BLANK_RUN_OF_SHOW
+
     return _ok({
         'session': {
             'id': session.id,
@@ -365,6 +406,10 @@ def _retired(session):
         'retired': True,
         'elements': {kind: {'kind': kind, 'active': False, 'payload': {},
                             'presentation': presentation.resolve(None, None),
+                            # Present and empty for the same reason as the
+                            # blocks below: a page reading a name that is not
+                            # there throws on the way to drawing nothing.
+                            'layers': [],
                             'asset': None, 'updated_at': None}
                      for kind in _kinds(session)},
         'assets': [],
@@ -374,6 +419,11 @@ def _retired(session):
         'live': [],
         'sponsors': [],
         'programme': [],
+        # Present and empty rather than absent, exactly as above: a retired
+        # link clears the screen, and an element reading a name that is not
+        # there would throw on the way to drawing nothing.
+        'rivalry': dict(BLANK_RIVALRY),
+        'run_of_show': dict(BLANK_RUN_OF_SHOW),
         'version': 'retired-%s' % session.id,
     }, 'This broadcast has ended.')
 
@@ -466,7 +516,8 @@ def feed(request, token):
         inner = event_overlay_feed(raw, session.event.slug or session.event.event_id)
         data = (getattr(inner, 'data', {}) or {}).get('data') or {}
         return _ok({
-            'session': {'id': session.id, 'name': session.name, 'is_live': True},
+            'session': {'id': session.id, 'name': session.name,
+                        'is_live': True, 'theme': session.theme},
             'kind': 'event',
             'elements': elements,
             'event': data.get('event', {}),
@@ -477,18 +528,36 @@ def feed(request, token):
                                      data.get('version', ''), len(assets)),
         }, 'Studio feed')
 
-    from .views_overlay_feed import overlay_feed
+    from .views_overlay_feed import (BLANK_RIVALRY, overlay_feed,
+                                     run_of_show_for)
     inner = overlay_feed(raw, session.tournament.slug or session.tournament.tournament_id)
     data = (getattr(inner, 'data', {}) or {}).get('data') or {}
+
+    # The run of show, asked for again with the organiser's own access. The
+    # public feed above withholds a sheet that is not published, and a private
+    # sheet is exactly the one an organiser runs their show from: this surface
+    # is reached only through a session token they hold, so it sees the whole
+    # thing. Its stamp joins the version, because the cue on screen changes
+    # when the clock passes 14:00 and no row in any table moves when it does.
+    run_of_show, run_stamp = run_of_show_for(session.tournament,
+                                             include_private=True)
     return _ok({
-        'session': {'id': session.id, 'name': session.name, 'is_live': True},
+        'session': {'id': session.id, 'name': session.name,
+                    'is_live': True, 'theme': session.theme},
         'kind': 'tournament',
         'elements': elements,
         'tournament': data.get('tournament', {}),
         'teams': data.get('teams', []),
         'live': data.get('live', []),
         'sponsors': data.get('sponsors', []),
+        # The aggregate league, forwarded whole. The fixture card, the result
+        # cards, the head to head and both standings tables draw from this one
+        # block, and it is empty with `enabled` false for a tournament that is
+        # not an aggregate one.
+        'rivalry': data.get('rivalry') or dict(BLANK_RIVALRY),
+        'run_of_show': run_of_show,
         'assets': assets,
-        'version': '%s|%s|%s' % (_version(session, elements),
-                                 data.get('version', ''), len(assets)),
+        'version': '%s|%s|%s|%s' % (_version(session, elements),
+                                    data.get('version', ''), len(assets),
+                                    run_stamp),
     }, 'Studio feed')

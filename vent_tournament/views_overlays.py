@@ -18,9 +18,11 @@ uploader's markup is otherwise untouched, because the file they debug against
 has to be the file that is served.
 """
 
+import json
 import re
 
 from django.http import HttpResponse
+from django.utils.html import escape
 from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import status
 from rest_framework.decorators import api_view, parser_classes
@@ -31,7 +33,7 @@ from django.core.files.base import ContentFile
 
 from vent_auth.models import Users
 
-from . import overlay_binding, overlay_templates
+from . import overlay_binding, overlay_templates, text_layers
 from .models import Tournament, TournamentOverlay
 
 #: An overlay is markup. A 5MB one is already unusual; the KON10DR pack reaches
@@ -324,13 +326,34 @@ def serve_overlay(request, token, owner=None, label=None):
     runtime = request.build_absolute_uri(
         '/static/overlay-runtime.js?v=%s' % _runtime_version())
 
+    # Text the operator put on top of this file, handed over with the page.
+    #
+    # **A file with no layers is served exactly as it was.** No attribute, no
+    # container, no stylesheet, no class: the tag below is byte for byte what
+    # it has always been. That is not a nicety. This is somebody else's design,
+    # opened once at a venue and left running for six hours, and the only safe
+    # default when there is nothing to add is to add nothing. The same rule the
+    # Sits control shipped with.
+    #
+    # Carried in the page rather than fetched, because the feed is per
+    # tournament and per event while layers are per overlay, and a second
+    # request would be a second thing that can fail while a caption is on
+    # screen. The cost is that a layer changed mid show needs the browser
+    # source refreshed; the studio graphics take theirs from the feed and do
+    # not.
+    layers = text_layers.for_overlay(overlay)
+    layers_attr = ''
+    if layers:
+        layers_attr = ' data-layers="%s"' % escape(json.dumps(
+            text_layers.serialize_many(layers), separators=(',', ':')))
+
     # The runtime is configured through a data attribute rather than a query
     # string on the OVERLAY, so an overlay's own `?t=AX` reaches it untouched.
     # The `?v=` above is on the RUNTIME's own URL and is a different thing.
     tag = (
         '<script id="vent-overlay-runtime" '
-        'data-feed="%s" data-every="4000" src="%s"></script>'
-        % (feed, runtime))
+        'data-feed="%s" data-every="4000"%s src="%s"></script>'
+        % (feed, layers_attr, runtime))
 
     response = HttpResponse(_inject(markup, tag),
                             content_type='text/html; charset=utf-8')
@@ -599,6 +622,29 @@ WHAT NOT TO DO
   an overlay is composited over video and its background must stay transparent.
 - Do not change the pixel dimensions of the stage. It is designed for a
   1920x1080 browser source.
+
+WHERE IT SITS ON THE FRAME
+
+The stage is the whole 1920x1080 frame and my graphic is placed inside it, so
+where it sits is decided by my file and I can move it by changing one rule.
+Anchor it to a corner or an edge rather than by trial and error:
+
+    .lowerthird { position: absolute; left: 96px; bottom: 54px; }
+    .centred    { position: absolute; left: 50%%; top: 50%%;
+                  transform: translate(-50%%, -50%%); }
+
+- Keep 96px clear across and 54px down from every edge. That is the 5 per cent
+  safe area; broadcasters cut into the edges and a lower third flush to the
+  bottom loses its descenders.
+- A lower third belongs at the bottom left or the bottom centre. A score bar
+  belongs at the top centre. A sponsor wall belongs at the bottom centre.
+- Anchor to ONE horizontal and ONE vertical edge, never all four. Setting left
+  and right together stretches the graphic across the frame the moment a name
+  is longer than the placeholder.
+
+(V-ENT's own graphics carry a Sits setting in the studio, with a nine point
+grid and a pixel nudge. An uploaded file does not need one: it is my design and
+this rule is mine to change.)
 
 %(pointing)s
 

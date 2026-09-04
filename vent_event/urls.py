@@ -6,6 +6,8 @@ from . import views_guest
 from vent_tournament import views_overlays as overlay_views
 from vent_tournament import views_overlay_feed as overlay_feed_views
 from vent_tournament import views_studio as studio_views
+from vent_tournament import views_layers as layer_views
+from vent_tournament import views_runsheet as runsheet_views
 from vent_tournament import views_assets as asset_views
 from . import views_sponsors
 from . import views_holds
@@ -94,6 +96,13 @@ urlpatterns = [
          name="event_overlay_detail"),
     path("<str:event_id>/overlays/<int:overlay_id>/rotate/", overlay_views.event_overlay_rotate,
          name="event_overlay_rotate"),
+    # Text on top of an uploaded overlay, the same four addresses a tournament
+    # has. An event broadcast has captions exactly as a tournament does.
+    path("<str:event_id>/overlays/<int:overlay_id>/layers/",
+         layer_views.event_overlay_layers, name="event_overlay_layers"),
+    path("<str:event_id>/overlays/<int:overlay_id>/layers/<int:layer_id>/",
+         layer_views.event_overlay_layer_detail,
+         name="event_overlay_layer_detail"),
     # The production studio for an event: the same three routes a tournament
     # has, the same console, the same feed. The graphics differ (a programme
     # rather than a bracket); see BroadcastElement.kinds_for.
@@ -107,6 +116,28 @@ urlpatterns = [
          studio_views.event_session_detail, name="event_studio_session_detail"),
     path("<str:event_id>/studio/sessions/<int:session_id>/element/<str:kind>/",
          studio_views.event_element, name="event_studio_element"),
+    path("<str:event_id>/studio/sessions/<int:session_id>/element/"
+         "<str:element_kind>/layers/",
+         layer_views.event_element_layers, name="event_studio_element_layers"),
+    path("<str:event_id>/studio/sessions/<int:session_id>/element/"
+         "<str:element_kind>/layers/<int:layer_id>/",
+         layer_views.event_element_layer_detail,
+         name="event_studio_element_layer_detail"),
+    # The run of show. Minute by minute, who owns each cue, and a share
+    # address the organiser decides the visibility of. Same routes on a
+    # tournament; see vent_tournament/urls.py.
+    path("<str:event_id>/run-of-show/", runsheet_views.event_run_sheet,
+         name="event_run_sheet"),
+    path("<str:event_id>/run-of-show/import/", runsheet_views.event_import,
+         name="event_run_sheet_import"),
+    path("<str:event_id>/run-of-show/days/", runsheet_views.event_days,
+         name="event_run_sheet_days"),
+    path("<str:event_id>/run-of-show/days/<int:day_id>/",
+         runsheet_views.event_day_detail, name="event_run_sheet_day"),
+    path("<str:event_id>/run-of-show/items/", runsheet_views.event_items,
+         name="event_run_sheet_items"),
+    path("<str:event_id>/run-of-show/items/<int:item_id>/",
+         runsheet_views.event_item_detail, name="event_run_sheet_item"),
     path("<str:event_id>/short-links/", views_short_links.short_links,
          name="event_short_links"),
     path("<str:event_id>/short-links/<int:link_id>/",

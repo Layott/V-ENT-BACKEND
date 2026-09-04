@@ -390,10 +390,19 @@ def get_all_events(request):
     Returns the filtered page under `events` plus discovery sections
     (`featured`, `upcoming`, `by_game`) computed from the full active set.
     """
+    # `has_public_run_sheet` is annotated rather than asked per row: the
+    # listing serialises up to forty events and a per-row existence check
+    # would be forty queries for one boolean.
+    from django.db.models import Exists, OuterRef
+    from vent_tournament.models import RunSheet
+
     base = (
         Event.objects.filter(is_active=True)
         .select_related('game', 'creator')
         .prefetch_related('ticket_tiers')
+        .annotate(has_public_run_sheet=Exists(
+            RunSheet.objects.filter(event_id=OuterRef('pk'),
+                                    visibility=RunSheet.PUBLIC)))
     )
 
     filtered = base

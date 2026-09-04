@@ -21,6 +21,7 @@ from vent_partners import urls as partner_urls
 from vent_tournament import views_overlays as overlay_views
 from vent_event import views_short_links as short_link_views
 from vent_tournament import views_studio as studio_views
+from vent_tournament import views_runsheet as runsheet_views
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -47,6 +48,12 @@ urlpatterns = [
          name="resolve_short_link"),
     # What a browser source reads. Public by token: OBS cannot sign in.
     path("studio/<str:token>/feed/", studio_views.feed, name="studio_feed"),
+    # The run of show, at its share address. Root-mounted and short because
+    # it is sent to a crew in a message and read on a phone, and public by
+    # token because the person opening it has no account here.
+    path("run-of-show/<str:token>/", runsheet_views.by_token,
+         name="run_sheet_by_token"),
+
     path("auth/", include('vent_auth.urls')),
     path("tournament/", include('vent_tournament.urls')),
     path("event/", include('vent_event.urls')),

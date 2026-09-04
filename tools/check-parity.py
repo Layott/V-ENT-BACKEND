@@ -127,16 +127,58 @@ PAIRS = [
                        r'import _person|_person\(request'),
     ),
     (
-        'the sponsor logo input is attached',
+        'a sponsor logo can be uploaded in the wizard',
         'A hidden input with no ref throws on click and does nothing.',
+        # Aimed at the LIVE wizards. It used to point at
+        # create-event-component/sponsors-links/sponsors/Sponsors.js, which
+        # nothing under src/app imports: the live event wizard is
+        # app/events/create-event/page.js and it uses ImageUpload, so there is
+        # no bare input to attach a ref to and never was. This row reported
+        # MISSING for weeks against a file nobody runs, which is how a checker
+        # stops being read.
         'tournament wizard',
         (FRONTEND,
          'src/components/create-tournament-component/sponsors-links/sponsors/Sponsors.js',
-         r'ref=\{el'),
+         r'ref=\{el|ImageUpload'),
         'event wizard',
-        (FRONTEND,
-         'src/components/create-event-component/sponsors-links/sponsors/Sponsors.js',
-         r'ref=\{el'),
+        (FRONTEND, 'src/app/events/create-event/page.js', r'ImageUpload'),
+    ),
+    (
+        'the run of show is offered on both consoles',
+        'A production document built for one of the two is half a feature.',
+        'event', (FRONTEND, 'src/app/events/manage/page.js',
+                  r"tab === 'run-of-show'"),
+        'tournament', (FRONTEND, 'src/app/tournaments/manage/page.js',
+                       r"tab === 'run-of-show'"),
+    ),
+    (
+        'the run of show has a public page on both',
+        'The address people share has to exist for an event and a tournament.',
+        'event', (FRONTEND, 'src/app/events/[slug]/run-of-show/page.js',
+                  r'RunOfShowScreen'),
+        'tournament', (FRONTEND, 'src/app/tournaments/[slug]/run-of-show/page.js',
+                       r'RunOfShowScreen'),
+    ),
+    (
+        'the run of show routes are mounted on both',
+        'Six routes on one side and none on the other is the usual shape.',
+        'event', (BACKEND, 'vent_event/urls.py', r'run-of-show/import/'),
+        'tournament', (BACKEND, 'vent_tournament/urls.py', r'run-of-show/import/'),
+    ),
+    (
+        'text layers on an uploaded overlay are mounted on both',
+        'Text on an overlay for one of the two things V-ENT runs is half a feature.',
+        'event', (BACKEND, 'vent_event/urls.py',
+                  r'overlays/<int:overlay_id>/layers/'),
+        'tournament', (BACKEND, 'vent_tournament/urls.py',
+                       r'overlays/<int:overlay_id>/layers/'),
+    ),
+    (
+        'text layers on a studio graphic are mounted on both',
+        'An event broadcast has captions exactly as a tournament does.',
+        'event', (BACKEND, 'vent_event/urls.py', r'event_element_layers'),
+        'tournament', (BACKEND, 'vent_tournament/urls.py',
+                       r'tournament_element_layers'),
     ),
 ]
 

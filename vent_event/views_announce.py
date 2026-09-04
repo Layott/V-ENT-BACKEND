@@ -69,10 +69,10 @@ def _event(event_id):
 
 
 def _may_send(user, event):
-    if event.creator_id == user.user_id:
-        return True
-    return EventManager.objects.filter(
-        event=event, user=user, role='manager').exists()
+    # One rule, in permissions.py. This used to ask EventManager directly, as
+    # five other screens did, and each had its own idea of which roles counted.
+    from .permissions import may_run_event
+    return may_run_event(user, event)
 
 
 def _recipients(event, audience):

@@ -14,9 +14,10 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from vent_auth.actors import actor_from_request, may_override
-from vent_auth.models import Users
+from vent_auth.models import Organization, OrgMember, Users
 
 from .models import Event, EventManager, EventPromo, EventReferral, TicketTier
+from .permissions import may_run_event
 
 
 def event_by_ref(ref):
@@ -49,14 +50,18 @@ def _err(message, code, http_status=status.HTTP_400_BAD_REQUEST):
 
 
 def _actor_for_event(request, event):
-    """(user, error). The organiser, a manager, or an admin who may override."""
+    """(user, error). The organiser, anybody who runs it, or an admin override.
+
+    "Anybody who runs it" is `permissions.may_run_event`, which now includes
+    the organisation's own people: an owner, an admin, or a manager whose
+    scopes include events reaches every event that organisation holds, with no
+    per event row. See `vent_event/permissions.py`.
+    """
     user, auth_error = actor_from_request(request)
     if auth_error is not None:
         return None, auth_error
 
-    if event.creator_id == user.user_id:
-        return user, None
-    if EventManager.objects.filter(event=event, user=user, role='manager').exists():
+    if may_run_event(user, event):
         return user, None
     if may_override(user, 'manage_events'):
         return user, None
@@ -389,8 +394,29 @@ def event_managers(request, event_id):
             # The screen needs to know whether to offer the control at all,
             # rather than offering it and having the save refused.
             'can_add': bool(event.organization_id),
+            # And which organisation it is in, so the control that moves it
+            # there can show what it is set to. Sent from here rather than
+            # fetched separately: the screen is already asking this endpoint
+            # the question "who runs this", and the answer starts with the
+            # organisation.
+            'organization': ({
+                'id': event.organization_id,
+                'name': event.organization.org_name,
+                'slug': event.organization.slug or '',
+            } if event.organization_id else None),
         })
 
+    # An event has to belong to an organisation before anybody else can help
+    # run it: the door list, the attendee data and the promo codes go with
+    # management, and that is not something to hand over by accident on a
+    # personal event.
+    #
+    # This was a trap until 4 September, because there was no way to move an
+    # event into an organisation either, so an owner who needed help had no
+    # route at all. The route exists now. CEO: "dont ulock it, instead do a way
+    # to add events to an oganizatio and the whe ou add people to your
+    # organization you can then have them manage events ad they will see
+    # everyrthing".
     if not event.organization_id:
         return _err('Only an event that belongs to an organisation can be shared with other people.',
                     'EVENT_NOT_IN_ORGANISATION', status.HTTP_409_CONFLICT)
@@ -455,8 +481,25 @@ def my_events(request):
     managed_ids = list(
         EventManager.objects.filter(user=user).values_list('event_id', flat=True))
 
+    # And every event held by an organisation this person runs events for.
+    # CEO, 4 September 2026: "when you add people to your organization you can
+    # then have them manage events and they will see everything". Seeing them
+    # listed here is the first half of "everything": an event somebody may run
+    # and cannot find is an event they cannot run.
+    org_ids = []
+    for row in OrgMember.objects.filter(user=user).only('org_id', 'role', 'scopes'):
+        if row.role in (OrgMember.ROLE_OWNER, OrgMember.ROLE_ADMIN):
+            org_ids.append(row.org_id)
+        elif (row.role == OrgMember.ROLE_MANAGER
+              and OrgMember.SCOPE_EVENTS in (row.scopes or [])):
+            org_ids.append(row.org_id)
+    org_ids += list(Organization.objects.filter(org_owner=user)
+                    .values_list('org_id', flat=True))
+
     events = (Event.objects
-              .filter(Q(creator=user) | Q(event_id__in=managed_ids))
+              .filter(Q(creator=user)
+                      | Q(event_id__in=managed_ids)
+                      | Q(organization_id__in=org_ids))
               .select_related('game', 'series', 'organization')
               .annotate(tickets_sold=Count('tickets', distinct=True))
               .order_by('-start_date', '-event_id')
