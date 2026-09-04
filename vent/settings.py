@@ -141,6 +141,11 @@ _DEV_ORIGINS = [
     "http://127.0.0.1:3001",
     "http://localhost:3002",
     "http://127.0.0.1:3002",
+    # 3005 as well: on 4 September 2026 both 3000 and 3001 were held by other
+    # local projects at once, and a walk on a port that is not listed here
+    # fails as "Failed to fetch" with no mention of CORS anywhere.
+    "http://localhost:3005",
+    "http://127.0.0.1:3005",
     "http://localhost:3100",
     "http://127.0.0.1:3100",
 ]
