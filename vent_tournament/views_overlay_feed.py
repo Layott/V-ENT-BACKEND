@@ -651,12 +651,23 @@ def rivalry_for(tournament, request):
             'points': row['points'],
         })
 
+    # The badge of the side a player sat for, keyed by the side's own name,
+    # which is the only thing the player table carries about them. Without this
+    # a player row can say which nation somebody played for and has no way to
+    # show it, and the approved board draws that badge on every row.
+    badge_of_side = {}
+    for badge in identities.values():
+        if badge.get('name') and badge.get('logo'):
+            badge_of_side.setdefault(badge['name'], badge['logo'])
+
     table_players = []
     for row in league.player_table(tournament):
+        side = nation_of.get(row.get('user_id'), '')
         table_players.append({
             'place': row['position'],
             'name': row['name'],
-            'nation': nation_of.get(row.get('user_id'), ''),
+            'nation': side,
+            'logo': badge_of_side.get(side, ''),
             'seat': seat_of.get(row.get('user_id'), 0),
             'played': row['played'],
             'won': row['won'],
@@ -934,6 +945,11 @@ def overlay_feed(request, tournament_id):
             'game': getattr(tournament.tournament_game, 'game_title', ''),
             'logo': _url(request, tournament.tournament_logo),
             'starts_at': tournament.start_date_and_time,
+            # Where it is being played. Under the same name the event feed
+            # already answers to, so a graphic that draws a venue does not have
+            # to know which of the two it is looking at. The play area frame
+            # names the room, and had nothing to name it with.
+            'venue': tournament.tournament_location or '',
         },
         'teams': teams,
         # Every lineup submitted for this tournament, keyed by the player who

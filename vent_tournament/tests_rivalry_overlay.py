@@ -62,9 +62,12 @@ EVENT_KINDS_BEFORE = ['now_next', 'programme', 'lower_third', 'sponsors',
 NATION_COLUMNS = {'place', 'name', 'tag', 'logo', 'played', 'won', 'drawn',
                   'lost', 'goals_for', 'goals_against', 'goal_difference',
                   'points'}
-PLAYER_COLUMNS = {'place', 'name', 'nation', 'seat', 'played', 'won', 'drawn',
-                  'lost', 'goals_for', 'goals_against', 'goal_difference',
-                  'points'}
+#:  joined on 4 September: the badge of the side that player sat for.
+#: The approved board draws it on every row and the feed had no way to send it,
+#: so a player row could say which nation somebody played for and not show it.
+PLAYER_COLUMNS = {'place', 'name', 'nation', 'logo', 'seat', 'played', 'won',
+                  'drawn', 'lost', 'goals_for', 'goals_against',
+                  'goal_difference', 'points'}
 
 
 def an_organiser(name):

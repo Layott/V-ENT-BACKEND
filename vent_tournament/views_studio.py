@@ -48,6 +48,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from . import presentation
+from . import text_layers
 from .models import BroadcastElement, BroadcastSession
 from .production_access import (
     REFUSAL_CODE, find_owner, kind_of, may_run_production, viewer as _viewer)
@@ -81,7 +82,10 @@ def _kinds(session):
 
 
 def _element_state(session):
-    rows = {e.kind: e for e in session.elements.all()}
+    # The layers come with the elements in one query. An element page is a
+    # browser source with one request, and a second round trip per graphic is a
+    # second chance to fail with a caption half on screen.
+    rows = {e.kind: e for e in session.elements.prefetch_related('text_layers')}
     out = {}
     for kind in _kinds(session):
         row = rows.get(kind)
@@ -95,6 +99,13 @@ def _element_state(session):
             # level a value came from. See presentation.py.
             'presentation': presentation.resolve(session.defaults,
                                                  payload.get('options')),
+            # The words an operator put on top of this graphic. Active only,
+            # and in paint order, so the page draws the list it is given rather
+            # than deciding anything. Filtered in Python off the prefetch,
+            # because a filtered query per element is a query per element.
+            'layers': text_layers.serialize_many(
+                text_layers.active_of(list(row.text_layers.all()))
+            ) if row else [],
             'updated_at': row.updated_at.isoformat() if row else None,
         }
     return out
@@ -111,11 +122,18 @@ def _version(session, elements):
     # The look is in here on purpose. An element page skips its redraw when the
     # version has not moved, so a broadcast switched from the house look to the
     # Rivalry pack would keep drawing the old one until something else changed.
-    return '%s-%s-%s-%s' % (
+    #
+    # The text layers are in here for exactly the same reason, and they need
+    # their own stamp rather than riding on `updated_at`: `updated_at` belongs
+    # to the ELEMENT, and adding, editing, reordering or removing a layer does
+    # not touch it. A layer edited under a stale version is a change nobody on
+    # air ever sees, which has already happened twice here.
+    return '%s-%s-%s-%s-%s' % (
         session.id,
         session.theme,
         sum(1 for e in elements.values() if e['active']),
-        stamp)
+        stamp,
+        text_layers.stamp(elements))
 
 
 def _owner_summary(session):
@@ -388,6 +406,10 @@ def _retired(session):
         'retired': True,
         'elements': {kind: {'kind': kind, 'active': False, 'payload': {},
                             'presentation': presentation.resolve(None, None),
+                            # Present and empty for the same reason as the
+                            # blocks below: a page reading a name that is not
+                            # there throws on the way to drawing nothing.
+                            'layers': [],
                             'asset': None, 'updated_at': None}
                      for kind in _kinds(session)},
         'assets': [],
