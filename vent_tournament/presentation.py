@@ -19,6 +19,30 @@ breathes on air is a graphic the viewer looks at instead of the match.
 ENTRANCES = ['rise', 'fade', 'slide_left', 'slide_right', 'none']
 EXITS = ['fade', 'drop', 'slide_left', 'slide_right', 'none']
 
+#: Where on the frame a graphic sits.
+#:
+#: CEO, 4 September 2026: "SHould also be able to move the position of
+#: overlays, whether they load in at the centre bottom or center top, or top
+#: right or top left or middle or middle right, etc. this mostly affect lower
+#: thirds."
+#:
+#: A nine point grid, which is what every broadcast switcher offers and what
+#: the CEO listed. `as_designed` is FIRST and is the default, and that matters
+#: more than the rest of this list put together: it means the graphic sits
+#: where its own design put it. A default of `bottom_left` would silently move
+#: every graphic already on air the moment this shipped.
+POSITIONS = [
+    'as_designed',
+    'top_left', 'top_centre', 'top_right',
+    'middle_left', 'centre', 'middle_right',
+    'bottom_left', 'bottom_centre', 'bottom_right',
+]
+
+#: How far a positioned graphic may be nudged off its anchor, in pixels at
+#: 1920x1080. Enough to clear a scoreboard bug or a broadcaster's safe area,
+#: not enough to put a graphic off the frame by accident.
+OFFSET_LIMIT = 800
+
 #: The house style when nobody has said otherwise.
 DEFAULTS = {
     'entry': 'rise',
@@ -30,10 +54,17 @@ DEFAULTS = {
     # How long a clip or a card stays before it takes itself off. 0 means it
     # stays until the operator takes it off.
     'duration_ms': 0,
+    # Where it sits. See POSITIONS: the default moves nothing.
+    'position': 'as_designed',
+    # A nudge off that anchor, in pixels at 1920x1080. Positive x is right,
+    # positive y is down, the way the screen is measured everywhere else.
+    'offset_x': 0,
+    'offset_y': 0,
 }
 
 _BOOLEAN = {'hold'}
 _WHOLE = {'duration_ms'}
+_SIGNED = {'offset_x', 'offset_y'}
 
 
 class PresentationError(ValueError):
@@ -77,10 +108,26 @@ def clean(raw):
                 raise PresentationError(
                     'An entry is one of: %s.' % ', '.join(ENTRANCES), key)
             out[key] = value
+        elif key in _SIGNED:
+            try:
+                number = int(value)
+            except (TypeError, ValueError):
+                raise PresentationError(
+                    '%s is a whole number of pixels.' % key, key)
+            if abs(number) > OFFSET_LIMIT:
+                raise PresentationError(
+                    '%s is between -%d and %d pixels.'
+                    % (key, OFFSET_LIMIT, OFFSET_LIMIT), key)
+            out[key] = number
         elif key == 'exit':
             if value not in EXITS:
                 raise PresentationError(
                     'An exit is one of: %s.' % ', '.join(EXITS), key)
+            out[key] = value
+        elif key == 'position':
+            if value not in POSITIONS:
+                raise PresentationError(
+                    'A position is one of: %s.' % ', '.join(POSITIONS), key)
             out[key] = value
     return out
 
@@ -98,5 +145,7 @@ def catalogue():
     return {
         'entrances': ENTRANCES,
         'exits': EXITS,
+        'positions': POSITIONS,
+        'offset_limit': OFFSET_LIMIT,
         'defaults': dict(DEFAULTS),
     }

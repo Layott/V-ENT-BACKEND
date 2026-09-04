@@ -600,6 +600,29 @@ WHAT NOT TO DO
 - Do not change the pixel dimensions of the stage. It is designed for a
   1920x1080 browser source.
 
+WHERE IT SITS ON THE FRAME
+
+The stage is the whole 1920x1080 frame and my graphic is placed inside it, so
+where it sits is decided by my file and I can move it by changing one rule.
+Anchor it to a corner or an edge rather than by trial and error:
+
+    .lowerthird { position: absolute; left: 96px; bottom: 54px; }
+    .centred    { position: absolute; left: 50%%; top: 50%%;
+                  transform: translate(-50%%, -50%%); }
+
+- Keep 96px clear across and 54px down from every edge. That is the 5 per cent
+  safe area; broadcasters cut into the edges and a lower third flush to the
+  bottom loses its descenders.
+- A lower third belongs at the bottom left or the bottom centre. A score bar
+  belongs at the top centre. A sponsor wall belongs at the bottom centre.
+- Anchor to ONE horizontal and ONE vertical edge, never all four. Setting left
+  and right together stretches the graphic across the frame the moment a name
+  is longer than the placeholder.
+
+(V-ENT's own graphics carry a Sits setting in the studio, with a nine point
+grid and a pixel nudge. An uploaded file does not need one: it is my design and
+this rule is mine to change.)
+
 %(pointing)s
 
 Give me back the complete file.""" % {
