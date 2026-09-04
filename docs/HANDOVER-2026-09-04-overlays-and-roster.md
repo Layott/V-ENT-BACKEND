@@ -201,6 +201,45 @@ CEO was told so in the same message.
 
 ---
 
+## 4b. What the two agents reported after the session was paused
+
+Their work was already committed. These are the facts from their reports that
+change what somebody picking this up needs to know.
+
+**An aggregate tournament with no `LeagueRules` row is not an unusual state, it
+is the ONLY state that path produces.** `services/schedule.build_league` takes
+its seat count from its own default argument and never writes a `LeagueRules`
+row at all. So the guard fault in 3.1 was not an edge case: every tournament
+drawn through that path would have shown a blank score bar and two empty tables
+on air. There is now a test, `RivalryWithNoLeagueRulesTests`, whose fixture
+reproduces the exact broken condition and which asserts `_seats_for` still
+answers 1 for it, so it fails the moment anybody puts the old guard back.
+
+**`now` is null unless a tie is `in_progress`.** Every element whose payload is
+blank works from `rivalry.now`, so on a tournament where the played ties are all
+`completed` there is nothing for them to work out. **On the day, the operator has
+to put the current tie in progress, or type the fixture id into the payload.**
+This is the most likely way the graphics look broken during the show while
+nothing is actually wrong.
+
+**Ten fixtures, not fifteen.** A five nation draw is fifteen `BracketMatch` rows
+because five of them are byes. A bye has one side and is not a fixture, so it is
+skipped deliberately.
+
+**Two fields beyond the contract**, both additive and worth knowing:
+`legs[].home_player_username` and `away_player_username` beside the display
+names, because `head_to_head` takes usernames while the tables carry display
+names, and `run_of_show.next.ends_at`.
+
+**One fault the frontend agent's own live walk found and fixed:** with `home` and
+`away` blank the score bar fell back to `teams[0]` and `teams[1]`, so it read
+**Senegal 0 - 0 Ghana while the live fixture was Nigeria against Kenya**. Blank
+now falls back to the live fixture's sides; a name an operator typed is still
+never replaced.
+
+`tests_rivalry_overlay`: 43 tests. `vent_tournament` and `vent_event` together:
+1620. Frontend: 65 new keys in all three languages, every checker clean.
+
 ## 5. Still open from earlier today
 
 Unchanged from the previous handover: inbox 47, 50, 51, 52, 53, 63 and 66.
