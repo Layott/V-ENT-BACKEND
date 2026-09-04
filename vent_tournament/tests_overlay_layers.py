@@ -35,7 +35,7 @@ from rest_framework.test import APIClient
 from vent_auth.models import Games, Users, UserWallet
 from vent_event.models import Event
 
-from .models import (BroadcastElement, BroadcastSession, OverlayTextLayer,
+from .models import (BroadcastElement, BroadcastSession, OverlayLayer,
                      Tournament, TournamentOverlay)
 
 MARKED = """<!doctype html><html><head><title>Scoreboard</title></head><body>
@@ -191,7 +191,7 @@ class StudioGraphicLayerTests(LayerCase):
                                 layer['id']))
         self.assertEqual(res.status_code, 200, res.content[:300])
         self.assertEqual(res.data['data']['layers'], [])
-        self.assertEqual(OverlayTextLayer.objects.count(), 0)
+        self.assertEqual(OverlayLayer.objects.count(), 0)
 
     def test_switched_off_rather_than_deleted_is_kept(self):
         """What an operator does mid show. A deleted layer has to be retyped."""
@@ -496,7 +496,7 @@ class RefusalTests(LayerCase):
                                 layer['id']),
             {'text': 'HACKED'}, format='json')
         self.assertEqual(res.status_code, 403)
-        self.assertEqual(OverlayTextLayer.objects.get(pk=layer['id']).text,
+        self.assertEqual(OverlayLayer.objects.get(pk=layer['id']).text,
                          'ONE')
 
     # ---------------------------------------------------------------- what
@@ -592,7 +592,7 @@ class RefusalTests(LayerCase):
             self.element_layers('tournament', self.session['id'], 'scorebar',
                                 layer['id']), {'text': ''}, format='json')
         self.assertEqual(res.data['code'], 'VALIDATION_FAILED')
-        self.assertEqual(OverlayTextLayer.objects.get(pk=layer['id']).text,
+        self.assertEqual(OverlayLayer.objects.get(pk=layer['id']).text,
                          'ONE')
 
     def test_an_ended_broadcast_refuses_a_new_layer(self):
@@ -636,14 +636,14 @@ class OwnerTests(TestCase):
 
     def test_a_layer_with_neither_owner_is_refused(self):
         with self.assertRaises(ValueError):
-            OverlayTextLayer(text='x').save()
+            OverlayLayer(text='x').save()
 
     def test_a_layer_with_both_owners_is_refused(self):
         with self.assertRaises(ValueError):
-            OverlayTextLayer(text='x', element=self.element,
+            OverlayLayer(text='x', element=self.element,
                              overlay=self.overlay).save()
 
     def test_a_layer_with_one_owner_saves(self):
-        OverlayTextLayer(text='x', element=self.element).save()
-        OverlayTextLayer(text='x', overlay=self.overlay).save()
-        self.assertEqual(OverlayTextLayer.objects.count(), 2)
+        OverlayLayer(text='x', element=self.element).save()
+        OverlayLayer(text='x', overlay=self.overlay).save()
+        self.assertEqual(OverlayLayer.objects.count(), 2)

@@ -380,6 +380,83 @@
     }, delay);
   }
 
+
+  /* ------------------------------------------------- what a layer paints
+
+     CEO, 4 September 2026, inbox row 51: "there should be elements you can add
+     or ways to add certan uploaded things like images, sponsor logos, player
+     images or videos as like elements that will then be movable inside an
+     element once they are loaded".
+
+     A caption and a sponsor logo differ in what is drawn and in nothing else,
+     so everything around this, the anchor, the nudge, the order, the entrance,
+     the delay, is the same code for both. Only these two functions differ. */
+
+  function wordsOf(layer) {
+    var inner = document.createElement('div');
+    inner.className = 'vl-in';
+    inner.style.cssText = 'font-family:' + familyOf(layer) + ';'
+      + 'font-size:calc(var(--vu) * ' + whole(layer.font_size, 8, 400, 64) + ');'
+      + 'font-weight:' + whole(layer.weight, 100, 900, 600) + ';'
+      + 'color:' + colourOf(layer.colour) + ';';
+    /* textContent, never innerHTML. An operator types a caption, and a caption
+       is words. */
+    inner.textContent = String(layer.text || '');
+    return inner;
+  }
+
+  function mediaOf(layer) {
+    if (layer.kind !== 'asset') return null;
+    var src = String(layer.asset_url || '');
+    /* A layer pointing at media that has been deleted draws nothing at all.
+       The alternative is the browser's broken-image glyph, on air. */
+    if (!src) return null;
+
+    var video = layer.asset_kind === 'video';
+    var node = document.createElement(video ? 'video' : 'img');
+    node.className = 'vl-in';
+    node.src = src;
+    if (video) {
+      /* A clip in a layer is decoration, not the programme: it plays itself,
+         says nothing, and loops rather than freezing on a last frame. */
+      node.muted = true;
+      node.autoplay = true;
+      node.loop = true;
+      node.playsInline = true;
+    } else {
+      node.alt = '';
+    }
+
+    /* Width in pixels at 1920x1080, height from the media's own proportions:
+       an operator stretching a sponsor's logo is a conversation nobody wants
+       to have. Zero means whatever size the file is.
+
+       And it is never drawn above its natural size. That is the rule the whole
+       platform holds to, because no filter adds detail a file never had, and a
+       logo blown up four times on a broadcast is the most visible way to break
+       it. The cap is applied once the browser knows the natural width. */
+    var asked = whole(layer.width_px, 0, 1920, 0);
+    if (asked > 0) {
+      node.style.width = 'calc(var(--vu) * ' + asked + ')';
+    }
+    node.style.height = 'auto';
+    node.style.display = 'block';
+
+    var capNatural = function () {
+      var natural = video ? node.videoWidth : node.naturalWidth;
+      if (!natural || !asked) return;
+      if (asked > natural) node.style.width = 'calc(var(--vu) * ' + natural + ')';
+    };
+    node.addEventListener(video ? 'loadedmetadata' : 'load', capNatural);
+
+    /* A file that will not load takes its own layer away rather than leaving a
+       gap where something was cued. */
+    node.addEventListener('error', function () {
+      if (node.parentNode) node.parentNode.style.display = 'none';
+    });
+    return node;
+  }
+
   function buildLayers() {
     if (!LAYERS.length || layerNodes) return;
 
@@ -404,15 +481,7 @@
         + ' translate(calc(var(--vu) * ' + whole(layer.offset_x, -800, 800, 0)
         + '), calc(var(--vu) * ' + whole(layer.offset_y, -800, 800, 0) + '));';
 
-      var inner = document.createElement('div');
-      inner.className = 'vl-in';
-      inner.style.cssText = 'font-family:' + familyOf(layer) + ';'
-        + 'font-size:calc(var(--vu) * ' + whole(layer.font_size, 8, 400, 64) + ');'
-        + 'font-weight:' + whole(layer.weight, 100, 900, 600) + ';'
-        + 'color:' + colourOf(layer.colour) + ';';
-      /* textContent, never innerHTML. An operator types a caption, and a
-         caption is words. */
-      inner.textContent = String(layer.text || '');
+      var inner = mediaOf(layer) || wordsOf(layer);
 
       outer.appendChild(inner);
       host.appendChild(outer);
@@ -432,6 +501,9 @@
   function fillLayers(data) {
     if (!layerNodes) return;
     layerNodes.forEach(function (entry) {
+      /* Only words are filled from the feed. Writing textContent onto an image
+         would empty the element it is drawn by. */
+      if (entry.layer.kind === 'asset') return;
       var path = entry.layer.field;
       if (!path) return;
       var value = read(path, null, data);

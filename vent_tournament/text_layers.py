@@ -91,7 +91,20 @@ _SLOT = re.compile(r'^[a-z0-9_]{1,40}$')
 
 #: What a layer is before anybody changes anything. The model's own defaults
 #: read from here so there is one answer rather than two that agree today.
+KINDS = [
+    ('text', 'Words'),
+    ('asset', 'Something from the media library'),
+]
+
+#: How wide an asset layer may be drawn, in pixels at 1920x1080. Zero means the
+#: media's own size. The ceiling is the frame: a layer wider than the frame is
+#: a layer nobody can see the edges of, and it is always a mistake.
+WIDTH_MAX = 1920
+
 DEFAULTS = {
+    'kind': 'text',
+    'asset_id': None,
+    'width_px': 0,
     'text': '',
     'field': '',
     'font_size': 64,
@@ -121,7 +134,8 @@ DEFAULTS = {
 FIELDS = tuple(DEFAULTS)
 
 #: The keys a layer is serialised with, in the order the contract lists them.
-SHAPE = ('id', 'text', 'field', 'font_size', 'colour', 'family', 'font_slot',
+SHAPE = ('id', 'kind', 'asset_id', 'asset_url', 'asset_kind', 'asset_name',
+         'width_px', 'text', 'field', 'font_size', 'colour', 'family', 'font_slot',
          'weight', 'align', 'position', 'offset_x', 'offset_y', 'entry',
          'exit', 'delay_ms', 'duration_ms', 'order', 'is_active')
 
@@ -191,6 +205,13 @@ def apply(row, data):
             raise LayerError('There is no text layer setting called %s.' % key,
                              'UNKNOWN_FIELD', key)
 
+    if 'kind' in data:
+        row.kind = _choice(str(data.get('kind') or ''), 'kind',
+                           [v for v, _label in KINDS])
+    if 'asset_id' in data:
+        row.asset = _asset(data.get('asset_id'), row)
+    if 'width_px' in data:
+        row.width_px = _whole(data.get('width_px'), 'width_px', 0, WIDTH_MAX)
     if 'text' in data:
         row.text = str(data.get('text') or '')[:TEXT_MAX]
     if 'field' in data:
@@ -243,13 +264,55 @@ def apply(row, data):
     return row
 
 
+def _asset(value, row):
+    """The piece of media this layer draws, or a refusal.
+
+    It has to belong to the same tournament or event the layer does. Without
+    that check an operator could point a layer at another organiser's media by
+    guessing a number, and the studio's library is per owner precisely so that
+    cannot happen.
+    """
+    if value in (None, '', 0, '0'):
+        return None
+    from .models import StudioAsset
+    try:
+        wanted = int(value)
+    except (TypeError, ValueError):
+        raise LayerError('That is not a piece of media.', 'VALIDATION_FAILED',
+                         'asset_id')
+
+    found = StudioAsset.objects.filter(pk=wanted).first()
+    if found is None:
+        raise LayerError('That media is not in the library.', 'ASSET_NOT_FOUND',
+                         'asset_id')
+
+    # Whatever this layer is on, the media has to belong to the same thing.
+    # StudioAsset carries its owner as two nullable columns exactly as the
+    # layer does, so this compares the pair rather than a computed label.
+    if row.element_id:
+        session = row.element.session
+        mine = (session.tournament_id, session.event_id)
+    else:
+        overlay = row.overlay
+        mine = (overlay.tournament_id, overlay.event_id)
+
+    if (found.tournament_id, found.event_id) != mine:
+        raise LayerError('That media belongs to something else.',
+                         'ASSET_NOT_YOURS', 'asset_id')
+    return found
+
+
 def is_empty(row):
     """Whether this layer would draw nothing at all.
 
     A layer with no words and no feed path is a row that exists, occupies a
     place in the list, and puts nothing on screen. Refused at the press that
     made it, because the operator who made it will look for it on air.
+
+    An asset layer is empty when it points at no media, for the same reason.
     """
+    if row.kind == 'asset':
+        return row.asset_id is None
     return not (row.text or '').strip() and not (row.field or '').strip()
 
 
@@ -260,8 +323,18 @@ def serialize(row):
     the console lists the ones that are switched off as well, and one serializer
     for both is one set of field names. See the one model per thing rule.
     """
+    asset = row.asset if row.asset_id else None
     return {
         'id': row.id,
+        'kind': row.kind,
+        'asset_id': row.asset_id,
+        # The URL and what it is, so a page draws it without a second request
+        # and a console can show which one is chosen without holding the whole
+        # library. Absent rather than guessed when the media has been deleted.
+        'asset_url': (asset.file.url if asset and asset.file else ''),
+        'asset_kind': getattr(asset, 'kind', '') if asset else '',
+        'asset_name': getattr(asset, 'name', '') if asset else '',
+        'width_px': row.width_px,
         'text': row.text,
         'field': row.field,
         'font_size': row.font_size,

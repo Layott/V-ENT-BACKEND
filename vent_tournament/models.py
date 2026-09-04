@@ -2005,12 +2005,27 @@ class RunSheetItem(models.Model):
 from . import text_layers as _layer_rules
 
 
-class OverlayTextLayer(models.Model):
-    """Words an operator put on top of one overlay, and how they arrive.
+class OverlayLayer(models.Model):
+    """Something an operator put on top of one overlay, and how it arrives.
+
+    Two asks, one model, because they are one thing:
 
     CEO, 4 September 2026, inbox row 52: "also should be able to add text,
     change the font size, color, position, animation of that text also on any
     overlay".
+
+    And row 51: "there should be elements you can add or ways to add certan
+    uploaded things like images, sponsor logos, player images or videos as like
+    elements that will then be movable inside an element once they are loaded".
+
+    A caption and a sponsor logo differ in what is drawn and in nothing else:
+    both sit somewhere on the frame, both arrive and leave, both are ordered
+    against each other, both are switched off without being deleted. So `kind`
+    decides what is painted and every other column is shared. A second table
+    would have been the same feature built twice, and the second one would have
+    been the one missing the delay the first grew a week later.
+
+    It was called `OverlayLayer` for the few hours between the two asks.
 
     **It hangs off either kind, which is the point.** V-ENT has a graphic the
     platform draws (`BroadcastElement`) and an HTML file an organiser designed
@@ -2030,6 +2045,32 @@ class OverlayTextLayer(models.Model):
     """
 
     id = models.AutoField(primary_key=True)
+
+    # What this layer paints. Words, or something out of the studio's own media
+    # library: an image, a sponsor's logo, a player's photograph, a clip.
+    #
+    # The library is the only source on purpose. An operator pointing a layer
+    # at a URL somewhere else is an overlay that breaks when that host does,
+    # six hours into a broadcast, with nobody able to see why.
+    kind = models.CharField(max_length=8, choices=_layer_rules.KINDS,
+                            default=_layer_rules.DEFAULTS['kind'])
+
+    # Which piece of media, for an asset layer. Nulled rather than kept when the
+    # asset is deleted, so a layer never points at something that is gone: the
+    # runtime then draws nothing rather than a broken image on air.
+    asset = models.ForeignKey(
+        'StudioAsset', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='layers')
+
+    # How wide it is drawn, in pixels at 1920x1080. Height follows the media's
+    # own proportions, because an operator stretching a sponsor's logo is a
+    # conversation nobody wants to have. 0 means the media's natural size.
+    #
+    # Nothing here ever draws an asset ABOVE its natural size: the runtime caps
+    # it, for the reason the whole platform caps it, which is that no filter
+    # adds detail a file never had.
+    width_px = models.SmallIntegerField(
+        default=_layer_rules.DEFAULTS['width_px'])
 
     # A layer on a studio graphic V-ENT draws.
     element = models.ForeignKey(
