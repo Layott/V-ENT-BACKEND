@@ -458,11 +458,16 @@ class EventPromo(models.Model):
 
 
 class EventManager(models.Model):
-    """Somebody the organiser has let help run the event.
+    """Somebody the organiser has let help run one event.
 
     Only allowed when the event belongs to an organisation. A personal event is
     one person's, and handing a stranger the door list, the attendee data and
     the promo codes on a personal event is not something to allow by accident.
+
+    Until 4 September that was a trap rather than a rule, because no screen
+    could move an event into an organisation. It can now, and an organisation's
+    own managers reach its events without a row here at all: this table is for
+    naming ONE person on ONE event, usually door staff for the day.
     """
     ROLE_CHOICES = [
         ('manager', 'Manager'),      # everything except deleting the event

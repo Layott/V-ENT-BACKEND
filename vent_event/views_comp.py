@@ -66,11 +66,11 @@ def _event(event_id):
 
 
 def _may_manage(user, event):
-    if user is None:
-        return False
-    if event.creator_id == user.user_id:
-        return True
-    return EventManager.objects.filter(event=event, user=user).exists()
+    # This one admitted anybody named on the event, door staff included, which
+    # was wider than every other screen. One rule, in permissions.py: running
+    # the competition is running the event.
+    from .permissions import may_run_event
+    return may_run_event(user, event)
 
 
 def _looks_like_an_address(value):

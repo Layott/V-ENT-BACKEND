@@ -537,15 +537,12 @@ def check_in_ticket(request, code):
     if ticket is None:
         return _error('No ticket with that code.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
-    # The creator, or somebody they put on the door. EventManager has had a
-    # `door` role since it was written - "check tickets in, nothing else" - and
-    # this path never consulted it, so in practice one person scanned or the
-    # organiser handed over their own account.
-    from .models import EventManager
-    is_creator = ticket.event.creator_id == user.user_id
-    on_the_door = EventManager.objects.filter(
-        event=ticket.event, user=user, role__in=('manager', 'door')).exists()
-    if not is_creator and not on_the_door:
+    # The creator, somebody they put on the door, or the organisation's own
+    # people. EventManager has had a `door` role since it was written, "check
+    # tickets in, nothing else", and this path never consulted it, so in
+    # practice one person scanned or the organiser handed over their account.
+    from .permissions import may_work_the_door
+    if not may_work_the_door(user, ticket.event):
         return _error('Only the event organizer or their door staff can check '
                       'tickets in.', 'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
@@ -665,13 +662,12 @@ def event_attendees(request, event_id):
              else Event.objects.filter(slug=str(event_id)).first())
     if event is None:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    # The creator, or somebody on the door. The scanner downloads this list
-    # before the gates open, so a steward who cannot load it cannot scan at all
-    # - which is the same fault the check-in path had until tonight.
-    from .models import EventManager
-    on_the_door = EventManager.objects.filter(
-        event=event, user=user, role__in=('manager', 'door')).exists()
-    if event.creator_id != user.user_id and not on_the_door:
+    # The creator, somebody on the door, or the organisation's own people. The
+    # scanner downloads this list before the gates open, so a steward who
+    # cannot load it cannot scan at all, which is the same fault the check-in
+    # path had until tonight.
+    from .permissions import may_work_the_door
+    if not may_work_the_door(user, event):
         return _error('Only the event organizer or their door staff can see the '
                       'attendee list.', 'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 

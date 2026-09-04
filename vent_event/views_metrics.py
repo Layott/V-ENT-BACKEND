@@ -70,10 +70,10 @@ def _event(event_id):
 
 
 def _may_read(user, event):
-    if event.creator_id == user.user_id:
-        return True
-    return EventManager.objects.filter(
-        event=event, user=user, role__in=('manager', 'door')).exists()
+    # Door staff read these numbers too: how many are in is the thing they are
+    # counting. One rule, in permissions.py.
+    from .permissions import may_work_the_door
+    return may_work_the_door(user, event)
 
 
 def _resolve(request, event_id):
