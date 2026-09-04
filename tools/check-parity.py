@@ -133,10 +133,16 @@ PAIRS = [
         (FRONTEND,
          'src/components/create-tournament-component/sponsors-links/sponsors/Sponsors.js',
          r'ref=\{el'),
+        # The event side was pointed at `create-event-component/` for weeks and
+        # reported MISSING every run. That component tree is DEAD: nothing in
+        # `src/app` imports it, and the wizard an organiser actually reaches is
+        # the page below, which uses `ImageUpload` and so has no bare input to
+        # attach a ref to. A checker aimed at a file nobody runs reports a
+        # fault nobody has, which is how a checker stops being read.
         'event wizard',
         (FRONTEND,
-         'src/components/create-event-component/sponsors-links/sponsors/Sponsors.js',
-         r'ref=\{el'),
+         'src/app/events/create-event/page.js',
+         r'kind="sponsorLogo"'),
     ),
 ]
 

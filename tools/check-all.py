@@ -105,6 +105,103 @@ CATCHERS = [
     ('design bans',
      'no hairline borders, no glow, no vibecoded defaults',
      FRONTEND, ['node', 'scripts/check-design.mjs'], False),
+
+    # Added 4 September 2026. Every one of these existed and was NOT in this
+    # list, which is the same as not existing: the CEO asked why an endpoint
+    # with no screen reached them for the third time, and the answer was that
+    # the catcher for it was written, was correct enough to have caught two of
+    # the four, and was never run because nothing ran it. A catcher outside
+    # this table is a catcher that depends on somebody remembering.
+    ('endpoint callers',
+     'no endpoint built with no screen able to reach it',
+     ROOT, [sys.executable, 'V-ENT-BACKEND/tools/endpoint-callers.py'], True),
+
+    ('format catalogue',
+     'one catalogue of formats, not a second copy drifting',
+     ROOT, [sys.executable, 'V-ENT-BACKEND/tools/check-format-catalogue.py'], True),
+
+    ('required fields',
+     'every caller sends what its endpoint requires',
+     ROOT, [sys.executable, 'V-ENT-BACKEND/tools/check-required-fields.py'], True),
+
+    ('entrant branches',
+     'no hand-built if team else user branch answering wrong for a squad',
+     ROOT, [sys.executable, 'V-ENT-BACKEND/tools/check-entrant-branches.py'], True),
+
+    ('duplicate checkers',
+     'one copy of each checker, in the repo that is version controlled',
+     ROOT, [sys.executable,
+            'V-ENT-BACKEND/tools/check-duplicate-checkers.py'], True),
+
+    ('overlay runtime',
+     'the overlay runtime fills what it says it fills',
+     ROOT, ['node', 'V-ENT-BACKEND/tools/check-overlay-runtime.mjs'], True),
+
+    ('error copy',
+     'no engineer sentence or raw server string shown to a person',
+     FRONTEND, ['node', 'scripts/check-error-ui.mjs'], True),
+
+    ('event tabs',
+     'the console tabs and the shared strip carry the same ids',
+     FRONTEND, ['node', 'scripts/check-event-tabs.mjs'], True),
+
+    ('hover lift',
+     'nothing rises, scales or glows on hover',
+     FRONTEND, ['node', 'scripts/check-hover-lift.mjs'], True),
+
+    ('inert controls',
+     'no button that does nothing when pressed',
+     FRONTEND, ['node', 'scripts/check-inert-controls.mjs'], True),
+
+    ('language blocks',
+     'no user-facing English written straight into a component',
+     FRONTEND, ['node', 'scripts/check-language-blocks.mjs'], True),
+
+    ('legal pages',
+     'terms and privacy exist, are linked, and hold no placeholder',
+     FRONTEND, ['node', 'scripts/check-legal.mjs'], True),
+
+    ('null images',
+     'no image that can render as a broken glyph',
+     FRONTEND, ['node', 'scripts/check-null-images.mjs'], True),
+
+    ('pollers',
+     'nothing polls the API with no backoff',
+     FRONTEND, ['node', 'scripts/check-pollers.mjs'], True),
+
+    ('stale coming soon',
+     'no coming-soon copy in front of something that is built',
+     FRONTEND, ['node', 'scripts/check-stale-comingsoon.mjs'], True),
+
+    ('status buckets',
+     'every backend status belongs to a tab somebody can open',
+     FRONTEND, ['node', 'scripts/check-status-buckets.mjs'], True),
+
+    ('dependency order',
+     'no dependency array reading a const declared further down',
+     FRONTEND, ['node', 'scripts/check-tdz.mjs'], True),
+
+    ('unbounded await',
+     'no promise waiting on an event with no deadline',
+     FRONTEND, ['node', 'scripts/check-unbounded-await.mjs'], True),
+
+    ('guides',
+     'every screen a person has to learn has a walkthrough',
+     FRONTEND, ['node', 'scripts/check-guides.mjs'], False),
+
+    ('tab strips',
+     'one definition of a tab strip, not a second copy per console',
+     FRONTEND, ['node', 'scripts/check-tabstrips.mjs'], False),
+
+    ('user chips',
+     'a name on screen opens the person, rather than being written by hand',
+     FRONTEND, ['node', 'scripts/check-user-chips.mjs'], False),
+
+    # Needs a dev server on 127.0.0.1:3001 and reports "nothing was checked"
+    # without one, so it can never block. Run it by hand during a Chrome walk.
+    ('link embeds',
+     'a pasted link shows a picture and a title',
+     FRONTEND, ['node', 'scripts/check-embeds.mjs'], False),
 ]
 
 

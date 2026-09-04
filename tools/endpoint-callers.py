@@ -85,6 +85,12 @@ DELIBERATE = {
     # fetched by exactly the same runtime for exactly the same reason.
     'event/<str:event_id>/overlay-feed/':
         'fetched by the overlay runtime inside OBS, not by the site',
+    # The scraper posts card rows here from a desktop with a real browser
+    # profile, because Futbin sits behind Cloudflare. See
+    # `tools/scrape-futbin.mjs`. Nothing in the site should ever write to the
+    # card catalogue.
+    'cards/ingest/':
+        'posted to by tools/scrape-futbin.mjs, never by the site',
 }
 
 
@@ -129,6 +135,33 @@ def frontend_text():
             if name.endswith(('.js', '.jsx', '.ts', '.tsx')):
                 chunks.append(read(os.path.join(folder, name)))
     return '\n'.join(chunks)
+
+
+def frontend_files():
+    """Every frontend source file, kept SEPARATE.
+
+    Separate is the fix for what shipped on 4 September 2026. The blob above
+    asked whether each word of a route appeared ANYWHERE in the frontend, and
+    on a codebase this size almost every word does. So
+    `tournament/<id>/lineup/submit/` was reported as called, because `lineup`
+    is in the picker and `submit` is in the KYC page. Two unrelated files, and
+    the checker said the endpoint had a caller. It did not: the player had no
+    Submit button at all, which is the exact class of fault this tool exists
+    to catch, and it was the third time this class reached the CEO.
+
+    A file is the right unit. One line is too strict and was measured and
+    abandoned on 3 September (see `called_from`): almost every screen builds
+    URLs through a helper, so `studio` and `sessions` legitimately sit on
+    different lines OF THE SAME FILE. The whole frontend is too loose. The
+    file the caller lives in is neither.
+    """
+    out = {}
+    for folder, _dirs, files in os.walk(FRONTEND):
+        for name in files:
+            if name.endswith(('.js', '.jsx', '.ts', '.tsx')):
+                full = os.path.join(folder, name)
+                out[os.path.relpath(full, FRONTEND)] = read(full)
+    return out
 
 
 def literal_segments(route):
@@ -244,36 +277,64 @@ def is_deliberate(full):
     return None
 
 
-def analyse():
-    haystack = frontend_text()
-    strings = frontend_strings(haystack)
-    index = index_by_segment(strings)
+def used_as_path(segment):
+    """A segment sitting where a URL segment sits, not merely mentioned.
+
+    A word in a comment, a variable of the same name, a translation key: all
+    contain the letters and none of them calls anything. So the segment has to
+    have a path boundary on its left and a slash, a query or a closing quote on
+    its right, which is what a URL looks like and a sentence does not.
+    """
+    return re.compile(r"""(?:^|[/'"`(])%s(?:[/?'"`)]|\\)""" % re.escape(segment))
+
+
+def caller_of(route, files):
+    """The file that calls this route, or None.
+
+    Two things have to be true of ONE file:
+
+      1. its last literal segment is used AS A PATH somewhere in that file
+      2. every other literal segment appears in that same file
+
+    The last segment decides because it is what tells one endpoint from
+    another; the earlier ones are usually the console or the app the screen
+    already lives in. Both together are what the whole-frontend test was
+    missing, and the fixtures in SELF_TEST are each a real shape that has to
+    keep working.
+    """
+    segments = matchable_segments(route)
+    if not segments:
+        return None
+    tail = used_as_path(segments[-1])
+    head = segments[:-1]
+    for name, text in sorted(files.items()):
+        if not tail.search(text):
+            continue
+        if all(seg in text for seg in head):
+            return name
+    return None
+
+
+def analyse(files=None, routes=None):
+    files = frontend_files() if files is None else files
     called, orphaned, skipped = [], [], []
 
-    for row in backend_routes():
+    for row in (backend_routes() if routes is None else routes):
         reason = is_deliberate(row['full'])
         if reason:
             skipped.append(dict(row, reason=reason))
             continue
 
-        segments = matchable_segments(row['full'])
-        if not segments:
+        if not matchable_segments(row['full']):
             # A route that is entirely parameters cannot be matched this way,
             # and guessing would produce exactly the false orphan this must not
             # produce.
             skipped.append(dict(row, reason='no literal segment to match on'))
             continue
 
-        # Deliberately the loose rule: every literal segment somewhere, and the
-        # last one in a path-like position. A stricter rule was tried on
-        # 3 September 2026 and abandoned, see `called_from`.
-        tail = segments[-1]
-        if all(seg in haystack for seg in segments) and (
-                '%s/' % tail in haystack
-                or "'%s'" % tail in haystack
-                or '"%s"' % tail in haystack
-                or '/%s' % tail in haystack):
-            called.append(row)
+        where = caller_of(row['full'], files)
+        if where:
+            called.append(dict(row, caller=where))
         else:
             orphaned.append(row)
 
@@ -294,12 +355,87 @@ def analyse():
     return called, still_orphaned, skipped
 
 
+# --------------------------------------------------------------- the self-test
+# A checker reporting 0 means "clean" OR "broken", and nothing tells them apart.
+# These fixtures are the thing that does. Each is a real shape from this
+# codebase: the fault that shipped, and the ways a legitimate caller is written
+# that must never be reported as orphans.
+
+SELF_TEST = [
+    ('the fault that shipped: the words in unrelated files',
+     'tournament/<str:tournament_id>/lineup/submit/',
+     {'picker.js': 'fetch(`${API}/tournament/${ref}/lineup/`)',
+      'kyc.js': "fetch(`${API}/auth/wallet/kyc/submit/`)"},
+     False),
+    ('a real caller, the whole path in one template',
+     'tournament/<str:tournament_id>/lineup/submit/',
+     {'p.js': 'fetch(`${API}/tournament/${ref}/lineup/submit/`, {method: "POST"})'},
+     True),
+    ('a caller built off a base URL held in a variable',
+     'tournament/<str:tournament_id>/lineup/submit/',
+     {'p.js': ('const base = `${API}/tournament/${ref}`;\n'
+               'fetch(`${base}/lineup/submit/`, {method: "POST"})')},
+     True),
+    # The shape that made the one-line rule unusable on 3 September. It has to
+    # keep passing, or this check goes back to crying wolf 22 times.
+    ('one helper holding half the path, the rest at the call',
+     'tournament/<str:tournament_id>/studio/sessions/',
+     {'StudioPanel.js': ('const call = (path) => '
+                         'fetch(`${API}/${kind}/${ref}/studio${path}`);\n'
+                         "await call('/sessions/');")},
+     True),
+    ('a path kept in a constants file, fetched from another',
+     'tournament/<str:tournament_id>/squad-rules/',
+     {'constants.js': "export const SQUAD_RULES = (t) => `tournament/${t}/squad-rules/`;",
+      'page.js': 'fetch(`${API}/${SQUAD_RULES(ref)}`)'},
+     True),
+    ('a single-segment route is still matched',
+     'tournament/<str:tournament_id>/lineups/',
+     {'p.js': 'fetch(`${API}/tournament/${ref}/lineups/`)'},
+     True),
+    ('and reported when nothing carries it',
+     'tournament/<str:tournament_id>/lineups/',
+     {'p.js': 'fetch(`${API}/tournament/${ref}/lineup/`)'},
+     False),
+    ('a word in a comment is a mention, not a call',
+     'tournament/<str:tournament_id>/lineups/',
+     {'other.js': 'const rows = useRows(); // lineups go here later'},
+     False),
+    ('two routes differing only by a trailing segment are told apart',
+     'tournament/<str:tournament_id>/lineups/<str:username>/review/',
+     {'p.js': 'fetch(`${API}/tournament/${ref}/lineups/${who}/`)',
+      'q.js': 'const review = "open"; // a dispute review elsewhere'},
+     False),
+]
+
+
+def self_test():
+    bad = 0
+    for label, route, files, want in SELF_TEST:
+        got = caller_of(route, files) is not None
+        ok = got == want
+        if not ok:
+            bad += 1
+        print('%s  %s' % ('ok  ' if ok else 'FAIL', label))
+        if not ok:
+            print('       %s: expected %s, got %s'
+                  % (route, 'a caller' if want else 'an orphan',
+                     'a caller' if got else 'an orphan'))
+    print('\n%d of %d fixtures behaved.' % (len(SELF_TEST) - bad, len(SELF_TEST)))
+    return 1 if bad else 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--json', action='store_true')
     parser.add_argument('--list', action='store_true')
+    parser.add_argument('--self-test', action='store_true',
+                        help='prove the checker still catches what it claims')
     parser.add_argument('--baseline', action='store_true')
     args = parser.parse_args()
+
+    if args.self_test:
+        return self_test()
 
     called, orphaned, skipped = analyse()
     names = sorted(r['full'] for r in orphaned)
