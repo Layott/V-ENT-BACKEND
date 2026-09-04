@@ -60,3 +60,10 @@ Thumbs.db
 # Local backups
 backups/
 local-dev.sqlite3
+
+# The scraper runs on a desktop and brings Playwright with it. The browser
+# profile holds the Cloudflare clearance cookie for whoever solved it, so it is
+# personal to that machine and never committed.
+node_modules/
+tools/.futbin-profile/
+tools/.futbin-state.json

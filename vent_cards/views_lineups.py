@@ -231,8 +231,17 @@ def my_lineup(request, tournament_id):
         lineup.save()
 
     lineup = _my_lineup(tournament, user)
-    return _ok({'lineup': serialize_lineup(lineup),
-                'window': windows.window_for(tournament).payload()},
+    body = serialize_lineup(lineup)
+    rules = SquadRules.objects.filter(tournament=tournament).first()
+    # The same three things the GET carries, so a screen that has just saved
+    # knows where the squad now stands without asking again, and without
+    # working it out itself. A second implementation of the rules in the
+    # browser would be a second implementation of the rules.
+    return _ok({'lineup': body,
+                'window': windows.window_for(tournament).payload(),
+                'squad_rules': rules_engine.payload(rules),
+                'violations': rules_engine.violations(body['slots'], rules),
+                'spend': rules_engine.spend(body['slots'])},
                'Lineup saved.')
 
 
