@@ -94,6 +94,13 @@ CATCHERS = [
      'a name on screen can always show the face beside it',
      FRONTEND, ['node', 'scripts/check-avatars.mjs'], False),
 
+    # Written on 30 August, never run by anything until 4 September. That is
+    # the third time a catcher has sat on disk outside this table, and it is
+    # the reason the table exists.
+    ('user chips',
+     'every name goes through UserChip, so the badge and the link come with it',
+     FRONTEND, ['node', 'scripts/check-user-chips.mjs'], True),
+
     ('slugs',
      'no numeric id in an address a person can see',
      FRONTEND, ['node', 'scripts/check-slugs.mjs'], False),
