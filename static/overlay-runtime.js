@@ -207,6 +207,240 @@
     }).join('\n');
   }
 
+  /* -----------------------------------------------------------------------
+     Text layers: words an operator put on top of somebody else's design.
+
+     CEO, 4 September 2026, inbox row 52: "also should be able to add text,
+     change the font size, color, position, animation of that text also on any
+     overlay".
+
+     Handed over in `data-layers` on this script's own tag, which the server
+     writes ONLY when the overlay has at least one. **A file with no layers is
+     served and drawn exactly as it was**: no attribute, so `readLayers` gives
+     an empty list, so nothing below ever runs. No container, no stylesheet, no
+     class, nothing appended. That is not a nicety. This is a designer's file,
+     opened once at a venue and left running for six hours, and the only safe
+     thing to add when there is nothing to add is nothing.
+
+     Everything is measured in pixels at 1920x1080, the raster the rest of the
+     studio uses, against a unit that scales with the source: a browser source
+     opened 1280 wide draws a 64px caption at 42px, which is what somebody who
+     typed 64 meant.
+
+     The entry and exit animations are one shot. Nothing here loops, breathes
+     or glows: a graphic that moves on its own is a graphic the audience looks
+     at instead of the match. `prefers-reduced-motion` is deliberately NOT
+     consulted, and that is the one place this differs from the rest of the
+     platform. The preference belongs to whoever is at the machine RENDERING
+     the stream, and honouring it would silently stop every caption animating
+     for an operator who set it for their own desktop, in front of an audience
+     who never expressed it. ----------------------------------------------- */
+
+  var ANCHOR = {
+    top_left: 'left:0;top:0;',
+    top_centre: 'left:50%;top:0;',
+    top_right: 'right:0;top:0;',
+    middle_left: 'left:0;top:50%;',
+    centre: 'left:50%;top:50%;',
+    middle_right: 'right:0;top:50%;',
+    bottom_left: 'left:0;bottom:0;',
+    bottom_centre: 'left:50%;bottom:0;',
+    bottom_right: 'right:0;bottom:0;'
+  };
+
+  /* Pulling the box back onto its own anchor. Kept apart from the operator's
+     nudge, which is a second translate, so one cannot eat the other. */
+  var CENTRING = {
+    top_centre: '-50%, 0',
+    centre: '-50%, -50%',
+    bottom_centre: '-50%, 0',
+    middle_left: '0, -50%',
+    middle_right: '0, -50%'
+  };
+
+  var FAMILY = {
+    house: "'ClashGrotesk','Clash Grotesk',system-ui,sans-serif",
+    condensed: "'Barlow Condensed',system-ui,sans-serif",
+    display: "'Monument Extended',system-ui,sans-serif",
+    accent: "'Astronum',system-ui,sans-serif"
+  };
+
+  var ENTRY = {
+    rise: 'ventLayerRise', fade: 'ventLayerFade',
+    slide_left: 'ventLayerInLeft', slide_right: 'ventLayerInRight', none: null
+  };
+  var EXIT = {
+    fade: 'ventLayerOutFade', drop: 'ventLayerOutDrop',
+    slide_left: 'ventLayerOutLeft', slide_right: 'ventLayerOutRight', none: null
+  };
+
+  var ENTRY_MS = 420;
+  var EXIT_MS = 320;
+
+  var LAYER_CSS = [
+    /* Inset rather than padded. An absolutely positioned child anchors to its
+       containing block's PADDING box, so padding here moved nothing at all and
+       a caption at top_left sat in the very corner of the frame. Found by
+       measuring the drawn box in a real browser, which is the only place it is
+       visible: the markup and the stylesheet both look right. */
+    '#vent-layers{--vu:calc(100vw / 1920);position:fixed;',
+    'left:calc(var(--vu) * 48);top:calc(var(--vu) * 48);',
+    'right:calc(var(--vu) * 48);bottom:calc(var(--vu) * 48);',
+    'pointer-events:none;z-index:2147483000;}',
+    '#vent-layers .vl{position:absolute;}',
+    '#vent-layers .vl-in{display:block;white-space:pre-wrap;line-height:1.12;',
+    'margin:0;visibility:hidden;}',
+    '#vent-layers .vl-on{visibility:visible;}',
+    '@keyframes ventLayerRise{from{opacity:0;',
+    'transform:translateY(calc(var(--vu) * 28))}to{opacity:1;transform:none}}',
+    '@keyframes ventLayerFade{from{opacity:0}to{opacity:1}}',
+    '@keyframes ventLayerInLeft{from{opacity:0;',
+    'transform:translateX(calc(var(--vu) * -60))}to{opacity:1;transform:none}}',
+    '@keyframes ventLayerInRight{from{opacity:0;',
+    'transform:translateX(calc(var(--vu) * 60))}to{opacity:1;transform:none}}',
+    '@keyframes ventLayerOutFade{from{opacity:1}to{opacity:0}}',
+    '@keyframes ventLayerOutDrop{from{opacity:1;transform:none}',
+    'to{opacity:0;transform:translateY(calc(var(--vu) * 28))}}',
+    '@keyframes ventLayerOutLeft{from{opacity:1;transform:none}',
+    'to{opacity:0;transform:translateX(calc(var(--vu) * -60))}}',
+    '@keyframes ventLayerOutRight{from{opacity:1;transform:none}',
+    'to{opacity:0;transform:translateX(calc(var(--vu) * 60))}}'
+  ].join('');
+
+  function readLayers() {
+    var raw = tag && tag.getAttribute('data-layers');
+    if (!raw) return [];
+    try {
+      var list = JSON.parse(raw);
+      return Array.isArray(list) ? list : [];
+    } catch (err) {
+      /* A caption must never take an on-air page down. */
+      if (window.console) console.warn('V-ENT overlay: layers unreadable', err);
+      return [];
+    }
+  }
+
+  /* Every value is checked again here even though the API already refused the
+     bad ones. This string goes straight into `style.cssText`, and one value
+     that is not what it claims to be does not break that caption, it breaks
+     the whole declaration block. */
+  function whole(value, low, high, fallback) {
+    var number = Number(value);
+    if (!isFinite(number)) return fallback;
+    number = Math.round(number);
+    return Math.min(high, Math.max(low, number));
+  }
+
+  function colourOf(value) {
+    return /^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(String(value || ''))
+      ? String(value) : '#FFFFFF';
+  }
+
+  function familyOf(layer) {
+    var slot = String(layer.font_slot || '');
+    /* A font the organiser uploaded, declared by `writeFonts` above under this
+       same name. It wins, because they chose it for this broadcast. */
+    if (/^[a-z0-9_]{1,40}$/.test(slot)) return "'" + slot + "',sans-serif";
+    return FAMILY[layer.family] || FAMILY.house;
+  }
+
+  function alignOf(value) {
+    if (value === 'left' || value === 'right') return value;
+    return 'center';
+  }
+
+  function placeOf(value) {
+    /* `as_designed` is in the shared list because a GRAPHIC can be left where
+       its own design put it. Words have no design of their own, so it means
+       what a caption means with nothing set: the bottom centre. */
+    return ANCHOR[value] ? value : 'bottom_centre';
+  }
+
+  var LAYERS = readLayers();
+  var layerNodes = null;
+  var lastData = null;
+
+  function schedule(node, layer) {
+    var delay = whole(layer.delay_ms, 0, 60000, 0);
+    var live = whole(layer.duration_ms, 0, 600000, 0);
+    var entry = ENTRY[layer.entry];
+    var leave = EXIT[layer.exit];
+
+    setTimeout(function () {
+      node.className = 'vl-in vl-on';
+      if (entry) node.style.animation = entry + ' ' + ENTRY_MS + 'ms ease-out both';
+      /* 0 means it stays until the overlay goes, the same word the rest of the
+         studio uses for a duration. */
+      if (live <= 0) return;
+      setTimeout(function () {
+        if (!leave) { node.className = 'vl-in'; return; }
+        node.style.animation = leave + ' ' + EXIT_MS + 'ms ease-in both';
+        setTimeout(function () { node.className = 'vl-in'; }, EXIT_MS);
+      }, live);
+    }, delay);
+  }
+
+  function buildLayers() {
+    if (!LAYERS.length || layerNodes) return;
+
+    var style = document.createElement('style');
+    style.id = 'vent-layers-css';
+    style.textContent = LAYER_CSS;
+    (document.head || document.documentElement).appendChild(style);
+
+    var host = document.createElement('div');
+    host.id = 'vent-layers';
+    (document.body || document.documentElement).appendChild(host);
+
+    layerNodes = [];
+    LAYERS.forEach(function (layer) {
+      var place = placeOf(layer.position);
+      var outer = document.createElement('div');
+      outer.className = 'vl';
+      outer.style.cssText = ANCHOR[place]
+        + 'z-index:' + whole(layer.order, 0, 999, 0) + ';'
+        + 'text-align:' + alignOf(layer.align) + ';'
+        + 'transform:translate(' + (CENTRING[place] || '0, 0') + ')'
+        + ' translate(calc(var(--vu) * ' + whole(layer.offset_x, -800, 800, 0)
+        + '), calc(var(--vu) * ' + whole(layer.offset_y, -800, 800, 0) + '));';
+
+      var inner = document.createElement('div');
+      inner.className = 'vl-in';
+      inner.style.cssText = 'font-family:' + familyOf(layer) + ';'
+        + 'font-size:calc(var(--vu) * ' + whole(layer.font_size, 8, 400, 64) + ');'
+        + 'font-weight:' + whole(layer.weight, 100, 900, 600) + ';'
+        + 'color:' + colourOf(layer.colour) + ';';
+      /* textContent, never innerHTML. An operator types a caption, and a
+         caption is words. */
+      inner.textContent = String(layer.text || '');
+
+      outer.appendChild(inner);
+      host.appendChild(outer);
+      layerNodes.push({ layer: layer, node: inner });
+      schedule(inner, layer);
+    });
+
+    /* The feed may well have answered before the document was ready, in which
+       case a layer bound to a feed path would have shown its fallback until
+       something else changed. */
+    if (lastData) fillLayers(lastData);
+  }
+
+  /* A layer bound to a feed path, kept up to date. `text` is what is drawn
+     when the path resolves to nothing, which is the whole reason both exist:
+     a caption on a fixture nobody has picked yet must say something. */
+  function fillLayers(data) {
+    if (!layerNodes) return;
+    layerNodes.forEach(function (entry) {
+      var path = entry.layer.field;
+      if (!path) return;
+      var value = read(path, null, data);
+      var next = (value === '' || value === null || value === undefined)
+        ? String(entry.layer.text || '') : String(value);
+      if (entry.node.textContent !== next) entry.node.textContent = next;
+    });
+  }
+
   function apply(data) {
     var want = wantedTag();
     writeFonts(data.fonts);
@@ -221,6 +455,12 @@
 
     fill(document, null, data);
     repeat(document, null, data);
+
+    /* Kept, so a layer built after the first feed arrived still gets its text.
+       Filled before `build()` is called, because an overlay that throws must
+       not be the reason a caption is left saying the wrong thing. */
+    lastData = data;
+    fillLayers(data);
 
     if (typeof window.build === 'function') {
       try {
@@ -282,6 +522,18 @@
       })
       .then(function () { inFlight = false; });
   }
+
+  /* The runtime is injected into the head, ahead of the document it decorates,
+     so there is usually no body to append a layer to yet. */
+  function whenReady(fn) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', fn);
+    } else {
+      fn();
+    }
+  }
+
+  whenReady(buildLayers);
 
   poll();
   if (EVERY > 0) setInterval(poll, EVERY);

@@ -165,6 +165,21 @@ PAIRS = [
         'event', (BACKEND, 'vent_event/urls.py', r'run-of-show/import/'),
         'tournament', (BACKEND, 'vent_tournament/urls.py', r'run-of-show/import/'),
     ),
+    (
+        'text layers on an uploaded overlay are mounted on both',
+        'Text on an overlay for one of the two things V-ENT runs is half a feature.',
+        'event', (BACKEND, 'vent_event/urls.py',
+                  r'overlays/<int:overlay_id>/layers/'),
+        'tournament', (BACKEND, 'vent_tournament/urls.py',
+                       r'overlays/<int:overlay_id>/layers/'),
+    ),
+    (
+        'text layers on a studio graphic are mounted on both',
+        'An event broadcast has captions exactly as a tournament does.',
+        'event', (BACKEND, 'vent_event/urls.py', r'event_element_layers'),
+        'tournament', (BACKEND, 'vent_tournament/urls.py',
+                       r'tournament_element_layers'),
+    ),
 ]
 
 

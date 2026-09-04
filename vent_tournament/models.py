@@ -1982,3 +1982,129 @@ class RunSheetItem(models.Model):
 
     def __str__(self):
         return '%s %s' % (self.starts_at or '', self.activity[:40])
+
+
+# ---------------------------------------------------------------------------
+# Text on top of an overlay
+# ---------------------------------------------------------------------------
+
+from . import text_layers as _layer_rules
+
+
+class OverlayTextLayer(models.Model):
+    """Words an operator put on top of one overlay, and how they arrive.
+
+    CEO, 4 September 2026, inbox row 52: "also should be able to add text,
+    change the font size, color, position, animation of that text also on any
+    overlay".
+
+    **It hangs off either kind, which is the point.** V-ENT has a graphic the
+    platform draws (`BroadcastElement`) and an HTML file an organiser designed
+    themselves (`TournamentOverlay`), and "any overlay" means both. One model
+    with two nullable owners rather than two tables, for the reason the one
+    model per thing rule gives: a second table is a feature that gets built for
+    half the product and nobody notices which half until somebody asks why
+    their overlay is different.
+
+    **Exactly one owner.** A row with both would be drawn twice and a row with
+    neither is a row nothing can reach. Held in `save()` as well as at the API,
+    because no route can express either: the address names the owner.
+
+    Every measurement is in pixels at 1920x1080, the raster the rest of the
+    studio uses. What the layer may say, what a colour is and what the ranges
+    are all live in `text_layers.py`, so the API and the model cannot disagree.
+    """
+
+    id = models.AutoField(primary_key=True)
+
+    # A layer on a studio graphic V-ENT draws.
+    element = models.ForeignKey(
+        BroadcastElement, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='text_layers')
+    # A layer on an HTML file the organiser uploaded.
+    overlay = models.ForeignKey(
+        TournamentOverlay, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='text_layers')
+
+    # The words. Blank when `field` is doing the talking.
+    text = models.CharField(max_length=_layer_rules.TEXT_MAX, blank=True,
+                            default=_layer_rules.DEFAULTS['text'])
+    # A path into the feed, e.g. `tournament.title`. When it is set it wins, and
+    # `text` is what is drawn if the path resolves to nothing. That fallback is
+    # the whole reason both columns exist: a caption bound to a fixture that has
+    # not been picked yet must say something rather than leave a hole.
+    field = models.CharField(max_length=_layer_rules.FIELD_MAX, blank=True,
+                             default=_layer_rules.DEFAULTS['field'])
+
+    font_size = models.SmallIntegerField(
+        default=_layer_rules.DEFAULTS['font_size'])
+    # `#RRGGBB` or `#RRGGBBAA`, validated and never defaulted. A broadcast
+    # graphic carries the client's brand over live video and the operator is the
+    # person who knows what the sponsor's red is; see text_layers.py.
+    colour = models.CharField(max_length=9,
+                              default=_layer_rules.DEFAULTS['colour'])
+    family = models.CharField(max_length=12, choices=_layer_rules.FAMILIES,
+                              default=_layer_rules.DEFAULTS['family'])
+    # The slot of a font the organiser uploaded to the studio, which wins over
+    # `family` when it is set. The runtime already writes an `@font-face` block
+    # naming each slot, so a designer writes `font-family: 'hero'` and the
+    # organiser decides later what hero is.
+    font_slot = models.CharField(max_length=40, blank=True, db_index=False,
+                                 default=_layer_rules.DEFAULTS['font_slot'])
+    weight = models.SmallIntegerField(choices=_layer_rules.WEIGHTS,
+                                      default=_layer_rules.DEFAULTS['weight'])
+    align = models.CharField(max_length=8, choices=_layer_rules.ALIGNMENTS,
+                             default=_layer_rules.DEFAULTS['align'])
+
+    # Where it sits, out of `presentation.POSITIONS`, and a nudge off that
+    # anchor within `presentation.OFFSET_LIMIT`.
+    #
+    # No `choices` on these three on purpose. The list lives in presentation.py
+    # and is shared with every graphic; copying it here would put a second copy
+    # in a migration, and adding a position would then need a migration to a
+    # column that stores a string either way.
+    position = models.CharField(max_length=16,
+                                default=_layer_rules.DEFAULTS['position'])
+    offset_x = models.IntegerField(default=_layer_rules.DEFAULTS['offset_x'])
+    offset_y = models.IntegerField(default=_layer_rules.DEFAULTS['offset_y'])
+
+    entry = models.CharField(max_length=12,
+                             default=_layer_rules.DEFAULTS['entry'])
+    exit = models.CharField(max_length=12,
+                            default=_layer_rules.DEFAULTS['exit'])
+
+    # So two layers can arrive one after the other. `duration_ms` of 0 means it
+    # stays until the graphic goes, the same word `presentation.DEFAULTS` uses.
+    delay_ms = models.IntegerField(default=_layer_rules.DEFAULTS['delay_ms'])
+    duration_ms = models.IntegerField(
+        default=_layer_rules.DEFAULTS['duration_ms'])
+
+    # Paint order and z, low first.
+    order = models.SmallIntegerField(default=_layer_rules.DEFAULTS['order'])
+    # Switched off without being deleted, which is what an operator does mid
+    # show. A deleted layer has to be retyped at the worst possible moment.
+    is_active = models.BooleanField(
+        default=_layer_rules.DEFAULTS['is_active'])
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return '%s on %s' % (self.text[:24] or self.field or 'text',
+                             'element %s' % self.element_id if self.element_id
+                             else 'overlay %s' % self.overlay_id)
+
+    @property
+    def owner(self):
+        """Whichever overlay this layer is on."""
+        return self.element or self.overlay
+
+    def save(self, *args, **kwargs):
+        if bool(self.element_id) == bool(self.overlay_id):
+            raise ValueError(
+                'A text layer belongs to exactly one overlay: '
+                'an element or an uploaded file, never both and never neither.')
+        super().save(*args, **kwargs)

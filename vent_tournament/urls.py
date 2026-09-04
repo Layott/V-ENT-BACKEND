@@ -22,6 +22,7 @@ from . import views_overlays
 from . import views_squads
 from vent_cards import views_lineups, views_review
 from . import views_studio
+from . import views_layers
 from . import views_runsheet
 from . import views_staff
 from . import views_assets
@@ -79,6 +80,16 @@ urlpatterns = [
          views_studio.session_detail, name="studio_session_detail"),
     path("<str:tournament_id>/studio/sessions/<int:session_id>/element/<str:kind>/",
          views_studio.element, name="studio_element"),
+    # Text an operator put on top of a graphic. The same four addresses exist
+    # for an uploaded file below and under /event/ for both, because "on any
+    # overlay" is the whole of what was asked for.
+    path("<str:tournament_id>/studio/sessions/<int:session_id>/element/"
+         "<str:element_kind>/layers/",
+         views_layers.tournament_element_layers, name="studio_element_layers"),
+    path("<str:tournament_id>/studio/sessions/<int:session_id>/element/"
+         "<str:element_kind>/layers/<int:layer_id>/",
+         views_layers.tournament_element_layer_detail,
+         name="studio_element_layer_detail"),
 
     # The catalogue the wizard asks its questions from. Public: somebody
     # deciding whether to run a tournament here should see what is
@@ -242,6 +253,12 @@ urlpatterns = [
          views_overlays.overlay_detail, name="tournament_overlay_detail"),
     path("<str:tournament_id>/overlays/<int:overlay_id>/rotate/",
          views_overlays.rotate, name="tournament_overlay_rotate"),
+    path("<str:tournament_id>/overlays/<int:overlay_id>/layers/",
+         views_layers.tournament_overlay_layers,
+         name="tournament_overlay_layers"),
+    path("<str:tournament_id>/overlays/<int:overlay_id>/layers/<int:layer_id>/",
+         views_layers.tournament_overlay_layer_detail,
+         name="tournament_overlay_layer_detail"),
     path("tie/<int:tie_id>/", tie_detail, name="tie_detail"),
     path("tie/<int:tie_id>/record/", record_fixture, name="record_tie_fixture"),
     path("<str:tournament_id>/league-rules/", set_league_rules, name="set_league_rules"),
