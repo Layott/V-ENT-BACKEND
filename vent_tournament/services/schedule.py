@@ -9,6 +9,7 @@ two ties with one team resting each round. Handing the bye out by rotation
 rather than always to the same seat is the point of doing it this way.
 """
 from ..models import BracketMatch, TieFixture
+from .bracket import _seat_players
 
 
 def round_robin_pairings(entrants):
@@ -77,8 +78,26 @@ def build_league(tournament, players_per_team=2):
                 participant_2=b,
                 status='scheduled',
             )
+            # WHO sits each seat, not just that the seat exists.
+            #
+            # This wrote `TieFixture(tie, slot)` and nothing else, so every seat
+            # of every fixture in a league was empty of people. The knockout
+            # generator in services/bracket.py has filled them from
+            # `_seat_players` since it was written, and this one never did: two
+            # generators for one job, and only one of them doing half of it.
+            #
+            # What that costs is not visible until the broadcast. The player
+            # table has no rows, the caster head to head has nobody to compare,
+            # and the results desk cannot say who is playing. Found on
+            # 4 September against a real Rivalry Series draw, hours before it
+            # went on air.
+            left = _seat_players(a, players_per_team)
+            right = _seat_players(b, players_per_team)
             for slot in range(1, players_per_team + 1):
-                TieFixture.objects.create(tie=tie, slot=slot, status='scheduled')
+                TieFixture.objects.create(
+                    tie=tie, slot=slot,
+                    player_1=left[slot - 1], player_2=right[slot - 1],
+                    status='scheduled')
             made.append(tie)
 
     return made

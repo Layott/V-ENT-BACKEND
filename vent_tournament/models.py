@@ -1545,6 +1545,24 @@ class BroadcastElement(models.Model):
         ('ticker', 'Ticker'),
         ('intro', 'Intro'),
         ('outro', 'Outro'),
+        # The Rivalry Series set, from the STREAM ELEMENTS tab of the CEO's own
+        # event flow. Every one of them is about a FIXTURE rather than a match,
+        # which is the thing this platform could not draw before: an aggregate
+        # tie is two matches and one result, and a graphic that knows only about
+        # matches tells the audience the wrong story on the second whistle.
+        ('fixture_card', 'Fixture card'),
+        ('fixture_result', 'Fixture result'),
+        ('match_result', 'Match result'),
+        ('head_to_head', 'Head to head'),
+        ('break_screen', 'Break screen'),
+        # Already an event kind below, and the same graphic reading the same
+        # document. A run of show hangs off a tournament or an event, so the
+        # element does too. It is listed in both places and appears once in
+        # KINDS, because the column's choices are a set of values rather than a
+        # union of two menus.
+        ('now_next', 'Now and next'),
+        ('award', 'Award'),
+        ('explainer', 'Explainer'),
     ]
     EVENT_KINDS = [
         ('now_next', 'Now and next'),
@@ -1560,8 +1578,11 @@ class BroadcastElement(models.Model):
     # The column's choices: every kind either side may use. Written out rather
     # than computed, because a class body cannot see its own names from inside
     # a comprehension.
+    #
+    # `now_next` is NOT repeated here any more: it moved into TOURNAMENT_KINDS
+    # above, and a value listed twice would offer the same choice twice in the
+    # admin and read as two different graphics to anybody scanning the list.
     KINDS = TOURNAMENT_KINDS + [
-        ('now_next', 'Now and next'),
         ('programme', 'Programme'),
         ('doors', 'Doors'),
     ]

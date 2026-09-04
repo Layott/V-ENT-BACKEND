@@ -354,6 +354,8 @@ def _retired(session):
     Answering with `retired` clears the screen and tells the page to stop
     asking, which is what "stops working" has to mean for a browser source.
     """
+    from .views_overlay_feed import BLANK_RIVALRY, BLANK_RUN_OF_SHOW
+
     return _ok({
         'session': {
             'id': session.id,
@@ -374,6 +376,11 @@ def _retired(session):
         'live': [],
         'sponsors': [],
         'programme': [],
+        # Present and empty rather than absent, exactly as above: a retired
+        # link clears the screen, and an element reading a name that is not
+        # there would throw on the way to drawing nothing.
+        'rivalry': dict(BLANK_RIVALRY),
+        'run_of_show': dict(BLANK_RUN_OF_SHOW),
         'version': 'retired-%s' % session.id,
     }, 'This broadcast has ended.')
 
@@ -477,9 +484,19 @@ def feed(request, token):
                                      data.get('version', ''), len(assets)),
         }, 'Studio feed')
 
-    from .views_overlay_feed import overlay_feed
+    from .views_overlay_feed import (BLANK_RIVALRY, overlay_feed,
+                                     run_of_show_for)
     inner = overlay_feed(raw, session.tournament.slug or session.tournament.tournament_id)
     data = (getattr(inner, 'data', {}) or {}).get('data') or {}
+
+    # The run of show, asked for again with the organiser's own access. The
+    # public feed above withholds a sheet that is not published, and a private
+    # sheet is exactly the one an organiser runs their show from: this surface
+    # is reached only through a session token they hold, so it sees the whole
+    # thing. Its stamp joins the version, because the cue on screen changes
+    # when the clock passes 14:00 and no row in any table moves when it does.
+    run_of_show, run_stamp = run_of_show_for(session.tournament,
+                                             include_private=True)
     return _ok({
         'session': {'id': session.id, 'name': session.name, 'is_live': True},
         'kind': 'tournament',
@@ -488,7 +505,14 @@ def feed(request, token):
         'teams': data.get('teams', []),
         'live': data.get('live', []),
         'sponsors': data.get('sponsors', []),
+        # The aggregate league, forwarded whole. The fixture card, the result
+        # cards, the head to head and both standings tables draw from this one
+        # block, and it is empty with `enabled` false for a tournament that is
+        # not an aggregate one.
+        'rivalry': data.get('rivalry') or dict(BLANK_RIVALRY),
+        'run_of_show': run_of_show,
         'assets': assets,
-        'version': '%s|%s|%s' % (_version(session, elements),
-                                 data.get('version', ''), len(assets)),
+        'version': '%s|%s|%s|%s' % (_version(session, elements),
+                                    data.get('version', ''), len(assets),
+                                    run_stamp),
     }, 'Studio feed')

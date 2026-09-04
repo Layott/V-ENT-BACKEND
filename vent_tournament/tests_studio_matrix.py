@@ -79,7 +79,7 @@ class TournamentStudioMatrixTests(TestCase):
 
     def test_every_tournament_kind_goes_on_air_and_reaches_the_feed(self):
         kinds = [k for k, _ in BroadcastElement.TOURNAMENT_KINDS]
-        self.assertEqual(len(kinds), 11, 'the catalogue changed; update this')
+        self.assertEqual(len(kinds), 19, 'the catalogue changed; update this')
 
         for kind in kinds:
             res = self.push(kind, {'active': True, 'payload': {'title': 'X'}})
