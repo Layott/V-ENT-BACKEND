@@ -22,6 +22,7 @@ from . import views_overlays
 from . import views_squads
 from vent_cards import views_lineups, views_review
 from . import views_studio
+from . import views_runsheet
 from . import views_staff
 from . import views_assets
 from . import views_export
@@ -53,6 +54,21 @@ urlpatterns = [
          name="tournament_staff_remove"),
     # The studio's media library: clips and pictures uploaded once and
     # called on whenever. See views_assets.
+    # The run of show. The same six routes an event has, from the same
+    # module: a document built for one of the two things V-ENT runs is a
+    # feature half the platform does not have.
+    path("<str:tournament_id>/run-of-show/", views_runsheet.tournament_run_sheet,
+         name="tournament_run_sheet"),
+    path("<str:tournament_id>/run-of-show/import/", views_runsheet.tournament_import,
+         name="tournament_run_sheet_import"),
+    path("<str:tournament_id>/run-of-show/days/", views_runsheet.tournament_days,
+         name="tournament_run_sheet_days"),
+    path("<str:tournament_id>/run-of-show/days/<int:day_id>/",
+         views_runsheet.tournament_day_detail, name="tournament_run_sheet_day"),
+    path("<str:tournament_id>/run-of-show/items/", views_runsheet.tournament_items,
+         name="tournament_run_sheet_items"),
+    path("<str:tournament_id>/run-of-show/items/<int:item_id>/",
+         views_runsheet.tournament_item_detail, name="tournament_run_sheet_item"),
     path("<str:tournament_id>/studio/assets/", views_assets.assets,
          name="studio_assets"),
     path("<str:tournament_id>/studio/assets/<int:asset_id>/",

@@ -150,7 +150,32 @@ def serialize_event_card(request, event):
         'interaction_count': event.interaction_count,
         'game': event.game.game_title if event.game else None,
         'ticket_types': [serialize_ticket_tier(t) for t in tiers],
+        # Whether there is a published run of show to link to. On the CARD as
+        # well as the detail, because the sitemap reads the listing and a page
+        # nothing points at is a page nobody finds. A field that is added to
+        # the detail payload only, and left on the card to be "done later", is
+        # the same bug in slower motion.
+        'has_run_of_show': _has_public_run_of_show(event),
     }
+
+
+def _has_public_run_of_show(event):
+    """Whether a run of show exists here that anybody may open.
+
+    Reads an annotation when the queryset supplied one, so a listing of forty
+    events asks once rather than forty times. Falls back to its own query for
+    a single record, where one more query costs nothing and the alternative is
+    every caller having to remember to annotate.
+
+    Only `public` counts. A link only sheet is unlisted by definition, and a
+    page advertising it would be the one thing that unlists it.
+    """
+    annotated = getattr(event, 'has_public_run_sheet', None)
+    if annotated is not None:
+        return bool(annotated)
+    from vent_tournament.models import RunSheet
+    return RunSheet.objects.filter(event=event,
+                                   visibility=RunSheet.PUBLIC).exists()
 
 
 def _linked_tournaments(request, event):

@@ -1727,3 +1727,206 @@ class StudioAsset(models.Model):
         if self.player_id and needle == (self.player.username or '').lower():
             return True
         return any(needle == str(t).strip().lower() for t in (self.tags or []))
+
+
+# ---------------------------------------------------------------------------
+# The run of show
+# ---------------------------------------------------------------------------
+#
+# CEO, 4 September 2026, the morning of the Rivalry Series Season 2 production:
+# "for the programe flow for an event, i want to be able to create something
+# that will appear with really good ui for mobile, that will show the necessary
+# info to someone looking at it on the website, this is the current event flow,
+# i also wnat to be able to share the event flow to people, can decide to make
+# it public or not."
+#
+# This is NOT `EventSession`, which is already called the Programme. That one
+# answers "what is on, where in the venue, and does the room hold me", for
+# somebody deciding whether to come. It carries a capacity because a panel room
+# holds eighty when the venue holds nine hundred.
+#
+# A run of show answers a different question and for different people: at 13:39
+# what is on screen, who is driving it, and what comes next. It is minute by
+# minute, it names the person or desk responsible for each cue, and on the day
+# it is the only document anybody reads. The CEO's own sheet has seventy nine
+# rows across two days and a column called OWNS IT.
+#
+# Kept apart from EventSession deliberately. Merging them would put a capacity
+# on "RESULT CARD, GFX, three minutes" and an owner on "Cosplay parade", and
+# then neither list would be usable for its own job.
+#
+# It hangs off a tournament OR an event, exactly like TournamentOverlay and
+# BroadcastSession above, and for the same reason: V-ENT runs two kinds of
+# thing and a document built for one of them is a feature half the platform
+# does not have.
+
+class RunSheet(models.Model):
+    """One run of show, belonging to a tournament or an event.
+
+    **Private by default, and that is not a detail.** A run sheet carries staff
+    names, when the money is counted, when a celebrity arrives and which
+    segments are not confirmed. Publishing it by accident is worse than not
+    having it. Three states rather than a boolean, because the middle one is
+    what an organiser actually wants most days:
+
+    | | |
+    |---|---|
+    | `private` | the organiser and whoever may run production. Nobody else |
+    | `link` | anybody holding the address. Not listed, not indexed |
+    | `public` | on the event's page and in the sitemap |
+
+    **The address is a token, never the id.** Same reason as everywhere else on
+    this platform: sequential ids in a URL let anybody walk the table by
+    counting, and a run sheet is exactly the kind of document somebody would
+    walk for.
+    """
+
+    PRIVATE = 'private'
+    LINK = 'link'
+    PUBLIC = 'public'
+    VISIBILITY = (
+        (PRIVATE, 'Only me and my team'),
+        (LINK, 'Anybody with the link'),
+        (PUBLIC, 'On the event page, and findable'),
+    )
+
+    id = models.AutoField(primary_key=True)
+    # Exactly one of the two.
+    tournament = models.ForeignKey(
+        Tournament, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='run_sheets')
+    event = models.ForeignKey(
+        'vent_event.Event', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='run_sheets')
+
+    name = models.CharField(max_length=140, blank=True, default='')
+    # A sentence under the title, for whatever the sheet's own header said.
+    subtitle = models.CharField(max_length=240, blank=True, default='')
+
+    token = models.CharField(max_length=48, unique=True, db_index=True)
+    visibility = models.CharField(max_length=8, choices=VISIBILITY,
+                                  default=PRIVATE)
+
+    # Which clock the sheet is written on. The platform stores everything in
+    # UTC and every other screen converts to the reader's own zone, which is
+    # right for a ticket and wrong for this: a run sheet says 13:39 because
+    # that is what the clock on the wall of the venue will say, and a caster in
+    # London reading 12:39 has been told the wrong thing. So the times are the
+    # venue's, the zone is named here, and NOW is worked out against it.
+    time_zone = models.CharField(max_length=64, default='Africa/Lagos')
+
+    # Whether a reader who is not staff sees the OWNS IT column. An organiser
+    # may want the timings public and the crew private, which is the common
+    # case for anything with named talent on it.
+    show_owners = models.BooleanField(default=True)
+    # Same question for the NOTE column, which is where "six legal names are
+    # still not held" ends up.
+    show_notes = models.BooleanField(default=False)
+
+    created_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='run_sheets')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def owner(self):
+        return self.tournament or self.event
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.name or ('Run of show %s' % self.id)
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            import secrets
+            self.token = secrets.token_urlsafe(18)[:48]
+            if kwargs.get('update_fields') is not None:
+                kwargs['update_fields'] = list(
+                    set(kwargs['update_fields']) | {'token'})
+        super().save(*args, **kwargs)
+
+
+class RunSheetDay(models.Model):
+    """One day of the run of show. A tab in the organiser's spreadsheet.
+
+    The date is optional on purpose. A sheet gets written before the dates are
+    fixed, and refusing to hold "Day 1" until somebody commits to a Friday is
+    refusing to hold the thing people actually have.
+
+    Without a date the times are still times, they are just not moments. That
+    is enough to read a running order and not enough to say what is on NOW,
+    and the screen says which of those it is doing rather than guessing.
+    """
+
+    id = models.AutoField(primary_key=True)
+    sheet = models.ForeignKey(RunSheet, on_delete=models.CASCADE,
+                              related_name='days')
+    label = models.CharField(max_length=80)
+    date = models.DateField(null=True, blank=True)
+    # "doors 10:00 to 18:00", or whatever the sheet's own header row said.
+    note = models.CharField(max_length=240, blank=True, default='')
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['position', 'id']
+
+    def __str__(self):
+        return '%s (%s)' % (self.label, self.sheet_id)
+
+
+class RunSheetItem(models.Model):
+    """One cue.
+
+    The columns are the CEO's own: PHASE, ACTIVITY, OWNS IT, MATCH, STARTS,
+    ENDS, MINS. Nothing here invents a vocabulary that the people who wrote the
+    sheet would then have to translate into.
+
+    **Times are times, not datetimes.** A run sheet is written as 13:39, and the
+    day it belongs to is the day it is written under. Storing a datetime would
+    force a timezone decision at write time on a document whose author is
+    standing in the venue, and a sheet shifted by an hour is worse than useless.
+    The moment is built at read time from the day's date plus the time, in the
+    event's own zone.
+
+    **`minutes` is stored, not derived.** Every row in the CEO's sheet carries
+    it, some rows have a duration and no clock time yet, and a derived value
+    disagrees with the printed sheet the moment somebody nudges a start time.
+    What is on the sheet is what is on the screen.
+    """
+
+    id = models.AutoField(primary_key=True)
+    day = models.ForeignKey(RunSheetDay, on_delete=models.CASCADE,
+                            related_name='items')
+
+    # The band a run of show is read in: STREAM STARTS, MATCHES ONGOING, BREAK,
+    # DAY CLOSE. Blank means it continues the band above, which is how a
+    # spreadsheet with merged cells actually reads.
+    phase = models.CharField(max_length=80, blank=True, default='')
+    activity = models.CharField(max_length=400)
+    # "GFX", "Casters / GFX", "Analyst desk". Free text because it is a desk or
+    # a person, and a fixed list would be wrong at the first production.
+    owner = models.CharField(max_length=120, blank=True, default='')
+    # "NGA1 v GHA1". Only some cues belong to a match.
+    match = models.CharField(max_length=120, blank=True, default='')
+
+    starts_at = models.TimeField(null=True, blank=True)
+    ends_at = models.TimeField(null=True, blank=True)
+    minutes = models.DecimalField(max_digits=6, decimal_places=1,
+                                  null=True, blank=True)
+
+    note = models.TextField(blank=True, default='')
+    # The sheet's own convention: red bold means scheduled and costed, not
+    # booked. Something that is not confirmed is the single most useful thing
+    # to see on a run sheet, so it is a column rather than a colour.
+    is_confirmed = models.BooleanField(default=True)
+
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['position', 'id']
+
+    def __str__(self):
+        return '%s %s' % (self.starts_at or '', self.activity[:40])

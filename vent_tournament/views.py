@@ -9,7 +9,7 @@ from imports import api_view,get_object_or_404, Response, status, transaction
 from .models import (
     Tournament, Users, Games, Teams,
     TournamentPrizeDistribution, TournamentRegistration, BracketMatch,
-    Sponsors, Match, RegisteredTeams, LeagueRules,
+    Sponsors, Match, RegisteredTeams, LeagueRules, RunSheet,
 )
 from django.db.models import F, Q
 from django.db import transaction
@@ -157,7 +157,21 @@ def serialize_tournament_card(t, confirmed_count=0, prize_pool=0):
         # different tournament from the page it links to.
         "options": tournament_options.clean(t.options),
         "check_in": _check_in_summary(t),
+        # Whether there is a published run of show to link to. On the card as
+        # well as the detail for the same reason as everything above it: the
+        # sitemap reads the listing, and a page nothing points at is a page
+        # nobody finds. Reads an annotation when the queryset supplied one.
+        "has_run_of_show": _has_public_run_sheet(t),
     }
+
+
+def _has_public_run_sheet(tournament):
+    """Only `public` counts. A link only sheet is unlisted by definition."""
+    annotated = getattr(tournament, 'has_public_run_sheet', None)
+    if annotated is not None:
+        return bool(annotated)
+    return RunSheet.objects.filter(tournament=tournament,
+                                   visibility=RunSheet.PUBLIC).exists()
 
 
 def _parse_sponsor_list(data, key):
@@ -1494,7 +1508,11 @@ def view_tournament(request, tournament_id):
             "prize_distributions": prize_list,
             "matches": match_list,
             "registered_teams": teams_list,
-            "interaction_count": tournament.interaction_count  # Include updated interaction count
+            "interaction_count": tournament.interaction_count,  # Include updated interaction count
+            # Whether there is a run of show anybody may open from this page.
+            # The event payload carries the same field, decided the same way,
+            # so the two pages cannot disagree about whether one exists.
+            "has_run_of_show": _has_public_run_sheet(tournament),
         }
 
         # Tournaments can run inside an event. When they do, the page carries the

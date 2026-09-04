@@ -143,6 +143,11 @@ _DEV_ORIGINS = [
     "http://127.0.0.1:3002",
     "http://localhost:3100",
     "http://127.0.0.1:3100",
+    # 3005 as well: on the main dev machine 3000, 3001 and 3002 are all held by
+    # other local projects at once, and a walk on a port that is not here fails
+    # as "Failed to fetch" with nothing anywhere mentioning CORS.
+    "http://localhost:3005",
+    "http://127.0.0.1:3005",
 ]
 
 
