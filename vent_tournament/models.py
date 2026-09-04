@@ -1472,6 +1472,20 @@ class BroadcastSession(models.Model):
     # `presentation.resolve`.
     defaults = models.JSONField(default=dict, blank=True)
 
+    # Which LOOK the graphics are drawn in.
+    #
+    # V-ENT's own is the default and is what an organiser with no design of
+    # their own gets. `rivalry` is the CADE Rivalry Series pack: a finished
+    # broadcast design that already existed, approved before the event, with
+    # its own typefaces and its own artwork behind two of the cards.
+    #
+    # A look, not a fork. Every graphic is the same component reading the same
+    # feed, and only the drawing changes, so a fix to what a card SAYS reaches
+    # both looks and cannot drift apart. CEO, 4 September 2026: "the design you
+    # were doing did not match the original design."
+    THEMES = [('vent', 'V-ENT'), ('rivalry', 'CADE Rivalry Series')]
+    theme = models.CharField(max_length=16, choices=THEMES, default='vent')
+
     started_by = models.ForeignKey(
         Users, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='broadcast_sessions')
@@ -1563,6 +1577,15 @@ class BroadcastElement(models.Model):
         ('now_next', 'Now and next'),
         ('award', 'Award'),
         ('explainer', 'Explainer'),
+        # The rest of the STREAM ELEMENTS sheet, added 4 September after the
+        # CEO named the seven that matter for this broadcast. Two of them are
+        # frames rather than cards: the camera or the game sits inside, so the
+        # hole in the middle stays transparent and its position is the whole
+        # measurement.
+        ('desk_lower_third', 'Desk lower third'),
+        ('matchday', 'Matchday card'),
+        ('analyst_desk', 'Analyst desk frame'),
+        ('play_area', 'Play area frame'),
     ]
     EVENT_KINDS = [
         ('now_next', 'Now and next'),
@@ -1574,6 +1597,14 @@ class BroadcastElement(models.Model):
         ('ticker', 'Ticker'),
         ('intro', 'Intro'),
         ('outro', 'Outro'),
+        # A desk and a camera frame belong to whoever is broadcasting, and an
+        # event has both as often as a tournament does. Built for one side and
+        # forgotten on the other is the fault the parity checker exists for.
+        # `matchday` is not here: it draws a day of aggregate fixtures, which
+        # only a tournament has.
+        ('desk_lower_third', 'Desk lower third'),
+        ('analyst_desk', 'Analyst desk frame'),
+        ('play_area', 'Play area frame'),
     ]
     # The column's choices: every kind either side may use. Written out rather
     # than computed, because a class body cannot see its own names from inside

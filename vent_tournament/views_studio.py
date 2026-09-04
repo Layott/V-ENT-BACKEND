@@ -108,8 +108,12 @@ def _version(session, elements):
     """
     stamp = max(
         [e['updated_at'] or '' for e in elements.values()] or [''])
-    return '%s-%s-%s' % (
+    # The look is in here on purpose. An element page skips its redraw when the
+    # version has not moved, so a broadcast switched from the house look to the
+    # Rivalry pack would keep drawing the old one until something else changed.
+    return '%s-%s-%s-%s' % (
         session.id,
+        session.theme,
         sum(1 for e in elements.values() if e['active']),
         stamp)
 
@@ -177,6 +181,12 @@ def _session_payload(session, request):
         # The house style, and what a console may offer for it.
         'defaults': presentation.resolve(session.defaults, None),
         'presentation_options': presentation.catalogue(),
+        # Which look the graphics are drawn in, and the looks that exist. A
+        # list rather than a hardcoded pair in the console, so a look added
+        # here appears there without a second change.
+        'theme': session.theme,
+        'themes': [{'value': v, 'label': label}
+                   for v, label in BroadcastSession.THEMES],
         'version': _version(session, elements),
     }
     # Named by what it is of, and `tournament` kept as the key the console
@@ -241,6 +251,17 @@ def _session_detail(request, owner, kind, session_id):
         except presentation.PresentationError as err:
             return _err(str(err), 'INVALID_PRESENTATION', field=err.field)
         session.save(update_fields=['defaults'])
+
+    if request.method == 'POST' and 'theme' in request.data:
+        # Which look this broadcast is drawn in. Refused rather than ignored
+        # when it is not one that exists: an operator who set a look and saw
+        # nothing change would set it again rather than read a name back.
+        wanted = str(request.data.get('theme') or '').strip()
+        if wanted not in dict(BroadcastSession.THEMES):
+            return _err('There is no broadcast look called %s.' % wanted,
+                        'INVALID_THEME', field='theme')
+        session.theme = wanted
+        session.save(update_fields=['theme'])
 
     if request.method == 'POST' and request.data.get('end'):
         # Ending clears every element, because the alternative is a graphic
@@ -473,7 +494,8 @@ def feed(request, token):
         inner = event_overlay_feed(raw, session.event.slug or session.event.event_id)
         data = (getattr(inner, 'data', {}) or {}).get('data') or {}
         return _ok({
-            'session': {'id': session.id, 'name': session.name, 'is_live': True},
+            'session': {'id': session.id, 'name': session.name,
+                        'is_live': True, 'theme': session.theme},
             'kind': 'event',
             'elements': elements,
             'event': data.get('event', {}),
@@ -498,7 +520,8 @@ def feed(request, token):
     run_of_show, run_stamp = run_of_show_for(session.tournament,
                                              include_private=True)
     return _ok({
-        'session': {'id': session.id, 'name': session.name, 'is_live': True},
+        'session': {'id': session.id, 'name': session.name,
+                    'is_live': True, 'theme': session.theme},
         'kind': 'tournament',
         'elements': elements,
         'tournament': data.get('tournament', {}),

@@ -416,6 +416,7 @@ BLANK_RIVALRY = {
     'enabled': False,
     'seats': 0,
     'fixtures': [],
+    'days': [],
     'table_nations': [],
     'table_players': [],
     'now': None,
@@ -593,9 +594,21 @@ def rivalry_for(tournament, request):
             'legs': legs,
             'points': {'home': home_points, 'away': away_points},
             'decided': decided,
+            # Which day of the series this is on, and where in that day.
+            # The organiser sets both on the running order screen, and the
+            # matchday card draws a day of the draw off them. Blank means
+            # unscheduled, which is where every fixture starts: a card must
+            # then draw its empty state rather than guess a day, because a
+            # Saturday draw shown on Friday is worse on air than no card.
+            'day': tie.day.isoformat() if tie.day else '',
+            'running_order': tie.running_order,
         })
-        fingerprint.append('%s:%s:%s-%s' % (
-            tie.pk, tie.status, tie.score_p1, tie.score_p2))
+        fingerprint.append('%s:%s:%s-%s:%s:%s' % (
+            tie.pk, tie.status, tie.score_p1, tie.score_p2,
+            # A fixture moved to another day changes no score and no status, so
+            # without these two the matchday card would keep drawing yesterday's
+            # order until something else on the feed happened to move.
+            tie.day.isoformat() if tie.day else '', tie.running_order))
 
         if now is None:
             live_leg = next((l for l in legs if l['status'] == 'in_progress'), None)
@@ -655,10 +668,23 @@ def rivalry_for(tournament, request):
             'points': row['points'],
         })
 
+    # The days the draw is spread over, in order, numbered the way the venue
+    # numbers them. Worked out here rather than in the page: a graphic that
+    # counted days itself would disagree with the running order screen the
+    # moment a fixture moved, and they are read side by side on the desk.
+    days = []
+    for stamp in sorted({f['day'] for f in fixtures if f['day']}):
+        days.append({
+            'date': stamp,
+            'number': len(days) + 1,
+            'fixtures': [f['id'] for f in fixtures if f['day'] == stamp],
+        })
+
     block = {
         'enabled': True,
         'seats': seats,
         'fixtures': fixtures,
+        'days': days,
         'table_nations': table_nations,
         'table_players': table_players,
         'now': now,

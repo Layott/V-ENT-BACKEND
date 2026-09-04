@@ -43,10 +43,18 @@ NEW_KINDS = ['fixture_card', 'fixture_result', 'match_result', 'head_to_head',
              'break_screen', 'now_next', 'award', 'explainer']
 
 #: What an event may put on air. Written out rather than read from the model,
-#: because the point of the assertion is that adding eight tournament graphics
-#: did not quietly change the other half of the studio.
+#: because the point of the assertion is that adding tournament graphics does
+#: not quietly change the other half of the studio.
+#:
+#: It grew by three on 4 September, on purpose. A desk lower third and the two
+#: camera frames belong to whoever is broadcasting, and an event has a desk and
+#: a stage as often as a tournament does; building them for one side and
+#: forgetting the other is the fault the parity checker exists for. `matchday`
+#: is deliberately NOT here: it draws a day of aggregate fixtures, which only a
+#: tournament has.
 EVENT_KINDS_BEFORE = ['now_next', 'programme', 'lower_third', 'sponsors',
-                      'doors', 'media', 'ticker', 'intro', 'outro']
+                      'doors', 'media', 'ticker', 'intro', 'outro',
+                      'desk_lower_third', 'analyst_desk', 'play_area']
 
 #: The columns the contract names, exactly. Set equality rather than a
 #: containment check: a column the frontend draws and the feed stopped sending
