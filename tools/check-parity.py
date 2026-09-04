@@ -180,6 +180,24 @@ PAIRS = [
         'tournament', (BACKEND, 'vent_tournament/urls.py',
                        r'tournament_element_layers'),
     ),
+    (
+        'the payload says which organisation runs this',
+        'A column both endpoints accept and no payload reports is a column no '
+        'screen can show, which is how the organisation field sat unused on '
+        'both sides for weeks. CEO, 4 September: "how to add events or '
+        'tournaments to an organization? i dont see that path".',
+        'event', (BACKEND, 'vent_event/views_promos.py', r"'organization': \("),
+        'tournament', (BACKEND, 'vent_tournament/views.py',
+                       r'"organization": organization'),
+    ),
+    (
+        'a screen can set the organisation',
+        'The event console has a picker and the tournament edit screen has one. '
+        'Built on one side only is what this checker exists for.',
+        'event', (FRONTEND, 'src/app/events/manage/page.js', r'saveOrganization'),
+        'tournament', (FRONTEND, 'src/app/tournaments/edit-tournament/page.js',
+                       r"set\('organization'"),
+    ),
 ]
 
 

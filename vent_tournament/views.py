@@ -1436,6 +1436,21 @@ def view_tournament(request, tournament_id):
         from vent_auth.views_community import _person
         creator_obj = _person(request, creator) if creator else None
 
+        # Whose name this tournament runs in.
+        #
+        # `tournament_organization` has been on the model and accepted by both
+        # the create and the edit endpoint the whole time, and no payload ever
+        # said what it was set to, so no screen could show it and the edit
+        # screen had nothing to fill a picker from. Same gap the event side had
+        # until 4 September. CEO: "how to add events or tournaments to an
+        # organization? i dont see that path".
+        org = tournament.tournament_organization
+        organization = {
+            'id': org.org_id,
+            'name': org.org_name,
+            'slug': getattr(org, 'slug', '') or '',
+        } if org else None
+
         # Build the response
         data = {
             # Card-contract aliases so every surface (detail, manage, organizer
@@ -1443,6 +1458,7 @@ def view_tournament(request, tournament_id):
             "id": tournament.tournament_id,
             "name": tournament.tournament_title,
             "title": tournament.tournament_title,
+            "organization": organization,
             "start_date": tournament.start_date_and_time,
             "end_date": tournament.end_date_and_time,
             "banner": tournament.tournament_banner.url if tournament.tournament_banner else None,
