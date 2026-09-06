@@ -28,14 +28,18 @@ This file is the missing half:
   how many admitted themselves.
 - `door_lookups` reads back what the door asked for, which is the thing that
   could not be answered afterwards this time.
+- `undo_check_in` takes a check-in back, because a gate is a place where
+  mistakes are made and a headcount nobody can correct is not a headcount.
 
-## Everything here refuses to admit
+## Nothing here ADMITS anybody
 
-No route in this file writes `status`, `checked_in_at`, `checked_in_gate` or
-`checked_in_by`. Admitting somebody stays in `views_tickets.check_in_ticket`
-and `views_self_check_in.self_check_in`, which are the two doors, and there is
-a test that fails if a lookup ever changes a ticket.
+No route in this file sets a ticket to `checked_in`. Admitting somebody stays in
+`views_tickets.check_in_ticket` and `views_self_check_in.self_check_in`, which
+are the two doors, and there is a test that fails if a lookup ever changes a
+ticket. `undo_check_in` is the one route that writes, and it only ever writes in
+the other direction.
 """
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework import status
@@ -139,9 +143,9 @@ def ticket_lookup(request, code):
                       'tickets up.', 'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
     gate = str(request.query_params.get('gate') or '').strip()[:60]
-    DoorLookup.objects.create(event=ticket.event, term=str(code)[:120],
-                              asked_by=user, matched=1, ticket=ticket,
-                              gate=gate)
+    DoorLookup.objects.create(event=ticket.event, kind='lookup',
+                              term=str(code)[:120], asked_by=user, matched=1,
+                              ticket=ticket, gate=gate)
 
     row = _row(ticket)
     # Whether this ticket would be admitted right now, worked out here so the
@@ -213,7 +217,7 @@ def door_search(request, event_id):
     rows = [_row(t) for t in matches[:MAX_MATCHES]]
 
     DoorLookup.objects.create(
-        event=event, term=term[:120], asked_by=user, matched=total,
+        event=event, kind='search', term=term[:120], asked_by=user, matched=total,
         # The ticket, but only when the term picked out exactly one. Two
         # matches means the door still had a decision to make, and recording
         # one of them as the answer would be a fiction.
@@ -230,6 +234,70 @@ def door_search(request, event_id):
         },
         'Search complete.',
     )
+
+
+@api_view(['POST'])
+def undo_check_in(request, code):
+    """Taking a check-in back.
+
+    CEO, 6 September 2026: "should also be able to undo check ins."
+
+    A gate is a place where mistakes are made constantly: a steward scans the
+    wrong phone, admits somebody on the wrong day, or presses Check in twice on
+    a slow connection. Without this the headcount is simply wrong afterwards and
+    nobody can correct it, which defeats the whole point of counting.
+
+    Door staff may undo, not only the organiser. An undo that has to wait for
+    the person running the event is an undo that does not happen at a gate with
+    a queue behind it, and the mistake it is correcting was made ten seconds
+    ago by the person standing there.
+
+    Recorded on the door log with who did it, because "I was already checked
+    in" is the next thing somebody says and the answer should not be a memory.
+    """
+    user, auth_error = _authenticate(request)
+    if auth_error:
+        return auth_error
+
+    ticket = (Ticket.objects
+              .select_related('event', 'tier', 'user', 'checked_in_by')
+              .filter(code=str(code).upper()).first())
+    if ticket is None:
+        return _error('No ticket with that code.', 'NOT_FOUND',
+                      status.HTTP_404_NOT_FOUND)
+
+    if not may_work_the_door(user, ticket.event):
+        return _error('Only the event organizer or their door staff can undo a '
+                      'check-in.', 'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
+
+    if ticket.status != 'checked_in':
+        # Not an error worth a stack trace: two stewards pressing undo on the
+        # same row is the same situation as two pressing check in, and the
+        # honest answer is what state the ticket is in now.
+        return _error('That ticket is not checked in.', 'NOT_CHECKED_IN',
+                      status.HTTP_409_CONFLICT,
+                      extra={'ticket': _row(ticket)})
+
+    was_gate = ticket.checked_in_gate
+    with transaction.atomic():
+        locked = Ticket.objects.select_for_update().get(pk=ticket.pk)
+        if locked.status != 'checked_in':
+            return _error('That ticket is not checked in.', 'NOT_CHECKED_IN',
+                          status.HTTP_409_CONFLICT)
+        locked.status = 'valid'
+        locked.checked_in_at = None
+        locked.checked_in_gate = ''
+        locked.checked_in_by = None
+        locked.save(update_fields=['status', 'checked_in_at',
+                                   'checked_in_gate', 'checked_in_by'])
+
+    DoorLookup.objects.create(
+        event=ticket.event, kind='undo', term=str(code)[:120], asked_by=user,
+        matched=1, ticket=ticket, gate=was_gate)
+
+    locked.refresh_from_db()
+    return _ok({'ticket': _row(locked), 'holder': _holder(locked)},
+               '%s is no longer checked in.' % _holder(locked))
 
 
 @api_view(['GET'])

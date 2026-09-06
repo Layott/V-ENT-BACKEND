@@ -1507,9 +1507,23 @@ class DoorLookup(models.Model):
     through to find out.
     """
 
+    # What the door did. A search and a lookup are questions; an undo is a
+    # correction, and it belongs on the same log because they are one story:
+    # somebody was looked up, admitted, and then that was taken back. Keeping
+    # undos somewhere else would mean reading two files to answer "what
+    # happened at the gate", which is the only question anybody ever asks of
+    # this table.
+    KIND_CHOICES = [
+        ('search', 'Search'),
+        ('lookup', 'Code lookup'),
+        ('undo', 'Check-in undone'),
+    ]
+
     id = models.AutoField(primary_key=True)
     event = models.ForeignKey(Event, on_delete=models.CASCADE,
                               related_name='door_lookups')
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES,
+                            default='search', db_index=True)
     # What was typed. Capped rather than validated: a steward's typo is exactly
     # the thing worth keeping, so nothing here rejects a term for being odd.
     term = models.CharField(max_length=120)

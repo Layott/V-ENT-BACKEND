@@ -164,6 +164,10 @@ urlpatterns = [
          name="door_search"),
     path("ticket/<str:code>/lookup/", views_door.ticket_lookup,
          name="ticket_lookup"),
+    # Taking a check-in back. A steward scans the wrong phone constantly, and
+    # without this the number is simply wrong afterwards.
+    path("ticket/<str:code>/undo-check-in/", views_door.undo_check_in,
+         name="undo_check_in"),
     path("<str:event_id>/door-summary/", views_door.door_summary,
          name="door_summary"),
     path("<str:event_id>/door-lookups/", views_door.door_lookups,
