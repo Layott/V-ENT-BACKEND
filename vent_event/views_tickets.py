@@ -13,6 +13,7 @@ from django.contrib.auth.hashers import check_password
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
@@ -673,6 +674,41 @@ def event_attendees(request, event_id):
 
     tickets = (Ticket.objects.filter(event=event)
                .select_related('tier', 'user', 'checked_in_by'))
+
+    # ONLY WHAT CHANGED, when the caller says what it already has.
+    #
+    # CEO, 6 September 2026: "it took too long for the listto load on the
+    # people managing the event", and separately that every event page should
+    # keep itself current without anybody reloading it. Those two pull against
+    # each other: this payload was 648KB, and re-fetching it on a timer would
+    # starve the very connection the door needs. So a refresh asks for the
+    # delta, and the full download happens once.
+    #
+    # A bad timestamp is ignored rather than refused. A door that stops
+    # answering because a clock is odd is worse than one that sends a little
+    # too much.
+    since_raw = str(request.query_params.get('since') or '').strip()
+    since = None
+    if since_raw:
+        parsed = parse_datetime(since_raw)
+        if parsed is not None:
+            if timezone.is_naive(parsed):
+                parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+            since = parsed
+            tickets = tickets.filter(updated_at__gt=since)
+
+    # The answers are described per row, turning field ids into the organiser's
+    # own labels, and on a list this size that is most of the cost. A door
+    # refreshing every few seconds does not need them; the full list on first
+    # load does. Asking for `lean` is asking for the door's version.
+    lean = str(request.query_params.get('lean') or '').lower() in ('1', 'true', 'yes')
+
+    # The stamp to send back next time. Taken BEFORE the rows are built so a
+    # ticket bought while this response is being assembled is not skipped: it
+    # will simply arrive again in the next delta, which is the safe direction
+    # to be wrong in.
+    asked_at = timezone.now()
+
     rows = [
         {
             'code': t.code,
@@ -701,16 +737,33 @@ def event_attendees(request, event_id):
             'checked_in_gate': t.checked_in_gate,
             # What the organiser asked at checkout, with labels rather than
             # field ids: a door list showing {"7": "Large"} helps nobody.
-            'answers': checkout.describe(event, t.answers),
+            'answers': [] if lean else checkout.describe(event, t.answers),
             'checked_in_by': t.checked_in_by.username if t.checked_in_by_id else '',
+            # Whether they admitted themselves, named the same way everywhere.
+            'self_check_in': t.checked_in_gate == 'self',
         }
         for t in tickets
     ]
+
+    # The totals are counted in the database, never off `rows`.
+    #
+    # They used to be `len(rows)` and a sum over them, which was right only
+    # while the response carried every ticket. The moment a delta returns four
+    # changed rows, counting those four would tell an organiser that four
+    # people bought tickets and none came. The headcount is the number this
+    # whole change exists to make trustworthy, so it does not get to be a
+    # by-product of what happened to be sent.
+    everyone = Ticket.objects.filter(event=event)
     return _ok(
         {
             'attendees': rows,
-            'count': len(rows),
-            'checked_in': sum(1 for r in rows if r['status'] == 'checked_in'),
+            'count': everyone.count(),
+            'checked_in': everyone.filter(status='checked_in').count(),
+            'returned': len(rows),
+            # Hand this back as `since` on the next request and only what has
+            # moved since comes down.
+            'asked_at': asked_at,
+            'delta': since is not None,
         },
         'Attendees retrieved.',
     )
