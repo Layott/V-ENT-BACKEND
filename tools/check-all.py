@@ -112,6 +112,10 @@ CATCHERS = [
     ('design bans',
      'no hairline borders, no glow, no vibecoded defaults',
      FRONTEND, ['node', 'scripts/check-design.mjs'], False),
+
+    ('timing model',
+     'every date renders in the reader own zone and chosen language',
+     FRONTEND, ['node', 'scripts/check-datetime.mjs'], False),
 ]
 
 
