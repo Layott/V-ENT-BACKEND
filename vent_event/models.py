@@ -219,6 +219,29 @@ class Event(models.Model):
                     kwargs['update_fields'] = list(
                         set(kwargs['update_fields']) | {'latitude', 'longitude'})
 
+        # And when there is no link at all, the ADDRESS itself.
+        #
+        # CEO, 8 September 2026: "when an event organizer puts an address it
+        # should be located on the map and shown". Until now the map appeared
+        # only for somebody who pasted a Google Maps URL, and most organisers
+        # simply type where it is - so "Landmark Centre, Victoria Island,
+        # Lagos" produced "There is no map of this venue."
+        #
+        # Never overwrites a coordinate somebody set, exactly as above. The
+        # venue name goes in front of the address because "Landmark Centre,
+        # Victoria Island" finds the building and "Victoria Island" alone
+        # finds the district, and a pin on a district looks precise while
+        # being wrong.
+        if self.latitude is None or self.longitude is None:
+            from .geo import geocode
+
+            point = geocode(self.venue_name, self.location)
+            if point:
+                self.latitude, self.longitude = point
+                if kwargs.get('update_fields') is not None:
+                    kwargs['update_fields'] = list(
+                        set(kwargs['update_fields']) | {'latitude', 'longitude'})
+
         # ONE answer to when this event happens.
         #
         # CEO, 7 September 2026: "The model has two ways to say when an event
@@ -2142,3 +2165,39 @@ class TicketTransfer(models.Model):
 
     def __str__(self):
         return '%s -> %s' % (self.old_code, self.new_code)
+
+
+class GeocodedAddress(models.Model):
+    """One address, looked up once, ever.
+
+    CEO, 8 September 2026: an organiser who types an address should get a pin
+    from it. `vent_event/geo.geocode` does the asking; this is what stops it
+    asking twice.
+
+    A MISS is cached as deliberately as a hit, with both columns null. An
+    address nobody can find will not become findable on the next save, and
+    re-asking every time an organiser edits their event is how a free service's
+    rate limit is reached and then withdrawn.
+    """
+    id = models.AutoField(primary_key=True)
+    # Normalised by the caller: trimmed, single-spaced. Unique because the
+    # whole point is one lookup per address.
+    address = models.CharField(max_length=300, unique=True)
+    latitude = models.DecimalField(max_digits=9, decimal_places=6,
+                                   null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6,
+                                    null=True, blank=True)
+    # WHICH form answered. A pin found from "Landmark Centre Lagos" is a
+    # building; one found from "Lagos" is a city. Keeping this means a screen
+    # can eventually say which, rather than drawing both the same way and
+    # looking precise while being wrong.
+    matched = models.CharField(max_length=300, blank=True, default='')
+    looked_up_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['address']
+
+    def __str__(self):
+        if self.latitude is None:
+            return '%s (not found)' % self.address
+        return '%s (%s, %s)' % (self.address, self.latitude, self.longitude)
