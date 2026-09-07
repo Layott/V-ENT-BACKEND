@@ -17,6 +17,7 @@ from .views_admin_matches import admin_tournament_matches
 from .views_kyc_files import kyc_document
 from .views_waitlist import waitlist_claim, waitlist_claim_preview
 from . import views_discord_auth as discord_auth
+from . import views_discord_interactions as discord_interactions
 from . import views_discord_server as discord_guild
 from . import views_discord_webhooks as discord_hooks
 from . import views_linking as linking
@@ -147,6 +148,10 @@ urlpatterns = [
     # capability is granted separately, so the invite an organiser authorises
     # carries only the permissions they ticked. CEO 7 Sept: "let each
     # organiser grant only the parts they want."
+    # The one URL Discord POSTs a slash command to. Public because Discord
+    # calls it; the Ed25519 signature is the authentication.
+    path("discord/interactions/", discord_interactions.interactions,
+         name="discord_interactions"),
     path("discord/guild/callback/", discord_guild.install_callback,
          name="discord_guild_callback"),
     path("discord/guild/<str:ref>/install/", discord_guild.install_url,
