@@ -197,6 +197,17 @@ def serialize_ticket(ticket):
             'event_date': (event.start_date.date() if event.start_date else event.event_date),
             'start_time': (event.start_date.time() if event.start_date else event.start_time),
             'end_time': (event.end_date.time() if event.end_date else event.end_time),
+            # The slug, so a ticket can link back to the thing it admits to.
+            'slug': event.slug,
+            # Whether this event lets people admit themselves.
+            #
+            # On the ticket because that is where the decision is made: My
+            # Tickets should offer "check yourself in" only where pressing it
+            # will work. The page at /events/check-in/<code> has existed and
+            # been correct for days, and NOTHING LINKED TO IT, which is the
+            # same fault as the scanner nobody could find and the settings
+            # endpoint no screen could reach.
+            'self_check_in': bool(event.self_check_in),
         },
     }
 

@@ -117,6 +117,9 @@ urlpatterns = [
          studio_views.event_session_detail, name="event_studio_session_detail"),
     path("<str:event_id>/studio/sessions/<int:session_id>/element/<str:kind>/",
          studio_views.event_element, name="event_studio_element"),
+    # The four layers, the same four an event broadcast gets.
+    path("<str:event_id>/studio/sessions/<int:session_id>/slot/<str:role>/",
+         studio_views.event_slot, name="event_studio_slot"),
     path("<str:event_id>/studio/sessions/<int:session_id>/element/"
          "<str:element_kind>/layers/",
          layer_views.event_element_layers, name="event_studio_element_layers"),

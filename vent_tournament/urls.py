@@ -80,6 +80,9 @@ urlpatterns = [
          views_studio.session_detail, name="studio_session_detail"),
     path("<str:tournament_id>/studio/sessions/<int:session_id>/element/<str:kind>/",
          views_studio.element, name="studio_element"),
+    # The four layers an operator pastes into OBS once. See BroadcastSlot.
+    path("<str:tournament_id>/studio/sessions/<int:session_id>/slot/<str:role>/",
+         views_studio.slot, name="studio_slot"),
     # Text an operator put on top of a graphic. The same four addresses exist
     # for an uploaded file below and under /event/ for both, because "on any
     # overlay" is the whole of what was asked for.

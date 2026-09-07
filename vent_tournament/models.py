@@ -2163,3 +2163,131 @@ class OverlayLayer(models.Model):
                 'A text layer belongs to exactly one overlay: '
                 'an element or an uploaded file, never both and never neither.')
         super().save(*args, **kwargs)
+
+
+class BroadcastSlot(models.Model):
+    """A fixed place on the frame, and whatever is currently in it.
+
+    CEO, 6 September 2026, sending the RIVALRY control room and saying V-ENT
+    should do "this kind of setup for production, except that this one will be
+    online and people can upload anything they want and use to run overlays
+    that will be updating in realtime based off the tournament data", then on
+    7 September: "BUILD IT PROPERLY."
+
+    ## The gap this closes
+
+    Almost all of it already existed: uploaded HTML with an OBS token URL,
+    position and nudge, media and text layers, an asset library, fonts, and a
+    feed already carrying standings, teams, players, live scores, the aggregate
+    and the run of show.
+
+    What was missing is the SLOT. V-ENT gave one URL per graphic, so a
+    broadcast using twenty kinds meant twenty browser sources, each added and
+    removed by hand. The RIVALRY control room gives its crew FOUR fixed sources
+    - `/s/full`, `/s/lower`, `/s/bug`, `/s/bg` - and a panel decides what
+    occupies each. Nobody adds a browser source during a show, so the second
+    design is the one that survives contact with a live gallery.
+
+    ## Why four, and why these four
+
+    Taken from the reference the CEO sent rather than invented, and they are
+    four because they are the four LAYERS a broadcast composites, in order:
+
+        bg      behind everything. A scene, a holding card, a break loop.
+        full    a full-frame graphic: standings, bracket, head to head.
+        lower   the band across the bottom: a name, a caption, a now-and-next.
+        bug     the small persistent corner: the score bar, a ticker.
+
+    An operator stacks them once in OBS, bottom to top, and never touches the
+    sources again. Adding a fifth role later is a row in ROLES and a new URL;
+    it does not disturb the four already pasted into somebody's scene.
+
+    ## What may occupy one
+
+    Either of the two things this studio can draw, which is the other half of
+    what was asked:
+
+      - one of V-ENT's own graphics, by `item_kind` (any BroadcastElement kind)
+      - an overlay somebody UPLOADED, by `overlay`
+
+    So "people can upload anything they want and use to run overlays" and the
+    house graphics share one mechanism, one URL per role, and one feed. A slot
+    holding an uploaded file still updates in real time, because the file is
+    bound to the same feed every V-ENT graphic reads.
+
+    ## The address never changes
+
+    That is the entire point. `active` and what occupies the slot move as often
+    as the operator likes; the URL pasted into OBS is written once per session
+    and is stable until the session ends. State lives here rather than in the
+    browser source, so OBS can be restarted mid-show and the frame comes back
+    exactly as it was, which is the rule every element page already follows.
+    """
+
+    ROLES = [
+        ('bg', 'Background'),
+        ('full', 'Full frame'),
+        ('lower', 'Lower third'),
+        ('bug', 'Corner bug'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    session = models.ForeignKey(BroadcastSession, on_delete=models.CASCADE,
+                                related_name='slots')
+    role = models.CharField(max_length=10, choices=ROLES)
+
+    # One of V-ENT's own graphics. Not a FK to BroadcastElement: the element row
+    # holds the PAYLOAD for a kind in this session, and a slot points at the
+    # kind. That keeps "what is in the lower third" and "what does the lower
+    # third say" as separate decisions, which is how an operator actually works:
+    # they cue a graphic, then correct its text, and neither should disturb the
+    # other.
+    item_kind = models.CharField(max_length=32, blank=True, default='')
+
+    # Or a file somebody uploaded. Exactly one of the two is set; both empty
+    # means the slot is holding nothing, which is a normal resting state and
+    # not an error.
+    overlay = models.ForeignKey('TournamentOverlay', on_delete=models.SET_NULL,
+                                null=True, blank=True, related_name='slots')
+
+    # Whether this layer is on air. Separate from what occupies it, so an
+    # operator can load the next graphic into a slot while it is dark and take
+    # it up when the moment comes, which is the whole job in a gallery.
+    active = models.BooleanField(default=False)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['session_id', 'role']
+        constraints = [
+            models.UniqueConstraint(fields=['session', 'role'],
+                                    name='one_slot_per_role_per_session'),
+        ]
+
+    def save(self, *args, **kwargs):
+        """Keep `updated_at` honest when only some fields are written.
+
+        Same trap as `vent_event.Ticket`: `auto_now` is applied in `pre_save`,
+        but a save carrying `update_fields` writes ONLY the named columns, so
+        the new stamp is computed and dropped. The feed's version stamp is
+        built from these, so losing it means a slot changes and no browser
+        source ever notices.
+        """
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None:
+            fields = set(update_fields)
+            fields.add('updated_at')
+            kwargs['update_fields'] = tuple(fields)
+        return super().save(*args, **kwargs)
+
+    @property
+    def holds(self):
+        """What is in it: 'element', 'overlay' or '' for nothing."""
+        if self.overlay_id:
+            return 'overlay'
+        if self.item_kind:
+            return 'element'
+        return ''
+
+    def __str__(self):
+        return '%s/%s -> %s' % (self.session_id, self.role, self.holds or 'empty')
