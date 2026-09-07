@@ -133,8 +133,19 @@ fi
 # The tables that would hurt most to lose, named rather than counted. A dump
 # can clear both thresholds above and still have missed the one table somebody
 # actually needs back.
+#
+# A literal backtick, held in a variable so no quoting style has to survive it.
+BT='`'
 for TABLE in vent_auth_users vent_event_ticket vent_tournament_tournament; do
-    zcat "$DB_FILE" | grep -q "CREATE TABLE \`$TABLE\`" \
+    # `grep -F` on a plain fixed string, and the table name concatenated in
+    # rather than interpolated inside a quoted pattern.
+    #
+    # It was written as "CREATE TABLE \`$TABLE\`", and a backtick inside a
+    # DOUBLE-quoted shell string is command substitution. So the check ran the
+    # table name as a command, matched nothing, and deleted a perfectly good
+    # dump while reporting that vent_auth_users was missing. The refusal was
+    # right; the reason it gave was not.
+    zcat "$DB_FILE" | grep -qF "CREATE TABLE ${BT}${TABLE}${BT}" \
         || { rm -f "$DB_FILE"; fail "$TABLE is not in the dump. Kept nothing."; }
 done
 
