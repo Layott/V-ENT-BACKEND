@@ -45,6 +45,11 @@ from django.db.models import Prefetch
 # forget.
 from . import formats as _formats
 
+# Used by the Discord announce hook below, which must never let a logging
+# call be the thing that raises inside its own except block.
+import logging
+logger = logging.getLogger(__name__)
+
 
 def normalize_bracket_type(value, default='single_elimination'):
     """The catalogue key for `value`, or `default` when it names no format."""
@@ -1752,6 +1757,21 @@ def get_tournament_participants(request, tournament_id):
         return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+def _side_name(reg):
+    """What to call one side of a match in an announcement.
+
+    A registration is a team OR a person, and an announcement that says
+    "None 2 - 1 None" is worse than none at all.
+    """
+    if reg is None:
+        return 'TBC'
+    if getattr(reg, 'team_id', None):
+        return reg.team.team_name
+    if getattr(reg, 'user_id', None):
+        return reg.user.full_name or reg.user.username
+    return 'TBC'
+
+
 @api_view(['POST'])
 def update_bracket(request, tournament_id):
     """POST /tournament/update-bracket/{id}/ - organizer updates match score / advances bracket."""
@@ -1802,6 +1822,24 @@ def update_bracket(request, tournament_id):
         match.recorded_at = timezone.now()
         match.save(update_fields=['score_p1', 'score_p2', 'winner', 'status', 'completed_at',
                                   'recorded_by', 'recorded_at'])
+
+        # Tell any Discord channel watching this tournament. One of the three
+        # the CEO named on 7 September. Off-thread and swallowed, so Discord
+        # being down cannot fail a score the organiser just recorded.
+        try:
+            from vent_auth.views_discord_webhooks import announce
+            announce(
+                tournament, 'bracket',
+                'Result recorded',
+                '%s %s - %s %s' % (
+                    _side_name(match.participant_1), match.score_p1,
+                    match.score_p2, _side_name(match.participant_2)),
+                path='/tournaments/%s' % (tournament.slug or tournament.tournament_id),
+                fields=[('Round', match.round_number, True),
+                        ('Match', match.match_number, True)],
+            )
+        except Exception:                                       # noqa: BLE001
+            logger.exception('discord bracket announce failed')
 
         return Response({'status': 'success', 'message': 'Match updated'}, status=status.HTTP_200_OK)
 

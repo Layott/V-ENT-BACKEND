@@ -185,6 +185,14 @@ def announcements(request, event_id):
                             metadata={'event_id': event.event_id,
                                       'announcement_id': row.id})
 
+    # And any Discord channel this event announces into. After the inbox,
+    # which is the write that must not be at the mercy of a third party.
+    try:
+        from vent_auth.views_discord_webhooks import announce as discord_announce
+        discord_announce(event, 'announcement', subject, body[:1500], path=link)
+    except Exception:                                           # noqa: BLE001
+        logger.exception('discord announcement failed')
+
     failures = 0
     for address in addresses:
         try:

@@ -51,6 +51,16 @@ def _steam_key():
     return os.environ.get('STEAM_API_KEY', '')
 
 
+def _discord_invite():
+    from .discord import INVITE
+    return INVITE
+
+
+def _dm_configured():
+    from .discord import dm_configured
+    return dm_configured()
+
+
 def provider_status():
     """What can actually be linked right now, for the settings page to render."""
     client_id, secret = _discord_credentials()
@@ -90,6 +100,12 @@ def link_status(request):
             'connected': row.connected,
             'verified': row.verified,
             'label': row.display_name or row.gamertag,
+            # So the settings panel can draw the direct-message switch in the
+            # right position without a second request, and can say why it is
+            # unavailable rather than showing a control that cannot work.
+            'dm_enabled': row.dm_enabled,
+            'dm_available': bool(row.provider_user_id),
+            'dm_error': row.dm_error,
         }
         for row in PlatformAccount.objects.filter(user=user)
     }
@@ -142,6 +158,13 @@ def link_status(request):
     return Response({
         'status': 'success',
         'data': {'linked': linked, 'providers': provider_status(),
+                 # Whether the SERVER can send direct messages at all, which is
+                 # a different question from whether this person wants them.
+                 'dm_configured': _dm_configured(),
+                 # Where to join, so the direct-message switch can offer the
+                 # one thing that makes it work. Discord refuses a DM from a
+                 # bot that shares no server with the recipient.
+                 'discord_invite': _discord_invite(),
                  'external': external},
         'message': 'Linked accounts.',
     })
@@ -275,6 +298,10 @@ def discord_callback(request):
 
     handle = profile.get('username') or ''
     claimed = _claim_or_taken(user, 'discord', handle, {
+        # Discord's own id for this account. A handle is renameable and
+        # reusable; the snowflake is neither, so it is what a direct message is
+        # addressed to and what recognises a returning person at sign-in.
+        'provider_user_id': str(profile.get('id') or ''),
         'display_name': profile.get('global_name') or handle,
         'gamertag': handle,
         'connected': True,
@@ -357,4 +384,59 @@ def link_disconnect(request, provider):
         'status': 'success',
         'data': {'removed': bool(deleted)},
         'message': f'{provider} disconnected.' if deleted else 'Nothing was linked.',
+    })
+
+@api_view(['POST'])
+def link_dm_toggle(request, provider):
+    """POST /auth/link/<provider>/dm/ - turn direct messages on or off.
+
+    Off until somebody says otherwise. An unasked-for direct message from a
+    platform is the fastest way to be blocked, and being blocked costs the
+    channel for everything afterwards including the messages people did want.
+
+    Refuses when the account is not linked, rather than storing a preference
+    that can never be honoured: a switch that saves and does nothing is worse
+    than a switch that explains itself.
+    """
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+
+    provider = provider.lower()
+    if provider != 'discord':
+        return Response({'status': 'error', 'code': 'UNSUPPORTED',
+                         'message': f'{provider} cannot send direct messages.'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    from .discord import dm_configured
+    if not dm_configured():
+        return Response({'status': 'error', 'code': 'DISCORD_DM_NOT_SET',
+                         'configured': False,
+                         'message': 'Direct messages are not set up yet.'},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    row = PlatformAccount.objects.filter(user=user, platform='discord',
+                                         connected=True).first()
+    if row is None:
+        return Response({'status': 'error', 'code': 'NOT_LINKED',
+                         'message': 'Connect your Discord account first.'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    if not row.provider_user_id:
+        # Linked before the id was stored. Reconnecting is the only way to get
+        # it, and saying so beats a switch that turns on and never delivers.
+        return Response({'status': 'error', 'code': 'RECONNECT_NEEDED',
+                         'message': 'Disconnect and connect Discord again to '
+                                    'turn on direct messages.'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    row.dm_enabled = bool(request.data.get('enabled'))
+    row.dm_error = ''
+    row.save(update_fields=['dm_enabled', 'dm_error', 'updated_at'])
+
+    return Response({
+        'status': 'success',
+        'data': {'dm_enabled': row.dm_enabled},
+        'message': ('Direct messages on.' if row.dm_enabled
+                    else 'Direct messages off.'),
     })

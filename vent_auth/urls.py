@@ -16,6 +16,10 @@ from .views_admin_games import (
 from .views_admin_matches import admin_tournament_matches
 from .views_kyc_files import kyc_document
 from .views_waitlist import waitlist_claim, waitlist_claim_preview
+from . import views_discord_auth as discord_auth
+from . import views_discord_interactions as discord_interactions
+from . import views_discord_server as discord_guild
+from . import views_discord_webhooks as discord_hooks
 from . import views_linking as linking
 from . import views_cards as cards
 
@@ -133,9 +137,53 @@ urlpatterns = [
     path("wallet/cards/<int:card_id>/default/", cards.set_default_card, name="set_default_card"),
     path("wallet/cards/charge/", cards.charge_saved_card, name="charge_saved_card"),
     path("link/status/", linking.link_status, name="link_status"),
+    # Signing in and signing up WITH Discord. A separate callback from the
+    # linking one on purpose: that one attaches a handle to whoever is already
+    # signed in, this one can create an account, and one URL with two security
+    # stories is how the wrong one gets used.
+    # The Discord channels a tournament or an event announces into. One view
+    # for both owners: building it for tournaments and leaving events until
+    # later is the fault with its own rule.
+    # An organisation driving the bot in its OWN Discord server. Each
+    # capability is granted separately, so the invite an organiser authorises
+    # carries only the permissions they ticked. CEO 7 Sept: "let each
+    # organiser grant only the parts they want."
+    # The one URL Discord POSTs a slash command to. Public because Discord
+    # calls it; the Ed25519 signature is the authentication.
+    path("discord/interactions/", discord_interactions.interactions,
+         name="discord_interactions"),
+    path("discord/guild/callback/", discord_guild.install_callback,
+         name="discord_guild_callback"),
+    path("discord/guild/<str:ref>/install/", discord_guild.install_url,
+         name="discord_guild_install"),
+    path("discord/guild/<str:ref>/servers/", discord_guild.servers,
+         name="discord_guild_servers"),
+    path("discord/guild/<str:ref>/servers/<int:server_id>/",
+         discord_guild.server_detail, name="discord_guild_server"),
+    path("discord/guild/<str:ref>/servers/<int:server_id>/targets/",
+         discord_guild.server_targets, name="discord_guild_targets"),
+    path("discord/guild/<str:ref>/servers/<int:server_id>/post/",
+         discord_guild.server_post, name="discord_guild_post"),
+    path("discord/guild/<str:ref>/servers/<int:server_id>/role/",
+         discord_guild.server_role, name="discord_guild_role"),
+    path("discord/guild/<str:ref>/servers/<int:server_id>/channel/",
+         discord_guild.server_channel, name="discord_guild_channel"),
+    path("discord/guild/<str:ref>/servers/<int:server_id>/purge/",
+         discord_guild.server_purge, name="discord_guild_purge"),
+    path("discord/guild/<str:ref>/servers/<int:server_id>/log/",
+         discord_guild.server_log, name="discord_guild_log"),
+    path("discord/webhooks/<str:kind>/<str:ref>/", discord_hooks.webhooks,
+         name="discord_webhooks"),
+    path("discord/webhooks/<str:kind>/<str:ref>/<int:hook_id>/",
+         discord_hooks.webhook_detail, name="discord_webhook_detail"),
+    path("discord/start/", discord_auth.discord_signin_start,
+         name="discord_signin_start"),
+    path("discord/callback/", discord_auth.discord_signin_callback,
+         name="discord_signin_callback"),
     path("link/<str:provider>/start/", linking.link_start, name="link_start"),
     path("link/discord/callback/", linking.discord_callback, name="discord_link_callback"),
     path("link/steam/callback/", linking.steam_callback, name="steam_link_callback"),
+    path("link/<str:provider>/dm/", linking.link_dm_toggle, name="link_dm_toggle"),
     path("link/<str:provider>/disconnect/", linking.link_disconnect, name="link_disconnect"),
     path("upload-avatar/", upload_avatar, name="upload_avatar"),
     path("upload-banner/", upload_banner, name="upload_banner"),
