@@ -137,15 +137,22 @@ fi
 # A literal backtick, held in a variable so no quoting style has to survive it.
 BT='`'
 for TABLE in vent_auth_users vent_event_ticket vent_tournament_tournament; do
-    # `grep -F` on a plain fixed string, and the table name concatenated in
-    # rather than interpolated inside a quoted pattern.
+    # `grep -cF`, never `grep -q`, and `|| true` on the pipeline.
     #
-    # It was written as "CREATE TABLE \`$TABLE\`", and a backtick inside a
-    # DOUBLE-quoted shell string is command substitution. So the check ran the
-    # table name as a command, matched nothing, and deleted a perfectly good
-    # dump while reporting that vent_auth_users was missing. The refusal was
-    # right; the reason it gave was not.
-    zcat "$DB_FILE" | grep -qF "CREATE TABLE ${BT}${TABLE}${BT}" \
+    # Two separate traps here, and this check hit BOTH:
+    #
+    # 1. It was written as "CREATE TABLE \`$TABLE\`". A backtick inside a
+    #    DOUBLE-quoted shell string is command substitution, so it ran the
+    #    table name as a command. Hence `BT` above: a literal backtick in a
+    #    variable, which no quoting style has to survive.
+    #
+    # 2. `grep -q` EXITS ON THE FIRST MATCH. That closes the pipe, `zcat` takes
+    #    SIGPIPE and exits 141, and `set -o pipefail` at the top of this file
+    #    turns the whole pipeline non-zero. So the check reported the table
+    #    missing precisely BECAUSE it had found it, and deleted a good backup
+    #    to say so. Counting reads the stream to the end and never signals.
+    FOUND=$(zcat "$DB_FILE" | grep -cF "CREATE TABLE ${BT}${TABLE}${BT}" || true)
+    [ "${FOUND:-0}" -ge 1 ] \
         || { rm -f "$DB_FILE"; fail "$TABLE is not in the dump. Kept nothing."; }
 done
 
