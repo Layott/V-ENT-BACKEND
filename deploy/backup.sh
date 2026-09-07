@@ -55,16 +55,34 @@ fail() {
 
 [ -r "$ENV_FILE" ] || fail "cannot read $ENV_FILE"
 
-# The credentials, from the same file Django reads. `set -a` exports them for
-# the subshell; they are unset again immediately after the dump.
-set -a
-# shellcheck disable=SC1090
-. "$ENV_FILE"
-set +a
+# The credentials, from the same file Django reads.
+#
+# READ, never SOURCED. `.env` is a Django environment file, not a shell script,
+# and sourcing it runs it: `DEFAULT_FROM_EMAIL=V-ENT <info@v-ent.co>` made bash
+# die with "syntax error near unexpected token `newline'" because the angle
+# brackets are redirections. Django's own parser does not care, so the file is
+# perfectly valid and the backup was the only thing that broke on it.
+#
+# So one key at a time, value taken literally, quotes stripped, and nothing in
+# the file is ever executed.
+read_env() {
+    local key=$1
+    local line
+    line=$(grep -m1 "^${key}=" "$ENV_FILE") || return 1
+    line=${line#*=}
+    # Strip one layer of surrounding quotes, if present.
+    line=${line%\"}; line=${line#\"}
+    line=${line%'}; line=${line#'}
+    printf '%s' "$line"
+}
 
-: "${DB_NAME:?DB_NAME missing from $ENV_FILE}"
-: "${DB_USER:?DB_USER missing from $ENV_FILE}"
-: "${DB_PASSWORD:?DB_PASSWORD missing from $ENV_FILE}"
+DB_NAME=$(read_env DB_NAME) || fail "DB_NAME missing from $ENV_FILE"
+DB_USER=$(read_env DB_USER) || fail "DB_USER missing from $ENV_FILE"
+DB_PASSWORD=$(read_env DB_PASSWORD) || fail "DB_PASSWORD missing from $ENV_FILE"
+
+[ -n "$DB_NAME" ] || fail "DB_NAME is empty in $ENV_FILE"
+[ -n "$DB_USER" ] || fail "DB_USER is empty in $ENV_FILE"
+[ -n "$DB_PASSWORD" ] || fail "DB_PASSWORD is empty in $ENV_FILE"
 
 mkdir -p "$DEST"
 cd "$DEST"
