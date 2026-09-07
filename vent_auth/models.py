@@ -2169,4 +2169,5 @@ class Feedback(models.Model):
 # The Discord webhook a tournament or an event announces into. Kept in its
 # own module for length, imported here so Django discovers it with every
 # other model in this app.
-from .models_discord import DiscordWebhook   # noqa: E402,F401
+from .models_discord import (DiscordAction, DiscordServer,   # noqa: E402,F401
+                             DiscordWebhook)

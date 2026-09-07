@@ -17,6 +17,7 @@ from .views_admin_matches import admin_tournament_matches
 from .views_kyc_files import kyc_document
 from .views_waitlist import waitlist_claim, waitlist_claim_preview
 from . import views_discord_auth as discord_auth
+from . import views_discord_server as discord_guild
 from . import views_discord_webhooks as discord_hooks
 from . import views_linking as linking
 from . import views_cards as cards
@@ -142,6 +143,30 @@ urlpatterns = [
     # The Discord channels a tournament or an event announces into. One view
     # for both owners: building it for tournaments and leaving events until
     # later is the fault with its own rule.
+    # An organisation driving the bot in its OWN Discord server. Each
+    # capability is granted separately, so the invite an organiser authorises
+    # carries only the permissions they ticked. CEO 7 Sept: "let each
+    # organiser grant only the parts they want."
+    path("discord/guild/callback/", discord_guild.install_callback,
+         name="discord_guild_callback"),
+    path("discord/guild/<str:ref>/install/", discord_guild.install_url,
+         name="discord_guild_install"),
+    path("discord/guild/<str:ref>/servers/", discord_guild.servers,
+         name="discord_guild_servers"),
+    path("discord/guild/<str:ref>/servers/<int:server_id>/",
+         discord_guild.server_detail, name="discord_guild_server"),
+    path("discord/guild/<str:ref>/servers/<int:server_id>/targets/",
+         discord_guild.server_targets, name="discord_guild_targets"),
+    path("discord/guild/<str:ref>/servers/<int:server_id>/post/",
+         discord_guild.server_post, name="discord_guild_post"),
+    path("discord/guild/<str:ref>/servers/<int:server_id>/role/",
+         discord_guild.server_role, name="discord_guild_role"),
+    path("discord/guild/<str:ref>/servers/<int:server_id>/channel/",
+         discord_guild.server_channel, name="discord_guild_channel"),
+    path("discord/guild/<str:ref>/servers/<int:server_id>/purge/",
+         discord_guild.server_purge, name="discord_guild_purge"),
+    path("discord/guild/<str:ref>/servers/<int:server_id>/log/",
+         discord_guild.server_log, name="discord_guild_log"),
     path("discord/webhooks/<str:kind>/<str:ref>/", discord_hooks.webhooks,
          name="discord_webhooks"),
     path("discord/webhooks/<str:kind>/<str:ref>/<int:hook_id>/",

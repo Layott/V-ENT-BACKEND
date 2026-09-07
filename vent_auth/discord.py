@@ -252,3 +252,215 @@ def embed(title, description='', url='', fields=None, image=''):
             for n, v, i in fields[:25]
         ]
     return out
+
+
+# ------------------------------------------------------- acting in a server
+#
+# Everything below acts inside somebody ELSE'S Discord server, at an
+# organiser's instruction. Two differences from the announcement path above:
+#
+#   1. These BLOCK. An organiser pressing "create the channel" has to be told
+#      whether the channel exists, and a fire-and-forget "probably" is not an
+#      answer.
+#   2. Every one is recorded by the caller, success or failure. These change a
+#      community that is not ours.
+
+def _bot_request(method, path, payload=None, what='request'):
+    """One authenticated call as the bot. Returns (ok, data_or_error)."""
+    token = bot_token()
+    if not token:
+        return False, 'The V-ENT bot is not set up on this server yet.'
+    try:
+        res = http.request(method, f'{API}{path}',
+                           json=payload,
+                           headers={'Authorization': f'Bot {token}'},
+                           timeout=TIMEOUT)
+    except Exception as exc:                                    # noqa: BLE001
+        logger.warning('discord %s: %s', what, exc)
+        return False, 'Could not reach Discord.'
+
+    if res.status_code == 429:
+        try:
+            wait = float(res.json().get('retry_after') or 0)
+        except Exception:                                       # noqa: BLE001
+            wait = 0
+        if 0 < wait <= MAX_RETRY_WAIT:
+            time.sleep(wait)
+            return _bot_request(method, path, payload, what)
+        return False, 'Discord is rate limiting this server.'
+
+    if res.status_code in (200, 201, 204):
+        try:
+            return True, res.json() if res.content else {}
+        except Exception:                                       # noqa: BLE001
+            return True, {}
+
+    if res.status_code == 403:
+        # The one an organiser most needs told plainly: the bot is in the
+        # server but its role is not allowed to do this, or its role sits
+        # below the role it is being asked to hand out.
+        return False, ('Discord refused. The bot role may not be high enough, '
+                       'or it is missing that permission.')
+    if res.status_code == 404:
+        return False, 'Discord could not find that. It may have been deleted.'
+
+    logger.warning('discord %s: %s %s', what, res.status_code, res.text[:200])
+    return False, 'Discord rejected that.'
+
+
+def guild(guild_id):
+    """The server as Discord sees it, or an error."""
+    return _bot_request('GET', f'/guilds/{guild_id}', what='guild')
+
+
+def guild_channels(guild_id):
+    return _bot_request('GET', f'/guilds/{guild_id}/channels', what='channels')
+
+
+def guild_roles(guild_id):
+    return _bot_request('GET', f'/guilds/{guild_id}/roles', what='roles')
+
+
+def bot_permissions(guild_id):
+    """What the bot may actually do in this server, right now.
+
+    Read from Discord rather than remembered, because a server owner can change
+    the bot's role an hour after granting anything and our record would still
+    say yes. Returns (permissions_int, error).
+    """
+    ok, me = _bot_request('GET', '/users/@me', what='self')
+    if not ok:
+        return 0, me
+    ok, member = _bot_request(
+        'GET', f'/guilds/{guild_id}/members/{me.get("id")}', what='member')
+    if not ok:
+        return 0, member
+    ok, roles = guild_roles(guild_id)
+    if not ok:
+        return 0, roles
+
+    held = set(member.get('roles') or [])
+    total = 0
+    for role in roles:
+        # @everyone carries the guild id as its role id and always applies.
+        if role.get('id') == str(guild_id) or role.get('id') in held:
+            try:
+                total |= int(role.get('permissions') or 0)
+            except (TypeError, ValueError):
+                pass
+    return total, ''
+
+
+def post_message(channel_id, content='', embed=None, mentions=None):
+    """Say something in a channel, as the bot."""
+    payload = {}
+    if content:
+        payload['content'] = content[:2000]
+    if embed:
+        payload['embeds'] = [embed]
+    if not payload:
+        return False, 'Nothing to send.'
+
+    # Mentions are OPT-IN and enumerated. Discord's default is to ping anything
+    # in the text that looks like a mention, so a tournament named
+    # "@everyone Cup" would notify a whole server the first time it was
+    # announced. Naming exactly who may be pinged makes that impossible by
+    # accident.
+    payload['allowed_mentions'] = {
+        'parse': [],
+        'roles': [str(r) for r in (mentions or {}).get('roles', [])][:20],
+        'users': [str(u) for u in (mentions or {}).get('users', [])][:20],
+    }
+    return _bot_request('POST', f'/channels/{channel_id}/messages', payload,
+                        'post')
+
+
+def add_role(guild_id, user_id, role_id):
+    return _bot_request(
+        'PUT', f'/guilds/{guild_id}/members/{user_id}/roles/{role_id}',
+        what='role add')
+
+
+def remove_role(guild_id, user_id, role_id):
+    return _bot_request(
+        'DELETE', f'/guilds/{guild_id}/members/{user_id}/roles/{role_id}',
+        what='role remove')
+
+
+def create_channel(guild_id, name, kind='text', parent_id=None):
+    """A channel, or a category to put channels in.
+
+    Discord's type 0 is a text channel and 4 is a category. A category is a
+    channel with no parent, which is why one function makes both.
+    """
+    payload = {'name': str(name)[:100],
+               'type': 4 if kind == 'category' else 0}
+    if parent_id and kind != 'category':
+        payload['parent_id'] = str(parent_id)
+    return _bot_request('POST', f'/guilds/{guild_id}/channels', payload,
+                        'create channel')
+
+
+#: Discord's own ceiling on a bulk delete, and it is not negotiable: the
+#: endpoint refuses more than 100 at a time and refuses anything older than two
+#: weeks. Stated here so a screen can explain why rather than the API failing.
+PURGE_MAX = 100
+PURGE_MAX_AGE_DAYS = 14
+
+
+def purge_messages(channel_id, limit, from_user_id=None):
+    """Delete recent messages in a channel, optionally only one person's.
+
+    Returns (ok, {'deleted': n}) or (False, error).
+
+    The read happens first and the delete second, so the number reported is
+    what was actually removed rather than what was asked for. An organiser who
+    asks for 50 and gets 12 needs to be told 12.
+    """
+    limit = max(1, min(int(limit or 0), PURGE_MAX))
+
+    # Fetch more than asked when filtering by author, because the newest 20
+    # messages in a busy channel may hold only two from the person named.
+    fetch = min(PURGE_MAX, limit * 5 if from_user_id else limit)
+    ok, rows = _bot_request('GET',
+                            f'/channels/{channel_id}/messages?limit={fetch}',
+                            what='read for purge')
+    if not ok:
+        return False, rows
+
+    cutoff = time.time() - (PURGE_MAX_AGE_DAYS * 86400)
+    ids = []
+    for row in rows:
+        author = (row.get('author') or {}).get('id')
+        if from_user_id and str(author) != str(from_user_id):
+            continue
+        # Discord refuses to bulk delete anything older than two weeks, and
+        # rejects the WHOLE batch if one message is too old. The creation time
+        # is inside the snowflake, so it can be checked without another call.
+        try:
+            created = ((int(row['id']) >> 22) + 1420070400000) / 1000
+        except (KeyError, TypeError, ValueError):
+            continue
+        if created < cutoff:
+            continue
+        ids.append(row['id'])
+        if len(ids) >= limit:
+            break
+
+    if not ids:
+        return True, {'deleted': 0,
+                      'note': 'Nothing recent enough to delete. Discord will '
+                              'not remove messages older than two weeks.'}
+
+    if len(ids) == 1:
+        # Bulk delete refuses a batch of one, which is the case that happens
+        # constantly when filtering by author.
+        ok, err = _bot_request('DELETE',
+                               f'/channels/{channel_id}/messages/{ids[0]}',
+                               what='delete one')
+        return (True, {'deleted': 1}) if ok else (False, err)
+
+    ok, err = _bot_request('POST',
+                           f'/channels/{channel_id}/messages/bulk-delete',
+                           {'messages': ids}, 'bulk delete')
+    return (True, {'deleted': len(ids)}) if ok else (False, err)

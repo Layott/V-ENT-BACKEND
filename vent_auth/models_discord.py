@@ -110,3 +110,113 @@ class DiscordWebhook(models.Model):
         owner = f'tournament {self.tournament_id}' if self.tournament_id \
             else f'event {self.event_id}'
         return f'discord webhook for {owner}'
+
+
+class DiscordServer(models.Model):
+    """An organisation's own Discord server, and what V-ENT may do in it.
+
+    CEO, 7 September 2026: "let each organiser grant only the parts they want."
+
+    `granted` is what the organiser CHOSE, and it decides what the console
+    offers. Discord's live permissions decide what actually happens, and a
+    server owner can change those at any moment without telling us. When the
+    two disagree, Discord wins and the screen says so. See `discord_server.py`.
+    """
+
+    id = models.AutoField(primary_key=True)
+
+    org = models.ForeignKey('vent_auth.Organization', on_delete=models.CASCADE,
+                            related_name='discord_servers')
+
+    #: Discord's own id for the server. Unique across the platform: two
+    #: organisations cannot both claim the same server, because then "who may
+    #: delete messages here" would have two answers.
+    guild_id = models.CharField(max_length=32, unique=True, db_index=True)
+    guild_name = models.CharField(max_length=120, blank=True, default='')
+    icon = models.CharField(max_length=200, blank=True, default='')
+
+    #: The capabilities the organiser granted. Names from
+    #: `discord_server.CAPABILITIES`, never raw permission integers, so the
+    #: meaning survives Discord renumbering anything.
+    granted = models.JSONField(default=list, blank=True)
+
+    connected_by = models.ForeignKey(Users, on_delete=models.SET_NULL,
+                                     null=True, blank=True,
+                                     related_name='discord_servers_connected')
+    connected_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    #: What Discord last told us the bot may actually do here, and when. Read
+    #: rather than trusted: it is refreshed on every console load, because a
+    #: cached permission is exactly the thing that goes stale silently.
+    live_permissions = models.BigIntegerField(default=0)
+    checked_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=200, blank=True, default='')
+
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['org', 'active'])]
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None:
+            fields = set(update_fields)
+            fields.add('updated_at')
+            kwargs['update_fields'] = tuple(fields)
+        return super().save(*args, **kwargs)
+
+    def may(self, capability):
+        """Both halves: the organiser granted it AND Discord still allows it."""
+        from .discord_server import missing_for, normalise
+        if capability not in normalise(self.granted):
+            return False, 'Your organisation has not granted that.'
+        gaps = missing_for(capability, self.live_permissions or 0)
+        if gaps:
+            return False, ('The bot no longer has permission for that in '
+                           'Discord. Check its role in your server settings.')
+        return True, ''
+
+    def __str__(self):
+        return f'{self.guild_name or self.guild_id} for org {self.org_id}'
+
+
+class DiscordAction(models.Model):
+    """Every action V-ENT took in somebody else's Discord server.
+
+    Kept because these change a community that is not ours: roles given,
+    channels created, messages deleted. "Who told V-ENT to delete forty
+    messages from that person" is a question that gets asked exactly once, and
+    the answer has to exist before it is asked.
+
+    Deliberately written even when the action FAILED, because a run of refusals
+    is the shape of somebody probing what they can get away with.
+    """
+
+    id = models.AutoField(primary_key=True)
+    server = models.ForeignKey(DiscordServer, on_delete=models.CASCADE,
+                               related_name='actions')
+    actor = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True,
+                              blank=True, related_name='discord_actions')
+
+    #: `post`, `role_add`, `role_remove`, `channel_create`, `purge`.
+    kind = models.CharField(max_length=32)
+
+    #: What it was done to: a channel id, a role id, a member id. Free text
+    #: because Discord's ids are strings and the shape differs per kind.
+    target = models.CharField(max_length=120, blank=True, default='')
+
+    #: Enough to reconstruct what happened without storing message content,
+    #: which would make this table a copy of somebody else's server.
+    detail = models.JSONField(default=dict, blank=True)
+
+    ok = models.BooleanField(default=False)
+    error = models.CharField(max_length=200, blank=True, default='')
+    at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-at']
+        indexes = [models.Index(fields=['server', '-at'])]
+
+    def __str__(self):
+        return f'{self.kind} in {self.server_id} by {self.actor_id}'
