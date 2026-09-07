@@ -19,7 +19,12 @@ from .views_waitlist import waitlist_claim, waitlist_claim_preview
 from . import views_linking as linking
 from . import views_cards as cards
 
+from . import views_feedback
+
 urlpatterns = [
+    # Somewhere to say what is wrong. Open to anybody: the wall somebody hit is
+    # sometimes the sign-in page itself.
+    path("feedback/", views_feedback.feedback, name="feedback"),
     # path("admin/", admin.site.urls),
     path('signup/', signup, name='signup'),
     path('verify/<uidb64>/<token>/', verify_token_3, name='verify_token_3'),

@@ -610,6 +610,21 @@ class Ticket(models.Model):
     referral = models.ForeignKey('EventReferral', on_delete=models.SET_NULL,
                                  null=True, blank=True, related_name='tickets')
     purchased_at = models.DateTimeField(auto_now_add=True)
+    # When anything on this row last moved, which is what lets a door ask for
+    # only what changed.
+    #
+    # The attendee list was 648KB and was fetched once at page load, so a
+    # ticket bought after that load was invisible to the door for the rest of
+    # the day. Refreshing it on a timer would have been worse, not better: a
+    # phone on a venue connection re-downloading two thirds of a megabyte every
+    # few seconds starves the very request the door needs. A delta is what
+    # makes refreshing affordable, so this column is not a convenience, it is
+    # the thing the refresh is built on.
+    #
+    # `auto_now` rather than a hand-set field because a check-in, a void, a
+    # reinstate and an attendee edit are all changes a door should see, and
+    # only the model can be relied on to notice all four.
+    updated_at = models.DateTimeField(auto_now=True, db_index=True)
     checked_in_at = models.DateTimeField(null=True, blank=True)
     # Which door. "Already scanned" sends a steward to a supervisor; "scanned at
     # Gate B, 19:42" lets them decide in three seconds, which is the whole
@@ -622,6 +637,27 @@ class Ticket(models.Model):
 
     class Meta:
         ordering = ['-purchased_at']
+
+    def save(self, *args, **kwargs):
+        """Keep `updated_at` honest even when only some fields are written.
+
+        `auto_now` is applied in `pre_save`, but a save carrying `update_fields`
+        writes ONLY the named columns, so the new timestamp is computed and
+        then dropped. Every check-in path here saves that way - check_in_ticket,
+        self_check_in, the void and reinstate in the console - so without this
+        the column would sit at the purchase time for ever and the delta would
+        never return a check-in. The door would look fixed and refresh nothing.
+
+        This is the same fault, and the same remedy, as `sync_slug` adding
+        `slug` to `update_fields` in `vent_auth/slugs.py`. It has bitten this
+        codebase once already; it does not get to bite it twice.
+        """
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None:
+            fields = set(update_fields)
+            fields.add('updated_at')
+            kwargs['update_fields'] = tuple(fields)
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.code} · {self.tier.name} · {self.event.name}"
@@ -1445,3 +1481,73 @@ class ShortLink(models.Model):
 
     def __str__(self):
         return '%s -> %s' % (self.token, self.target)
+
+
+class DoorLookup(models.Model):
+    """Something the door asked the server about, and what came back.
+
+    CEO, 6 September 2026, after an event admitted 1421 people by eye and
+    recorded one: "once Search asks the server on a local miss, every lookup
+    becomes a log line - Do it."
+
+    The question behind it was "can we see who was searched for", and the answer
+    on 4 and 5 September was no. Not because a log had rotated: because the door
+    page filtered a list already sitting in the browser, so a search was never a
+    request and there was nothing anywhere to read. Making Search ask the server
+    fixes the door AND makes the question answerable, and those are the same
+    change.
+
+    A row rather than a log line, deliberately. A log line is grep on a box the
+    organiser cannot reach; a row is something their own console can show them
+    while the door is still open, which is when it is worth anything.
+
+    What it does NOT do is admit anybody. That is the entire point of the
+    endpoint it belongs to: before this, the only way to ask the server about a
+    code was to check it in, so a steward confirming a name had to let them
+    through to find out.
+    """
+
+    # What the door did. A search and a lookup are questions; an undo is a
+    # correction, and it belongs on the same log because they are one story:
+    # somebody was looked up, admitted, and then that was taken back. Keeping
+    # undos somewhere else would mean reading two files to answer "what
+    # happened at the gate", which is the only question anybody ever asks of
+    # this table.
+    KIND_CHOICES = [
+        ('search', 'Search'),
+        ('lookup', 'Code lookup'),
+        ('undo', 'Check-in undone'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE,
+                              related_name='door_lookups')
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES,
+                            default='search', db_index=True)
+    # What was typed. Capped rather than validated: a steward's typo is exactly
+    # the thing worth keeping, so nothing here rejects a term for being odd.
+    term = models.CharField(max_length=120)
+    # Who asked. Null survives the staff account being deleted later, which
+    # should never quietly delete the record of a door.
+    asked_by = models.ForeignKey('vent_auth.Users', on_delete=models.SET_NULL,
+                                 null=True, blank=True,
+                                 related_name='door_lookups')
+    # How many tickets the term matched. Zero is the interesting number: it is
+    # somebody at the gate being turned away, and a run of them is a door in
+    # trouble.
+    matched = models.PositiveIntegerField(default=0)
+    # The one ticket, when the term picked out exactly one. Kept so "who did we
+    # look up" is answerable without re-running a search against a list that
+    # has changed since.
+    ticket = models.ForeignKey(Ticket, on_delete=models.SET_NULL, null=True,
+                               blank=True, related_name='lookups')
+    # Which gate the asking device said it was, so two doors are separable.
+    gate = models.CharField(max_length=60, blank=True, default='')
+    at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-at']
+        indexes = [models.Index(fields=['event', '-at'])]
+
+    def __str__(self):
+        return '%s "%s" -> %d' % (self.event_id, self.term, self.matched)

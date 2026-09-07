@@ -45,8 +45,16 @@ ROOT = _workspace_root()
 
 
 SKIP_DIRS = {
-    'node_modules', '.next', '.git', 'venv', '__pycache__', 'media',
-    '.pytest_cache', 'staticfiles', 'dist', 'build', '.turbo',
+    'node_modules', '.next', '.next-dev', '.git', 'venv', '__pycache__',
+    'media', '.pytest_cache', 'staticfiles', 'dist', 'build', '.turbo',
+    # Per-machine tool configuration, not prose anybody wrote or reads.
+    # `.claude/settings.local.json` records which shell commands have been
+    # allowed on THIS machine, so it accumulates entries like "Bash(npm run:*)"
+    # simply because somebody once declined or approved one. Counting those as
+    # npm usage made the debt ledger report a regression on 7 September 2026
+    # that no human had caused, which is precisely the sort of false alarm that
+    # teaches people to ignore a checker.
+    '.claude',
 }
 
 TEXT_EXT = {

@@ -1,0 +1,22 @@
+{
+  "avatars": {
+    "count": 22,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "prose": {
+    "count": 27,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "slugs": {
+    "count": 21,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "wizard round trip": {
+    "count": 50,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  }
+}

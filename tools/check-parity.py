@@ -180,6 +180,34 @@ PAIRS = [
         'tournament', (BACKEND, 'vent_tournament/urls.py',
                        r'tournament_element_layers'),
     ),
+    (
+        'an uploaded overlay can be moved on both sides',
+        'The Sits control reached the studio graphics only until 4 September. '
+        'An event broadcast has a lower third that has to clear a bug in the '
+        'corner exactly as a tournament does.',
+        'event', (BACKEND, 'vent_tournament/views_overlays.py',
+                  r"def event_overlay_detail"),
+        'tournament', (BACKEND, 'vent_tournament/views_overlays.py',
+                       r"def overlay_detail"),
+    ),
+    (
+        'the payload says which organisation runs this',
+        'A column both endpoints accept and no payload reports is a column no '
+        'screen can show, which is how the organisation field sat unused on '
+        'both sides for weeks. CEO, 4 September: "how to add events or '
+        'tournaments to an organization? i dont see that path".',
+        'event', (BACKEND, 'vent_event/views_promos.py', r"'organization': \("),
+        'tournament', (BACKEND, 'vent_tournament/views.py',
+                       r'"organization": organization'),
+    ),
+    (
+        'a screen can set the organisation',
+        'The event console has a picker and the tournament edit screen has one. '
+        'Built on one side only is what this checker exists for.',
+        'event', (FRONTEND, 'src/app/events/manage/page.js', r'saveOrganization'),
+        'tournament', (FRONTEND, 'src/app/tournaments/edit-tournament/page.js',
+                       r"set\('organization'"),
+    ),
 ]
 
 

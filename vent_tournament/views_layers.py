@@ -30,7 +30,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from . import text_layers
-from .models import BroadcastElement, OverlayTextLayer, TournamentOverlay
+from .models import BroadcastElement, OverlayLayer, TournamentOverlay
 from .production_access import (
     REFUSAL_CODE, find_owner, may_run_production, viewer as _viewer)
 
@@ -99,13 +99,13 @@ def _all(**owner):
     save is what the next reader will get. A response built from the list as it
     was before the write is how a reorder appears to have done nothing.
     """
-    return list(OverlayTextLayer.objects.filter(**owner))
+    return list(OverlayLayer.objects.filter(**owner))
 
 
 def _create(request, rows, **owner):
     """One new layer on whatever `owner` names."""
     data = request.data if isinstance(request.data, dict) else {}
-    row = OverlayTextLayer(**owner)
+    row = OverlayLayer(**owner)
     # Straight after the ones already there, so a layer added mid show paints
     # on top rather than under something.
     row.order = min(len(rows), text_layers.ORDER[1])
@@ -191,7 +191,7 @@ def element_layer_detail(request, kind, ref, session_id, element_kind, layer_id)
     if err:
         return err
 
-    row = OverlayTextLayer.objects.filter(pk=layer_id, element=element).first()
+    row = OverlayLayer.objects.filter(pk=layer_id, element=element).first()
     if row is None:
         return _gone()
 
@@ -243,7 +243,7 @@ def overlay_layer_detail(request, kind, ref, overlay_id, layer_id):
     if overlay is None:
         return _gone('No such overlay.')
 
-    row = OverlayTextLayer.objects.filter(pk=layer_id, overlay=overlay).first()
+    row = OverlayLayer.objects.filter(pk=layer_id, overlay=overlay).first()
     if row is None:
         return _gone()
 

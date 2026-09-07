@@ -18,6 +18,7 @@ from . import views_referrals
 from . import views_map
 from . import views_polls
 from . import views_self_check_in
+from . import views_door
 from . import views_sessions
 from . import views_waitlist
 from . import views_tiers
@@ -116,6 +117,9 @@ urlpatterns = [
          studio_views.event_session_detail, name="event_studio_session_detail"),
     path("<str:event_id>/studio/sessions/<int:session_id>/element/<str:kind>/",
          studio_views.event_element, name="event_studio_element"),
+    # The four layers, the same four an event broadcast gets.
+    path("<str:event_id>/studio/sessions/<int:session_id>/slot/<str:role>/",
+         studio_views.event_slot, name="event_studio_slot"),
     path("<str:event_id>/studio/sessions/<int:session_id>/element/"
          "<str:element_kind>/layers/",
          layer_views.event_element_layers, name="event_studio_element_layers"),
@@ -155,6 +159,22 @@ urlpatterns = [
     path("<str:event_id>/tiers/<int:tier_id>/delete/", views_tiers.delete_tier, name="delete_tier"),
     path("<str:event_id>/buy-ticket/", buy_ticket, name="buy_ticket"),
     path("<str:event_id>/attendees/", event_attendees, name="event_attendees"),
+    # Asking about a ticket WITHOUT admitting anybody. Before these, the only
+    # way to put a code to the server was `check-in/`, which admits as a side
+    # effect, so Search could not use it and the door filtered a snapshot in
+    # the browser instead. See views_door.
+    path("<str:event_id>/door-search/", views_door.door_search,
+         name="door_search"),
+    path("ticket/<str:code>/lookup/", views_door.ticket_lookup,
+         name="ticket_lookup"),
+    # Taking a check-in back. A steward scans the wrong phone constantly, and
+    # without this the number is simply wrong afterwards.
+    path("ticket/<str:code>/undo-check-in/", views_door.undo_check_in,
+         name="undo_check_in"),
+    path("<str:event_id>/door-summary/", views_door.door_summary,
+         name="door_summary"),
+    path("<str:event_id>/door-lookups/", views_door.door_lookups,
+         name="door_lookups"),
     # What the event did: sold, turned up, and what is left.
     path("<str:event_id>/metrics/", views_metrics.event_metrics,
          name="event_metrics"),
