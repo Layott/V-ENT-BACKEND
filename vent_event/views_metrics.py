@@ -39,6 +39,7 @@ from rest_framework.response import Response
 
 from vent_auth.models import Users
 
+from . import attendance
 from .models import Event, EventManager, Ticket, TicketTier
 
 SESSION_TIMEOUT_MINUTES = 60 * 24 * 30
@@ -106,20 +107,31 @@ def _live(event):
 def compute(event):
     """Every number, in one pass per table. Shared by the JSON and the CSV."""
     live = _live(event)
+    # Attendance through the shared counter, never a local copy of the rule.
+    #
+    # This endpoint used to spell the same three counts out by hand, and named
+    # them differently from the door summary: `at_door` here, `at_the_door`
+    # there, and `checked_in` in BOTH for the figure that silently includes
+    # self check-ins. A concept counted in two places drifts, and this one
+    # drifted into the number an organiser makes decisions on.
     totals = live.aggregate(
         issued=Count('id'),
-        checked_in=Count('id', filter=Q(status='checked_in')),
-        at_door=Count('id', filter=Q(status='checked_in') & ~Q(checked_in_gate='self')),
-        by_self=Count('id', filter=Q(status='checked_in', checked_in_gate='self')),
         guests=Count('id', filter=Q(user__isnull=True)),
         vc=Sum('price_vc'),
         ngn=Sum('price_ngn'),
+        **attendance.annotations(),
     )
     refunded = Ticket.objects.filter(event=event, status='refunded').aggregate(
         count=Count('id'), vc=Sum('price_vc'))
 
     issued = totals['issued'] or 0
-    checked_in = totals['checked_in'] or 0
+    # `checked_in` stays the name every existing caller reads, and stays the
+    # TOTAL. What changes is that `verified` now sits beside it, so a screen
+    # can show the number that actually means somebody came.
+    checked_in = totals['total'] or 0
+    totals['checked_in'] = checked_in
+    totals['at_door'] = totals['verified']
+    totals['by_self'] = totals['self_reported']
 
     tiers = []
     for tier in TicketTier.objects.filter(event=event).order_by('id'):
@@ -168,6 +180,11 @@ def compute(event):
             'attendance_rate': round(checked_in * 100.0 / issued, 1) if issued else None,
             'at_door': totals['at_door'] or 0,
             'self_checked_in': totals['by_self'] or 0,
+            # The platform's vocabulary, beside the older names. `verified` is
+            # the figure that means somebody actually came; `checked_in` above
+            # is the total and includes people who said so themselves.
+            'verified': totals['verified'] or 0,
+            'self_reported': totals['self_reported'] or 0,
             'guests': totals['guests'] or 0,
             'account_holders': issued - (totals['guests'] or 0),
         },

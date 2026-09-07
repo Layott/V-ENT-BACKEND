@@ -37,7 +37,7 @@ from vent_auth.models import Users
 
 from .models import Event, Ticket
 
-SELF_GATE = 'self'
+from .attendance import SELF_GATE   # one definition; see attendance.py
 
 
 def _error(message, code, http=status.HTTP_400_BAD_REQUEST, extra=None):
