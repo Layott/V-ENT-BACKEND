@@ -85,6 +85,13 @@ DELIBERATE = {
     # fetched by exactly the same runtime for exactly the same reason.
     'event/<str:event_id>/overlay-feed/':
         'fetched by the overlay runtime inside OBS, not by the site',
+    # A machine endpoint. The card scraper POSTs a batch here with an
+    # `X-Cards-Key` header, and answers 503 INGEST_NOT_CONFIGURED when no key
+    # is set on the server. Giving it a screen would mean putting a shared
+    # secret in a browser, so the right answer here is a reason rather than a
+    # caller.
+    'cards/ingest/':
+        'the card scraper POSTs here with X-Cards-Key; a browser must never hold that key',
 }
 
 
