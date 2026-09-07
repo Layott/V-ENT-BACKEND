@@ -1,0 +1,47 @@
+[Unit]
+# One Next instance, on the port given as the systemd instance name.
+#
+#     systemctl start vent-web@3000
+#     systemctl start vent-web@3001
+#
+# CEO, 7 September 2026: "is it possible for the site to update while people are
+# still using it? and they dont even know what was happening."
+#
+# It is, and this template is how. `vent-web.service` was a single process on
+# 3000, so `systemctl restart vent-web` meant several seconds with nothing
+# listening, and that window is the whole reason a maintenance page ever had to
+# go up for the frontend.
+#
+# Two instances behind an nginx upstream, restarted ONE AT A TIME, means nginx
+# always has somewhere healthy to send a request. A template unit rather than
+# two copies, because two copies drift: the day somebody adds an environment
+# variable to one and not the other is the day half the requests behave
+# differently and nothing looks wrong.
+Description=V-ENT Next.js (standalone) on port %i
+After=network.target
+
+[Service]
+User=vent
+WorkingDirectory=/srv/vent/frontend/.next/standalone
+EnvironmentFile=/srv/vent/frontend/.env.production
+# %i is the instance name, which is the port. PORT is also read by the health
+# endpoint so an answer says which instance gave it.
+Environment=HOSTNAME=127.0.0.1 NODE_ENV=production
+Environment=PORT=%i
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=2
+
+# Tell systemd the unit is only "started" once the port answers, so
+# `systemctl restart` BLOCKS until this instance can actually serve. Without
+# it, a deploy that restarts one instance and immediately restarts the other
+# takes the site down anyway, which is the exact failure two instances exist to
+# prevent.
+ExecStartPost=/bin/sh -c 'for i in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1:%i/api/health && exit 0; sleep 1; done; exit 1'
+TimeoutStartSec=90
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
