@@ -16,6 +16,8 @@ from .views_admin_games import (
 from .views_admin_matches import admin_tournament_matches
 from .views_kyc_files import kyc_document
 from .views_waitlist import waitlist_claim, waitlist_claim_preview
+from . import views_discord_auth as discord_auth
+from . import views_discord_webhooks as discord_hooks
 from . import views_linking as linking
 from . import views_cards as cards
 
@@ -133,9 +135,25 @@ urlpatterns = [
     path("wallet/cards/<int:card_id>/default/", cards.set_default_card, name="set_default_card"),
     path("wallet/cards/charge/", cards.charge_saved_card, name="charge_saved_card"),
     path("link/status/", linking.link_status, name="link_status"),
+    # Signing in and signing up WITH Discord. A separate callback from the
+    # linking one on purpose: that one attaches a handle to whoever is already
+    # signed in, this one can create an account, and one URL with two security
+    # stories is how the wrong one gets used.
+    # The Discord channels a tournament or an event announces into. One view
+    # for both owners: building it for tournaments and leaving events until
+    # later is the fault with its own rule.
+    path("discord/webhooks/<str:kind>/<str:ref>/", discord_hooks.webhooks,
+         name="discord_webhooks"),
+    path("discord/webhooks/<str:kind>/<str:ref>/<int:hook_id>/",
+         discord_hooks.webhook_detail, name="discord_webhook_detail"),
+    path("discord/start/", discord_auth.discord_signin_start,
+         name="discord_signin_start"),
+    path("discord/callback/", discord_auth.discord_signin_callback,
+         name="discord_signin_callback"),
     path("link/<str:provider>/start/", linking.link_start, name="link_start"),
     path("link/discord/callback/", linking.discord_callback, name="discord_link_callback"),
     path("link/steam/callback/", linking.steam_callback, name="steam_link_callback"),
+    path("link/<str:provider>/dm/", linking.link_dm_toggle, name="link_dm_toggle"),
     path("link/<str:provider>/disconnect/", linking.link_disconnect, name="link_disconnect"),
     path("upload-avatar/", upload_avatar, name="upload_avatar"),
     path("upload-banner/", upload_banner, name="upload_banner"),

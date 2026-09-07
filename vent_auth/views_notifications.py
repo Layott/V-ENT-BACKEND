@@ -13,6 +13,7 @@ envelope like the rest of vent_auth.
 """
 import logging
 
+from vent.settings import FRONTEND_URL
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view
@@ -51,7 +52,7 @@ def create_notification(user, category, title, body='', link='', metadata=None):
                 logger.warning('create_notification: no user for id %r', user)
                 return None
 
-        return Notification.objects.create(
+        row = Notification.objects.create(
             user=user,
             category=(category or 'system')[:_CATEGORY_MAX],
             title=(title or '')[:_TITLE_MAX],
@@ -59,9 +60,51 @@ def create_notification(user, category, title, body='', link='', metadata=None):
             link=(link or '')[:_LINK_MAX],
             metadata=metadata if isinstance(metadata, dict) else {},
         )
+
+        # Discord is a DELIVERY CHANNEL on this notification, never a second
+        # notification system. Every one of the 31 sites that already calls
+        # create_notification gets Discord for free, and a new site cannot
+        # accidentally support the inbox and not Discord, because there is only
+        # one call to make.
+        #
+        # It is addressed to `user`, so a person can only ever be sent a
+        # message about their own notification.
+        _deliver_to_discord(row)
+        return row
     except Exception:
         logger.exception('create_notification failed (category=%s)', category)
         return None
+
+
+def _deliver_to_discord(row):
+    """Send this notification on to Discord, if the person asked for that.
+
+    Never raises and never blocks: the transport puts it on its own thread and
+    swallows everything. An unreachable Discord must not stop a notification
+    being written, which is the part that actually matters.
+    """
+    try:
+        from .discord import dm_configured, embed, send_dm
+        from .models import PlatformAccount
+
+        if not dm_configured():
+            return
+
+        link = row.link or ''
+        account = (PlatformAccount.objects
+                   .filter(user_id=row.user_id, platform='discord',
+                           connected=True, dm_enabled=True)
+                   .exclude(provider_user_id='')
+                   .first())
+        if account is None:
+            return
+
+        url = link if link.startswith('http') else (
+            f'{FRONTEND_URL}{link}' if link else '')
+        send_dm(account.provider_user_id,
+                embed=embed(row.title, row.body, url))
+    except Exception:                                           # noqa: BLE001
+        logger.exception('discord delivery failed for notification')
 
 
 # ---------------------------------------------------------------------------

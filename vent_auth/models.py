@@ -512,6 +512,34 @@ class PlatformAccount(models.Model):
     platform = models.CharField(max_length=32)
     display_name = models.CharField(max_length=64, blank=True, default='')
     gamertag = models.CharField(max_length=64, blank=True, default='')
+
+    #: The platform's OWN id for this account. Discord calls it a snowflake;
+    #: Steam calls it a steamid.
+    #:
+    #: Stored because a handle is not an identity. Discord lets anybody rename
+    #: themselves, and the name they had yesterday can be taken by somebody
+    #: else tomorrow, so a handle can neither address a direct message nor
+    #: recognise a returning person at sign-in. The id does both and never
+    #: changes.
+    #:
+    #: Blank on rows linked before this field existed. Nothing may assume it is
+    #: present: a DM is skipped rather than misdelivered, and sign-in falls
+    #: back to refusing rather than guessing.
+    provider_user_id = models.CharField(max_length=64, blank=True, default='',
+                                        db_index=True)
+
+    #: Whether this person wants V-ENT to send them a direct message on
+    #: Discord. Off until they say so: an unasked-for DM from a platform is
+    #: the fastest way to be blocked.
+    dm_enabled = models.BooleanField(default=False)
+
+    #: Why the last DM did not arrive, so a person can be told rather than
+    #: left wondering. Discord refuses a DM when the two of you share no
+    #: server and when the recipient has DMs closed, and neither is a fault
+    #: worth retrying for ever.
+    dm_error = models.CharField(max_length=200, blank=True, default='')
+    dm_last_sent_at = models.DateTimeField(null=True, blank=True)
+
     connected = models.BooleanField(default=False)
     verified = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
@@ -2136,3 +2164,9 @@ class Feedback(models.Model):
     def __str__(self):
         return '%s/%s from %s' % (self.area, self.kind,
                                   self.user or self.email or 'anonymous')
+
+
+# The Discord webhook a tournament or an event announces into. Kept in its
+# own module for length, imported here so Django discovers it with every
+# other model in this app.
+from .models_discord import DiscordWebhook   # noqa: E402,F401
