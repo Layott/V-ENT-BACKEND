@@ -89,9 +89,37 @@ def get_settings(request):
     obj = _get_or_create(user)
     return Response({
         'status': 'success',
-        'data': {'settings': _merged(obj.data or {})},
+        'data': {'settings': _with_real_twofactor(_merged(obj.data or {}), user)},
         'message': 'Settings loaded.',
     })
+
+
+def _with_real_twofactor(settings, user):
+    """Report whether two-factor is ACTUALLY on, not a flag nobody writes.
+
+    CEO, 7 September 2026, looking at the Security panel: "but i have auth
+    already on my account."
+
+    They were right, and the panel was wrong for everybody. `two_factor_enabled`
+    existed only as a default in DEFAULT_SETTINGS: grep the whole app and it is
+    written in exactly zero places. Meanwhile real enrolment lives in
+    `UserTOTP.confirmed`, set by `views_account_security.twofactor_confirm`.
+
+    So the row read "Disabled" no matter what, including for an account with a
+    confirmed authenticator since 27 August.
+
+    This is the same shape as the attendance bug on the door screen: two sources
+    of truth for one fact, and the screen reading the one that is not the
+    truth. The stored flag is now ignored entirely rather than kept in step,
+    because a second copy that has to be synchronised is a second copy that
+    eventually is not.
+    """
+    from .models import UserTOTP
+
+    on = UserTOTP.objects.filter(user=user, confirmed=True).exists()
+    security = dict(settings.get('security') or {})
+    security['two_factor_enabled'] = on
+    return {**settings, 'security': security}
 
 
 def _update_section(request, section):

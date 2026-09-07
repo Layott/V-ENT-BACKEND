@@ -177,8 +177,26 @@ def post_create(request):
         return auth_error
 
     body = (request.data.get('body') or request.data.get('content') or '').strip()
-    if not body:
-        return _error('Write something first.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+
+    # The picture, which creating a post used to drop on the floor.
+    #
+    # CEO, 7 September 2026: "uploading an image and posting it the post doesnt
+    # work." Two faults, and this is both of them:
+    #
+    #  1. This view read `body`, `game` and `club_id` and NOTHING else, so the
+    #     image the compose box sent was ignored. Post.image existed and
+    #     serialize_post already returned it; only creating never set it.
+    #  2. An image with no caption was refused with "Write something first",
+    #     which is wrong on its own terms: a picture IS something.
+    #
+    # `request.FILES` is the real upload. The frontend used to send a data URL
+    # inside a JSON body, which arrives as a string and leaves request.FILES
+    # empty - the same fault as the organisation logo on 4 September.
+    image = request.FILES.get('image')
+
+    if not body and not image:
+        return _error('Write something or attach a picture first.',
+                      'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
     if len(body) > 5000:
         return _error('That post is too long (5,000 characters max).',
                       'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
@@ -194,7 +212,8 @@ def post_create(request):
         if club and club.is_private and not ClubMember.objects.filter(club=club, user=user).exists():
             return _error('You are not a member of that club.', 'FORBIDDEN', status.HTTP_403_FORBIDDEN)
 
-    post = Post.objects.create(author=user, body=body, game=game, club=club)
+    post = Post.objects.create(author=user, body=body, game=game, club=club,
+                               image=image)
     return _created({'post': serialize_post(request, post, user)}, 'Posted.')
 
 
