@@ -2073,3 +2073,66 @@ class UserReport(models.Model):
 
     def __str__(self):
         return 'report %s on %s (%s)' % (self.id, self.reported_id, self.status)
+
+
+class Feedback(models.Model):
+    """Something somebody told us about the platform.
+
+    CEO, 7 September 2026: "Let'salso have a place for feedbck."
+
+    Asked for beside the pricing page, and the two belong together: while
+    everything is free the thing being asked of people is that they use it hard
+    and say what broke, and a page that asks for that with nowhere to put it is
+    the same as not asking.
+
+    **No account required.** The most useful feedback comes from somebody who
+    hit a wall, and a wall is often the sign-in page itself. A signed-in person
+    is recorded as themselves; anybody else may leave an address or not.
+
+    Kept as a row rather than emailed onward, because email is where feedback
+    goes to be read once and lost. A row can be counted, filtered by area, and
+    answered.
+    """
+
+    AREAS = [
+        ('tournaments', 'Tournaments'),
+        ('events', 'Events and tickets'),
+        ('door', 'Check-in and the door'),
+        ('studio', 'Production and streaming'),
+        ('teams', 'Teams and squads'),
+        ('wallet', 'Wallet and payments'),
+        ('community', 'Community'),
+        ('pricing', 'Pricing'),
+        ('other', 'Something else'),
+    ]
+
+    KINDS = [
+        ('broken', 'Something is broken'),
+        ('confusing', 'Something is confusing'),
+        ('missing', 'Something is missing'),
+        ('praise', 'Something works well'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    user = models.ForeignKey('Users', on_delete=models.SET_NULL, null=True,
+                             blank=True, related_name='feedback')
+    # For somebody with no account, and optional even then: demanding an
+    # address before hearing the problem loses the report.
+    email = models.EmailField(blank=True, default='')
+    area = models.CharField(max_length=20, choices=AREAS, default='other')
+    kind = models.CharField(max_length=20, choices=KINDS, default='broken')
+    message = models.TextField()
+    # Where they were when they wrote it. Worth more than most of the message:
+    # "the button does nothing" is unactionable until you know which page.
+    page = models.CharField(max_length=200, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    # Whether somebody has dealt with it. A feedback table nobody marks off is
+    # a feedback table nobody reads twice.
+    handled = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return '%s/%s from %s' % (self.area, self.kind,
+                                  self.user or self.email or 'anonymous')

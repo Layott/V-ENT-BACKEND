@@ -116,6 +116,18 @@ CATCHERS = [
     ('timing model',
      'every date renders in the reader own zone and chosen language',
      FRONTEND, ['node', 'scripts/check-datetime.mjs'], False),
+
+    ('live updates',
+     'a refresh timer a re-render cannot tear down before it fires',
+     FRONTEND, ['node', 'scripts/check-live-updates.mjs'], False),
+
+    ('raw errors',
+     'no developer exception is ever shown to a person',
+     FRONTEND, ['node', 'scripts/check-raw-errors.mjs'], False),
+
+    ('colour variables',
+     'no undefined token, and --primary-bg is never a background',
+     FRONTEND, ['node', 'scripts/check-css-vars.mjs'], True),
 ]
 
 
