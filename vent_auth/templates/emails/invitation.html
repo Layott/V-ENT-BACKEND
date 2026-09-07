@@ -1,0 +1,43 @@
+{% extends "emails/base.html" %}
+{% comment %}
+An invitation to join something, sent to an email address.
+
+CEO, 7 September 2026: "you should be able to type in peoples emails and it
+shows users or just even people who dont have accounts and they receive invites
+to the website and to the org."
+
+For somebody who has no account this email IS the invitation - there is no
+notification to fall back on - so it says all four things somebody needs to act
+on it: what, who, as what, and one link. Signing up with THIS address is what
+attaches the invitation, so the email says that plainly rather than assuming
+anybody would guess.
+{% endcomment %}
+{% block content %}
+<h1 style="margin:0 0 16px; font-size:22px; color:#ffffff;">{{ who }} invited you to {{ what }}</h1>
+
+<p style="margin:0 0 16px; color:#C9C9CF; font-size:15px; line-height:1.6;">
+  You have been invited to join <strong style="color:#ffffff;">{{ what }}</strong>
+  on V-ENT as <strong style="color:#ffffff;">{{ role }}</strong>.
+</p>
+
+{% if message %}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 20px;">
+  <tr>
+    <td style="background-color:#26272C; border-radius:10px; padding:14px 16px; color:#C9C9CF; font-size:14px; line-height:1.6;">
+      {{ message }}
+    </td>
+  </tr>
+</table>
+{% endif %}
+
+{% include "emails/_button.html" with url=join_url label="Open the invitation" %}
+
+<p style="margin:24px 0 0; color:#8A8A93; font-size:13px; line-height:1.6;">
+  No V-ENT account yet? Sign up with this same email address and the invitation
+  will be waiting for you.
+</p>
+
+<p style="margin:12px 0 0; color:#8A8A93; font-size:13px; line-height:1.6;">
+  If you were not expecting this, ignore it. Nothing happens until you accept.
+</p>
+{% endblock %}

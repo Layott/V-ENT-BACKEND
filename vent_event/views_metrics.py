@@ -40,6 +40,7 @@ from rest_framework.response import Response
 from vent_auth.models import Users
 
 from . import attendance
+from . import funnel as _funnel
 from .models import Event, EventManager, Ticket, TicketTier
 
 SESSION_TIMEOUT_MINUTES = 60 * 24 * 30
@@ -210,6 +211,15 @@ def compute(event):
         'engagement': _engagement(event),
         'shop': _shop(event),
         'arrivals_by_hour': _arrivals_by_hour(event),
+        # CEO, 7 September 2026: "how many clicks, how many people opened it
+        # up, how many tapped buy, how many check out vendor".
+        #
+        # Everything above this line counts what HAPPENED. This counts what
+        # nearly happened, which is the only half that says where the event is
+        # losing people. Selling nine tickets to forty people who tapped Buy is
+        # a checkout problem; selling nine to eleven who opened the page is a
+        # marketing problem, and the tickets table reads identically in both.
+        'funnel': _funnel.summary(event),
     }
 
 
@@ -298,7 +308,7 @@ def _csv(rows, header, filename):
 
 @api_view(['GET'])
 def export_metrics(request, event_id):
-    """`?sheet=attendees|sales|tiers`.
+    """`?sheet=attendees|sales|tiers|funnel`.
 
     Not `?format=`, which DRF reserves for content negotiation.
     """
@@ -351,9 +361,17 @@ def export_metrics(request, event_id):
             'checked_in', 'revenue_vc', 'revenue_ngn',
         ], '%s-tiers.csv' % stem)
 
+    if sheet == 'funnel':
+        data = compute(event)['funnel']
+        steps = [r['step'] for r in data['steps'] if r['step'] != 'sold']
+        out = []
+        for day in data['by_day']:
+            out.append([day['date']] + [day.get(k, 0) for k in steps])
+        return _csv(out, ['date'] + steps, '%s-funnel.csv' % stem)
+
     if sheet == 'sales':
         data = compute(event)
         return _csv([[r['date'], r['tickets']] for r in data['sales_by_day']],
                     ['date', 'tickets'], '%s-sales.csv' % stem)
 
-    return _error('Ask for attendees, tiers or sales.', 'VALIDATION_ERROR')
+    return _error('Ask for attendees, tiers, sales or funnel.', 'VALIDATION_ERROR')

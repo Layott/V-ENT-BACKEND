@@ -6,6 +6,12 @@ from . import views_admin_events as admin_events
 
 
 from .views_rankings import games_list
+from .views_follow import follow, followers, following
+from .views_user_activity import user_tournaments, user_events
+from .views_twofactor import (
+    two_factor_start, two_factor_confirm, two_factor_disable,
+    two_factor_status,
+)
 from .views_admin_rates import (
     admin_rates, admin_rate_detail, admin_refresh_rates,
 )
@@ -34,6 +40,24 @@ urlpatterns = [
     path('verify/<uidb64>/<token>/', verify_token_3, name='verify_token_3'),
     path('login/', login, name='login'),
     path('login/2fa/verify/', login_2fa_verify, name='login_2fa_verify'),
+    # Turning it on and off for an ordinary member. The login half above has
+    # existed and worked for a while; there was no way to enrol.
+    path('2fa/start/', two_factor_start, name='two_factor_start'),
+    path('2fa/confirm/', two_factor_confirm, name='two_factor_confirm'),
+    path('2fa/disable/', two_factor_disable, name='two_factor_disable'),
+    path('2fa/status/', two_factor_status, name='two_factor_status'),
+
+    # Following a team or a person, and who follows what. Organisations already
+    # had this; teams and people had no table, no endpoint and no count.
+    # Addressed by slug or username, never by a primary key.
+    # What somebody has taken part in. Both profile history panels have been
+    # fetching these two since they were written and neither route existed, so
+    # both tabs were empty for every account. Found by check-api-paths.mjs.
+    path('user-activity/tournaments/', user_tournaments, name='user_tournaments'),
+    path('user-activity/events/', user_events, name='user_events'),
+    path('follow/mine/', following, name='following_mine'),
+    path('follow/<str:kind>/<str:ref>/', follow, name='follow'),
+    path('follow/<str:kind>/<str:ref>/followers/', followers, name='followers'),
     path('logout/', logout, name='logout'),
     path('dj-rest-auth/', include('dj_rest_auth.urls')),
     path('dj-rest-auth/registration/', include('dj_rest_auth.registration.urls')),
@@ -58,10 +82,10 @@ urlpatterns = [
     path("admin/settings/", admin_settings, name="admin_settings"),
     path("admin/users/", admin_list_users, name="admin_list_users"),
     path("admin/users/bulk/", admin_bulk_user_action, name="admin_bulk_user_action"),
-    path("admin/users/<int:user_id>/", admin_get_user, name="admin_get_user"),
-    path("admin/users/<int:user_id>/ban/", admin_ban_user, name="admin_ban_user"),
-    path("admin/users/<int:user_id>/role/", admin_set_user_role, name="admin_set_user_role"),
-    path("admin/users/<int:user_id>/delete/", admin_delete_user, name="admin_delete_user"),
+    path("admin/users/<str:user_id>/", admin_get_user, name="admin_get_user"),
+    path("admin/users/<str:user_id>/ban/", admin_ban_user, name="admin_ban_user"),
+    path("admin/users/<str:user_id>/role/", admin_set_user_role, name="admin_set_user_role"),
+    path("admin/users/<str:user_id>/delete/", admin_delete_user, name="admin_delete_user"),
     path("admin/tournaments/", admin_list_tournaments, name="admin_list_tournaments"),
     path("admin/events/", admin_list_events, name="admin_list_events"),
     # The console's view of one event: its numbers, its tickets, what was sent.

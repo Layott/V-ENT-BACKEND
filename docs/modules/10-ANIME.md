@@ -1,7 +1,7 @@
-# 10 — Anime Features
+# 10 - Anime Features
 
 **Phase:** 5
-**Status:** ❌ Not built — no code; Landing Page Figma exists showing the feature section; app page stub may exist
+**Status:** ❌ Not built - no code; Landing Page Figma exists showing the feature section; app page stub may exist
 **Design track:** Track A for features referenced in Landing Page Figma; Track B for all other screens
 **Dependencies:** User System (05), Community (14)
 
@@ -9,15 +9,15 @@
 
 ## Module Overview
 
-V-ENT targets the intersection of competitive gaming and anime culture — a significant overlap in the African youth demographic. The Anime module covers:
+V-ENT targets the intersection of competitive gaming and anime culture - a significant overlap in the African youth demographic. The Anime module covers:
 
-1. **Manga Reader** — browser-based manga reading with chapter navigation
-2. **AMV (Anime Music Video) Gallery** — user-uploaded AMVs, like/comment/share
-3. **Co-Reading Rooms** — synchronized reading sessions where multiple users read together in real time
-4. **Anime Catalog** — browsable database of anime series with episode tracking
-5. **Anime Community** — discussions, recommendations, watch parties (overlaps with 14-COMMUNITY.md)
+1. **Manga Reader** - browser-based manga reading with chapter navigation
+2. **AMV (Anime Music Video) Gallery** - user-uploaded AMVs, like/comment/share
+3. **Co-Reading Rooms** - synchronized reading sessions where multiple users read together in real time
+4. **Anime Catalog** - browsable database of anime series with episode tracking
+5. **Anime Community** - discussions, recommendations, watch parties (overlaps with 14-COMMUNITY.md)
 
-**Landing Page reference:** The Figma Landing Page (`3538:12281`) shows an "Anime Feature" section with a tag, heading, description, CTA button, and image grid. This is marketing content — the actual feature screens are not designed.
+**Landing Page reference:** The Figma Landing Page (`3538:12281`) shows an "Anime Feature" section with a tag, heading, description, CTA button, and image grid. This is marketing content - the actual feature screens are not designed.
 
 ---
 
@@ -25,7 +25,7 @@ V-ENT targets the intersection of competitive gaming and anime culture — a sig
 
 | Screen | Status |
 |--------|--------|
-| Anime Feature (Landing Page) | ✅ `3538:12281` (web), `4078:26151` (mobile) — marketing only |
+| Anime Feature (Landing Page) | ✅ `3538:12281` (web), `4078:26151` (mobile) - marketing only |
 | Manga Reader | ❌ Not designed |
 | AMV Gallery | ❌ Not designed |
 | Co-Reading Room | ❌ Not designed |
@@ -39,10 +39,10 @@ V-ENT targets the intersection of competitive gaming and anime culture — a sig
 ```
 src/app/
 └── anime/
-    └── page.js                              # ⚠️ Likely exists (protected route in middleware) — status unknown, probably a stub
+    └── page.js                              # ⚠️ Likely exists (protected route in middleware) - status unknown, probably a stub
 ```
 
-Check `src/app/anime/page.js` — it is listed in middleware's `protectedRoutes` which means the file exists but the page content is unknown. Read before building.
+Check `src/app/anime/page.js` - it is listed in middleware's `protectedRoutes` which means the file exists but the page content is unknown. Read before building.
 
 Planned full structure:
 
@@ -189,13 +189,13 @@ class CoReadingRoom(models.Model):
 
 ### ⬜ Phase 5 (all)
 
-- [ ] Check `src/app/anime/page.js` — read actual content before assuming it's a stub
-- [ ] Design HTML mockups for all anime screens — CEO approval
+- [ ] Check `src/app/anime/page.js` - read actual content before assuming it's a stub
+- [ ] Design HTML mockups for all anime screens - CEO approval
 - [ ] Manga catalog + reader
 - [ ] AMV gallery + upload
 - [ ] Anime series catalog + watchlist
 - [ ] User progress tracking
-- [ ] Co-reading room (requires WebSocket — django-channels)
+- [ ] Co-reading room (requires WebSocket - django-channels)
 - [ ] AMV likes + comments
 - [ ] Content moderation for AMV uploads (admin panel integration)
 - [ ] Mobile manga reader UX (swipe page-flip, full screen mode)

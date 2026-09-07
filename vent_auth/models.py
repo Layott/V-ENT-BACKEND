@@ -678,11 +678,57 @@ class Organization(models.Model):
     full profile - identity, stats, verification. The rest of it lives here now.
     """
 
+    # What KIND of organisation this is.
+    #
+    # CEO, 7 September 2026: "not all orgs will be esports orgs or event orgs,
+    # can just be for teams. so lets manage accordingly."
+    #
+    # Every organisation was assumed to run tournaments and sell tickets, so a
+    # club that exists only to field a squad was asked about ticketing, prize
+    # pools and event consoles it will never use. The type does not RESTRICT
+    # anything - an org that changes what it does changes its type - it decides
+    # what the console leads with and what it stops asking about.
+    #
+    # `mixed` is the honest default for everything created before this existed:
+    # claiming to know is worse than saying it has not been said.
+    TYPE_CHOICES = [
+        ('team', 'Team or club'),
+        ('esports', 'Esports organisation'),
+        ('events', 'Event organiser'),
+        ('brand', 'Brand or sponsor'),
+        ('community', 'Community or fan group'),
+        ('mixed', 'A bit of everything'),
+    ]
+
+    # Which parts of the platform each type actually uses. Read by the API so
+    # the console and the frontend agree without either one holding a second
+    # copy of this table - the two-sources-of-truth fault this codebase keeps
+    # producing.
+    CAPABILITIES_BY_TYPE = {
+        'team':      {'teams': True,  'tournaments': True,  'events': False, 'ticketing': False, 'vendors': False},
+        'esports':   {'teams': True,  'tournaments': True,  'events': True,  'ticketing': True,  'vendors': False},
+        'events':    {'teams': False, 'tournaments': True,  'events': True,  'ticketing': True,  'vendors': True},
+        'brand':     {'teams': False, 'tournaments': False, 'events': True,  'ticketing': True,  'vendors': True},
+        'community': {'teams': True,  'tournaments': True,  'events': True,  'ticketing': False, 'vendors': False},
+        'mixed':     {'teams': True,  'tournaments': True,  'events': True,  'ticketing': True,  'vendors': True},
+    }
+
     org_id = models.AutoField(primary_key=True)
     org_name = models.CharField(max_length=148, unique=True)
     slug = models.SlugField(max_length=160, unique=True, null=True, blank=True, db_index=True)
+    org_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='mixed')
     org_creator = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='created_organizations')
     org_owner = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='owned_organizations')
+
+    def capabilities(self):
+        """What this organisation actually does, from its type.
+
+        A dict rather than a list so the frontend can ask a direct question -
+        `capabilities.ticketing` - instead of searching an array, which is the
+        shape that ends up written two different ways on two screens.
+        """
+        return dict(self.CAPABILITIES_BY_TYPE.get(
+            self.org_type, self.CAPABILITIES_BY_TYPE['mixed']))
 
     # Identity
     tag = models.CharField(max_length=12, blank=True, default='')        # e.g. VEC
@@ -825,7 +871,19 @@ class OrgInvite(models.Model):
     ]
 
     org = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='invites')
-    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='org_invites')
+    # NULL until somebody with this email has an account.
+    #
+    # CEO, 7 September 2026: "you should be able to type in peoples emails and
+    # it shows users or just even people who dont have accounts and they
+    # receive invites to the website and to the org." An organiser knows the
+    # caterer's email address, not their V-ENT username, and being told to find
+    # that out first is how the invite never gets sent.
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, null=True,
+                             blank=True, related_name='org_invites')
+    # Who it was addressed to. Always set, even when `user` is, so an invite
+    # can be found by the address it was sent to whatever happens to the
+    # account afterwards.
+    email = models.EmailField(blank=True, default='', db_index=True)
     invited_by = models.ForeignKey(
         Users, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='org_invites_sent')
@@ -868,12 +926,91 @@ class OrgJoinRequest(models.Model):
 
 
 class OrgFollower(models.Model):
+    """Somebody following an organisation.
+
+    Kept as the organisation's own table because it holds real rows and every
+    organisation screen reads it. `Follow` below is the general form, for
+    teams and people, and the two are reconciled by `follower_count()` rather
+    than by having organisations in both - which would be the same concept in
+    two tables, and this codebase has unpicked that migration once already.
+    """
+
     org = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='followers')
     user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='followed_orgs')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = ('org', 'user')
+
+
+class Follow(models.Model):
+    """One person following a team or another person.
+
+    CEO, 7 September 2026: "org owners should also be able to see their
+    followers, same for teams and users and info on like how many."
+
+    Organisations already had `OrgFollower`. Teams and people had nothing at
+    all - no table, no endpoint, no count - so "same for teams and users" is
+    the whole of this model.
+
+    ONE table for both rather than `TeamFollower` and `UserFollower`, because
+    following is one concept and two tables of it drift: the day somebody adds
+    a mute, or a notification preference, or a blocked flag, they add it to
+    one. `Teams` was defined twice in this codebase and it took a migration to
+    unpick; this is that lesson applied before rather than after.
+    """
+
+    KIND_CHOICES = [
+        ('team', 'Team'),
+        ('user', 'Person'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    follower = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='follows')
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES)
+    # The primary key of the thing being followed. Not a ForeignKey because it
+    # points at two different tables; the pair (kind, target_id) is the address.
+    target_id = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Following twice is not a thing somebody can mean, and without this a
+        # double tap on a slow connection makes two rows and a count of two.
+        unique_together = ('follower', 'kind', 'target_id')
+        indexes = [
+            models.Index(fields=['kind', 'target_id']),
+        ]
+
+    def __str__(self):
+        return f'{self.follower_id} follows {self.kind}:{self.target_id}'
+
+
+def follower_count(kind, target_id):
+    """How many people follow this thing, whatever kind of thing it is.
+
+    One function so a count is computed the same way everywhere. Organisations
+    read their own table; teams and people read `Follow`. Callers do not need
+    to know which, and that is the point: the day organisations move into
+    `Follow`, this is the only place that changes.
+    """
+    if kind == 'org':
+        return OrgFollower.objects.filter(org_id=target_id).count()
+    return Follow.objects.filter(kind=kind, target_id=target_id).count()
+
+
+def is_following(viewer, kind, target_id):
+    """Whether this viewer follows it. False for a signed-out visitor.
+
+    Never `viewer and ...` returning None: a screen reading this puts it
+    straight into `is_following` on the payload, and None there is a third
+    state nothing on the frontend handles.
+    """
+    if viewer is None or not getattr(viewer, 'pk', None):
+        return False
+    if kind == 'org':
+        return OrgFollower.objects.filter(org_id=target_id, user=viewer).exists()
+    return Follow.objects.filter(follower=viewer, kind=kind,
+                                 target_id=target_id).exists()
 
 
 class UserWallet(models.Model):
@@ -1129,6 +1266,11 @@ DEFAULT_ADMIN_SETTINGS = {
         'tournament_fee_pct': 0,
         'withdrawal_fee_pct': 0,
         'listing_fee_pct': 0,
+        # What the platform takes from a ticket sale. Whether the buyer or the
+        # organiser bears it is the EVENT's setting; this is the rate. Stamped
+        # on each ledger line at the sale, so changing it here never rewrites
+        # what an event earned before the change.
+        'ticket_fee_pct': 0,
         'payout_min_vc': 0,
         'topup_max_ngn_per_day': 0,
     },
@@ -1821,9 +1963,13 @@ class TeamInvite(models.Model):
     kind = models.CharField(max_length=10, choices=KIND_CHOICES, default='direct')
     invited_by = models.ForeignKey(Users, on_delete=models.CASCADE,
                                    related_name='team_invites_sent')
-    # Null on a link invite: it is addressed to nobody in particular.
+    # Null on a link invite: it is addressed to nobody in particular. Also null
+    # on a DIRECT invite sent to an email address nobody has claimed yet - see
+    # vent_auth/invites.py, which attaches it the moment they sign up.
     user = models.ForeignKey(Users, on_delete=models.CASCADE, null=True, blank=True,
                              related_name='team_invites_received')
+    # Who a direct invite was addressed to, whether or not they have an account.
+    email = models.EmailField(blank=True, default='', db_index=True)
     # The role they arrive as. An owner inviting a coach should not have to
     # invite them and then change their role in a second step.
     role = models.CharField(max_length=20, default='member')

@@ -1,7 +1,7 @@
-# 14 — Community
+# 14 - Community
 
 **Phase:** 2 (basic), 3+ (advanced features)
-**Status:** ❌ Not built — no design, no code
+**Status:** ❌ Not built - no design, no code
 **Design track:** Track B (self-design required, CEO approval before build)
 **Dependencies:** User System (05), Teams (04), Events (02), Anime (10)
 
@@ -9,15 +9,15 @@
 
 ## Module Overview
 
-The Community module is V-ENT's social layer — the connective tissue between competitive gaming, events, and anime culture. It surfaces user-generated conversations and content in structured community spaces.
+The Community module is V-ENT's social layer - the connective tissue between competitive gaming, events, and anime culture. It surfaces user-generated conversations and content in structured community spaces.
 
 Core features:
-1. **Community Feed** — activity feed showing recent tournaments, events, team activity, and posts from followed users/teams
-2. **Discussion Forums / Threads** — game-specific or topic-specific discussion boards (FIFA tips, PUBG strategies, event announcements)
-3. **User Following** — follow other players, teams, and organizers
-4. **Notifications** — alerts for tournament results, join requests, messages, mentions
-5. **Direct Messages** — 1:1 messaging between users (Phase 3)
-6. **Watch Parties** — scheduled group viewing sessions for live tournament streams (Phase 3)
+1. **Community Feed** - activity feed showing recent tournaments, events, team activity, and posts from followed users/teams
+2. **Discussion Forums / Threads** - game-specific or topic-specific discussion boards (FIFA tips, PUBG strategies, event announcements)
+3. **User Following** - follow other players, teams, and organizers
+4. **Notifications** - alerts for tournament results, join requests, messages, mentions
+5. **Direct Messages** - 1:1 messaging between users (Phase 3)
+6. **Watch Parties** - scheduled group viewing sessions for live tournament streams (Phase 3)
 
 ---
 
@@ -45,7 +45,7 @@ Planned structure:
 ```
 src/app/
 ├── community/
-│   ├── page.js                              # ⬜ Community hub — feed + trending topics
+│   ├── page.js                              # ⬜ Community hub - feed + trending topics
 │   ├── forum/
 │   │   ├── page.js                          # ⬜ Forum category list
 │   │   └── thread/
@@ -69,7 +69,7 @@ src/components/
     ├── FollowButton.js                      # ⬜ Follow/unfollow a user or team
     └── DirectMessages/
         ├── DMInbox.js                       # ⬜ Conversation list
-        └── DMThread.js                      # ⬜ Conversation view (Phase 3 — WebSocket)
+        └── DMThread.js                      # ⬜ Conversation view (Phase 3 - WebSocket)
 ```
 
 ---
@@ -235,23 +235,23 @@ class DirectMessage(models.Model):
 
 ## Acceptance Criteria
 
-### Notification Bell (all pages, Phase 1) — Track C (logic only)
+### Notification Bell (all pages, Phase 1) - Track C (logic only)
 
-This should be built in Phase 1 even though the full community module is Phase 2 — notifications are needed for team join requests, tournament invites, and payout approvals.
+This should be built in Phase 1 even though the full community module is Phase 2 - notifications are needed for team join requests, tournament invites, and payout approvals.
 
 - [ ] `NotificationBell` embedded in `Header` and `MobileHeader`
 - [ ] Polls `GET /notifications/unread-count/` every 60 seconds (or WebSocket in Phase 3)
 - [ ] Badge shows unread count; disappears at 0
 - [ ] Click → `/community/notifications` page or dropdown list
 
-### Notifications Page (`/community/notifications`) — Track B
+### Notifications Page (`/community/notifications`) - Track B
 
 - [ ] Lists all notifications sorted newest first
 - [ ] Unread notifications visually highlighted
 - [ ] "Mark all read" button
 - [ ] Clicking a notification marks it read and navigates to `action_url`
 
-### Community Feed (`/community`) — Track B
+### Community Feed (`/community`) - Track B
 
 - [ ] Fetches personalized feed for current user
 - [ ] Shows: tournament results, event attendances, team joins, posts
@@ -259,7 +259,7 @@ This should be built in Phase 1 even though the full community module is Phase 2
 - [ ] Infinite scroll or "Load more" pagination
 - [ ] "Post something" text input at top
 
-### Forums — Track B
+### Forums - Track B
 
 - [ ] Category list shows: name, description, thread count, last activity
 - [ ] Thread list shows: title, author, reply count, last reply date
@@ -267,7 +267,7 @@ This should be built in Phase 1 even though the full community module is Phase 2
 - [ ] Reply form at bottom (authenticated users only)
 - [ ] Pin/lock threads visible to admins only
 
-### Following — Track B
+### Following - Track B
 
 - [ ] `FollowButton` on user profile, team profile pages
 - [ ] Following a user adds their posts/activity to your feed
@@ -277,7 +277,7 @@ This should be built in Phase 1 even though the full community module is Phase 2
 
 ## Task Checklist
 
-### 🔴 Phase 1 (Partial — Notifications Only)
+### 🔴 Phase 1 (Partial - Notifications Only)
 
 - [ ] `Notification` Django model + notification endpoints
 - [ ] `NotificationBell` component added to `Header` and `MobileHeader`
@@ -286,16 +286,16 @@ This should be built in Phase 1 even though the full community module is Phase 2
 
 ### ⬜ Phase 2 (Full Community)
 
-- [ ] Design HTML mockups for all community screens — CEO approval
+- [ ] Design HTML mockups for all community screens - CEO approval
 - [ ] Community feed page + post creation
 - [ ] Forum categories + thread system
 - [ ] Following system (user follow + team follow)
 - [ ] Like/comment on posts and threads
-- [ ] AI content moderation integration (flags to admin — see 12-AI-FEATURES.md)
+- [ ] AI content moderation integration (flags to admin - see 12-AI-FEATURES.md)
 
 ### ⬜ Phase 3
 
-- [ ] Direct Messages (WebSocket — django-channels)
+- [ ] Direct Messages (WebSocket - django-channels)
 - [ ] Watch parties for live tournament streams
 - [ ] Mention system (`@username` in posts/replies)
 - [ ] Push notifications (browser or mobile PWA)

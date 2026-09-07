@@ -12,7 +12,7 @@ def drop_team_privacy(apps, schema_editor):
     """Reconcile state-only drift: migration 0019 removed `team_privacy` from the
     Teams model STATE but never dropped the column from the DB. On every migrated
     DB the column therefore survives as NOT NULL with no default, which blocks
-    every Teams INSERT (create_team 500'd with MySQL 1364 — this is why zero teams
+    every Teams INSERT (create_team 500'd with MySQL 1364 - this is why zero teams
     ever existed). Drop it if present. Idempotent + no-op on fresh/non-MySQL DBs.
     """
     conn = schema_editor.connection

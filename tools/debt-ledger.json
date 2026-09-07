@@ -1,21 +1,116 @@
 {
+  "api paths": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "ask register": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
   "avatars": {
-    "count": 22,
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "colour variables": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "control bytes": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "css classes": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "dangling refs": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "dead ticket codes": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "design bans": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "dictionary parity": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "live updates": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "one model": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "parity": {
+    "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
   "prose": {
-    "count": 27,
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "raw errors": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "seo": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "signed out": {
+    "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
   "slugs": {
-    "count": 21,
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "timezone picker": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "timing model": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "translation keys": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "user chips": {
+    "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
   "wizard round trip": {
-    "count": 50,
+    "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   }

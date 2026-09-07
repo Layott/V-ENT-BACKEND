@@ -120,6 +120,14 @@ CATCHERS = [
      'every date renders in the reader own zone and chosen language',
      FRONTEND, ['node', 'scripts/check-datetime.mjs'], False),
 
+    ('api paths',
+     'every path the frontend fetches is one the backend serves',
+     FRONTEND, ['node', 'scripts/check-api-paths.mjs'], True),
+
+    ('timezone picker',
+     'every zone is offered, and every date format value resolves',
+     FRONTEND, ['node', 'scripts/check-timezone-picker.mjs'], True),
+
     ('live updates',
      'a refresh timer a re-render cannot tear down before it fires',
      FRONTEND, ['node', 'scripts/check-live-updates.mjs'], False),
@@ -131,6 +139,22 @@ CATCHERS = [
     ('colour variables',
      'no undefined token, and --primary-bg is never a background',
      FRONTEND, ['node', 'scripts/check-css-vars.mjs'], True),
+
+    # A ticket that has been given away gets a new code and the old one stops
+    # resolving. Six endpoints resolve a ticket by code; the transferred answer
+    # was added to one of them and the scanner still said "Not on the list",
+    # because the scanner posts to a different endpoint. Twice in one hour on
+    # 7 September, so it gets a catcher.
+    # Five row numbers each had TWO rows on 7 September, an early "todo" and a
+    # later "done", which left the register unable to answer what the state of
+    # row 50 was. A register that cannot be read is not a register.
+    ('ask register',
+     'one row per ask, every row says what became of it',
+     ROOT, ["python", "tools/check-inbox.py"], True),
+
+    ('dead ticket codes',
+     'a transferred code is named, not called unknown, at every door',
+     ROOT, ["python", "tools/check-dead-codes.py"], True),
 ]
 
 
@@ -189,6 +213,43 @@ def _save_ledger(data):
         fh.write('\n')
 
 
+
+def compare(tracked, ledger, today):
+    """What changed since the last run.
+
+    `tracked` is (name, last_line, count) for EVERY checker, clean ones
+    included at 0 - see the classifier in main() for why that matters.
+
+    Returns (risen, stuck, fell, ledger). `ledger` is mutated and returned so
+    the caller saves one object. `fell` carries None for a first sighting: it
+    has to be saved, but there is nothing to announce.
+
+    A risen count is deliberately NOT written back. The ceiling stays where it
+    was so the next run fails too, until somebody actually brings it down.
+    That is the promise the header makes and the reason this is not simply
+    "record the latest number".
+    """
+    risen, stuck, fell = [], [], []
+    for name, last, now in tracked:
+        was = ledger.get(name)
+        if was is None:
+            ledger[name] = {'count': now, 'since': today, 'first_seen': today}
+            fell.append(None)
+            continue
+        if now > was['count']:
+            risen.append((name, was['count'], now, last))
+        elif now < was['count']:
+            fell.append((name, was['count'], now))
+            ledger[name] = {'count': now, 'since': today,
+                            'first_seen': was.get('first_seen', today)}
+        else:
+            days = (datetime.date.fromisoformat(today)
+                    - datetime.date.fromisoformat(was['since'])).days
+            if days >= STALE_DAYS:
+                stuck.append((name, now, days, last))
+    return risen, stuck, fell, ledger
+
+
 def run(cwd, command):
     try:
         done = subprocess.run(command, cwd=cwd, capture_output=True,
@@ -204,6 +265,9 @@ def main():
 
     failed_blocking = []
     debt = []
+    # Every checker's number, clean ones included. See the note in the
+    # classifier below for why a clean checker is recorded rather than skipped.
+    tracked = []
 
     print('%-20s %-9s %s' % ('CATCHER', 'RESULT', 'LAST LINE'))
     print('-' * 96)
@@ -219,12 +283,23 @@ def main():
             failed_blocking.append((name, rule, last))
         elif code == 0:
             state = 'clean'
+            # Recorded at ZERO, which is the whole point. A checker that
+            # reaches 0 used to drop out of the ledger entirely and freeze at
+            # whatever it last failed with, so climbing back to that number
+            # read as "unchanged" and twenty-one real breaches could return in
+            # silence. The count is not PARSED here: exit 0 is the statement
+            # that there are no faults, and it is exact where reading the
+            # first integer off "650 route(s) checked, 0 fetch(es)" is a guess.
+            tracked.append((name, last, 0))
         elif blocking:
             state = 'BREACH'
             failed_blocking.append((name, rule, last))
         else:
             state = 'debt'
             debt.append((name, last))
+            n = _count(last)
+            if n is not None:
+                tracked.append((name, last, n))
 
         print('%-20s %-9s %s' % (name, state, last[:66]))
 
@@ -235,29 +310,8 @@ def main():
     # Recorded rather than merely printed. See the note above the ledger.
     ledger = _load_ledger()
     today = datetime.date.today().isoformat()
-    risen, stuck, fell = [], [], []
 
-    for name, last in debt:
-        now = _count(last)
-        if now is None:
-            continue
-        was = ledger.get(name)
-        if was is None:
-            ledger[name] = {'count': now, 'since': today, 'first_seen': today}
-            continue
-        if now > was['count']:
-            risen.append((name, was['count'], now, last))
-            # Not written back. The ceiling stays where it was, so the next run
-            # fails too until somebody actually brings it down.
-        elif now < was['count']:
-            fell.append((name, was['count'], now))
-            ledger[name] = {'count': now, 'since': today,
-                            'first_seen': was.get('first_seen', today)}
-        else:
-            days = (datetime.date.today()
-                    - datetime.date.fromisoformat(was['since'])).days
-            if days >= STALE_DAYS:
-                stuck.append((name, now, days, last))
+    risen, stuck, fell, ledger = compare(tracked, ledger, today)
 
     if '--record' in sys.argv or fell:
         _save_ledger(ledger)
@@ -275,9 +329,10 @@ def main():
             print('  %-18s %s%s' % (name, last[:60], age))
         print('')
 
-    if fell:
+    dropped = [row for row in fell if row is not None]
+    if dropped:
         print('Down since the last run, and the new number is now the ceiling:')
-        for name, was, now in fell:
+        for name, was, now in dropped:
             print('  %-18s %d -> %d' % (name, was, now))
         print('')
 

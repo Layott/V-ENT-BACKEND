@@ -80,6 +80,11 @@ def _ngn_to_coins(amount_ngn):
     return int(float(amount_ngn) // NGN_PER_COIN)
 
 
+def _fee_rate():
+    from . import ledger as _ledger
+    return _ledger.platform_rate()
+
+
 def _new_code():
     while True:
         code = 'VT-' + ''.join(secrets.choice(CODE_ALPHABET) for _ in range(8))
@@ -248,6 +253,14 @@ def ticket_types(request, event_id):
             # somebody wondering whether anything happened.
             'unlocked': [t.name for t in unlocked],
             'hidden_count': len(tiers) - len(visible),
+            # Who bears the platform fee, and how much it is. Sent with the
+            # PRICES rather than discovered at the checkout, because the buy
+            # panel has to say the number before somebody commits to a
+            # quantity, never as a surprise line after they have typed their
+            # details. 0 per cent is the ordinary case and the panel says
+            # nothing at all.
+            'fee_bearer': event.fee_bearer,
+            'fee_pct': _fee_rate(),
         },
         'Ticket tiers retrieved.',
     )
@@ -385,12 +398,19 @@ def buy_ticket(request, event_id):
             return _error(str(exc), 'FIELD_REQUIRED',
                           status.HTTP_400_BAD_REQUEST, field=exc.field)
 
-        # Early bird and group rates. `price_for` decides, so the two cannot
-        # drift between the screen that shows a price and the code that charges
-        # one.
-        unit_ngn = tier.price_for(quantity)
-        unit_vc = _ngn_to_coins(unit_ngn)
-        total_vc = unit_vc * quantity
+        # Early bird and group rates, and who bears the platform fee. `quote`
+        # decides both, so the screen showing a price and the code charging one
+        # cannot drift. That is not hypothetical: the listing and the checkout
+        # answered different questions about availability once, and it read as
+        # "sold out" with 4814 tickets left.
+        from . import ledger as _ledger
+        priced = _ledger.quote(tier, quantity, event)
+        unit_ngn = priced['unit_ngn']
+        unit_vc = priced['unit_vc']
+        # What leaves the buyer's wallet. With the fee on the organiser this is
+        # the ticket price; with it on the buyer it is the price plus the fee,
+        # and the panel told them the number before they got here.
+        total_vc = priced['total_vc']
 
         wallet = UserWallet.objects.select_for_update().filter(user=user).first()
         if wallet is None:
@@ -443,7 +463,14 @@ def buy_ticket(request, event_id):
         # since they arrived is sent here too. An unknown or switched-off code
         # credits nobody and is never a reason to refuse the sale.
         from . import referrals as _refs
-        _refs.attribute(tickets, _refs.resolve(event, request.data.get('ref')))
+        _referral = _refs.resolve(event, request.data.get('ref'))
+        _refs.attribute(tickets, _referral)
+
+        # Who is owed what, written in the same transaction as the sale. A
+        # ticket with no ledger line is money that arrived and is owed to
+        # nobody, which is invisible until somebody asks where their takings
+        # are.
+        _ledger.record_sale(event, tickets, priced, referral=_referral)
 
         # The offer is spent, inside the same transaction as the purchase.
         # Leaving it standing would let one person in the queue buy every
@@ -478,6 +505,9 @@ def buy_ticket(request, event_id):
             'tickets': [serialize_ticket(t) for t in tickets],
             'quantity': quantity,
             'total_vc': total_vc,
+            'tickets_vc': priced['tickets_vc'],
+            'fee_vc': priced['fee_vc'] if priced['fee_bearer'] == 'buyer' else 0,
+            'fee_bearer': priced['fee_bearer'],
             'wallet_balance': UserWallet.objects.get(user=user).wallet_balance,
             'new_balance': UserWallet.objects.get(user=user).wallet_balance,
         },
@@ -547,6 +577,12 @@ def check_in_ticket(request, code):
 
     ticket = Ticket.objects.select_related('event', 'tier', 'user').filter(code=code.upper()).first()
     if ticket is None:
+        from .transfers import transferred_away
+        moved = transferred_away(code)
+        if moved is not None:
+            return _error('That code was transferred and no longer works.',
+                          'TICKET_TRANSFERRED', status.HTTP_409_CONFLICT,
+                          extra=moved)
         return _error('No ticket with that code.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
     # The creator, somebody they put on the door, or the organisation's own

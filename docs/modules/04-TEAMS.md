@@ -1,7 +1,7 @@
-# 04 — Teams
+# 04 - Teams
 
 **Phase:** 1 MVP (team selection is required for tournament registration)
-**Status:** 🟡 Partially built — UI shells exist, all data is hardcoded
+**Status:** 🟡 Partially built - UI shells exist, all data is hardcoded
 **Design track:** Track A (Figma designs exist at node `1126:15009`)
 **Dependencies:** User System (05), Tournament Registration (01)
 
@@ -11,12 +11,12 @@
 
 Teams allow players to group together under a shared identity and compete as a unit in team-format tournaments. The Teams module covers:
 
-1. **All Teams page** — browsable list of all teams; tabs for "All", "Owned by me", "Other teams"
-2. **Team Profile** — public view with tabs: Overview, Members, Activity (tournament/event history), Stats
-3. **Edit Team Profile** — organizer view with tabs: Profile Info, Web & Social Links, Membership settings
-4. **Team Modals** — Create Team, Add Member, Transfer Ownership, Assign Role, Join Request (designed in Figma)
+1. **All Teams page** - browsable list of all teams; tabs for "All", "Owned by me", "Other teams"
+2. **Team Profile** - public view with tabs: Overview, Members, Activity (tournament/event history), Stats
+3. **Edit Team Profile** - organizer view with tabs: Profile Info, Web & Social Links, Membership settings
+4. **Team Modals** - Create Team, Add Member, Transfer Ownership, Assign Role, Join Request (designed in Figma)
 
-**Critical issue:** `AllTeams.js` renders hardcoded `cardsData` from `cardDataList.js` — no API call is made. Team Profile tabs also render hardcoded list files (`membersList.js`, `requestList.js`, `teamProfileTournamentsList.js`, `teamEventsList.js`). No API integration exists anywhere in this module.
+**Critical issue:** `AllTeams.js` renders hardcoded `cardsData` from `cardDataList.js` - no API call is made. Team Profile tabs also render hardcoded list files (`membersList.js`, `requestList.js`, `teamProfileTournamentsList.js`, `teamEventsList.js`). No API integration exists anywhere in this module.
 
 ---
 
@@ -25,20 +25,20 @@ Teams allow players to group together under a shared identity and compete as a u
 | Screen | nodeId | Status |
 |--------|--------|--------|
 | All Teams (grid) | `1126:15009` | ✅ Designed (web + mobile) |
-| Team Profile — Overview | within `1126:15009` | ✅ Designed (web + mobile) |
-| Team Profile — Members | within `1126:15009` | ✅ Designed (web + mobile) |
-| Team Profile — Join Requests | within `1126:15009` | ✅ Designed (web + mobile) |
-| Activity — Tournament History | within `1126:15009` | ✅ Web, ❌ Mobile missing |
-| Activity — Event History | within `1126:15009` | ✅ Web, ❌ Mobile missing |
+| Team Profile - Overview | within `1126:15009` | ✅ Designed (web + mobile) |
+| Team Profile - Members | within `1126:15009` | ✅ Designed (web + mobile) |
+| Team Profile - Join Requests | within `1126:15009` | ✅ Designed (web + mobile) |
+| Activity - Tournament History | within `1126:15009` | ✅ Web, ❌ Mobile missing |
+| Activity - Event History | within `1126:15009` | ✅ Web, ❌ Mobile missing |
 | Edit Team Profile | within `1126:15009` | ✅ Designed (web + mobile) |
 | Edit Social Links | within `1126:15009` | ✅ Designed |
-| Team Settings — Membership | within `1126:15009` | ✅ Designed |
+| Team Settings - Membership | within `1126:15009` | ✅ Designed |
 | Team Stats Overview | within `1126:15009` | ✅ Web, ❌ Mobile missing |
 | Create Team (modal) | within `1126:15009` | ✅ Multi-step modal |
 | Add Member (modal) | within `1126:15009` | ✅ Search / invite / invited states |
 | Transfer Ownership (modal) | within `1126:15009` | ✅ |
 | Assign Role (modal) | within `1126:15009` | ✅ |
-| Team Wallet | BIN section | 🗑️ Deprecated — needs redesign |
+| Team Wallet | BIN section | 🗑️ Deprecated - needs redesign |
 
 ---
 
@@ -47,25 +47,25 @@ Teams allow players to group together under a shared identity and compete as a u
 ```
 src/app/
 ├── teams/
-│   ├── page.js                              # ✅ Shell exists — renders AllTeams component
+│   ├── page.js                              # ✅ Shell exists - renders AllTeams component
 │   └── team-profile/
-│       └── page.js                          # ✅ Shell exists — renders tab layout
+│       └── page.js                          # ✅ Shell exists - renders tab layout
 └── edit-team-profile/
-    └── page.js                              # ✅ Shell exists — 3 sidebar tabs
+    └── page.js                              # ✅ Shell exists - 3 sidebar tabs
 
 src/components/
 ├── teams/
 │   └── all-teams/
 │       ├── AllTeams.js                      # ⚠️ Hardcoded cardsData, no API call, "View Profile" link goes to /teams/team-profile (no ID)
-│       └── cardDataList.js                  # ❌ Hardcoded mock data — must be replaced with API
+│       └── cardDataList.js                  # ❌ Hardcoded mock data - must be replaced with API
 
 ├── team-profile/
 │   ├── team-profile-banner/
-│   │   └── TeamProfileBanner.js             # ⚠️ Likely hardcoded — no props, no fetch
+│   │   └── TeamProfileBanner.js             # ⚠️ Likely hardcoded - no props, no fetch
 │   ├── team-profile-bio/
-│   │   └── TeamProfileBio.js                # ⚠️ Likely hardcoded — no props, no fetch
+│   │   └── TeamProfileBio.js                # ⚠️ Likely hardcoded - no props, no fetch
 │   ├── team-profile-overview-left/
-│   │   └── TeamProfileOverviewLeft.js       # ⚠️ Status unknown — likely static
+│   │   └── TeamProfileOverviewLeft.js       # ⚠️ Status unknown - likely static
 │   ├── team-profile-overview-right/
 │   │   ├── TeamProfileOverviewRight.js      # ⚠️ Status unknown
 │   │   ├── team-profile-achievements/
@@ -73,9 +73,9 @@ src/components/
 │   │   ├── team-profile-stats/
 │   │   │   └── TeamProfileStats.js          # ⚠️ Status unknown
 │   │   └── team-profile-wallet-penalty/
-│   │       └── TeamProfileWalletPenalty.js  # ⚠️ Wallet penalty — status unknown
+│   │       └── TeamProfileWalletPenalty.js  # ⚠️ Wallet penalty - status unknown
 │   ├── team-profile-gallery/
-│   │   └── TeamProfileGallery.js            # ⚠️ Used for "Stats" tab — status unknown
+│   │   └── TeamProfileGallery.js            # ⚠️ Used for "Stats" tab - status unknown
 │   ├── team-profile-members/
 │   │   ├── TeamProfileMembers.js            # ⚠️ Renders tabs (Members / Join Requests)
 │   │   ├── MembersTabComponent.js           # ⚠️ Uses hardcoded membersList.js
@@ -97,9 +97,9 @@ src/components/
     ├── edit-team-profile-info/
     │   ├── EditTeamProfileInfo.js            # ⚠️ Renders sub-components (likely hardcoded)
     │   ├── edit-profile-image-avatar/
-    │   │   └── EditProfileImageAvatar.js     # ⚠️ Avatar upload — status unknown
+    │   │   └── EditProfileImageAvatar.js     # ⚠️ Avatar upload - status unknown
     │   ├── edit-team-profile-banner/
-    │   │   └── EditTeamProfileBanner.js      # ⚠️ Banner upload — status unknown
+    │   │   └── EditTeamProfileBanner.js      # ⚠️ Banner upload - status unknown
     │   ├── edit-team-profile-core-game/
     │   │   ├── EditTeamProfileCoreGame.js    # ⚠️ Game selector
     │   │   └── interests.js                  # Static list of games
@@ -120,7 +120,7 @@ src/components/
 
 ## API Endpoints
 
-### Current (None — all data is hardcoded)
+### Current (None - all data is hardcoded)
 
 No API calls exist in the Teams module.
 
@@ -276,7 +276,7 @@ class TeamSocialLink(models.Model):
 
 ## Acceptance Criteria
 
-### All Teams Page (`/teams`) — Track A
+### All Teams Page (`/teams`) - Track A
 
 **Pre-condition:** User is authenticated.
 
@@ -289,9 +289,9 @@ class TeamSocialLink(models.Model):
 - [ ] Empty state shown if user has no owned/other teams in those tabs
 - [ ] Loading skeleton while fetching
 
-### Team Profile (`/teams/team-profile?id=...`) — Track A
+### Team Profile (`/teams/team-profile?id=...`) - Track A
 
-**Pre-condition:** Publicly viewable (or requires auth — confirm with CEO).
+**Pre-condition:** Publicly viewable (or requires auth - confirm with CEO).
 
 - [ ] Reads team ID from `?id=` URL param; fetches `GET /team/view-team/{id}/`
 - [ ] Banner and bio render real data from API
@@ -302,17 +302,17 @@ class TeamSocialLink(models.Model):
 - [ ] If viewer is the team captain: edit button visible, join requests visible in Members tab
 - [ ] If viewer is not captain: "Request to Join" button (if team `open_to_join: true`)
 
-### Edit Team Profile (`/edit-team-profile?id=...`) — Track A
+### Edit Team Profile (`/edit-team-profile?id=...`) - Track A
 
 **Pre-condition:** User is the team captain.
 
-- [ ] Only accessible if current user is team owner — redirect otherwise
+- [ ] Only accessible if current user is team owner - redirect otherwise
 - [ ] **Profile Info tab:** logo upload, banner upload, name, bio, core game selector, interests multi-select; submits `PATCH /team/edit-team/{id}/` as multipart/form-data
 - [ ] **Web & Social Links tab:** fields for Twitter, Instagram, Discord, Facebook, YouTube, Twitch; submits to same endpoint
 - [ ] **Membership tab:** toggle open/closed join requests; submits `PATCH /team/membership-settings/{id}/`
 - [ ] Success/error feedback after each save
 
-### Create Team Modal — Track A
+### Create Team Modal - Track A
 
 - [ ] Multi-step modal matching Figma design
 - [ ] Step 1: team name, core game, bio
@@ -322,7 +322,7 @@ class TeamSocialLink(models.Model):
 - [ ] Submits `POST /team/create-team/`
 - [ ] On success: redirects to new team profile
 
-### Add Member Modal — Track A
+### Add Member Modal - Track A
 
 - [ ] Search field searches users by username
 - [ ] Shows "Invite" button per result; "Invited" state after click
@@ -334,9 +334,9 @@ class TeamSocialLink(models.Model):
 
 ### 🔴 Critical (blocking tournament registration)
 
-- [ ] Build `GET /team/get-all-teams/` and `GET /team/get-user-teams/` — needed for tournament registration team selector
-- [ ] Fix `AllTeams.js` — replace `cardDataList.js` with real API fetch
-- [ ] Fix team profile links — add `?id=` to "View Profile" anchor
+- [ ] Build `GET /team/get-all-teams/` and `GET /team/get-user-teams/` - needed for tournament registration team selector
+- [ ] Fix `AllTeams.js` - replace `cardDataList.js` with real API fetch
+- [ ] Fix team profile links - add `?id=` to "View Profile" anchor
 - [ ] Build `GET /team/view-team/{id}/` and wire to team profile components
 
 ### 🔴 Critical (blocking team self-management)

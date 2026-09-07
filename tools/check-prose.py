@@ -80,6 +80,28 @@ NPM_EXEMPT = (
     'package-lock.json',
 )
 
+# An ARCHIVED plan records what was actually run at the time. Rewriting it to
+# say pnpm would make the record claim something that did not happen, which is
+# worse than the mention. A new plan is not an archive and is not exempt.
+NPM_EXEMPT_PREFIX = (
+    'tasks/todo-archive-',
+)
+
+# A line can NAME npm without telling anybody to run it: the rule itself, a
+# lesson recording why it is banned, a risk register listing "someone runs npm
+# install" as the risk it is guarding against.
+#
+# Five of the eight hits left on 7 September 2026 were exactly that, and a
+# checker that cannot tell an instruction from a warning about the same thing
+# produces a count nobody works down. That is how the fourteen real ones sat
+# behind them for weeks while the number was printed on every commit.
+DESCRIBES_THE_BAN = re.compile(
+    r"\b(?:never|do not|don't|banned|ban|virus|supply-chain|contamination|"
+    r"accidentally|must not|no longer|instead of|does not require|"
+    r"rather than|vs\.? pnpm|pnpm vs)\b",
+    re.IGNORECASE,
+)
+
 
 def walk():
     for base, dirs, names in os.walk(ROOT):
@@ -104,7 +126,8 @@ def main():
         scanned += 1
 
         exempt_dash = any(rel.endswith(e) for e in DASH_EXEMPT)
-        exempt_npm = any(rel.endswith(e) for e in NPM_EXEMPT)
+        exempt_npm = (any(rel.endswith(e) for e in NPM_EXEMPT)
+                      or any(p in rel for p in NPM_EXEMPT_PREFIX))
 
         for number, line in enumerate(lines, 1):
             if not exempt_dash and (EM_DASH in line or EN_DASH in line):
@@ -113,9 +136,10 @@ def main():
 
             if exempt_npm:
                 continue
-            # `npm ` as a command, not the word inside pnpm or a URL.
-            if re.search(r'(?<![\w.-])npm\s+(?:install|run|test|ci|create|i)\b',
-                         line):
+            # `npm ` as a command, not the word inside pnpm or a URL, and not
+            # a line whose whole point is that npm is banned.
+            if (re.search(r'(?<![\w.-])npm\s+(?:install|run|test|ci|create|i)\b', line)
+                    and not DESCRIBES_THE_BAN.search(line)):
                 npm_hits.append((rel, number, line.strip()[:90]))
 
     for rel, number, which, text in dash_hits[:40]:
@@ -133,10 +157,62 @@ def main():
 
     print('')
     print('%d file(s) scanned' % scanned)
-    print('%d em/en dash(es)' % len(dash_hits))
-    print('%d npm command(s)' % len(npm_hits))
+    # ONE closing line carrying BOTH numbers, because check-all reads the last
+    # line and records the number it finds. It used to end on the npm count, so
+    # once that reached 0 the ledger printed "prose  debt  0 npm command(s)" -
+    # a debt row with nothing in it, beside 3128 dashes nobody was tracking.
+    # A number nobody can act on is the thing the CEO objected to on
+    # 7 September; a row saying zero is worse, because it looks acted on.
+    print('%d em/en dash(es) and %d npm command(s) outstanding'
+          % (len(dash_hits), len(npm_hits)))
     return 1 if (dash_hits or npm_hits) else 0
 
 
+def _npm_hit(line):
+    """Whether one line counts as telling somebody to run npm."""
+    return bool(
+        re.search(r'(?<![\w.-])npm\s+(?:install|run|test|ci|create|i)\b', line)
+        and not DESCRIBES_THE_BAN.search(line)
+    )
+
+
+# Every fixture is a real line from this repository: the ones that had to be
+# fixed, and the ones that must be left alone. A checker reporting 0 means
+# "clean" or "broken", and only this tells them apart.
+NPM_CASES = [
+    (True,  'npm install -g @anthropic-ai/claude-code'),
+    (True,  '- **Frontend:** `npm install sharp`'),
+    (True,  'Install DOMPurify: `npm install dompurify`'),
+    (True,  'npm run dev'),
+    (True,  'Always check `npm run dev` output and sync `NEXTAUTH_URL`'),
+    (False, 'CEO confirmed npm has a virus / supply-chain risk on this machine. '
+            'Never invoke `npm`, `npm ci`, `npm install`, `npx`, or any other '
+            'npm/npx command in any V-ENT repo.'),
+    (False, '- Vercel CLI direct deploy still works, does not require local npm install.'),
+    (False, '| 8 | npm contamination (someone runs `npm install`) | Medium | Low |'),
+    (False, '| **R12: pnpm vs npm in dev environments**, junior devs accidentally '
+            'run `npm install`, producing a package-lock.json |'),
+    (False, 'pnpm install --frozen-lockfile'),
+    (False, 'See https://npmjs.com/package/sharp for the install notes'),
+]
+
+
+def self_test():
+    bad = 0
+    for expected, line in NPM_CASES:
+        got = _npm_hit(line)
+        if got != expected:
+            bad += 1
+            print('FAIL  expected %s: %s' % (
+                'a hit' if expected else 'no hit', line[:80]))
+    if bad:
+        print('%d of %d case(s) wrong' % (bad, len(NPM_CASES)))
+        return 1
+    print('%d cases, both directions: self-test passed' % len(NPM_CASES))
+    return 0
+
+
 if __name__ == '__main__':
+    if '--self-test' in sys.argv:
+        sys.exit(self_test())
     sys.exit(main())

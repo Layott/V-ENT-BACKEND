@@ -186,7 +186,7 @@ the free DB-IP City Lite build, particularly on the mobile ranges most of
 V-ENT's traffic arrives on, so the **country** is right more often. It does not
 make a city knowable: a carrier gateway is a real place and it is not where the
 subscriber is, so ipinfo answering "Ilorin" for a Lagos phone is ipinfo being
-right about the gateway. The rule is unchanged — **a guessed city is offered,
+right about the gateway. The rule is unchanged - **a guessed city is offered,
 never asserted.** A daily refresh with ipinfo live still fills only the country,
 still marks it `country_is_guess`, and still leaves `state` blank. There is a
 test that says exactly that.
@@ -228,7 +228,7 @@ a two-letter string that looks like a country.
 
 **The token.** `IPINFO_TOKEN` is empty everywhere, so today the platform behaves
 exactly as it did before. Sign up at ipinfo.io (free, 50k/month), put the token
-in the VPS `.env`, restart. Nothing else to do — and nothing breaks if it is
+in the VPS `.env`, restart. Nothing else to do - and nothing breaks if it is
 never done. `IPINFO_ENDPOINT` can point the lookup at a mirror or a proxy.
 
 ---
@@ -247,7 +247,7 @@ event link met a wallet with no coins, a profile that was not theirs, a bell
 over an inbox that did not exist, and a Logout for a session that did not
 either.
 
-Public sections stay for everybody — content is public and it is the action
+Public sections stay for everybody - content is public and it is the action
 that is gated. What goes is what belongs to a person: Home (a member's
 dashboard, which redirects a visitor to sign in anyway), Profile, Wallet,
 Settings, the notification bell, Logout. Their place is taken by **Log in** and

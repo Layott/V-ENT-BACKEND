@@ -89,6 +89,23 @@ def permissions_for(admin_role):
     return {action: (admin_role in roles) for action, roles in ROLE_PERMISSIONS.items()}
 
 
+def _profile_picture(user):
+    """The admin's own picture, relative to MEDIA_URL.
+
+    Relative rather than absolute because this descriptor is built without a
+    request in hand, and the front end already resolves media paths through
+    `mediaUrl()`.
+    """
+    from .models import UserProfile
+    profile = UserProfile.objects.filter(user=user).first()
+    if not profile or not profile.profile_picture:
+        return None
+    try:
+        return profile.profile_picture.url
+    except ValueError:
+        return None
+
+
 def admin_identity(user):
     """The admin descriptor the FE stores as `adminUser` / reads from /me/."""
     role = effective_admin_role(user)
@@ -97,6 +114,10 @@ def admin_identity(user):
         'username': user.username,
         'email': user.email,
         'full_name': user.full_name,
+        # The console header and side panel drew the admin's own initials and
+        # had nothing else to draw, because this descriptor carried no picture.
+        # An admin has a profile like anybody else.
+        'avatar': _profile_picture(user),
         'admin_role': role,                          # canonical (spec model value)
         'role': ROLE_SHORT.get(role),                # short alias for AdminNav
         'role_label': ROLE_LABEL.get(role, 'Admin'),

@@ -13,6 +13,9 @@ from . import views_sponsors
 from . import views_holds
 from . import views_announce
 from . import views_metrics
+from . import views_track
+from . import views_ledger
+from . import views_transfer
 from . import views_comp
 from . import views_referrals
 from . import views_map
@@ -28,6 +31,11 @@ from .views import create_event, get_all_events, view_event, edit_event
 from .views_tickets import (
     ticket_types, buy_ticket, my_tickets, check_in_ticket, event_attendees,
 )
+from .views_vendor_shop import (
+    my_stalls, my_stall_detail, my_product, my_stall_orders,
+    my_order_status,
+)
+from .views_vendor_slots import event_slots, event_slot_detail, buy_slot
 from .views_vendors import (
     event_vendors, vendor_detail, create_vendor, create_product,
     create_order, my_vendor_orders, vendor_orders, collect_order,
@@ -48,14 +56,30 @@ urlpatterns = [
     path("view-event/<str:event_id>/", view_event, name="view_event"),
     path("edit-event/<str:event_id>/", edit_event, name="edit_event"),
     # Vendor shops
+    # Pitches an organiser is SELLING. Literal segments first so the buy
+    # route cannot be swallowed by the detail one.
+    path("<str:event_id>/slots/", event_slots, name="event_slots"),
+    path("<str:event_id>/slots/<int:slot_id>/buy/", buy_slot, name="buy_slot"),
+    path("<str:event_id>/slots/<int:slot_id>/", event_slot_detail, name="event_slot_detail"),
     path("<str:event_id>/vendors/", event_vendors, name="event_vendors"),
     path("<str:event_id>/vendors/create/", create_vendor, name="create_vendor"),
-    path("<str:event_id>/vendor/<int:vendor_id>/", vendor_detail, name="vendor_detail"),
-    path("vendor/<int:vendor_id>/products/", create_product, name="create_vendor_product"),
-    path("vendor/<int:vendor_id>/order/", create_order, name="create_vendor_order"),
-    path("vendor/<int:vendor_id>/orders/", vendor_orders, name="vendor_orders"),
+    path("<str:event_id>/vendor/<str:vendor_id>/", vendor_detail, name="vendor_detail"),
+    path("vendor/<str:vendor_id>/products/", create_product, name="create_vendor_product"),
+    path("vendor/<str:vendor_id>/order/", create_order, name="create_vendor_order"),
+    path("vendor/<str:vendor_id>/orders/", vendor_orders, name="vendor_orders"),
     path("vendor/order/<str:code>/collect/", collect_order, name="collect_vendor_order"),
     path("vendor-orders/", my_vendor_orders, name="my_vendor_orders"),
+
+    # Running a stall. Nothing on the site called ANY of the vendor endpoints
+    # until now: somebody who bought a pitch got a stall they could not stock.
+    # Literal segments before the parameterised ones.
+    path("my-stalls/", my_stalls, name="my_stalls"),
+    path("my-stalls/<str:vendor_id>/", my_stall_detail, name="my_stall_detail"),
+    path("my-stalls/<str:vendor_id>/orders/", my_stall_orders, name="my_stall_orders"),
+    path("my-stalls/<str:vendor_id>/orders/<str:code>/status/", my_order_status,
+         name="my_order_status"),
+    path("my-stalls/<str:vendor_id>/products/<int:product_id>/", my_product,
+         name="my_product"),
 
     # Ticketing
     path("my-tickets/", my_tickets, name="my_tickets"),
@@ -178,6 +202,22 @@ urlpatterns = [
     # What the event did: sold, turned up, and what is left.
     path("<str:event_id>/metrics/", views_metrics.event_metrics,
          name="event_metrics"),
+    # Public and unauthenticated: the people being counted are the ones who
+    # have not signed in, which is the whole point of counting them.
+    path("<str:event_id>/track/", views_track.track, name="event_track"),
+    # What the event earned, who bears the platform fee, and paying everybody
+    # in one pass rather than one at a time.
+    path("<str:event_id>/earnings/", views_ledger.earnings,
+         name="event_earnings"),
+    path("<str:event_id>/fee-bearer/", views_ledger.set_fee_bearer,
+         name="event_fee_bearer"),
+    path("<str:event_id>/settle/", views_ledger.settle, name="event_settle"),
+    # Giving a ticket to somebody else. Addressed by CODE rather than by event,
+    # because the person doing it is holding the code and nothing else.
+    path("ticket/<str:code>/transfer/", views_transfer.transfer_ticket,
+         name="ticket_transfer"),
+    path("ticket/<str:code>/transfers/", views_transfer.transfer_history,
+         name="ticket_transfer_history"),
     path("<str:event_id>/metrics/export/", views_metrics.export_metrics,
          name="export_event_metrics"),
     # A message from the organiser to everybody holding a ticket.

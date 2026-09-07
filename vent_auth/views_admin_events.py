@@ -76,9 +76,15 @@ def _event(ref):
 def _person(user):
     if user is None:
         return None
-    return {'user_id': user.user_id, 'username': user.username,
-            'full_name': user.full_name or user.username,
-            'email': user.email}
+    # Through the one person builder, so an admin screen shows the same face
+    # and the same founder mark as every other screen. The email is added on
+    # top because the console legitimately shows it and no other screen does.
+    from .views_community import _person
+
+    row = _person(None, user)
+    row['full_name'] = user.full_name or user.username
+    row['email'] = user.email
+    return row
 
 
 def _record(admin, action, target_id, reason='', **metadata):
@@ -339,6 +345,11 @@ def admin_ticket_action(request, code):
                   .select_related('event', 'tier')
                   .filter(code=str(code)).first())
         if ticket is None:
+            from vent_event.transfers import transferred_away
+            moved = transferred_away(code)
+            if moved is not None:
+                return _err('That code was transferred and no longer works.',
+                            'TICKET_TRANSFERRED', status.HTTP_409_CONFLICT)
             return _err('No ticket with that code.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
         if action == 'void':
@@ -350,6 +361,11 @@ def admin_ticket_action(request, code):
             ticket.save(update_fields=['status'])
             if ticket.tier_id:
                 TicketTier.objects.filter(pk=ticket.tier_id, sold__gt=0).update(sold=F('sold') - 1)
+            # And what it was worth to everybody. A voided ticket that stays on
+            # the ledger is an organiser paid for a seat nobody sat in, and an
+            # affiliate paid commission on a sale that was undone.
+            from vent_event import ledger as _ledger
+            _ledger.reverse_sale(ticket, reason=reason or 'Voided')
         else:
             if ticket.status != 'cancelled':
                 return _err('That ticket is not void.', 'NO_CHANGE',

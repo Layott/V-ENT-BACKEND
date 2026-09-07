@@ -1,7 +1,7 @@
-# 11 — Wager System
+# 11 - Wager System
 
-**Phase:** 6 — Build LAST. Legal review required before any development begins.
-**Status:** ❌ Not built — no design, no code. **Do not start until legal clearance.**
+**Phase:** 6 - Build LAST. Legal review required before any development begins.
+**Status:** ❌ Not built - no design, no code. **Do not start until legal clearance.**
 **Design track:** Track B (self-design required, CEO approval before build)
 **Dependencies:** Wallet (06), Tournaments (01), User System (05), Admin Dashboard (13)
 
@@ -13,11 +13,11 @@
 
 The Wager System allows users to place VENT COIN stakes on tournament match outcomes:
 
-1. **Peer-to-peer wagers** — two users agree on a match outcome and stake VENT COINS; winner takes both stakes minus platform fee
-2. **Pool wagers** — multiple users stake on the same match; payout distributed proportionally to correct predictors
-3. **Organizer-created wager pools** — tournament organizer opens a pool for a specific match during their event
+1. **Peer-to-peer wagers** - two users agree on a match outcome and stake VENT COINS; winner takes both stakes minus platform fee
+2. **Pool wagers** - multiple users stake on the same match; payout distributed proportionally to correct predictors
+3. **Organizer-created wager pools** - tournament organizer opens a pool for a specific match during their event
 
-**What is NOT included:** Sports betting on external leagues (NBA, EPL, etc.) — V-ENT wagers apply only to tournaments hosted on the V-ENT platform.
+**What is NOT included:** Sports betting on external leagues (NBA, EPL, etc.) - V-ENT wagers apply only to tournaments hosted on the V-ENT platform.
 
 ---
 
@@ -31,7 +31,7 @@ The Wager System allows users to place VENT COIN stakes on tournament match outc
 | Wager History | ❌ Not designed |
 | Pool Wager Detail | ❌ Not designed |
 
-> All screens require Track B. Legal constraints may affect UI — wait for legal review before designing.
+> All screens require Track B. Legal constraints may affect UI - wait for legal review before designing.
 
 ---
 
@@ -44,7 +44,7 @@ Planned structure (subject to legal review):
 ```
 src/app/
 └── wager/
-    ├── page.js                              # ⬜ Wager hub — active pools, my wagers
+    ├── page.js                              # ⬜ Wager hub - active pools, my wagers
     ├── create/
     │   └── page.js                          # ⬜ Create a peer-to-peer wager challenge
     └── pool/
@@ -62,12 +62,12 @@ src/components/
 
 ---
 
-## API Endpoints (Needed — Post Legal Review)
+## API Endpoints (Needed - Post Legal Review)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/wager/pools/` | Active wager pools for ongoing/upcoming matches |
-| `GET` | `/wager/pools/{id}/` | Pool detail — stakers, odds, deadline |
+| `GET` | `/wager/pools/{id}/` | Pool detail - stakers, odds, deadline |
 | `POST` | `/wager/pools/{id}/stake/` | Stake VENT COINS on a pool outcome |
 | `POST` | `/wager/challenge/create/` | Create a peer-to-peer wager challenge |
 | `POST` | `/wager/challenge/{id}/accept/` | Accept a challenge |
@@ -117,7 +117,7 @@ src/components/
 
 ---
 
-## Django Models (Inferred — Subject to Legal Review)
+## Django Models (Inferred - Subject to Legal Review)
 
 ```python
 class WagerPool(models.Model):
@@ -157,7 +157,7 @@ class PeerWager(models.Model):
 
 ## Acceptance Criteria (Post-Legal Approval)
 
-### Wager Hub — Track B
+### Wager Hub - Track B
 
 - [ ] Age verification gate: confirm user is 18+ before accessing wager features
 - [ ] Responsible gambling notice displayed on all wager pages
@@ -165,7 +165,7 @@ class PeerWager(models.Model):
 - [ ] Spending limit: users can set a daily/weekly VENT COIN wager cap
 - [ ] All pools clearly show deadline, platform fee, and current odds
 
-### Pool Wager — Track B
+### Pool Wager - Track B
 
 - [ ] User can view all active pools
 - [ ] User selects outcome and enters stake amount
@@ -175,7 +175,7 @@ class PeerWager(models.Model):
 - [ ] Stakes locked when `deadline` passes or match starts
 - [ ] Payout credited automatically when match result is confirmed
 
-### Peer Wager — Track B
+### Peer Wager - Track B
 
 - [ ] User can challenge a specific other user on a specific match outcome
 - [ ] Challengee can accept or reject
@@ -196,15 +196,15 @@ class PeerWager(models.Model):
 - [ ] AML (Anti-Money Laundering) obligations for high-volume wager activity
 - [ ] CEO sign-off on legal review before any design or development begins
 
-### ⬜ Phase 6 (all — after legal clearance)
+### ⬜ Phase 6 (all - after legal clearance)
 
-- [ ] Design HTML mockups — CEO approval
+- [ ] Design HTML mockups - CEO approval
 - [ ] Django models: `WagerPool`, `WagerStake`, `PeerWager`
 - [ ] Wager escrow system (separate from general wallet transactions)
 - [ ] Age gate + user opt-out
 - [ ] Responsible gambling features (spending limits, self-exclusion)
 - [ ] Pool wager UI + stake flow
 - [ ] Peer wager challenge + accept flow
-- [ ] Admin wager oversight panel (13-ADMIN-DASHBOARD.md — Wager Management section)
+- [ ] Admin wager oversight panel (13-ADMIN-DASHBOARD.md - Wager Management section)
 - [ ] Automatic settlement on match result (integrates with 03-PRODUCTION.md match end hook)
 - [ ] AML monitoring hooks (flag high-volume activity for admin review)

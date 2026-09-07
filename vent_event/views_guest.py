@@ -73,10 +73,11 @@ def _refs_resolve(event, code):
 
 
 def _paystack_headers():
-    return {
-        'Authorization': 'Bearer %s' % os.environ.get('PAYSTACK_SECRET_KEY', ''),
-        'Content-Type': 'application/json',
-    }
+    # One helper decides which key, so a test key in .env is visible to both
+    # callers rather than to neither. See vent_auth/paystack.py for why the
+    # test key is barred whenever DEBUG is off.
+    from vent_auth import paystack
+    return paystack.headers()
 
 
 @api_view(['GET'])
@@ -294,6 +295,15 @@ def _issue(event, tier, quantity, email, answers, unit_ngn, unit_vc, reference='
         # credited if and only if the tickets it is being credited for exist.
         from . import referrals as _refs
         _refs.attribute(tickets, referral)
+
+        # Who is owed what. Written HERE rather than in each caller: a guest
+        # buys a free ticket down one path and a paid one down another, and a
+        # ledger built on one of them is the same feature built for half the
+        # product. Both surfaces, one job.
+        from . import ledger as _ledger
+        _ledger.record_sale(event, tickets,
+                            _ledger.quote(tier, quantity, event),
+                            referral=referral)
     return tickets
 
 
@@ -343,11 +353,17 @@ def guest_buy(request, event_id):
     if err:
         return err
 
-    unit_ngn = tier.price_for(quantity)
+    from . import ledger as _ledger
+    priced = _ledger.quote(tier, quantity, event)
+    unit_ngn = priced['unit_ngn']
+    unit_vc = priced['unit_vc']
     total_ngn = unit_ngn * quantity
-
-    from .views_tickets import _ngn_to_coins
-    unit_vc = _ngn_to_coins(unit_ngn)
+    # With the fee passed to the buyer it has to be IN the amount the card is
+    # charged, not reconciled afterwards: a guest has no wallet to take it from
+    # later, and a fee collected from nowhere is a fee nobody paid.
+    from vent_auth.views_wallet import NGN_PER_COIN
+    fee_ngn = int(priced['fee_vc'] * NGN_PER_COIN) if priced['fee_bearer'] == 'buyer' else 0
+    total_ngn = total_ngn + fee_ngn
 
     # ------------------------------------------------------------------ free
     if total_ngn <= 0:
@@ -371,7 +387,8 @@ def guest_buy(request, event_id):
             status.HTTP_201_CREATED)
 
     # ------------------------------------------------------------------ paid
-    if not os.environ.get('PAYSTACK_SECRET_KEY'):
+    from vent_auth import paystack
+    if not paystack.configured():
         return _err('Card payment is not set up for this platform yet, so only '
                     'free tickets can be bought without an account.',
                     'PAYMENT_UNAVAILABLE', status.HTTP_503_SERVICE_UNAVAILABLE)
@@ -418,6 +435,13 @@ def guest_buy(request, event_id):
         'authorization_url': body['data']['authorization_url'],
         'reference': reference,
         'paid': True,
+        'fee_ngn': fee_ngn,
+        'fee_bearer': priced['fee_bearer'],
+        'total_ngn': total_ngn,
+        # So the page can say it. A checkout running on test keys that looks
+        # exactly like one taking real money is how somebody demonstrates a
+        # sale to a client and neither of them notices no money moved.
+        'test_mode': paystack.is_test(),
         'amount_ngn': float(total_ngn),
         'email': email,
     }, 'Continue to payment.')

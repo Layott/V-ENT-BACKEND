@@ -67,6 +67,12 @@ def self_check_in(request, code):
     ticket = (Ticket.objects.select_related('event', 'tier', 'user')
               .filter(code=str(code).upper()).first())
     if ticket is None:
+        from .transfers import transferred_away
+        moved = transferred_away(code)
+        if moved is not None:
+            return _error('That code was transferred and no longer works.',
+                          'TICKET_TRANSFERRED', status.HTTP_409_CONFLICT,
+                          extra=moved)
         return _error('No ticket with that code.', 'NOT_FOUND',
                       status.HTTP_404_NOT_FOUND)
 

@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from .models import Users, UserProfile, Teams, Organization, FavoriteGames
+from . import regions
 from vent_tournament.models import BracketMatch, TournamentRegistration
 
 
@@ -54,12 +55,41 @@ def _match_records(game=None):
     return records
 
 
-def _row(entity_id, name, avatar, country, region, favorite_game, wins, played, is_me):
+def _org_logo(request, org):
+    """An organisation's crest, absolute.
+
+    The organisations tab passed None for every row, so the whole leaderboard
+    drew blank circles while the same organisations showed their crest on
+    every other screen.
+    """
+    if not getattr(org, 'logo', None):
+        return None
+    try:
+        return request.build_absolute_uri(org.logo.url)
+    except ValueError:
+        return None
+
+
+def _row(entity_id, name, avatar, country, region, favorite_game, wins, played,
+         is_me, address=None):
+    """One row of a leaderboard.
+
+    `address` is how the row is OPENED: a username for a person, a slug for a
+    team or an organisation. It used to be missing entirely, so the rankings
+    page fell back to the display name and sent people to `/u/Real Name`,
+    which is a 404 - and for teams and organisations it sent the primary key,
+    against the slug rule. A leaderboard whose rows cannot be clicked is a
+    table of names.
+    """
     losses = max(played - wins, 0)
     win_rate = round((wins / played) * 100) if played else 0
     return {
         'id': entity_id,
         'name': name,
+        # Both spellings, because the page reads `username` for a person and
+        # `slug` for everything else, and one row builder serves all three.
+        'username': address,
+        'slug': address,
         'avatar': avatar,
         'country': country,
         'region': region,
@@ -81,6 +111,37 @@ def _rank(rows):
     return rows
 
 
+def _filters(request):
+    """What the screen should offer in its two dropdowns.
+
+    Built from the countries that ACTUALLY appear on the platform, intersected
+    with the countries we know. The frontend used to carry a hand-typed list of
+    seven that included Lagos and Abuja - two Nigerian cities offered as
+    countries - while every country outside those five was unreachable.
+
+    A screen cannot know what is in the database, so it must not be the one
+    holding this list.
+    """
+    present = set()
+    for value in Users.objects.values_list('country', flat=True):
+        if regions.is_country(value):
+            present.add(str(value).strip())
+
+    # Anything real that somebody has, plus nothing invented. If nobody on the
+    # platform is in Chad, Chad is not offered, because an empty filter result
+    # reads as a broken page.
+    countries = sorted(present)
+    offered = [r for r in regions.ORDER
+               if any(regions.region_for(c) == r for c in countries)]
+    return {
+        'countries': countries,
+        'regions': offered,
+        # So the screen can say how many it is choosing between rather than
+        # rendering an empty select.
+        'has_locations': bool(countries),
+    }
+
+
 @api_view(['GET'])
 def rankings(request):
     try:
@@ -91,6 +152,11 @@ def rankings(request):
         region = request.GET.get('region')
         if region in ('global', ''):
             region = None
+
+        # A region is a set of countries. This was read off the query string,
+        # checked against 'global', and then never used in a single query, so
+        # picking West Africa returned the whole world. It filters now.
+        region_countries = regions.countries_in(region) if region else []
         search = (request.GET.get('search') or '').strip()
 
         me = _session_user(request)
@@ -135,6 +201,11 @@ def rankings(request):
         user_qs = Users.objects.all()
         if country:
             user_qs = user_qs.filter(country__iexact=country)
+        elif region_countries:
+            # Only when no country is named. A country is the narrower of the
+            # two and naming both means the country wins, which is what
+            # somebody who picked one expects.
+            user_qs = user_qs.filter(country__in=region_countries)
         if search:
             user_qs = user_qs.filter(Q(username__icontains=search) | Q(full_name__icontains=search))
 
@@ -152,8 +223,14 @@ def rankings(request):
                 avatar = request.build_absolute_uri(profile.profile_picture.url)
             players.append(_row(
                 u.user_id, u.full_name or u.username, avatar, u.country,
-                u.state or u.country, favorites.get(u.user_id),
+                # The REGION, derived from the country. It used to be
+                # `u.state or u.country`, so somebody in Lagos had the region
+                # "Lagos" and somebody with no state had the region "Nigeria".
+                # A state is not a region and a country is not a region, and
+                # the filter offering West Africa could never match either.
+                regions.region_for(u.country), favorites.get(u.user_id),
                 stat['wins'], stat['played'], bool(me and me.user_id == u.user_id),
+                address=u.username,
             ))
 
         # ---- teams ----
@@ -171,6 +248,7 @@ def rankings(request):
                 t.team_id, t.team_name, avatar, None, None,
                 t.game.game_title if t.game else None,
                 stat['wins'], stat['played'], False,
+                address=t.slug,
             ))
 
         # ---- organizations ----
@@ -178,7 +256,8 @@ def rankings(request):
         if search:
             org_qs = org_qs.filter(org_name__icontains=search)
         organizations = [
-            _row(o.org_id, o.org_name, None, None, None, None, 0, 0, False)
+            _row(o.org_id, o.org_name, _org_logo(request, o), None, None, None,
+                 0, 0, False, address=o.slug)
             for o in org_qs
         ]
 
@@ -188,6 +267,11 @@ def rankings(request):
                 'players': _rank(players),
                 'teams': _rank(teams),
                 'organizations': _rank(organizations),
+                # What the two dropdowns should offer, built from the
+                # countries that actually appear on the platform. Sent here
+                # rather than from a second endpoint so there is one request
+                # and nothing to leave uncalled.
+                'filters': _filters(request),
             },
             'message': 'Rankings retrieved',
         }, status=status.HTTP_200_OK)

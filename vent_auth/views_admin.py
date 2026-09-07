@@ -267,6 +267,7 @@ def admin_list_users(request):
         {
             'id': u.user_id,
             'username': u.username,
+            'avatar': _face(request, u),
             'email': u.email,
             'full_name': u.full_name,
             'country': u.country,
@@ -283,18 +284,75 @@ def admin_list_users(request):
     }, status=status.HTTP_200_OK)
 
 
+def _person_for_admin(request, user):
+    """A person, for a console row, through the one builder.
+
+    `_person` builds a relative avatar off the request; the console screens
+    want it absolute, which `_face` already does, so this joins the two rather
+    than making a third description of somebody.
+    """
+    from .views_community import _person
+
+    row = _person(request, user)
+    row['avatar'] = _face(request, user)
+    return row
+
+
+def _face(request, user):
+    """Somebody's profile picture, for a console screen that shows their name.
+
+    The whole admin console drew a two-letter monogram and nothing else, on
+    the user table, the user detail, the payout queue and the KYC queue -
+    because no admin payload carried an avatar at all. On the KYC queue that
+    is not cosmetic: whoever is approving an identity document has the
+    document and the account, and the account's own picture is one of the two
+    things worth comparing it against.
+    """
+    if not user:
+        return None
+    profile = UserProfile.objects.filter(user=user).first()
+    if not profile or not profile.profile_picture:
+        return None
+    try:
+        return request.build_absolute_uri(profile.profile_picture.url)
+    except ValueError:
+        return None
+
+
+def _admin_user(key):
+    """The account an admin console address names.
+
+    The console addressed people by primary key - `/admin/users/41` - which is
+    the slug rule's exact prohibition, and it lets anybody with console access
+    walk the whole user table by counting. The address is the username now,
+    and a numeric key still resolves so every link an admin has bookmarked and
+    every audit-log row that recorded one keeps working.
+
+    A username made only of digits would be ambiguous, so the numeric branch is
+    tried first and falls through to the username on a miss rather than 404ing
+    on a name that exists.
+    """
+    key = str(key)
+    if key.isdigit():
+        found = Users.objects.filter(user_id=int(key)).first()
+        if found:
+            return found
+    return get_object_or_404(Users, username=key)
+
+
 @api_view(['GET'])
 @admin_role_required(ADMIN_ROLES)
 def admin_get_user(request, user_id):
     """GET /auth/admin/users/{id}/ - full user detail (contract §7)."""
     from vent_tournament.models import TournamentRegistration
 
-    user = get_object_or_404(Users, user_id=user_id)
+    user = _admin_user(user_id)
 
     tournaments_count = TournamentRegistration.objects.filter(user=user).count()
 
     user_block = {
         'username': user.username,
+        'avatar': _face(request, user),
         'full_name': user.full_name,
         'email': user.email,
         'status': _user_status(user),
@@ -356,7 +414,7 @@ def admin_get_user(request, user_id):
         }
         for a in AdminAction.objects
         .filter(action_type__in=['ban_user', 'unban_user'], target_model='User',
-                target_id=str(user_id))
+                target_id=str(user.user_id))
         .select_related('admin').order_by('-performed_at')
     ]
 
@@ -379,7 +437,7 @@ def admin_ban_user(request, user_id):
     """PATCH /auth/admin/users/{id}/ban/ - ban or unban a user."""
     admin = request.admin_user
 
-    user = get_object_or_404(Users, user_id=user_id)
+    user = _admin_user(user_id)
     ban = request.data.get('ban')  # True to ban, False to unban
     reason = request.data.get('reason', '')
 
@@ -399,7 +457,7 @@ def admin_ban_user(request, user_id):
     user.save(update_fields=['is_active'])
 
     action = 'ban_user' if ban else 'unban_user'
-    _log_action(admin, action, 'User', user_id, reason=reason)
+    _log_action(admin, action, 'User', user.user_id, reason=reason)
 
     return Response({
         'status': 'success',
@@ -413,7 +471,7 @@ def admin_set_user_role(request, user_id):
     """PATCH /auth/admin/users/{id}/role/ - assign role + admin sub-role."""
     admin = request.admin_user
 
-    user = get_object_or_404(Users, user_id=user_id)
+    user = _admin_user(user_id)
     role = request.data.get('role')
     # shared-spec uses `admin_subrole`; accept `admin_role` as an alias too.
     admin_subrole = request.data.get('admin_subrole') or request.data.get('admin_role')
@@ -446,7 +504,7 @@ def admin_set_user_role(request, user_id):
             user.is_staff = False
     user.save(update_fields=['role', 'is_staff', 'admin_role'])
 
-    _log_action(admin, 'set_role', 'User', user_id, metadata={
+    _log_action(admin, 'set_role', 'User', user.user_id, metadata={
         'old_role': old_role, 'new_role': role,
         'old_admin_role': old_admin_role, 'new_admin_role': user.admin_role,
     })
@@ -464,7 +522,7 @@ def admin_delete_user(request, user_id):
     """DELETE /auth/admin/users/{id}/ - permanently delete account."""
     admin = request.admin_user
 
-    user = get_object_or_404(Users, user_id=user_id)
+    user = _admin_user(user_id)
     reason = request.data.get('reason', '')
     confirm = request.data.get('confirm')
 
@@ -480,7 +538,7 @@ def admin_delete_user(request, user_id):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    _log_action(admin, 'delete_user', 'User', user_id, reason=reason,
+    _log_action(admin, 'delete_user', 'User', user.user_id, reason=reason,
                 metadata={'username': user.username, 'email': user.email})
     user.delete()
 
@@ -766,11 +824,11 @@ def admin_pending_payouts(request):
     data = [
         {
             'id': w.id,
-            'user': {
-                'user_id': w.wallet.user.user_id,
-                'username': w.wallet.user.username,
-                'kyc_verified': w.wallet.kyc_verified,
-            },
+            # Whoever is being paid, as a person. It was a name and a KYC
+            # flag, so a reviewer approving a withdrawal had no face to check
+            # against the identity document they are looking at.
+            'user': dict(_person_for_admin(request, w.wallet.user),
+                         kyc_verified=w.wallet.kyc_verified),
             'amount_vent_coins': w.amount,
             'amount_ngn': coins_to_ngn(w.amount),
             'bank_name': w.bank_name,
@@ -826,6 +884,7 @@ def admin_payouts_list(request):
         {
             'id': w.id,
             'username': w.wallet.user.username if w.wallet and w.wallet.user else None,
+            'avatar': _face(request, w.wallet.user if w.wallet else None),
             'amount_vc': w.amount,
             'amount_ngn': coins_to_ngn(w.amount),
             'bank_name': w.bank_name,
@@ -981,6 +1040,8 @@ def admin_pending_kyc(request):
             'id': d.id,
             'user_id': d.user.user_id,
             'username': d.user.username,
+            # The account's own picture, beside the document being reviewed.
+            'user': _person_for_admin(request, d.user),
             'document_type': d.document_type,
             # Identity documents are not public files - this is the authenticated
             # read endpoint, not a /media/ URL (see vent_auth/views_kyc_files.py).
@@ -1023,6 +1084,7 @@ def admin_kyc_list(request):
         {
             'id': d.id,
             'username': d.user.username if d.user else None,
+            'avatar': _face(request, d.user),
             'email': d.user.email if d.user else None,
             'submitted_at': d.submitted_at,
             'doc_type': d.document_type,

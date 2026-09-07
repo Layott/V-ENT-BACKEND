@@ -248,6 +248,33 @@ def send_waitlist_claim(to_address, *, name, username, position, claim_url, hold
     )
 
 
+def send_invitation(to_address, *, what, who, role, join_url, message=''):
+    """An invitation to somebody who may have no V-ENT account at all.
+
+    CEO, 7 September 2026: invites go to email addresses, not only to handles.
+    For somebody already here this is a courtesy beside the in-app
+    notification; for somebody who is not, it is the ONLY delivery, so it has
+    to carry enough to act on: what they are being invited to, by whom, as
+    what, and one link.
+
+    `what` is the thing - an organisation, a team, an event. Named plainly
+    rather than templated per kind, because one email that says the truth beats
+    three that drift apart.
+    """
+    return _send(
+        to_address,
+        '%s invited you to join %s' % (who, what),
+        'invitation.html',
+        {
+            'what': what,
+            'who': who,
+            'role': role,
+            'join_url': join_url,
+            'message': message,
+        },
+    )
+
+
 def send_password_reset(to_address, *, name, code, reset_url=None, resend=False):
     return _send(
         to_address,

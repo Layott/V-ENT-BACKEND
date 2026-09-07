@@ -43,10 +43,10 @@ else:
 
 
 def _paystack_headers():
-    return {
-        'Authorization': f"Bearer {os.environ.get('PAYSTACK_SECRET_KEY', '')}",
-        'Content-Type': 'application/json',
-    }
+    # Same one helper as the guest checkout. Two copies of this function
+    # reading the environment directly is why a test key sat unused in .env.
+    from . import paystack
+    return paystack.headers()
 
 
 def _ngn_to_coins(amount_ngn: int) -> int:
