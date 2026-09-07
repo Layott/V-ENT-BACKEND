@@ -60,3 +60,6 @@ Thumbs.db
 # Local backups
 backups/
 local-dev.sqlite3
+
+# A Chrome profile the futbin scraper creates. Never source.
+tools/.futbin-profile/

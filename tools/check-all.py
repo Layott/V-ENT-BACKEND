@@ -20,7 +20,10 @@ everybody learns to ignore, and then the blocking ones get ignored with it.
 
 Move a catcher from debt to blocking the day its count reaches zero.
 """
+import datetime
+import json
 import os
+import re
 import subprocess
 import sys
 
@@ -131,6 +134,61 @@ CATCHERS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# The debt ledger
+# ---------------------------------------------------------------------------
+#
+# CEO, 7 September 2026: "if checkers just report the issues and those issues
+# are not acted upon as they are seen, then what is the point?"
+#
+# They are right, and `check-seo` proved it: it sat at 60 problems for weeks
+# while `check-all` printed the number every time and nothing happened. The
+# header of this file has said "a rising number is a regression" since the day
+# it was written, and NOTHING CHECKED THAT EITHER. A rule nobody enforces is a
+# rule, and a number nobody acts on is decoration.
+#
+# So the number is now recorded, and three things follow from the record:
+#
+#   1. A count that RISES fails, blocking or not. That is the promise the
+#      header made and never kept.
+#   2. A count that has not moved in `STALE_DAYS` is called out by name, with
+#      how long it has been sitting there. "60 problems, unchanged for 14 days"
+#      is a sentence somebody acts on; "60 problems" is not.
+#   3. A count that FALLS is written back immediately, so the new, lower number
+#      becomes the ceiling and the debt cannot quietly grow back.
+
+LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'debt-ledger.json')
+
+# How long a debt may sit at the same number before it is named as stuck.
+STALE_DAYS = 7
+
+
+def _count(line):
+    """The number a catcher is reporting, or None.
+
+    Catchers say their count in different words - "60 problem(s)", "22
+    place(s)", "0 new" - so the first integer on the line is the honest
+    reading, and a catcher whose line has no number is simply not tracked
+    rather than guessed at.
+    """
+    m = re.search(r'[0-9]+', line or '')
+    return int(m.group(0)) if m else None
+
+
+def _load_ledger():
+    try:
+        with open(LEDGER, 'r', encoding='utf-8') as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_ledger(data):
+    with open(LEDGER, 'w', encoding='utf-8') as fh:
+        json.dump(data, fh, indent=2, sort_keys=True)
+        fh.write('\n')
+
+
 def run(cwd, command):
     try:
         done = subprocess.run(command, cwd=cwd, capture_output=True,
@@ -172,11 +230,74 @@ def main():
 
     print('')
 
+    # ---------------------------------------------------------------- debt
+    #
+    # Recorded rather than merely printed. See the note above the ledger.
+    ledger = _load_ledger()
+    today = datetime.date.today().isoformat()
+    risen, stuck, fell = [], [], []
+
+    for name, last in debt:
+        now = _count(last)
+        if now is None:
+            continue
+        was = ledger.get(name)
+        if was is None:
+            ledger[name] = {'count': now, 'since': today, 'first_seen': today}
+            continue
+        if now > was['count']:
+            risen.append((name, was['count'], now, last))
+            # Not written back. The ceiling stays where it was, so the next run
+            # fails too until somebody actually brings it down.
+        elif now < was['count']:
+            fell.append((name, was['count'], now))
+            ledger[name] = {'count': now, 'since': today,
+                            'first_seen': was.get('first_seen', today)}
+        else:
+            days = (datetime.date.today()
+                    - datetime.date.fromisoformat(was['since'])).days
+            if days >= STALE_DAYS:
+                stuck.append((name, now, days, last))
+
+    if '--record' in sys.argv or fell:
+        _save_ledger(ledger)
+
     if debt:
-        print('Debt, reported and not blocking. A rising number is a regression:')
+        print('Debt. Every one of these is work somebody has to do:')
         for name, last in debt:
-            print('  %-18s %s' % (name, last))
+            was = ledger.get(name, {})
+            since = was.get('since')
+            age = ''
+            if since:
+                days = (datetime.date.today()
+                        - datetime.date.fromisoformat(since)).days
+                age = ' (unchanged for %d day%s)' % (days, '' if days == 1 else 's')
+            print('  %-18s %s%s' % (name, last[:60], age))
         print('')
+
+    if fell:
+        print('Down since the last run, and the new number is now the ceiling:')
+        for name, was, now in fell:
+            print('  %-18s %d -> %d' % (name, was, now))
+        print('')
+
+    if stuck:
+        print('STUCK. These have not moved in %d days or more:' % STALE_DAYS)
+        for name, now, days, last in stuck:
+            print('  %-18s %s' % (name, last[:60]))
+            print('  %-18s at %d for %d days' % ('', now, days))
+        print('  Pick one and bring it down, or say out loud why it stays.')
+        print('')
+
+    if risen:
+        print('DEBT WENT UP. This is a regression and it blocks:')
+        for name, was, now, last in risen:
+            print('  %-18s %d -> %d' % (name, was, now))
+            print('  %-18s %s' % ('', last[:70]))
+        print('')
+        print('The ceiling was not moved, so this keeps failing until the number')
+        print('comes back down. That is the whole point of recording it.')
+        return 1
 
     if failed_blocking:
         print('BREACHES that must be fixed before this ships:')
@@ -186,6 +307,8 @@ def main():
         return 1
 
     print('Every blocking catcher is clean.')
+    if debt:
+        print('%d catcher(s) still carrying debt. None of it went up.' % len(debt))
     return 0
 
 
