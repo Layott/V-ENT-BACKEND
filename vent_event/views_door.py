@@ -46,6 +46,8 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from . import attendance
+from .attendance import SELF_GATE
 from .models import Event, Ticket, DoorLookup
 from .permissions import may_work_the_door, may_run_event
 from .views_tickets import _authenticate, _error, _ok, _holder
@@ -113,9 +115,6 @@ def _row(ticket):
     }
 
 
-# Imported late rather than at module load: `views_self_check_in` imports from
-# `.models` too, and pulling it in at the top makes a cycle through urls.py.
-SELF_GATE = 'self'
 
 
 @api_view(['GET'])
@@ -348,9 +347,41 @@ def door_summary(request, event_id):
         by_tier[name] = by_tier.get(name, 0) + 1
 
     admitted_count = admitted.count()
+
+    # The three numbers, counted the one way the whole platform counts them.
+    #
+    # CEO, 7 September: a self check-in "doesnt mean they are checkedin by the
+    # organizer", it is somebody telling their followers they are at the event.
+    # Only a scan or a typed code is evidence anybody came, so `verified` is
+    # attendance and the inflated total is only ever shown labelled as both.
+    attend = attendance.counts(tickets)
+
     return _ok(
         {
+            # What this viewer may do, so the screen can decide without
+            # guessing. This endpoint admits the organiser AND their door
+            # staff; the search log admits only the organiser, because a
+            # steward needs to admit people rather than read what every other
+            # steward has been typing.
+            #
+            # Sent as a capability rather than inferred in the browser, which
+            # is the rule that exists because `org.owner?.username ===
+            # session?.user?.username` was true for a stranger on fourteen
+            # controls: undefined === undefined.
+            'can_read_lookups': may_run_event(user, event),
             'sold': sold,
+
+            # Attendance, in the platform's vocabulary. `verified` is the one
+            # a headline figure is built from.
+            'verified': attend['verified'],
+            'self_reported': attend['self_reported'],
+            'checked_in_total': attend['total'],
+
+            # `admitted`, `at_the_door` and `self_admitted` are the old names
+            # and are kept so nothing that already reads them breaks. They are
+            # the same numbers under the vocabulary that caused the confusion:
+            # `admitted` counts self check-ins, which is why it must not be
+            # the one a screen labels "checked in".
             'admitted': admitted_count,
             # Sold minus admitted, stated rather than left to be worked out.
             # It is the number an organiser is actually asking for when they
