@@ -43,6 +43,17 @@ DEFAULT_SETTINGS = {
     'language': 'en',
     'region': 'NG',
     'timezone': 'Africa/Lagos',
+
+    # How a bare date is ordered: '' for the reader's own language, or one of
+    # 'DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'.
+    #
+    # It has to be listed HERE and not only accepted on the way in, because
+    # `_merged` builds its answer by walking DEFAULT_SETTINGS. A key absent
+    # from this dict is stored perfectly well and then dropped on every read,
+    # which is precisely what happened: the panel saved a date format, the API
+    # never returned it, and nothing on the site could have honoured it even
+    # if something had been looking.
+    'date_format': '',
     # The first-run walkthrough. Kept on the account rather than in
     # localStorage so somebody who signs in on their phone after finishing it on
     # a laptop is not walked through the whole platform a second time.
