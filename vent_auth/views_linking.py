@@ -201,6 +201,41 @@ def link_start(request, provider):
     )
 
 
+def _claim_or_taken(user, platform, handle, defaults):
+    """Give this account the handle, unless somebody else already holds it.
+
+    `PlatformAccount` is unique on `(user, platform)`, which stops one person
+    linking two Discords and does NOTHING about two people linking one. Both
+    callbacks went straight to `update_or_create(user=user, ...)`, so the
+    second person to arrive with a handle got it, and both profiles then read
+    `verified: True` for the same external account.
+
+    That empties the word. The whole difference between a linked account and a
+    hand-typed one is that the platform confirmed it, and a confirmation two
+    people can hold confirms nothing. Somebody could have worn a known
+    player's handle.
+
+    Returns True when the claim stands, False when it is taken. A handle held
+    by a row that is no longer connected is free again: unlinking has to
+    release it, or the first person to link anything owns it for ever.
+
+    The `taken` outcome has been handled by `LinkedAccountsPanel` since the day
+    it was written. The backend simply had no path that could send it, which is
+    the tell: an outcome the interface handles and the server never emits.
+    """
+    if handle:
+        held_by_someone_else = (PlatformAccount.objects
+                                .filter(platform=platform, gamertag=handle, connected=True)
+                                .exclude(user=user)
+                                .exists())
+        if held_by_someone_else:
+            return False
+
+    PlatformAccount.objects.update_or_create(
+        user=user, platform=platform, defaults=defaults)
+    return True
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def discord_callback(request):
@@ -239,18 +274,15 @@ def discord_callback(request):
         return _finish('failed', 'discord')
 
     handle = profile.get('username') or ''
-    PlatformAccount.objects.update_or_create(
-        user=user, platform='discord',
-        defaults={
-            'display_name': profile.get('global_name') or handle,
-            'gamertag': handle,
-            'connected': True,
-            # Discord told us this handle belongs to whoever just signed in
-            # there, which is the whole difference between this and typing it.
-            'verified': True,
-        },
-    )
-    return _finish('linked', 'discord')
+    claimed = _claim_or_taken(user, 'discord', handle, {
+        'display_name': profile.get('global_name') or handle,
+        'gamertag': handle,
+        'connected': True,
+        # Discord told us this handle belongs to whoever just signed in
+        # there, which is the whole difference between this and typing it.
+        'verified': True,
+    })
+    return _finish('linked' if claimed else 'taken', 'discord')
 
 
 @api_view(['GET'])
@@ -297,16 +329,13 @@ def steam_callback(request):
         except Exception:
             logger.warning('steam summary lookup failed', exc_info=True)
 
-    PlatformAccount.objects.update_or_create(
-        user=user, platform='steam',
-        defaults={
-            'display_name': display,
-            'gamertag': steam_id,
-            'connected': True,
-            'verified': True,
-        },
-    )
-    return _finish('linked', 'steam')
+    claimed = _claim_or_taken(user, 'steam', steam_id, {
+        'display_name': display,
+        'gamertag': steam_id,
+        'connected': True,
+        'verified': True,
+    })
+    return _finish('linked' if claimed else 'taken', 'steam')
 
 
 @api_view(['POST'])
