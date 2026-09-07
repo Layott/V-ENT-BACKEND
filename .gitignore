@@ -63,3 +63,8 @@ local-dev.sqlite3
 
 # A Chrome profile the futbin scraper creates. Never source.
 tools/.futbin-profile/
+
+# Stray: playwright installs itself here when a browser tool runs in this repo.
+# It has no business in a Django tree, and an unqualified `git add` swept a
+# browser profile into a commit once already.
+node_modules/
