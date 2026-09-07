@@ -350,6 +350,17 @@ def door_summary(request, event_id):
     admitted_count = admitted.count()
     return _ok(
         {
+            # What this viewer may do, so the screen can decide without
+            # guessing. This endpoint admits the organiser AND their door
+            # staff; the search log admits only the organiser, because a
+            # steward needs to admit people rather than read what every other
+            # steward has been typing.
+            #
+            # Sent as a capability rather than inferred in the browser, which
+            # is the rule that exists because `org.owner?.username ===
+            # session?.user?.username` was true for a stranger on fourteen
+            # controls: undefined === undefined.
+            'can_read_lookups': may_run_event(user, event),
             'sold': sold,
             'admitted': admitted_count,
             # Sold minus admitted, stated rather than left to be worked out.

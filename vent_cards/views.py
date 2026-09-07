@@ -95,10 +95,27 @@ def serialize_card(card):
     }
 
 
-def serialize_lineup(lineup):
+def serialize_lineup(lineup, request=None):
+    """One player's side.
+
+    `request` is optional so every existing caller keeps working, and when it
+    is given the row carries the PERSON rather than a bare username. A list of
+    names with no way to show a face is the fault check-avatars exists for, and
+    a hand-built person dict is how the founder badge went missing from the
+    member table while showing everywhere else. `_person` is the one builder
+    every screen goes through.
+    """
     if lineup is None:
         return None
+    person = None
+    if request is not None:
+        try:
+            from vent_auth.views_community import _person
+            person = _person(request, lineup.user)
+        except Exception:                                       # noqa: BLE001
+            person = None
     return {
+        'user': person,
         'formation': lineup.formation,
         # Saving and submitting are different acts, so the state is its own
         # field: draft, submitted, accepted or rejected. `complete` is a
