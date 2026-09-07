@@ -111,3 +111,70 @@ back from the database, pricing and feedback walked, tags walked.
 
 **Not verified:** the slot URLs in OBS, the layers panel pressed, the mobile
 pass on this batch, and the deploy.
+
+---
+
+## Shipped, 7 September 2026
+
+BE **#152** and FE **#173** merged to main and deployed to the VPS. BE **#153**
+followed with the maintenance page.
+
+**Before migrating**, a real backup was taken. The repo's own `backup.sh` FAILED
+with "Access denied for user 'vent'@'localhost' (using password: NO)" - it calls
+`mysqldump` with no credentials at all. That is `feedback_mysqldump_fails_silently`
+again, and it is still broken in the repo. A dump was taken by hand from `.env`
+and verified to hold real data: **159 tables, 83 INSERT statements**, tickets and
+users present. Checking the contents rather than the exit code is the whole
+lesson.
+
+> **Open, and worth fixing:** `deploy/backup.sh` cannot authenticate. The nightly
+> cron it documents has therefore been producing nothing. Nobody has checked.
+
+### Verified on production
+
+| | |
+|---|---|
+| Migrations | all 6 applied: `vent_auth 0070`, `vent_event 0033, 0034`, `vent_tournament 0046, 0047, 0048` |
+| Services | `vent-api` and `vent-web` both active, maintenance flag down |
+| Pages | `/`, `/tournaments`, `/pricing`, `/feedback` all 200 |
+| API | `auth/feedback/` 200; `door-search` correctly 401 without a token |
+| Chrome | walked signed in, console clean |
+| Row 85 | the venue wording the CEO screenshotted is gone; the new sentence is live |
+
+### The maintenance page
+
+The CEO saw it mid-deploy: it drew its own triangle instead of the V-ENT mark
+and explained wallet balances, ticket codes and form submissions in three boxes,
+with a countdown and a Try now button. 158 lines to 73, the real
+`logo_mark_red.svg` inlined, one apology.
+
+### Their question: can we deploy without anybody noticing?
+
+**Yes, and most of it is already there.**
+
+Already invisible:
+
+- **The API.** `systemctl reload vent-api` re-execs gunicorn's workers while the
+  master keeps the socket bound. No request is dropped. Already in `deploy.sh`.
+- **Assets under an open page.** The static carry keeps the previous build's
+  fingerprinted files, so a page somebody already has open still finds its own
+  stylesheet.
+
+What still forces the page up:
+
+1. **`systemctl restart vent-web`.** The Next server is gone for a few seconds.
+   This is the main one.
+2. **The migration window.** Migrations run before the new code is live, so
+   there is a moment where the schema is new and the code is old.
+
+To close it:
+
+- **Two Next instances behind an nginx upstream**, restarted one at a time, with
+  nginx serving from whichever is healthy. That removes the restart window
+  entirely and is most of the work.
+- **Expand and contract on migrations.** Only ever add in the deploy that starts
+  using a column; remove it in a later one, after nothing reads it. Then old and
+  new code can both run against the schema for the minute they overlap.
+
+Neither is built. It is a real piece of work: a second systemd unit, an nginx
+upstream, a health endpoint, and a discipline about migrations.
