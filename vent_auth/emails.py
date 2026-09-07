@@ -639,3 +639,33 @@ def send_event_announcement(to_address, *, event, subject, body):
             'event_url': f'{APP_URL}/events/{event.slug or event.event_id}',
         },
     )
+
+
+def send_discord_reconnect(user, typed_handle, intro, body):
+    """Ask somebody to reconnect a Discord handle that was typed in by hand.
+
+    CEO, 7 September 2026: "send those guys custom mails".
+
+    `intro` and `body` are passed in rather than built here because these were
+    written per person: one of the three had pasted a server INVITE where a
+    username goes, and a sentence naming that is recognisable in a way no
+    template string is. A mailshot dressed as a personal note is worse than an
+    obvious mailshot.
+
+    `typed_handle` is quoted back verbatim so the reader can see for themselves
+    what is on their profile.
+    """
+    return _send(
+        user.email,
+        'Reconnect your Discord so V-ENT can message you there',
+        'discord_reconnect.html',
+        {
+            'heading': 'Your Discord is not quite connected',
+            'name': user.full_name or user.username,
+            'intro': intro,
+            'what_we_have': typed_handle,
+            'body': body,
+            'cta_url': f'{APP_URL}/settings?panel=linked',
+            'cta_label': 'Connect Discord',
+        },
+    )
