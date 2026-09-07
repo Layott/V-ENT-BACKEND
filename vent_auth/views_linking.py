@@ -51,6 +51,11 @@ def _steam_key():
     return os.environ.get('STEAM_API_KEY', '')
 
 
+def _discord_invite():
+    from .discord import INVITE
+    return INVITE
+
+
 def _dm_configured():
     from .discord import dm_configured
     return dm_configured()
@@ -156,6 +161,10 @@ def link_status(request):
                  # Whether the SERVER can send direct messages at all, which is
                  # a different question from whether this person wants them.
                  'dm_configured': _dm_configured(),
+                 # Where to join, so the direct-message switch can offer the
+                 # one thing that makes it work. Discord refuses a DM from a
+                 # bot that shares no server with the recipient.
+                 'discord_invite': _discord_invite(),
                  'external': external},
         'message': 'Linked accounts.',
     })

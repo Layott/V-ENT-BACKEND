@@ -56,6 +56,21 @@ TIMEOUT = 10
 MAX_RETRY_WAIT = 5
 
 
+#: V-ENT's own Discord server, and the invite anybody may use to join it.
+#:
+#: This is not decoration. **Discord will not let a bot send a direct message
+#: to somebody it shares no server with**, so the invite is the thing that
+#: makes the direct-message switch work at all. Offering the switch without
+#: offering the invite is offering a control that cannot succeed, which is the
+#: exact shape this codebase has a hard rule about.
+#:
+#: Both invites the platform has used resolve to the same server, checked on
+#: 7 September: discord.gg/z7MNM9pmYr and discord.com/invite/mxevc5aQG3 both
+#: answer with guild 1046108379598291036, "V-ENT", 478 members.
+GUILD_ID = os.environ.get('DISCORD_GUILD_ID', '1046108379598291036')
+INVITE = os.environ.get('DISCORD_INVITE', 'https://discord.gg/z7MNM9pmYr')
+
+
 def bot_token():
     return os.environ.get('DISCORD_BOT_TOKEN', '')
 
