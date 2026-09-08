@@ -30,7 +30,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from . import availability, checkout
-from .models import Event, Ticket, TicketTier
+from .models import AbandonedCheckout, Event, Ticket, TicketTier
 
 PAYSTACK_BASE = 'https://api.paystack.co'
 MAX_PER_PURCHASE = 10
@@ -431,6 +431,20 @@ def guest_buy(request, event_id):
         return _err(body.get('message') or 'The payment could not be started.',
                     'PAYMENT_GATEWAY', status.HTTP_502_BAD_GATEWAY)
 
+    # Somebody reached the payment page. The ORDER still lives only in the
+    # Paystack metadata, for the reason written above - but the FACT that they
+    # tried is the one thing an organiser can act on, and the metadata takes it
+    # to the grave. Smallest row that answers "who nearly bought", swept after
+    # thirty days whether or not it converts.
+    try:
+        AbandonedCheckout.objects.create(
+            event=event, tier=tier, email=email, quantity=quantity,
+            reference=reference, total_ngn=total_ngn)
+    except Exception:
+        # A checkout must not fail because the bookkeeping did. The buyer is
+        # already being sent to a gateway that has accepted the payment.
+        pass
+
     return _ok({
         'authorization_url': body['data']['authorization_url'],
         'reference': reference,
@@ -466,6 +480,9 @@ def guest_verify(request):
 
     existing = list(Ticket.objects.filter(payment_reference=reference))
     if existing:
+        AbandonedCheckout.objects.filter(
+            reference=reference, converted_at__isnull=True
+        ).update(converted_at=timezone.now())
         return _ok({'tickets': [_ticket_row(t) for t in existing],
                     'already_issued': True},
                    'Your tickets are ready.')
@@ -519,6 +536,12 @@ def guest_verify(request):
                      referral=_refs_resolve(event, meta.get('ref')),
                      buyer=_buyer(request))
     _send_them(tickets)
+
+    # They came back. The row stops being somebody to chase and becomes a
+    # number in the funnel until it is swept.
+    AbandonedCheckout.objects.filter(
+        reference=reference, converted_at__isnull=True
+    ).update(converted_at=timezone.now())
 
     return _ok({'tickets': [_ticket_row(t) for t in tickets],
                 'already_issued': False},

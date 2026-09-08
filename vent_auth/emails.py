@@ -696,3 +696,27 @@ def send_discord_reconnect(user, typed_handle, intro, body):
             'cta_label': 'Connect Discord',
         },
     )
+
+
+def send_checkout_unfinished(row):
+    """One reminder to somebody who reached the payment page and never paid.
+
+    Sent because an organiser pressed a button, never on a schedule. The
+    address was given in order to pay for a ticket, and one message about that
+    same purchase is the most it was given for. `AbandonedCheckout.reminded_at`
+    is what stops a second.
+    """
+    event = row.event
+    starts = event.start_date
+    return _send(
+        row.email,
+        'You did not finish your %s tickets' % event.name,
+        'checkout_unfinished.html',
+        {
+            'event': event.name,
+            'quantity': row.quantity,
+            'tier': row.tier.name if row.tier_id else 'Ticket',
+            'when': (starts.strftime('%d %b %Y, %H:%M') if starts
+                     else 'Date to be announced'),
+            'event_url': '%s/events/%s' % (APP_URL, event.slug or event.event_id),
+        })

@@ -2,7 +2,7 @@ from django.urls import path
 from django.conf import settings
 from django.conf.urls.static import static
 
-from . import views_guest
+from . import views_guest, views_recovery
 from vent_tournament import views_overlays as overlay_views
 from vent_tournament import views_overlay_feed as overlay_feed_views
 from vent_tournament import views_studio as studio_views
@@ -249,6 +249,12 @@ urlpatterns = [
     path("<str:event_id>/promos/<int:promo_id>/", event_promo_detail, name="event_promo_detail"),
     path("<str:event_id>/managers/", event_managers, name="event_managers"),
     path("<str:event_id>/managers/<int:manager_id>/", event_manager_detail, name="event_manager_detail"),
+
+    # Who reached the payment page and never paid, and the one reminder
+    path("<str:event_id>/abandoned/", views_recovery.abandoned_checkouts,
+         name="abandoned_checkouts"),
+    path("<str:event_id>/abandoned/remind/", views_recovery.remind_abandoned,
+         name="remind_abandoned"),
 
     # Tournament linking
     path("<str:event_id>/tournaments/", event_tournaments, name="event_tournaments"),

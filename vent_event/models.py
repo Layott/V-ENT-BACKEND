@@ -2201,3 +2201,84 @@ class GeocodedAddress(models.Model):
         if self.latitude is None:
             return '%s (not found)' % self.address
         return '%s (%s, %s)' % (self.address, self.latitude, self.longitude)
+
+
+class AbandonedCheckout(models.Model):
+    """Somebody who reached the payment page for a paid ticket and never paid.
+
+    The last GAP on the tix and selar research (inbox row 148, "abandoned
+    checkout recovery"). Everything else on that list is built.
+
+    ## Why a row exists here when `guest_buy` deliberately writes none
+
+    `guest_buy` holds the whole order in the Paystack metadata rather than in a
+    pending row, with the reason written beside it: "a payment nobody completes
+    should leave nothing behind to clean up". That is still right for the
+    ORDER. It is wrong for the fact that somebody tried, which is the only
+    thing an organiser can act on and which the metadata takes to the grave.
+
+    So this stores the smallest thing that answers "who nearly bought": an
+    address, an event, how many, and when. Not the answers they typed, not the
+    attendee names, not the card. If it is never converted and never reminded,
+    it is swept.
+
+    ## One reminder, ever, and a person presses it
+
+    `reminded_at` is set once and checked before every send. There is no
+    scheduler here on purpose. An automatic sequence to somebody who did not
+    buy is a marketing list built out of a checkout, and the address was given
+    to pay for a ticket, not to be marketed at. One "you did not finish"
+    message about that same purchase, sent because the organiser chose to, is
+    the thing a buyer expects and the most that address was given for.
+
+    ## It resolves itself
+
+    `converted_at` is stamped when a ticket for that reference is issued, so
+    the list only ever shows people who really did not come back. A row that
+    is converted is kept briefly for the funnel and then swept like the rest:
+    see `sweep()`, which is what stops this table becoming an address book.
+    """
+
+    id = models.AutoField(primary_key=True)
+    event = models.ForeignKey(
+        Event, on_delete=models.CASCADE, related_name='abandoned_checkouts')
+    tier = models.ForeignKey(
+        'TicketTier', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='abandoned_checkouts')
+
+    email = models.EmailField()
+    quantity = models.PositiveIntegerField(default=1)
+    # The Paystack reference this attempt was started under. It is how the
+    # verification that DOES arrive finds the row to close, and it is unique
+    # so a retried request cannot write the attempt twice.
+    reference = models.CharField(max_length=64, unique=True)
+    total_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    started_at = models.DateTimeField(auto_now_add=True)
+    converted_at = models.DateTimeField(null=True, blank=True)
+    reminded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-started_at']
+        indexes = [models.Index(fields=['event', 'converted_at'])]
+
+    def __str__(self):
+        return '%s x%s %s' % (self.email, self.quantity, self.reference)
+
+    @property
+    def open(self):
+        return self.converted_at is None
+
+    @classmethod
+    def sweep(cls, days=30, now=None):
+        """Delete anything older than `days`, converted or not.
+
+        A row here is an email address somebody gave in order to pay. Keeping
+        it indefinitely because it might one day be useful is how a checkout
+        becomes a mailing list. Thirty days is longer than any reminder is
+        worth sending and shorter than anybody would call a record.
+        """
+        from django.utils import timezone as _tz
+        cutoff = (now or _tz.now()) - timedelta(days=days)
+        deleted, _ = cls.objects.filter(started_at__lt=cutoff).delete()
+        return deleted

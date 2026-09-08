@@ -332,7 +332,14 @@ LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
 
 # Email Backend
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+#
+# Overridable so a local machine, which cannot reach the relay, can still walk
+# every screen that sends something. Without this the whole mail surface is
+# untestable in a browser: a send simply fails, and a page that reports the
+# failure badly looks identical to one that reports it well. Production sets
+# nothing and keeps SMTP.
+EMAIL_BACKEND = os.environ.get(
+    'EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
 
 # SMTP Configuration
 # Mail goes to the local Postfix, which relays to the configured provider.
