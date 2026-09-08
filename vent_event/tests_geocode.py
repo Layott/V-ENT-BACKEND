@@ -25,7 +25,7 @@ from datetime import time, timedelta
 from decimal import Decimal
 from unittest import mock
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from vent_auth.models import Games, Users
@@ -80,6 +80,11 @@ class BoundingTests(TestCase):
         self.assertEqual(geo.country_hint('Alexanderplatz, Berlin, Germany'), '')
 
 
+# Geocoding is OFF under the test runner, because `Event.save()` calls it and
+# every test that creates an event with an address would otherwise reach
+# OpenStreetMap. These are the tests that WANT it, and every one of them stubs
+# the network, so they turn it back on explicitly.
+@override_settings(GEOCODING_ENABLED=True)
 class CacheTests(TestCase):
     def test_an_address_is_looked_up_once(self):
         calls = []
@@ -126,6 +131,7 @@ class CacheTests(TestCase):
             self.assertIsNone(geo.geocode('', 'Ah'))
 
 
+@override_settings(GEOCODING_ENABLED=True)
 class SavingAnEventTests(TestCase):
     def setUp(self):
         self.user = Users.objects.create(username='geo_org',

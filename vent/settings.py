@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 import pymysql
 from django.core.exceptions import ImproperlyConfigured
@@ -330,6 +331,16 @@ SOCIALACCOUNT_PROVIDERS = {
 
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
+
+# Looking an address up with OpenStreetMap. On by default, and OFF under the
+# test runner: `Event.save()` geocodes, so with it on every test that creates
+# an event with an address reaches a third party. A test that wants the real
+# thing overrides this with `@override_settings(GEOCODING_ENABLED=True)` and
+# stubs the network, which is what `tests_geocode` already does.
+GEOCODING_ENABLED = (
+    os.environ.get('GEOCODING_ENABLED', '') != '0'
+    and 'test' not in sys.argv
+)
 
 # Email Backend
 #

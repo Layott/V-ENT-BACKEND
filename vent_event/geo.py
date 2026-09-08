@@ -331,6 +331,21 @@ def geocode(venue, location=None):
     if len(original) < 6:
         return None
 
+    from django.conf import settings
+    if not getattr(settings, 'GEOCODING_ENABLED', True):
+        # Off under the test runner, and off wherever somebody turns it off.
+        #
+        # `Event.save()` calls this, so with it on EVERY test that creates an
+        # event with an address reaches OpenStreetMap. That makes the suite
+        # slow, dependent on somebody else's uptime, and - worse - not
+        # deterministic: `tests_map` passed on one run and failed on the next
+        # with the same code, because the first got no answer and the second
+        # got a real one. A test that means "no pin" has to be able to say so.
+        #
+        # It also hammers a free service that asks us not to, which is the
+        # thing the cache above exists to avoid.
+        return None
+
     from .models import GeocodedAddress
 
     row = GeocodedAddress.objects.filter(address__iexact=original).first()
