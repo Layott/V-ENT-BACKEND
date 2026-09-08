@@ -32,14 +32,17 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from . import wallets
-from .decorators import admin_role_required
+from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .models import (AdminAction, OrgMember, Organization, OrgWallet,
-                     TeamWallet, UserWallet, Users)
+                     Users)
 
-READ_ROLES = {'super_admin', 'admin', 'finance_admin', 'mod_admin',
-              'tournament_admin', 'support_admin'}
-MANAGE_ROLES = {'super_admin', 'admin'}
-MONEY_ROLES = {'super_admin', 'finance_admin'}
+READ_ROLES = ROLE_PERMISSIONS['view_organizations']
+MANAGE_ROLES = ROLE_PERMISSIONS['manage_organizations']
+MONEY_ROLES = ROLE_PERMISSIONS['transfer_funds']
+# The organisation's statement is a financial report, so it answers to
+# the same permission as every other financial report rather than to org
+# management.
+REPORT_ROLES = ROLE_PERMISSIONS['view_transactions']
 
 
 def _ok(data, message=''):
@@ -57,6 +60,15 @@ def _org(ref):
     return Organization.objects.filter(slug=str(ref)).first()
 
 
+def _member(user):
+    """One description of a person, the same one every other screen draws."""
+    from .views_community import _person
+
+    row = _person(None, user)
+    row['email'] = user.email
+    return row
+
+
 def _row(org):
     wallet = OrgWallet.objects.filter(org=org).first()
     return {
@@ -72,14 +84,75 @@ def _row(org):
     }
 
 
-@api_view(['GET'])
+def _create_organization(request):
+    """Make an organisation, owned by a real account.
+
+    The spec asks for "Create Organizations: create new organizations,
+    including name, description, and type". Type matters more than it looks:
+    `capabilities()` reads it, and an organisation created as the wrong type
+    has tabs its owner cannot explain.
+    """
+    from .decorators import effective_admin_role
+
+    admin = request.admin_user
+    if effective_admin_role(admin) not in MANAGE_ROLES:
+        return _err('Only an admin can create an organisation.', 'NOT_ALLOWED',
+                    status.HTTP_403_FORBIDDEN)
+
+    name = str(request.data.get('name') or '').strip()
+    org_type = str(request.data.get('org_type') or 'mixed').strip()
+    bio = str(request.data.get('description') or '').strip()[:280]
+    owner_ref = str(request.data.get('owner') or '').strip()
+
+    if not name:
+        return _err('Give it a name.', 'VALIDATION_ERROR')
+    if org_type not in dict(Organization.TYPE_CHOICES):
+        return _err('That is not an organisation type.', 'VALIDATION_ERROR')
+    if Organization.objects.filter(org_name__iexact=name).exists():
+        return _err('There is already an organisation with that name.',
+                    'NAME_TAKEN', status.HTTP_409_CONFLICT)
+
+    owner = (Users.objects.filter(username__iexact=owner_ref).first()
+             or Users.objects.filter(email__iexact=owner_ref).first())
+    if owner is None:
+        return _err('No account called %s to own it.' % (owner_ref or '-'),
+                    'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+
+    org = Organization.objects.create(
+        org_name=name, org_type=org_type, bio=bio,
+        org_creator=owner, org_owner=owner)
+    # The owner is a member as well as the owner. Every membership question on
+    # the platform reads OrgMember, and an owner missing from it is an owner
+    # who does not appear in their own organisation.
+    OrgMember.objects.get_or_create(
+        org=org, user=owner,
+        defaults={'role': OrgMember.ROLE_OWNER,
+                  'scopes': list(OrgMember.ALL_SCOPES)})
+
+    AdminAction.objects.create(
+        admin=admin, action_type='create_organization',
+        target_model='Organization', target_id=str(org.org_id),
+        reason=str(request.data.get('reason') or '')[:500],
+        metadata={'name': org.org_name, 'org_type': org.org_type,
+                  'owner': owner.username})
+    return _ok(_row(org), 'Created.')
+
+
+@api_view(['GET', 'POST'])
 @admin_role_required(READ_ROLES)
 def admin_organizations(request):
-    """Every organisation, with what it holds.
+    """Every organisation, with what it holds. POST creates one.
 
     `?q=` searches the name. `?verified=1` narrows to the verified ones, which
     is the question somebody actually asks when they open this.
+
+    Creating one names an OWNER who is an existing account. An organisation
+    with no owner is an organisation nobody can run, and the console would be
+    the only way to touch it ever again.
     """
+    if request.method == 'POST':
+        return _create_organization(request)
+
     rows = Organization.objects.select_related('org_owner').all()
 
     term = (request.GET.get('q') or '').strip()
@@ -107,8 +180,12 @@ def admin_organization_detail(request, org_ref):
         wallet = OrgWallet.objects.filter(org=org).first()
         return _ok({
             **_row(org),
+            # Through the one person builder, so a member here carries the
+            # same face and the same founder mark as every other screen. A
+            # hand-built person dict is how an avatar goes missing on one
+            # screen and nowhere else.
             'members_list': [{
-                'username': m.user.username,
+                **_member(m.user),
                 'role': m.role,
                 'scopes': m.scopes or [],
             } for m in members],
@@ -144,6 +221,50 @@ def admin_organization_detail(request, org_ref):
             target_model='Organization', target_id=str(org.org_id),
             metadata={'org_type': wanted, 'name': org.org_name})
         return _ok(_row(org), 'Saved.')
+
+    if action == 'set_details':
+        # Renaming an organisation moves its address with it, and every
+        # address it has ever had keeps working: `save()` calls `sync_slug`
+        # and the old one goes to SlugHistory. That is why this writes through
+        # the model rather than updating the column.
+        name = str(request.data.get('name') or '').strip()
+        if name and name.lower() != org.org_name.lower():
+            if Organization.objects.filter(
+                    org_name__iexact=name).exclude(pk=org.pk).exists():
+                return _err('There is already an organisation with that name.',
+                            'NAME_TAKEN', status.HTTP_409_CONFLICT)
+            org.org_name = name
+        if 'description' in request.data:
+            org.bio = str(request.data.get('description') or '')[:280]
+        if 'location' in request.data:
+            org.location = str(request.data.get('location') or '')[:120]
+        org.save()
+        AdminAction.objects.create(
+            admin=admin, action_type='edit_organization',
+            target_model='Organization', target_id=str(org.org_id),
+            reason=str(request.data.get('reason') or '')[:500],
+            metadata={'name': org.org_name})
+        return _ok(_row(org), 'Saved.')
+
+    if action == 'remove_member':
+        username = str(request.data.get('username') or '').strip()
+        member = OrgMember.objects.filter(
+            org=org, user__username__iexact=username).first()
+        if member is None:
+            return _err('%s is not in this organisation.' % username,
+                        'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+        if member.user_id == org.org_owner_id:
+            # Removing the owner leaves an organisation nobody can run, and
+            # the console is not where an ownership transfer belongs.
+            return _err('The owner cannot be removed. Change the owner first.',
+                        'CANNOT_REMOVE_OWNER')
+        member.delete()
+        AdminAction.objects.create(
+            admin=admin, action_type='remove_org_member',
+            target_model='Organization', target_id=str(org.org_id),
+            reason=str(request.data.get('reason') or '')[:500],
+            metadata={'org': org.org_name, 'username': username})
+        return _ok(_row(org), 'Removed.')
 
     if action == 'set_member_role':
         if role not in MANAGE_ROLES:
@@ -183,30 +304,22 @@ def admin_transfer_funds(request):
     """
     admin = request.admin_user
 
-    def resolve(kind, ref):
-        kind = str(kind or '').lower()
-        ref = str(ref or '').strip()
-        if kind == 'user':
-            user = Users.objects.filter(username__iexact=ref).first()
-            return UserWallet.objects.filter(user=user).first() if user else None
-        if kind == 'org':
-            org = _org(ref)
-            return wallets.wallet_for_org(org) if org else None
-        if kind == 'team':
-            from .models import Teams
-            team = Teams.objects.filter(slug=ref).first() or \
-                Teams.objects.filter(team_name__iexact=ref).first()
-            return wallets.wallet_for_team(team) if team else None
-        return None
-
-    source = resolve(request.data.get('from_kind'), request.data.get('from'))
-    target = resolve(request.data.get('to_kind'), request.data.get('to'))
-    if source is None:
-        return _err('No wallet to take it from.', 'NOT_FOUND',
-                    status.HTTP_404_NOT_FOUND)
-    if target is None:
-        return _err('No wallet to send it to.', 'NOT_FOUND',
-                    status.HTTP_404_NOT_FOUND)
+    # `wallets.resolve_target` and nothing local. This view had its own copy of
+    # the same nine lines, and the module it copied them from carries a comment
+    # saying why there is only supposed to be one: "two copies would eventually
+    # disagree about what 'vermillion' means, which is the same fault seen from
+    # the inside". The copy here had already drifted: it refused an account
+    # whose wallet row predates automatic creation, where the shared resolver
+    # makes one.
+    try:
+        source = wallets.resolve_target(request.data.get('from_kind'),
+                                        request.data.get('from'))
+        target = wallets.resolve_target(request.data.get('to_kind'),
+                                        request.data.get('to'))
+    except wallets.WalletError as exc:
+        return _err(str(exc), exc.code,
+                    status.HTTP_404_NOT_FOUND if exc.code == 'NOT_FOUND'
+                    else status.HTTP_400_BAD_REQUEST)
 
     reason = str(request.data.get('reason') or '').strip()
     if not reason:
@@ -234,7 +347,7 @@ def admin_transfer_funds(request):
 
 
 @api_view(['GET'])
-@admin_role_required(READ_ROLES)
+@admin_role_required(ROLE_PERMISSIONS['manage_communities'])
 def admin_communities(request):
     """Clubs, and how busy each one is.
 
@@ -265,3 +378,40 @@ def admin_communities(request):
             if getattr(club, 'created_at', None) else None,
         })
     return _ok({'results': out, 'count': len(out)})
+
+
+@api_view(['GET'])
+@admin_role_required(REPORT_ROLES)
+def admin_organization_report(request, org_ref):
+    """An organisation's statement as a CSV file.
+
+    The spec asks for "generate financial reports for the organization". An
+    `HttpResponse`, not a DRF `Response`: a DRF Response hands the CSV to the
+    JSON renderer and the browser saves a quoted string. The test reads
+    `res.content` and asserts on the header line, because a test reading
+    `res.data` sees the right characters either way and proves nothing.
+    """
+    import csv
+    import io as _io
+
+    from django.http import HttpResponse
+
+    org = _org(org_ref)
+    if org is None:
+        return _err('No organisation with that address.', 'NOT_FOUND',
+                    status.HTTP_404_NOT_FOUND)
+
+    wallet = OrgWallet.objects.filter(org=org).first()
+    lines = wallets.statement(wallet, limit=5000) if wallet else []
+
+    buffer = _io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(['when', 'type', 'amount_vc', 'status', 'description'])
+    for line in lines:
+        writer.writerow([line['at'], line['type'], line['amount'],
+                         line['status'], line['description']])
+
+    response = HttpResponse(buffer.getvalue(), content_type='text/csv')
+    response['Content-Disposition'] = (
+        'attachment; filename="%s-statement.csv"' % (org.slug or org.org_id))
+    return response

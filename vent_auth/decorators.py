@@ -67,12 +67,17 @@ ROLE_LABEL = {
 # the lead to narrow if desired. Payouts = super/finance per the lead's ruling.
 ROLE_PERMISSIONS = {
     'view_dashboard':        set(ADMIN_ROLES),
-    # Not every role. A Marketplace Manager's access is "specific to
-    # marketplace management" per the spec, and the whole user list is not
-    # that. Seeing the console door is one thing; seeing everybody's account
-    # is another.
-    'view_users':            {'super_admin', 'admin', 'finance_admin',
-                              'mod_admin', 'tournament_admin', 'support_admin'},
+    # Not every role. The spec gives the user section to Super Admin and
+    # Admin, gives the Financial Manager "finance only", the Tournament
+    # Organizer "tournaments and events" and the Moderator "community and
+    # content". A Marketplace Manager's access is the marketplace.
+    #
+    # Moderator and Support keep it for a reason each: a moderator acts on a
+    # report ABOUT an account and holds `ban_users`, and banning somebody whose
+    # account you may not open is banning blind; support exists to look an
+    # account up. Nobody else needs the whole list.
+    'view_users':            {'super_admin', 'admin', 'mod_admin',
+                              'support_admin'},
     'ban_users':             {'super_admin', 'admin', 'mod_admin'},
     'set_user_roles':        {'super_admin'},
     'delete_users':          {'super_admin'},
@@ -80,9 +85,10 @@ ROLE_PERMISSIONS = {
     'list_payouts':          {'super_admin', 'finance_admin'},
     'approve_payouts':       {'super_admin', 'finance_admin'},
     'reject_payouts':        {'super_admin', 'finance_admin'},
-    'list_kyc':              {'super_admin', 'finance_admin', 'mod_admin', 'support_admin'},
-    'approve_kyc':           {'super_admin', 'finance_admin', 'mod_admin'},
-    'reject_kyc':            {'super_admin', 'finance_admin', 'mod_admin'},
+    'list_kyc':              {'super_admin', 'admin', 'finance_admin',
+                              'mod_admin', 'support_admin'},
+    'approve_kyc':           {'super_admin', 'admin', 'finance_admin', 'mod_admin'},
+    'reject_kyc':            {'super_admin', 'admin', 'finance_admin', 'mod_admin'},
     'cancel_tournament':     {'super_admin', 'admin', 'mod_admin', 'tournament_admin'},
     # Named in production_access.py and access.py since 1 September, and
     # absent from here until 3 September, so may_override always said no and
@@ -106,10 +112,33 @@ ROLE_PERMISSIONS = {
     # roles, delete accounts, manage other admins or export the audit log,
     # which is the whole difference the spec draws between Admin and Super
     # Admin.
+    # Reading an organisation and running one are two different permissions.
+    # A Financial Manager may move money into an organisation's wallet and
+    # download its statement, so they have to be able to FIND it; they may not
+    # verify it, change its type or change who is in it.
+    'view_organizations':    {'super_admin', 'admin', 'finance_admin'},
     'manage_organizations':  {'super_admin', 'admin'},
     'manage_communities':    {'super_admin', 'admin', 'mod_admin'},
     'moderate_content':      {'super_admin', 'admin', 'mod_admin'},
     'transfer_funds':        {'super_admin', 'finance_admin'},
+    # Cancelling an event and voiding a ticket both take a seat away from
+    # somebody who paid for it, so they are separate from reading the events
+    # console. Support is here because the door and the refund desk is what
+    # support does; a Moderator is not, because an event is not content.
+    'cancel_event':          {'super_admin', 'admin', 'tournament_admin',
+                              'support_admin'},
+    'void_ticket':           {'super_admin', 'admin', 'tournament_admin',
+                              'support_admin'},
+    # The game catalogue every tournament picks from, and the exchange rates
+    # every price is shown in. Both were gated by a list written at the call
+    # site and by nothing else.
+    'manage_games':          {'super_admin', 'admin', 'mod_admin'},
+    'manage_rates':          {'super_admin', 'finance_admin'},
+    'manage_settings':       {'super_admin'},
+    # Sending a reset does not reveal a password and does not set one: it
+    # emails the person the same code the front door does. Support exists to
+    # do exactly this, which is why it is here and not with the ban.
+    'reset_user_password':   {'super_admin', 'admin', 'support_admin'},
     'send_notifications':    {'super_admin', 'admin', 'mod_admin',
                               'tournament_admin'},
 

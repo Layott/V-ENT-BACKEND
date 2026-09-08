@@ -72,7 +72,14 @@ def _may_send(user, event):
     # One rule, in permissions.py. This used to ask EventManager directly, as
     # five other screens did, and each had its own idea of which roles counted.
     from .permissions import may_run_event
-    return may_run_event(user, event)
+    if may_run_event(user, event):
+        return True
+    # And an admin holding `manage_events`, which is how the console sends one
+    # WITHOUT a second announcement model beside this one. `may_override` asks
+    # for the same second factor the console door does, so an ordinary session
+    # belonging to an admin does not reach this.
+    from vent_auth.actors import may_override
+    return may_override(user, 'manage_events')
 
 
 def _recipients(event, audience):

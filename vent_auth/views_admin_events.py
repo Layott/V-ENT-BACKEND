@@ -33,7 +33,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from .decorators import ADMIN_ROLES, admin_role_required
+from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .models import AdminAction
 
 # ---------------------------------------------------------------------------
@@ -59,8 +59,9 @@ def _err(message, code, http=status.HTTP_400_BAD_REQUEST, extra=None):
 # Reading is open to every admin role. Acting on an event or a ticket is not:
 # those are the two that take money and seats away from people, so they are
 # limited to the roles that answer for it.
-READ_ROLES = ADMIN_ROLES
-ACT_ROLES = ('super_admin', 'support_admin')
+READ_ROLES = ROLE_PERMISSIONS['manage_events']
+CANCEL_ROLES = ROLE_PERMISSIONS['cancel_event']
+VOID_ROLES = ROLE_PERMISSIONS['void_ticket']
 
 
 def _event(ref):
@@ -192,7 +193,7 @@ STATE_ACTIONS = {
 
 
 @api_view(['POST'])
-@admin_role_required(ACT_ROLES)
+@admin_role_required(CANCEL_ROLES)
 def admin_event_state(request, event_ref):
     """Cancel an event, or put it back.
 
@@ -314,7 +315,7 @@ def _ticket_row(ticket):
 
 
 @api_view(['POST'])
-@admin_role_required(ACT_ROLES)
+@admin_role_required(VOID_ROLES)
 def admin_ticket_action(request, code):
     """Void a ticket, or put it back.
 
