@@ -120,6 +120,10 @@ CATCHERS = [
      'every date renders in the reader own zone and chosen language',
      FRONTEND, ['node', 'scripts/check-datetime.mjs'], False),
 
+    ('tap targets',
+     'nothing pressable is under 44px on a phone',
+     FRONTEND, ['node', 'scripts/check-tap-targets.mjs'], False),
+
     ('api paths',
      'every path the frontend fetches is one the backend serves',
      FRONTEND, ['node', 'scripts/check-api-paths.mjs'], True),

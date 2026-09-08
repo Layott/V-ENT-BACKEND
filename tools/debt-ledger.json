@@ -89,6 +89,11 @@
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
+  "tap targets": {
+    "count": 311,
+    "first_seen": "2026-09-08",
+    "since": "2026-09-08"
+  },
   "timezone picker": {
     "count": 0,
     "first_seen": "2026-09-07",
