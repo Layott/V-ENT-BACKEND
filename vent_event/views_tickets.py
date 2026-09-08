@@ -74,6 +74,18 @@ def _authenticate(request):
     return user, None
 
 
+def _maybe_viewer(request):
+    """Whoever is asking, or None. Never an error.
+
+    For the endpoints that are public but answer a better question when they
+    know who is reading - the quote, which has to price a member's discount
+    for a member and the list price for everybody else, from one place. A
+    signed-out reader is a normal case here, not a refusal.
+    """
+    user, _err = _authenticate(request)
+    return user
+
+
 def _ngn_to_coins(amount_ngn):
     # Single source of truth: the wallet app owns the rate.
     from vent_auth.views_wallet import NGN_PER_COIN
@@ -150,6 +162,14 @@ def serialize_tier(tier):
         'early_bird_price': float(tier.early_bird_price) if tier.early_bird_price is not None else None,
         'group_min': tier.group_min,
         'group_price': float(tier.group_price) if tier.group_price is not None else None,
+        # The same two prices in VENT COINS, which is the unit every screen
+        # actually renders. Sent rather than derived, because a panel dividing
+        # naira by a rate to get coins is a second copy of the conversion and
+        # the two round differently on the tiers where it matters.
+        'group_price_vc': (_ngn_to_coins(tier.group_price)
+                           if tier.group_price is not None else None),
+        'early_bird_price_vc': (_ngn_to_coins(tier.early_bird_price)
+                                if tier.early_bird_price is not None else None),
         # The code itself is never sent. Whether one exists is not a secret;
         # what it is, is.
         'is_hidden': tier.is_hidden,
@@ -263,6 +283,102 @@ def ticket_types(request, event_id):
             'fee_pct': _fee_rate(),
         },
         'Ticket tiers retrieved.',
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /event/<id>/quote/
+# ---------------------------------------------------------------------------
+
+@api_view(['GET'])
+def ticket_quote(request, event_id):
+    """What this purchase costs, answered by the code that does the charging.
+
+    The buy panel used to work the total out for itself, as price times
+    quantity. That is not the question the checkout answers: a group rate, an
+    early bird price and the platform fee all move the number. At quantity 4 on
+    a tier with a group rate the panel said "20 VC x 4, total 80" while
+    `price_for(4)` returned 16 and the server took 64. Neither side was wrong.
+    They were two answers to one question, which is the fault that reads as
+    "sold out" with 4814 tickets left.
+
+    Public, and deliberately so: a guest buying without an account has to be
+    told the same number as a member, from the same place.
+    """
+    event = _event_by_ref(event_id, is_active=True)
+    if event is None:
+        return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+
+    tier_ref = request.GET.get('tier') or request.GET.get('tier_id')
+    tier = event.ticket_tiers.filter(id=tier_ref).first() if tier_ref else None
+    if tier is None:
+        return _error('Ticket type not found.', 'NOT_FOUND',
+                      status.HTTP_404_NOT_FOUND)
+
+    # A hidden tier is priced only for somebody holding the code. Quoting it to
+    # anybody who guesses its id would publish the presale it exists to hide.
+    code = str(request.GET.get('code') or '').strip()
+    if tier.is_hidden and not tier.opened_by(code):
+        return _error('That ticket type needs an access code.', 'CODE_REQUIRED',
+                      status.HTTP_403_FORBIDDEN)
+
+    try:
+        quantity = int(request.GET.get('quantity') or request.GET.get('qty') or 1)
+    except (TypeError, ValueError):
+        quantity = 1
+    quantity = max(1, min(quantity, MAX_PER_PURCHASE))
+
+    from . import ledger as _ledger
+    priced = _ledger.quote(tier, quantity, event, buyer=_maybe_viewer(request))
+
+    # Why the unit price is what it is, as a code rather than a sentence, so
+    # the screen says it in the reader's language. `list` means nothing moved
+    # it, which is the ordinary case and needs no line on the panel at all.
+    unit_ngn = float(priced['unit_ngn'])
+    reason = 'list'
+    if (tier.group_min and tier.group_price is not None
+            and quantity >= tier.group_min):
+        reason = 'group'
+    elif (tier.early_bird_quantity and tier.early_bird_price is not None
+            and int(tier.sold) >= int(tier.early_bird_quantity)):
+        reason = 'early_bird'
+
+    # What the SAME purchase would cost at the plain list price, so a panel can
+    # say what the group rate saved without doing arithmetic of its own.
+    list_unit_vc = _ngn_to_coins(tier.price)
+
+    return _ok(
+        {
+            'tier_id': tier.id,
+            'tier_name': tier.name,
+            'quantity': quantity,
+            'unit_ngn': unit_ngn,
+            'unit_vc': priced['unit_vc'],
+            'list_unit_vc': list_unit_vc,
+            'tickets_vc': priced['tickets_vc'],
+            'fee_vc': priced['fee_vc'],
+            'fee_pct': priced['fee_pct'],
+            'fee_bearer': priced['fee_bearer'],
+            'total_vc': priced['total_vc'],
+            'price_reason': reason,
+            # A membership discount is reported BESIDE `price_reason` rather
+            # than inside it, because it stacks on top of whatever the tier
+            # rule already decided: somebody buying four at a group rate and
+            # holding a member discount got both, and a single reason code
+            # could only name one of them.
+            'member_discount_pct': priced['member_discount_pct'],
+            'member_saving_vc': priced['member_saving_vc'],
+            # The two rules a panel needs in order to SAY what is on offer
+            # before somebody has typed a quantity that reaches it.
+            'group_min': tier.group_min,
+            'group_unit_vc': (_ngn_to_coins(tier.group_price)
+                              if tier.group_price is not None else None),
+            'early_bird_quantity': tier.early_bird_quantity,
+            'early_bird_unit_vc': (_ngn_to_coins(tier.early_bird_price)
+                                   if tier.early_bird_price is not None else None),
+            'sold': int(tier.sold),
+        },
+        'Quote ready.',
     )
 
 
@@ -404,7 +520,10 @@ def buy_ticket(request, event_id):
         # answered different questions about availability once, and it read as
         # "sold out" with 4814 tickets left.
         from . import ledger as _ledger
-        priced = _ledger.quote(tier, quantity, event)
+        # The buyer, so a member is CHARGED the discount the quote showed
+        # them. Passing nobody here is how a panel and a checkout end up
+        # answering two different questions about one price.
+        priced = _ledger.quote(tier, quantity, event, buyer=user)
         unit_ngn = priced['unit_ngn']
         unit_vc = priced['unit_vc']
         # What leaves the buyer's wallet. With the fee on the organiser this is

@@ -81,18 +81,33 @@ def fee_on(amount_vc, rate=None):
     return int(Decimal(str(amount_vc)) * Decimal(str(rate)) / Decimal('100'))
 
 
-def quote(tier, quantity, event=None):
+def quote(tier, quantity, event=None, buyer=None):
     """What the buyer is asked for and what each party is owed, before any sale.
 
     The screen showing a price and the code charging one read this same
     function, so the two cannot drift. That is not a hypothetical: the listing
     and the checkout answered different questions about availability once, and
     it read as "sold out" with 4814 tickets left.
+
+    `buyer` is who is being quoted, and it is optional because a guest checkout
+    genuinely has nobody. When there IS somebody, a membership of this event's
+    organiser can carry a ticket discount, and it is applied HERE rather than
+    at the checkout for exactly the reason above: a discount shown by the panel
+    and not taken by the charge is the same fault wearing a nicer face.
     """
     event = event or tier.event
-    unit_ngn = tier.price_for(quantity)
+    list_ngn = tier.price_for(quantity)
+
+    # A membership discount from whoever runs this event. Read on this request,
+    # so a lapsed member is quoted the full price now rather than at the next
+    # deploy - which is the whole of gate C1.
+    from vent_billing import entitlements as _ent
+    member_pct = _ent.ticket_discount_pct(buyer, event) if buyer is not None else 0
+    unit_ngn = _ent.discounted(list_ngn, member_pct) if member_pct else list_ngn
+
     from .views_tickets import _ngn_to_coins
     unit_vc = _ngn_to_coins(unit_ngn)
+    list_unit_vc = _ngn_to_coins(list_ngn)
     tickets_vc = unit_vc * quantity
 
     rate = platform_rate()
@@ -112,6 +127,8 @@ def quote(tier, quantity, event=None):
             'fee_bearer': 'buyer',
             'total_vc': tickets_vc + fee_vc,
             'organiser_vc': tickets_vc,
+            'member_discount_pct': member_pct,
+            'member_saving_vc': (list_unit_vc - unit_vc) * quantity,
         }
 
     # Taken out of what the organiser receives. The buyer pays the ticket
@@ -126,6 +143,8 @@ def quote(tier, quantity, event=None):
         'fee_bearer': 'organiser',
         'total_vc': tickets_vc,
         'organiser_vc': tickets_vc - fee_vc,
+        'member_discount_pct': member_pct,
+        'member_saving_vc': (list_unit_vc - unit_vc) * quantity,
     }
 
 

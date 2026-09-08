@@ -29,7 +29,8 @@ from . import views_limits
 from . import views_short_links
 from .views import create_event, get_all_events, view_event, edit_event
 from .views_tickets import (
-    ticket_types, buy_ticket, my_tickets, check_in_ticket, event_attendees,
+    ticket_types, ticket_quote, buy_ticket, my_tickets, check_in_ticket,
+    event_attendees,
 )
 from .views_vendor_shop import (
     my_stalls, my_stall_detail, my_product, my_stall_orders,
@@ -94,6 +95,10 @@ urlpatterns = [
          views_self_check_in.self_check_in_settings,
          name="self_check_in_settings"),
     path("<str:event_id>/ticket-types/", ticket_types, name="ticket_types"),
+    # What a purchase costs, from the same function that charges for it. The
+    # panel used to multiply the price by the quantity and disagreed with the
+    # checkout on every tier carrying a group or early bird rate.
+    path("<str:event_id>/quote/", ticket_quote, name="ticket_quote"),
     path("<str:event_id>/sessions/", views_sessions.sessions, name="event_sessions"),
     path("<str:event_id>/sessions/manage/", views_sessions.manage_sessions, name="manage_sessions"),
     path("<str:event_id>/sessions/<int:session_id>/", views_sessions.session_detail, name="session_detail"),
