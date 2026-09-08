@@ -451,6 +451,32 @@ def join_tournament(request):
                     'data': {'visibility': tournament.tournament_visibility},
                 }, status=status.HTTP_403_FORBIDDEN)
 
+        # Registration that has not opened yet. `registration_opens_at` was on
+        # the model, was sent to every screen, and was enforced by nothing: an
+        # organiser who set a date found anybody who opened the page could
+        # register regardless. Enforced only where a date was actually SET, so
+        # the tournaments that carry no window - almost all of them - are
+        # unaffected.
+        #
+        # This is also the only thing early access can be early TO, which is
+        # why the membership benefit is asked here rather than sold as a
+        # promise nothing keeps.
+        from vent_billing import entitlements as _entitlements
+        _window_code, _opens_at = _entitlements.registration_window_error(
+            user, tournament)
+        if _window_code:
+            return Response({
+                'status': 'error',
+                'code': _window_code,
+                'message': 'Registration for this tournament has not opened yet.',
+                'data': {
+                    'opens_at': _opens_at,
+                    # So the page can offer the membership that would let them
+                    # in now, rather than only telling them to come back.
+                    'early_access_benefit': 'priority_registration',
+                },
+            }, status=status.HTTP_409_CONFLICT)
+
         # Two tournaments at the same time is two matches somebody cannot play.
         # The PRD asks for a warning rather than a refusal, so this answers with
         # the clash and what it collides with, and goes ahead when the caller
@@ -508,6 +534,16 @@ def join_tournament(request):
         _covered, _event_link = entry_is_covered(user, tournament)
         covered_by_ticket = bool(is_paid and _covered)
         if covered_by_ticket:
+            is_paid = False
+
+        # A membership of this organiser that grants free entry. Asked BEFORE
+        # the wallet is debited, and read on this request rather than off a
+        # flag, so somebody whose membership lapsed an hour ago pays now.
+        # Gate C1: the benefit is enforced here, not merely hidden on a page.
+        from vent_billing import entitlements as _entitlements
+        waived_by_membership = bool(
+            is_paid and _entitlements.waives_entry_fee(user, tournament))
+        if waived_by_membership:
             is_paid = False
 
         entry_fee_coins = int(tournament.entry_fee_price) if is_paid else 0
@@ -630,6 +666,11 @@ def join_tournament(request):
                 'entry_fee_paid': registration.entry_fee_paid,
                 'coins_deducted': entry_fee_coins if is_paid else 0,
                 'covered_by_event_ticket': covered_by_ticket,
+                # What paid for the entry when it was not the wallet. Reported
+                # rather than left to be inferred from a zero: "you were not
+                # charged" and "your membership covered it" are different
+                # sentences and only one of them is worth reading.
+                'entry_waived_by_membership': waived_by_membership,
             }
         }, status=status.HTTP_201_CREATED)
 

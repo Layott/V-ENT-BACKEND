@@ -716,6 +716,10 @@ BLANK_RUN_OF_SHOW = {
     'time_zone': '',
     'now': None,
     'next': None,
+    # Today's cues in order. Present and empty rather than absent, for the same
+    # reason as every other block here: an element reading a name that is not
+    # there throws on the way to drawing nothing.
+    'items': [],
 }
 
 
@@ -757,6 +761,29 @@ def _cue(item):
     }
 
 
+def _sheet_for_event(event):
+    """This event's own run of show.
+
+    The event is where a convention's running order is written, and
+    `_sheet_for_tournament` already reaches into it for a tournament running
+    inside one. This is the same sheet, asked for from the side that owns it.
+    """
+    from .models import RunSheet
+
+    return RunSheet.objects.filter(event=event).first()
+
+
+def run_of_show_for_event(event, include_private=False):
+    """What is on and what follows, for an EVENT, against the venue clock.
+
+    Same access question and same answer as the tournament version: the studio
+    passes True because it is reached only through a session token the
+    organiser holds, and the public overlay feed passes False, because a run of
+    show carries staff names and when the money is counted.
+    """
+    return _run_of_show_from_sheet(_sheet_for_event(event), include_private)
+
+
 def run_of_show_for(tournament, include_private=False):
     """What is on and what follows, from the run sheet, against the venue clock.
 
@@ -777,7 +804,23 @@ def run_of_show_for(tournament, include_private=False):
 
     from .models import RunSheet
 
-    sheet = _sheet_for_tournament(tournament)
+    return _run_of_show_from_sheet(_sheet_for_tournament(tournament),
+                                   include_private)
+
+
+def _run_of_show_from_sheet(sheet, include_private=False):
+    """The block, from whichever sheet the caller found.
+
+    One implementation, because a tournament's now and next and an event's are
+    the same question asked of the same model. Two copies is how one of them
+    ends up a day behind the other.
+    """
+    from datetime import timezone as _clock
+
+    from django.utils import timezone as _tz
+
+    from .models import RunSheet
+
     if sheet is None:
         return dict(BLANK_RUN_OF_SHOW), ''
     if not include_private and sheet.visibility != RunSheet.PUBLIC:
@@ -829,6 +872,9 @@ def run_of_show_for(tournament, include_private=False):
         block['now'] = _cue(now_item)
     if next_item is not None:
         block['next'] = _cue(next_item)
+    # The whole day, so a programme graphic can draw the running order rather
+    # than only the two cues either side of now.
+    block['items'] = [_cue(i) for i in items]
 
     # The ids of what is on and what is next are in the stamp deliberately: the
     # sheet does not change when the clock rolls past 14:00, but the graphic
@@ -1081,6 +1127,29 @@ def event_overlay_feed(request, event_id):
         for s in sessions
     ]
 
+    # The run of show, which is where an event's running order actually lives.
+    # False on purpose: this endpoint is public and a run sheet carries staff
+    # names. The studio asks again with the organiser's own token behind it,
+    # exactly as it does for a tournament.
+    run_of_show, run_stamp = run_of_show_for_event(event, include_private=False)
+
+    # An event with no published sessions but a written run of show is the
+    # ordinary case for a convention: the audience schedule is one document and
+    # the minute by minute is another, and smaller events only ever write the
+    # second. Reading the sheet when there are no sessions is what makes the
+    # programme and the now and next bar work at all on those.
+    if not programme and run_of_show.get('items'):
+        programme = [
+            {
+                'title': cue.get('activity') or '',
+                'room': cue.get('owner') or '',
+                'speaker': cue.get('match') or '',
+                'starts_at': cue.get('starts_at'),
+                'ends_at': cue.get('ends_at'),
+            }
+            for cue in run_of_show['items']
+        ]
+
     return Response({'status': 'success', 'data': {
         # Nested under `event` for the same reason a tournament feed nests
         # under `tournament`: the runtime resolves a dotted path against a
@@ -1089,15 +1158,25 @@ def event_overlay_feed(request, event_id):
             'name': event.name,
             'venue': event.venue_name or event.location or '',
             'starts_at': event.start_date,
-            'now_on': getattr(now_on, 'title', '') or '',
-            'room': getattr(now_on, 'stage', '') or '',
-            'next_on': getattr(next_on, 'title', '') or '',
-            'next_room': getattr(next_on, 'stage', '') or '',
+            # A published session wins when there is one, because that is
+            # the schedule the audience is holding. The run of show answers
+            # when there is not, which on a smaller event is always.
+            'now_on': (getattr(now_on, 'title', '') or ''
+                       or (run_of_show.get('now') or {}).get('activity') or ''),
+            'room': (getattr(now_on, 'stage', '') or ''
+                     or (run_of_show.get('now') or {}).get('owner') or ''),
+            'next_on': (getattr(next_on, 'title', '') or ''
+                        or (run_of_show.get('next') or {}).get('activity') or ''),
+            'next_room': (getattr(next_on, 'stage', '') or ''
+                          or (run_of_show.get('next') or {}).get('owner') or ''),
             'attending': attending,
             'tickets_sold': sold,
             'capacity': getattr(event, 'capacity', 0) or 0,
         },
         'programme': programme,
+        # The whole block, under the same name the tournament feed uses, so an
+        # element written for one draws on the other.
+        'run_of_show': run_of_show,
         'sponsors': sponsors,
         'asset': asset_slots,
         'assets': asset_list,
@@ -1108,6 +1187,8 @@ def event_overlay_feed(request, event_id):
         # it every poll after the first sees `undefined === undefined`, decides
         # nothing moved, and the overlay freezes at its first frame for the
         # rest of the broadcast.
-        'version': '%s-%s-%s-%s-%s' % (len(asset_list),
-            len(programme), len(sponsors), attending, sold),
+        # The run stamp is in here deliberately: the sheet does not change
+        # when the clock rolls past 14:00, but the graphic has to.
+        'version': '%s-%s-%s-%s-%s-%s' % (len(asset_list),
+            len(programme), len(sponsors), attending, sold, run_stamp),
     }, 'message': 'Overlay feed'})

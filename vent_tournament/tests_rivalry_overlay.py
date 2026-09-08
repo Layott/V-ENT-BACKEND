@@ -730,8 +730,11 @@ class RunOfShowFeedTests(TestCase):
 
     def test_a_tournament_with_no_run_of_show_carries_an_empty_block(self):
         block = self.feed()['run_of_show']
+        # `items` joined the block on 8 September so a programme graphic can
+        # draw the whole running order rather than only the two cues either
+        # side of now. Empty rather than absent, like every other name here.
         self.assertEqual(block, {'day_label': '', 'time_zone': '',
-                                 'now': None, 'next': None})
+                                 'now': None, 'next': None, 'items': []})
 
     # ------------------------------------------------------------ visibility
 
