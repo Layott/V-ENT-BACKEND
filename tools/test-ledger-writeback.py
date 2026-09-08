@@ -105,22 +105,35 @@ case('a number that has not moved since today is not stuck yet',
      expect_stuck=0)
 
 # ------------------------------------------------------------- calibration
-# Why a clean checker's count is never PARSED. These are real last lines from
-# real catchers, and the first integer on each is not the fault count.
-MISREADS = [
+#
+# These four are real last lines from real catchers, and on 7 September this
+# block asserted that `_count` MISREAD every one of them: it took the first
+# integer, so `650 route(s) checked, 0 fetch(es) that go nowhere` read as 650.
+# That was the justification for recording a clean checker by its exit code
+# instead of parsing its line, and it was a fair justification.
+#
+# On 8 September the parser was fixed under inbox row 214, and the assertion
+# inverted: every one of these now reads as its honest 0. The block is kept,
+# pointing the other way, because a wrong reading here is exactly how the tap
+# target ceiling came to say 311 stylesheets scanned rather than 145 breaches.
+# `tools/test-count-parse.py` holds the full 55 cases.
+#
+# The exit-code path stays regardless. Exit 0 is the catcher STATING there are
+# no faults, which is exact, where any reading of its prose is an inference.
+HONEST_ZEROS = [
     '650 route(s) checked, 0 fetch(es) that go nowhere',
     '5953 keys checked, 0 missing',
     '169 model(s) defined, 0 duplicate name(s), 0 hand-built person dicts',
     '16 capability pair(s) checked, 0 built on one side only',
 ]
-for line in MISREADS:
-    first = check_all._count(line)
-    if first == 0:
-        failures.append(('calibration', 'expected a misleading first integer'))
-        print('FAIL calibration: %r read as 0, so this case proves nothing' % line)
+for line in HONEST_ZEROS:
+    got = check_all._count(line)
+    if got != 0:
+        failures.append(('calibration', 'a clean line must read as 0'))
+        print('FAIL calibration: %r read as %s, not 0' % (line, got))
     else:
-        print('ok   a clean line would misread as %-5s so it is not parsed  %s'
-              % (first, line[:44]))
+        print('ok   a clean line reads as its honest 0                    %s'
+              % line[:44])
 
 print('')
 if failures:

@@ -65,6 +65,14 @@ CATCHERS = [
      'every setting the wizard sends survives create, edit and reopen',
      ROOT, [sys.executable, 'tools/check-wizard-roundtrip.py'], False),
 
+    # The admin sidebar used to decide access from a `roles` array of its own,
+    # ORed with the permission map, and the two disagreed in four places. This
+    # also catches a finished admin page in no navigation list, which is what
+    # /admin/kyc was for weeks.
+    ('admin nav',
+     'the admin sidebar and the admin API read one permission table',
+     ROOT, [sys.executable, 'tools/check-admin-nav.py'], True),
+
     ('prose',
      'no em or en dashes, and no npm',
      ROOT, [sys.executable, 'tools/check-prose.py'], False),
@@ -159,6 +167,57 @@ CATCHERS = [
     ('dead ticket codes',
      'a transferred code is named, not called unknown, at every door',
      ROOT, ["python", "tools/check-dead-codes.py"], True),
+
+    # Third occurrence on 8 September of "built on the organiser side, forgotten
+    # on the buyer side". A group rate of 16 VC at four or more was charged by
+    # the server while the panel said 20 x 4 = 80 and took 64; an early bird
+    # price the serializer carries a comment about was never drawn; and an
+    # access code tier could be bought by nobody, because `ticket_types` has
+    # always read `?code=` and no screen had a box to type one into.
+    ('offer surface',
+     'every organiser setting has a screen the buyer can read it on',
+     FRONTEND, ['node', 'scripts/check-offer-surface.mjs'], True),
+
+    # Three times on the afternoon of 8 September the frontend answered
+    # "Cannot find module './vendor-chunks/next-auth@4.24.13_next@14.2...'" for
+    # everybody at once. `next.config.mjs` used a fixed `.next-dev` for
+    # development and four of us were running dev servers on 3001, 3002, 3005
+    # and 3007, all writing that one directory and overwriting each other's
+    # chunks. The dev distDir now carries the port.
+    #
+    # Worth knowing: the error names webpack and next-auth and points at
+    # neither. It was first blamed on `pnpm build`, which was wrong, and the
+    # wrong diagnosis was passed to three agents before it was corrected.
+    ('dev distdir',
+     'two dev servers on one checkout cannot share a build directory',
+     FRONTEND, ['node', 'scripts/check-dev-distdir.mjs'], True),
+
+    # The ledger reads a number off each line above, and on 8 September it was
+    # reading the wrong one: 311 stylesheets scanned instead of 145 tap targets
+    # broken. A checker that is not in this table is a checker nobody runs, so
+    # the parser's own test sits in it, and the pre-commit hook therefore runs
+    # it on every commit.
+    ('ledger parse',
+     'the ledger records what a catcher counted, not what it scanned',
+     os.path.dirname(os.path.abspath(__file__)),
+     [sys.executable, 'test-count-parse.py'], True),
+
+    # Written 7 September and never run by anything, which is the third time
+    # that has happened. It earned its place within the hour: fixing the parser
+    # inverted an assertion inside it, and nothing would have said so.
+    ('ledger writeback',
+     'a fall becomes the ceiling, a rise fails and is not written back',
+     os.path.dirname(os.path.abspath(__file__)),
+     [sys.executable, 'test-ledger-writeback.py'], True),
+
+    # Second occurrence of the class on 8 September: row 176 on the 7th found
+    # 17 gates unmet for work that was done, and row 215 today found two more
+    # whole files, 66 boxes between them, unticked while the models shipped.
+    # Debt rather than blocking, because it reports boxes other people own and
+    # a check that always fails is a check everybody learns to skip.
+    ('stale gates',
+     'a gate box unticked while its own check already passes',
+     ROOT, [sys.executable, 'V-ENT-BACKEND/tools/check-stale-gates.py'], False),
 ]
 
 
@@ -191,16 +250,141 @@ LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'debt-ledger.j
 STALE_DAYS = 7
 
 
-def _count(line):
-    """The number a catcher is reporting, or None.
+# A standalone whole number. "44px", "390x844" and the "16016" glued into a
+# word are not counts, so a digit run only counts when a word character sits on
+# neither side of it. A decimal reads as its whole part, which no catcher prints
+# today and which is recorded here so the next person knows rather than guesses.
+_NUMBER = re.compile(r'(?<![\w.])(\d+)(?![\w])')
 
-    Catchers say their count in different words - "60 problem(s)", "22
-    place(s)", "0 new" - so the first integer on the line is the honest
-    reading, and a catcher whose line has no number is simply not tracked
-    rather than guessed at.
+# The verb beside a number that means it is the SIZE OF THE SCAN. "311
+# stylesheet(s) CHECKED" is how much was read, never how much is wrong.
+# "read" is deliberately absent: "0 ref(s) read but never attached" is a fault
+# count, and the word appears in it.
+_SCANNED = re.compile(
+    r'\b(checked|scanned|inspected|examined|defined|sends|considered'
+    r'|walked|crawled|visited|in total)\b')
+
+# A number introduced by one of these is a denominator: "across 5 file(s)",
+# "0 of 14 case(s)". The thing being counted is on the other side of it.
+_DENOMINATOR = {'across', 'of', 'in', 'out', 'from', 'over', 'within',
+                'among', 'under', 'per', 'than'}
+
+# Debt a catcher has baselined. It is real work, but it is not what this line
+# is reporting as NEW, and adding it to the new count would make every
+# baselined catcher look like it had just regressed.
+#
+# "already" was in this list for one revision and came straight back out. No
+# catcher writes it, and it broke the first line written after the change:
+# "10 gate box(es) unticked while their own check already passes" read as a
+# baseline and reported nothing. A word nobody uses is a guess, and a guess in
+# a classifier is the fault the calibration rule exists to stop.
+_BASELINE = re.compile(r'\b(known|baseline|being worked down)\b')
+
+# A number the catcher itself says is not a failure. check-datetime prints
+# "0 number-formatting notes, which do not fail the build."
+_NOT_DEBT = re.compile(r'\bdo(es)? not fail\b')
+
+
+def _count(line):
+    """The number a catcher is COUNTING on its summary line, or None.
+
+    The old rule took the first integer on the line, and that was wrong for
+    seven of the twenty-four catchers in the table, because a catcher usually
+    says how much it read before it says how much is broken:
+
+        311 stylesheet(s) checked, 145 tap target(s) under 44px on a phone
+
+    The first integer there is 311, so the ledger stored the ceiling as 311
+    while the real debt was 145, and the number could have climbed by 166
+    without a single run failing. That is the ledger not doing the one thing
+    it exists to do.
+
+    So every standalone number on the line is classified by the words around
+    it and only the FAULT ones are counted:
+
+      SCANNED      the phrase after it holds a scanning verb - "checked",
+                   "scanned", "defined", "the wizard sends".
+      DENOMINATOR  the word before it is a preposition - "across 0 file(s)".
+      BASELINE     the phrase after it says "known" or "being worked down",
+                   which is debt this catcher has already accepted.
+      NOT DEBT     the catcher says in words that it does not fail the build.
+      FAULT        everything else.
+
+    The answer is the SUM of the fault numbers, because a line can report two
+    independent faults - "0 em/en dash(es) and 0 npm command(s) outstanding" -
+    and taking only the first would let the second climb unseen, which is the
+    same hole one level down.
+
+    A line with no fault number at all returns None and the catcher is simply
+    not tracked, rather than recorded at a number nobody can defend.
     """
-    m = re.search(r'[0-9]+', line or '')
-    return int(m.group(0)) if m else None
+    line = line or ''
+    hits = list(_NUMBER.finditer(line))
+    if not hits:
+        return None
+
+    total = None
+    # Once a line reaches its baseline, everything after it belongs to the
+    # baseline. check-css-vars prints "0 new colour variable faults. 5 known:
+    # 3 undefined-token, 2 primary-bg", and the 3 and the 2 are the breakdown
+    # of the 5, not three separate faults.
+    in_baseline = False
+
+    for i, m in enumerate(hits):
+        before = line[:m.start()].rstrip()
+        words = before.split()
+        preceding = words[-1].strip('.,;:()[]').lower() if words else ''
+        after = line[m.end():hits[i + 1].start()] if i + 1 < len(hits) else line[m.end():]
+
+        if in_baseline:
+            continue
+        if preceding in _DENOMINATOR:
+            continue
+        if _SCANNED.search(after):
+            continue
+        if _BASELINE.search(after):
+            in_baseline = True
+            continue
+        if _NOT_DEBT.search(after):
+            continue
+
+        total = (total or 0) + int(m.group(1))
+
+    return total
+
+
+# A Node warning block is printed on stderr after the summary and carries a
+# process id, so it looks like a numbered summary line and is not one.
+_NODE_NOISE = re.compile(
+    r'^\(node:\d+\)'
+    r'|^\(Use `node'
+    r'|^Reparsing as '
+    r'|^To eliminate this warning'
+    r'|\] Warning: ')
+
+
+def _summary_line(output):
+    """The line a catcher means as its summary.
+
+    Not simply the last line. check-design ends with an indented breakdown of
+    its baseline by rule, so the literal last line is "    15  glow" and
+    reading it says the design debt is 15 when the line above says 119 known
+    and 0 new. check-keys and dict-parity end with a Node module warning that
+    carries the process id, which reads as a count and is not one.
+
+    So: the last line that is not blank, not an indented detail row, and not
+    part of a Node warning.
+    """
+    lines = (output or '').split('\n')
+    for line in reversed(lines):
+        if not line.strip():
+            continue
+        if line[:1].isspace():
+            continue
+        if _NODE_NOISE.search(line):
+            continue
+        return line.strip()
+    return ''
 
 
 def _load_ledger():
@@ -261,7 +445,7 @@ def run(cwd, command):
     except (OSError, subprocess.TimeoutExpired) as err:
         return None, str(err)
     output = (done.stdout or '') + (done.stderr or '')
-    return done.returncode, output.strip().split('\n')[-1] if output else ''
+    return done.returncode, _summary_line(output)
 
 
 def main():

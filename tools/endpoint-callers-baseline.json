@@ -9,7 +9,6 @@
     "social-auth/",
     "team/assign-new-role/",
     "team/get-team-details/<str:team_id>/",
-    "team/list-teams/",
     "team/transfer-ownership/",
     "tournament/<str:tournament_id>/league-rules/",
     "tournament/<str:tournament_id>/stages/",

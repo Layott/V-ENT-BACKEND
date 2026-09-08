@@ -103,9 +103,26 @@ DESCRIBES_THE_BAN = re.compile(
 )
 
 
+# A build directory whose name carries something variable on the end. On
+# 8 September the frontend dev `distDir` gained the port, so `.next-dev` became
+# `.next-dev-3001`, `.next-dev-3002`, `.next-dev-3005` and `.next-dev-3007`,
+# and an exact-name skip list stopped matching any of them. Generated webpack
+# output then read as prose: the count went from 0 to 47 em dashes and 10 npm
+# commands in one afternoon, every one of them inside a bundled dependency and
+# not one written by anybody here.
+#
+# A prefix rather than another four literals, because the next port will do
+# this again.
+SKIP_PREFIXES = ('.next-dev-',)
+
+
+def _skip(name):
+    return name in SKIP_DIRS or name.startswith(SKIP_PREFIXES)
+
+
 def walk():
     for base, dirs, names in os.walk(ROOT):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        dirs[:] = [d for d in dirs if not _skip(d)]
         for name in names:
             if os.path.splitext(name)[1].lower() in TEXT_EXT:
                 yield os.path.join(base, name)
