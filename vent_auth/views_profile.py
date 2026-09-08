@@ -910,6 +910,11 @@ def _may_message(viewer, owner):
     return may_message(viewer, owner)
 
 
+def _message_policy(owner):
+    from .views_usersearch import message_policy
+    return message_policy(owner)
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def public_profile(request, user_id):
@@ -991,6 +996,11 @@ def public_profile(request, user_id):
             # that governs it was written and never read, so it is reported
             # here and enforced in dm_send.
             'can_message': _may_message(viewer if not _ignored else None, user),
+            # What they SAY they accept, so a viewer with no button knows why.
+            # Never derived from the viewer: a block also makes can_message
+            # false, and reporting that here would tell somebody they had been
+            # blocked. Blocked and simply-not-allowed look identical.
+            'message_policy': _message_policy(user),
             # What this person actually has. Without these the profile page
             # had nothing of theirs to draw and filled its panels from the
             # reader's own endpoints, which is how somebody else's profile
