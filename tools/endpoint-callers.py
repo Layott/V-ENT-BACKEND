@@ -66,6 +66,12 @@ INCLUDE = re.compile(r"""\bpath\(\s*['"]([^'"]*)['"]\s*,\s*include\(\s*['"]([^'"
 # here is a decision, not an oversight, which is the whole difference.
 DELIBERATE = {
     'admin/': 'Django admin',
+    # Superseded by `team/kick-member/`, which is what every screen calls
+    # and which takes ids rather than names. Kept rather than deleted
+    # because it is a public API shape somebody outside this repo may
+    # still be posting to; it is not something a screen should start
+    # calling, because two endpoints doing one job is how they drift.
+    'team/remove-member/': 'legacy, superseded by team/kick-member/',
     'api/v1/': 'the partner API, called by partners rather than by us',
     'partners/sso/token/': 'called by a partner server, never by a browser',
     'partners/sso/userinfo/': 'called by a partner server',
@@ -92,6 +98,11 @@ DELIBERATE = {
     # caller.
     'cards/ingest/':
         'the card scraper POSTs here with X-Cards-Key; a browser must never hold that key',
+    # Discord POSTs a slash command here. It is not called by the site and
+    # must not be: the Ed25519 signature is its authentication, and a browser
+    # cannot produce one.
+    'discord/interactions/':
+        'Discord POSTs slash commands here; the Ed25519 signature is the auth',
 }
 
 

@@ -1,7 +1,7 @@
-# 05 — User System (Auth, Profiles, Settings)
+# 05 - User System (Auth, Profiles, Settings)
 
-**Phase:** 1 MVP — auth and profiles are prerequisites for everything else
-**Status:** 🟡 Partially built — auth flow complete, profiles partially wired, settings is a stub
+**Phase:** 1 MVP - auth and profiles are prerequisites for everything else
+**Status:** 🟡 Partially built - auth flow complete, profiles partially wired, settings is a stub
 **Design track:** Track A (Figma designs exist at nodes `0:1` and `7:376`)
 **Dependencies:** None (this module is a dependency of all others)
 
@@ -11,10 +11,10 @@
 
 The User System covers every user-facing identity surface:
 
-1. **Auth Flow** — signup, login (email + Google + Facebook), verify email, forgot/reset password
-2. **User Profile** — public view of any user; stats, games, achievements, interests, activity
-3. **Edit Profile** — self-edit: avatar, banner, bio, interests, favorite games, gaming accounts, social links
-4. **Account Settings** — login/security, notifications, PIN, delete account (Figma partial)
+1. **Auth Flow** - signup, login (email + Google + Facebook), verify email, forgot/reset password
+2. **User Profile** - public view of any user; stats, games, achievements, interests, activity
+3. **Edit Profile** - self-edit: avatar, banner, bio, interests, favorite games, gaming accounts, social links
+4. **Account Settings** - login/security, notifications, PIN, delete account (Figma partial)
 
 **What's working:** Auth flow is complete (NextAuth v4 with Django backend). User profile fetches real API data. Edit profile sub-components exist but API wiring status is inconsistent.
 
@@ -35,12 +35,12 @@ The User System covers every user-facing identity surface:
 | Profile (filled) | `7:376` | ✅ Web + mobile |
 | Profile (empty state) | `7:376` | ✅ Web + mobile |
 | Viewing Another User | `7:376` | ✅ Report button, no edit |
-| Activity — Tournaments | `7:376` | ✅ Web, ❌ Mobile missing |
-| Activity — Events | `7:376` | ✅ Web, ❌ Mobile missing |
+| Activity - Tournaments | `7:376` | ✅ Web, ❌ Mobile missing |
+| Activity - Events | `7:376` | ✅ Web, ❌ Mobile missing |
 | Image/Esports Gallery | `7:376` | ✅ Web + mobile |
-| Edit Profile — Personal Info | `7:376` | ✅ Web + mobile |
-| Edit Profile — Social Links | `7:376` | ✅ Web + mobile |
-| Edit Profile — Favorite Games | `7:376` | ✅ Web, 🟡 Mobile incomplete |
+| Edit Profile - Personal Info | `7:376` | ✅ Web + mobile |
+| Edit Profile - Social Links | `7:376` | ✅ Web + mobile |
+| Edit Profile - Favorite Games | `7:376` | ✅ Web, 🟡 Mobile incomplete |
 | Account Settings | `7:376` | 🟡 Login/Security partial, rest missing |
 
 ---
@@ -72,9 +72,9 @@ src/components/
 │   ├── edit-user-profile-info/
 │   │   ├── EditUserProfileInfo.js           # ⚠️ Renders sub-components; API wiring status unknown
 │   │   ├── edit-profile-image-avatar/
-│   │   │   └── EditProfileImageAvatar.js    # ⚠️ Avatar upload — wiring status unknown
+│   │   │   └── EditProfileImageAvatar.js    # ⚠️ Avatar upload - wiring status unknown
 │   │   ├── edit-user-profile-banner/
-│   │   │   └── EditUserProfileBanner.js     # ⚠️ Banner upload — wiring status unknown
+│   │   │   └── EditUserProfileBanner.js     # ⚠️ Banner upload - wiring status unknown
 │   │   ├── edit-user-profile-details/
 │   │   │   └── EditUserProfileDetails.js    # ⚠️ Name, bio, country fields
 │   │   └── edit-user-profile-interests/
@@ -90,7 +90,7 @@ src/components/
     └── page.js (in app/settings/)           # ❌ Stub: renders "Settings Page" heading only
 
 lib/
-└── authOptions.js                           # ✅ NextAuth config — but has ~15 console.log including token data
+└── authOptions.js                           # ✅ NextAuth config - but has ~15 console.log including token data
 ```
 
 ---
@@ -256,7 +256,7 @@ class PasswordResetToken(models.Model):
 
 ## Acceptance Criteria
 
-### Auth Flow (Login, Signup, Verify, Reset) — Track A
+### Auth Flow (Login, Signup, Verify, Reset) - Track A
 
 **Login (`/login`):**
 - [ ] Email + password submits via NextAuth `signIn("credentials")` → calls Django `/auth/login/`
@@ -284,7 +284,7 @@ class PasswordResetToken(models.Model):
 - [ ] `/reset-password` validates token via `GET /auth/forgot-password/?token=`
 - [ ] New password submitted via `POST /auth/reset-password/`
 
-### User Profile (`/user-profile?user_id=...`) — Track A
+### User Profile (`/user-profile?user_id=...`) - Track A
 
 - [ ] Reads `user_id` from URL param (or defaults to current user if no param)
 - [ ] Fetches `GET /auth/user-profile/?user_id=` with `Authorization: Bearer {sessionToken}`
@@ -295,17 +295,17 @@ class PasswordResetToken(models.Model):
 - [ ] Activity tabs (Tournaments, Events) fetch from activity endpoints
 - [ ] Gallery tab shows uploaded images
 
-### Edit User Profile (`/edit-user-profile`) — Track A
+### Edit User Profile (`/edit-user-profile`) - Track A
 
 - [ ] Only accessible to authenticated user editing their own profile
-- [ ] **Personal Info tab:** avatar upload, banner upload, username, bio, country, state, interests — submits to `POST /auth/edit-profile/` as multipart/form-data
-- [ ] **Social Links tab:** all platform fields — submits to `POST /auth/edit-links/`
-- [ ] **Favorite Games tab:** multi-select game picker — submits to `PATCH /auth/edit-favourite-games/`
-- [ ] **Gaming Accounts tab:** PSN, Xbox, Steam, Riot, etc. — submits to `PATCH /auth/edit-gaming-accounts/`
+- [ ] **Personal Info tab:** avatar upload, banner upload, username, bio, country, state, interests - submits to `POST /auth/edit-profile/` as multipart/form-data
+- [ ] **Social Links tab:** all platform fields - submits to `POST /auth/edit-links/`
+- [ ] **Favorite Games tab:** multi-select game picker - submits to `PATCH /auth/edit-favourite-games/`
+- [ ] **Gaming Accounts tab:** PSN, Xbox, Steam, Riot, etc. - submits to `PATCH /auth/edit-gaming-accounts/`
 - [ ] Each tab saves independently; success/error feedback after each save
 - [ ] Avatar and banner upload preview before confirm
 
-### Account Settings (`/settings`) — Track B (Partial design exists)
+### Account Settings (`/settings`) - Track B (Partial design exists)
 
 **Current state:** The page is a complete stub (renders only "Settings Page" heading).
 
@@ -320,23 +320,23 @@ class PasswordResetToken(models.Model):
 
 ## Task Checklist
 
-### 🔴 Critical — Production Blockers
+### 🔴 Critical - Production Blockers
 
-- [ ] Remove all `console.log` from `lib/authOptions.js` (logs include session tokens — security risk)
+- [ ] Remove all `console.log` from `lib/authOptions.js` (logs include session tokens - security risk)
 - [ ] Remove all `console.log` from `src/middleware.js`
 - [ ] Verify Facebook OAuth is actually configured with a real app ID + secret in env vars
-- [ ] Verify `POST /auth/edit-profile/` wiring — confirm all edit-profile sub-components send `Authorization: Bearer {sessionToken}`
+- [ ] Verify `POST /auth/edit-profile/` wiring - confirm all edit-profile sub-components send `Authorization: Bearer {sessionToken}`
 
-### 🔴 Critical — Functionality
+### 🔴 Critical - Functionality
 
-- [ ] Account Settings page (`/settings`) — build out from stub (Track B: self-design, CEO approval)
+- [ ] Account Settings page (`/settings`) - build out from stub (Track B: self-design, CEO approval)
 - [ ] Wire activity tabs in User Profile to real API endpoints
-- [ ] Standardize `profile_pic` vs `profile_picture` — backend should return one consistent field name
+- [ ] Standardize `profile_pic` vs `profile_picture` - backend should return one consistent field name
 
 ### 🟡 Important
 
-- [ ] Edit Profile — Favorite Games: verify API endpoint and field name
-- [ ] Edit Profile — Gaming Accounts: verify API endpoint and wiring
+- [ ] Edit Profile - Favorite Games: verify API endpoint and field name
+- [ ] Edit Profile - Gaming Accounts: verify API endpoint and wiring
 - [ ] Add `PATCH /auth/notification-settings/` and wire to Settings page
 - [ ] Add `POST /auth/set-pin/` and wire to Settings page (needed before wallet launch)
 - [ ] Add `POST /auth/delete-account/` and wire to Settings page
@@ -344,8 +344,8 @@ class PasswordResetToken(models.Model):
 
 ### 🟢 Verification (after build)
 
-- [ ] Pull Figma via `get_design_context` node `0:1` — verify all auth screens
-- [ ] Pull Figma via `get_design_context` node `7:376` — verify user profile and edit profile
+- [ ] Pull Figma via `get_design_context` node `0:1` - verify all auth screens
+- [ ] Pull Figma via `get_design_context` node `7:376` - verify user profile and edit profile
 - [ ] Check mobile responsiveness for all auth screens (375px)
 - [ ] Mark auth flow **VERIFIED**
 - [ ] Mark user profile **VERIFIED**

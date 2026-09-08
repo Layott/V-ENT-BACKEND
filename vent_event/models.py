@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 
+from django.core.exceptions import ValidationError
+
 from django.db import models
 from vent_auth.models import Users, Games, Teams, Organization
 from django.utils import timezone
@@ -46,6 +48,17 @@ class Event(models.Model):
     location = models.CharField(max_length=255, null=True, blank=True)  # Location for physical events
     event_link = models.CharField(max_length=255, null=True, blank=True)  # Link for virtual events
     capacity = models.PositiveIntegerField(null=True, blank=True)  # Max attendees
+    # CEO, 7 September 2026, from the ticketing research: who bears the
+    # platform fee. 'organiser' is what every event has done implicitly since
+    # ticketing shipped, so it stays the default; 'buyer' adds it on top and
+    # the checkout says the number BEFORE anybody pays, never as a surprise
+    # line on a receipt. A free ticket carries no fee either way.
+    FEE_ORGANISER = 'organiser'
+    FEE_BUYER = 'buyer'
+    FEE_BEARER_CHOICES = [(FEE_ORGANISER, 'The organiser absorbs it'),
+                          (FEE_BUYER, 'The buyer pays it on top')]
+    fee_bearer = models.CharField(max_length=16, choices=FEE_BEARER_CHOICES,
+                                  default=FEE_ORGANISER)
 
     # What that capacity counts, which is the organiser's to decide and not
     # ours to assume.
@@ -130,7 +143,15 @@ class Event(models.Model):
         for them. Everything that reasons about "before the event" needs them
         put back together, and doing it in each caller is how two of them end up
         disagreeing.
+
+        The canonical column is read FIRST. `save()` keeps the trio in step
+        with it, so the two agree - but reading the canonical one means a row
+        written by something that bypassed `save()` (a bulk update, a
+        migration, a fixture) still reasons from the same field the rest of the
+        platform displays, rather than from a stale copy of it.
         """
+        if self.start_date is not None:
+            return self.start_date
         if not self.event_date or not self.start_time:
             return None
         naive = datetime.combine(self.event_date, self.start_time)
@@ -144,6 +165,8 @@ class Event(models.Model):
         two times numerically would make it end five hours before it started,
         and every window computed from it would be closed.
         """
+        if self.end_date is not None:
+            return self.end_date
         started = self.starts_at()
         if started is None or not self.end_time:
             return None
@@ -195,7 +218,182 @@ class Event(models.Model):
                 if kwargs.get('update_fields') is not None:
                     kwargs['update_fields'] = list(
                         set(kwargs['update_fields']) | {'latitude', 'longitude'})
+
+        # And when there is no link at all, the ADDRESS itself.
+        #
+        # CEO, 8 September 2026: "when an event organizer puts an address it
+        # should be located on the map and shown". Until now the map appeared
+        # only for somebody who pasted a Google Maps URL, and most organisers
+        # simply type where it is - so "Landmark Centre, Victoria Island,
+        # Lagos" produced "There is no map of this venue."
+        #
+        # Never overwrites a coordinate somebody set, exactly as above. The
+        # venue name goes in front of the address because "Landmark Centre,
+        # Victoria Island" finds the building and "Victoria Island" alone
+        # finds the district, and a pin on a district looks precise while
+        # being wrong.
+        if self.latitude is None or self.longitude is None:
+            from .geo import geocode
+
+            point = geocode(self.venue_name, self.location)
+            if point:
+                self.latitude, self.longitude = point
+                if kwargs.get('update_fields') is not None:
+                    kwargs['update_fields'] = list(
+                        set(kwargs['update_fields']) | {'latitude', 'longitude'})
+
+        # ONE answer to when this event happens.
+        #
+        # CEO, 7 September 2026: "The model has two ways to say when an event
+        # happens - fix this."
+        #
+        # `start_date` and `end_date` were commented "canonical" while
+        # `starts_at()` and `ends_at()` - which every window, every door and
+        # every reminder is computed from - read the LEGACY trio
+        # `event_date` / `start_time` / `end_time`. Nothing reconciled them, so
+        # a caller that set the canonical pair and not the trio moved the event
+        # everywhere it is DISPLAYED and nowhere it is REASONED about. The five
+        # events in production happen to agree today, which is luck rather than
+        # design, and it is the kind of luck that ends on the day somebody
+        # writes a second edit endpoint.
+        #
+        # `start_date` wins. The trio is derived from it and kept in step, so
+        # both halves of the model always say the same thing and older callers
+        # that still read the trio keep working.
+        derived = self._sync_when()
+        if derived and kwargs.get('update_fields') is not None:
+            kwargs['update_fields'] = list(set(kwargs['update_fields']) | derived)
+
         super().save(*args, **kwargs)
+
+        # What is stored is now what was just written, so a second edit on the
+        # same instance compares against the right baseline rather than against
+        # the state two saves ago.
+        self._loaded_when = {
+            'event_date': self.event_date, 'start_time': self.start_time,
+            'end_time': self.end_time, 'start_date': self.start_date,
+            'end_date': self.end_date,
+        }
+
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        """Remember when this event said it happened, as loaded.
+
+        `_sync_when` needs to know which half of the model an edit touched, and
+        the only way to know is to compare against what was there before.
+        """
+        instance = super().from_db(db, field_names, values)
+        instance._loaded_when = {
+            'event_date': instance.event_date,
+            'start_time': instance.start_time,
+            'end_time': instance.end_time,
+            'start_date': instance.start_date,
+            'end_date': instance.end_date,
+        }
+        return instance
+
+    def _sync_when(self):
+        """Make the canonical pair and the legacy trio agree. Returns the set
+        of fields written, so `save()` can add them to `update_fields`.
+
+        Without that last part a save that named its fields computes the new
+        values and silently drops them, which is the same trap the slug helper
+        documents and the reason a rename used to do nothing.
+        """
+        touched = set()
+        current = timezone.get_current_timezone()
+
+        # `save()` runs BEFORE Django coerces what a caller passed in, so
+        # `Event.objects.create(start_time='19:00')` reaches here as a string
+        # and `datetime.combine` refuses it. The old `starts_at()` never met
+        # this because it only ran after a database round trip had already
+        # turned everything into real objects.
+        #
+        # Each field converts its own value, which is exactly what
+        # `to_python` is for, and a value it cannot read is left alone rather
+        # than raising - a date that will not parse is the database's refusal
+        # to give, not this helper's.
+        def coerce(name):
+            raw = getattr(self, name)
+            if raw is None or raw == '':
+                return None
+            try:
+                value = self._meta.get_field(name).to_python(raw)
+            except (ValidationError, TypeError, ValueError):
+                return None
+            if value is not None and value is not raw:
+                setattr(self, name, value)
+            return value
+
+        coerce('event_date')
+        coerce('start_time')
+        coerce('end_time')
+        coerce('start_date')
+        coerce('end_date')
+
+        def as_local(value):
+            if value is None:
+                return None
+            return timezone.localtime(value, current) if timezone.is_aware(value)                 else timezone.make_aware(value, current)
+
+        start = as_local(self.start_date)
+        end = as_local(self.end_date)
+
+        # WHICH SIDE MOVED.
+        #
+        # "`start_date` wins" is right for a new row and wrong for an edit that
+        # touched only the trio: the canonical column still holds the OLD
+        # moment, so blindly preferring it reverts the change and reports
+        # success. That is the same fault this helper exists to stop, pointed
+        # the other way, and it broke three self check-in tests that move an
+        # event by setting `event_date` and `start_time` alone.
+        #
+        # So the side that actually CHANGED is the side that wins. `_loaded_when`
+        # is what the database gave us; anything differing from it is what this
+        # save is trying to say.
+        loaded = getattr(self, '_loaded_when', None)
+        if loaded is not None:
+            trio_moved = (
+                self.event_date != loaded['event_date']
+                or self.start_time != loaded['start_time']
+                or self.end_time != loaded['end_time']
+            )
+            canonical_moved = (
+                self.start_date != loaded['start_date']
+                or self.end_date != loaded['end_date']
+            )
+            if trio_moved and not canonical_moved:
+                start = None      # fall through to composing from the trio
+                end = None
+
+        if start is not None:
+            # The canonical answer, pushed down into the trio the form uses.
+            if self.event_date != start.date():
+                self.event_date = start.date()
+                touched.add('event_date')
+            if self.start_time != start.time().replace(microsecond=0):
+                self.start_time = start.time().replace(microsecond=0)
+                touched.add('start_time')
+            if end is not None and self.end_time != end.time().replace(microsecond=0):
+                self.end_time = end.time().replace(microsecond=0)
+                touched.add('end_time')
+        elif self.event_date and self.start_time:
+            # Only the trio was given, which is what the older create path and
+            # every existing row do. Compose the canonical pair from it rather
+            # than leaving it null, so the two halves still agree.
+            naive = datetime.combine(self.event_date, self.start_time)
+            self.start_date = timezone.make_aware(naive, current)
+            touched.add('start_date')
+            if self.end_time:
+                day = self.event_date
+                # An event running 21:00 to 02:00 ends the following day.
+                if self.end_time <= self.start_time:
+                    day = day + timedelta(days=1)
+                self.end_date = timezone.make_aware(
+                    datetime.combine(day, self.end_time), current)
+                touched.add('end_date')
+
+        return touched
 
 
 class TicketTier(models.Model):
@@ -338,6 +536,28 @@ class EventReferral(models.Model):
     # ordinary case: most links are tracking, not an allocation.
     allocation = models.PositiveIntegerField(default=0)
     sold = models.PositiveIntegerField(default=0)
+
+    # What this link earns per sale, as a percentage of the ticket price. 0 is
+    # the ordinary case and means the link only tracks, which is what every
+    # link on the platform did before this. Of the TICKET price, never of the
+    # buyer's total: an affiliate did not earn a share of the platform's fee.
+    commission_pct = models.FloatField(default=0)
+    # Who the commission is paid to. Null while nobody has claimed the link,
+    # which is the ordinary state for a code handed to somebody who has not
+    # signed up yet - the money accrues and is paid the day they claim it.
+    payee = models.ForeignKey('vent_auth.Users', on_delete=models.SET_NULL,
+                              null=True, blank=True,
+                              related_name='affiliate_links')
+    # Who it is FOR, when they have no account yet. An organiser knows the
+    # streamer's email address, not their V-ENT username, and telling them to
+    # go and find out first is how the link never gets made - the same
+    # argument as every other invite on the platform (rows 145 and 146).
+    #
+    # Without this column the "it is paid the day they make an account"
+    # sentence on the earnings screen was a promise with nothing behind it:
+    # `payee` could only ever be set to somebody who already had an account,
+    # so nothing could arrive later to claim. Found by walking it.
+    payee_email = models.EmailField(blank=True, default='')
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -663,6 +883,126 @@ class Ticket(models.Model):
         return f"{self.code} · {self.tier.name} · {self.event.name}"
 
 
+class VendorSlot(models.Model):
+    """A pitch an organiser is SELLING, with their own rules attached.
+
+    CEO, 7 September 2026: "event owners should be able to sell vendor slots to
+    other people, they can list prices for vendor slots with their rules and
+    conditions and other users should be able to buy and use the site to run
+    the shop or they can invite people too."
+
+    A slot is the OFFER; `Vendor` is the stall somebody ends up running. Two
+    models rather than one because the offer outlives any single sale - "Food
+    stall, 3x3m, 5 available" is one row that becomes five stalls - and because
+    a slot exists before anybody has bought it, which a stall cannot.
+
+    Invitation is the other door into exactly the same room. Both routes end
+    with a `Vendor` owned by a person, and everything downstream - products,
+    stock, orders, delivery - cannot tell which way they came in. That is
+    deliberate: build them apart and the invited vendor and the paying vendor
+    get two different products, and one of them stops being maintained.
+    """
+
+    id = models.AutoField(primary_key=True)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='vendor_slots')
+    name = models.CharField(max_length=120)          # "Food stall, 3x3m"
+    description = models.TextField(blank=True, default='')   # what it includes
+    category = models.CharField(max_length=60, blank=True, default='')
+
+    # Priced in NGN like a ticket tier, converted to coins at purchase time at
+    # the platform rate. The rate is stored on the purchase so a later change
+    # never rewrites what somebody paid.
+    price_ngn = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    quantity = models.PositiveIntegerField(default=1)
+    sold = models.PositiveIntegerField(default=0)
+
+    # The organiser's conditions, in their own words. Free text on purpose: an
+    # events organiser knows what they need from a caterer and a platform does
+    # not, and a fixed set of checkboxes would be wrong for most events.
+    rules = models.TextField(blank=True, default='')
+
+    # Bumped whenever `rules` changes. A purchase stores BOTH the version and
+    # the full wording as it stood, so "what did they agree to" is answerable
+    # from the purchase alone. Pointing at the live text would mean an
+    # organiser editing their rules silently changes what past vendors agreed
+    # to, which is the fault the gallery consent row exists to avoid.
+    rules_version = models.PositiveIntegerField(default=1)
+
+    # Some events sell a pitch to anybody; some want to see who it is first.
+    requires_approval = models.BooleanField(default=True)
+
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return f'{self.name} @ {self.event.name}'
+
+    @property
+    def remaining(self):
+        return max(self.quantity - self.sold, 0)
+
+    @property
+    def is_sold_out(self):
+        return self.remaining <= 0
+
+    def save(self, *args, **kwargs):
+        """Bump the rules version when the wording changes.
+
+        Read from the database rather than tracked in memory, because the
+        organiser edits this through an endpoint that loads the row, changes
+        one field and saves - and the version has to move exactly when the text
+        does, not when anything else on the row does.
+        """
+        if self.pk:
+            previous = type(self).objects.filter(pk=self.pk).values_list(
+                'rules', flat=True).first()
+            if previous is not None and previous != self.rules:
+                self.rules_version = (self.rules_version or 1) + 1
+                if kwargs.get('update_fields') is not None:
+                    kwargs['update_fields'] = list(
+                        set(kwargs['update_fields']) | {'rules_version'})
+        super().save(*args, **kwargs)
+
+
+class VendorSlotPurchase(models.Model):
+    """Somebody bought a pitch, and what they agreed to when they did.
+
+    The stall it created is on `vendor`. Kept as its own row rather than as
+    columns on `Vendor` because a stall can also arrive by invitation, and half
+    the payment columns would be empty on those - the same reason
+    `EventReferral` is separate from `EventPromo`.
+    """
+
+    id = models.AutoField(primary_key=True)
+    slot = models.ForeignKey(VendorSlot, on_delete=models.CASCADE, related_name='purchases')
+    buyer = models.ForeignKey('vent_auth.Users', on_delete=models.CASCADE,
+                              related_name='vendor_slot_purchases')
+    vendor = models.OneToOneField('Vendor', on_delete=models.CASCADE, null=True,
+                                  blank=True, related_name='slot_purchase')
+
+    price_vc = models.PositiveIntegerField(default=0)
+    price_ngn = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    # What they actually agreed to, word for word, on the day. Not a pointer to
+    # the organiser's live text: that can be edited afterwards, and then
+    # nobody can answer what was agreed.
+    rules_accepted = models.TextField(blank=True, default='')
+    rules_version_accepted = models.PositiveIntegerField(default=1)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.buyer_id} bought {self.slot_id}'
+
+
 class Vendor(models.Model):
     """A stall at an event, with its own storefront.
 
@@ -679,6 +1019,10 @@ class Vendor(models.Model):
     ]
 
     id = models.AutoField(primary_key=True)
+    # A stall has a name, so it has an address made of that name. It was linked
+    # as `?vendor=14`, which is the slug rule's prohibition and also useless to
+    # anybody looking at the address bar wondering whose stall they opened.
+    slug = models.SlugField(max_length=160, unique=True, null=True, blank=True, db_index=True)
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='vendors')
     owner = models.ForeignKey(
         'vent_auth.Users', on_delete=models.SET_NULL, null=True, blank=True,
@@ -696,6 +1040,24 @@ class Vendor(models.Model):
     class Meta:
         ordering = ['name']
 
+    def save(self, *args, **kwargs):
+        # The slug follows the name, and whatever it replaces is remembered so
+        # a stall that gets renamed keeps every link already shared.
+        from vent_auth.slugs import sync_slug
+
+        changed = sync_slug(self, self.name, entity_type='vendor', id_attr='id')
+        # Without this a save that named its fields computes the new slug and
+        # silently drops it, which is the entire rename path.
+        if changed and kwargs.get('update_fields') is not None:
+            kwargs['update_fields'] = list(set(kwargs['update_fields']) | {'slug'})
+        super().save(*args, **kwargs)
+        # A brand new stall has no primary key while the slug is being built,
+        # so `build_slug` cannot disambiguate it and a second stall with the
+        # same name would collide. Written once more now the key exists.
+        if not self.slug:
+            sync_slug(self, self.name, entity_type='vendor', id_attr='id')
+            super().save(update_fields=['slug'])
+
     def __str__(self):
         return f"{self.name} @ {self.event.name}"
 
@@ -712,6 +1074,21 @@ class VendorProduct(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # A shirt has sizes; a plate of jollof does not.
+    #
+    # A LIST of names on the product rather than a row per variant, because
+    # what a stall at an event actually needs is "which size did they ask
+    # for", written on the order. Per-variant stock is a different and much
+    # larger feature - a stallholder counting mediums separately from larges -
+    # and inventing it here would be building a warehouse for a table.
+    #
+    # Empty means the product has no choices, which is the common case.
+    variants = models.JSONField(default=list, blank=True)
+
+    # Whether this can be posted. A plate of hot food cannot, and a stall that
+    # offers delivery on everything will be asked to post one.
+    can_deliver = models.BooleanField(default=False)
+
     class Meta:
         ordering = ['name']
 
@@ -726,7 +1103,24 @@ class VendorOrder(models.Model):
         ('paid', 'Paid'),
         ('ready', 'Ready for collection'),
         ('collected', 'Collected'),
+        # Delivery. CEO, row 146: "when people have bought, if they re doing
+        # delivery there has to be a way for these thingd to works."
+        #
+        # Two states rather than one, because "we have posted it" and "it
+        # arrived" are different facts and a stallholder can only ever know the
+        # first. Collapsing them would make the vendor assert something they
+        # cannot see.
+        ('sent', 'Sent for delivery'),
+        ('delivered', 'Delivered'),
         ('cancelled', 'Cancelled'),
+    ]
+
+    # How the buyer gets it. Chosen at checkout, because it decides whether an
+    # address is needed at all - asking everybody for one when most people are
+    # collecting from a table ten metres away is how a checkout loses people.
+    FULFILMENT_CHOICES = [
+        ('collect', 'Collect from the stall'),
+        ('deliver', 'Delivered'),
     ]
 
     id = models.AutoField(primary_key=True)
@@ -738,6 +1132,21 @@ class VendorOrder(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     collected_at = models.DateTimeField(null=True, blank=True)
 
+    fulfilment = models.CharField(max_length=10, choices=FULFILMENT_CHOICES,
+                                  default='collect')
+    # Kept on the ORDER, not read off the buyer's profile. Somebody may have a
+    # parcel sent to an office, to a friend, or to the venue, and a profile
+    # address silently used as a delivery address is how a package goes to the
+    # wrong place with nobody having typed anything wrong.
+    delivery_name = models.CharField(max_length=120, blank=True, default='')
+    delivery_phone = models.CharField(max_length=40, blank=True, default='')
+    delivery_address = models.TextField(blank=True, default='')
+    delivery_note = models.CharField(max_length=200, blank=True, default='')
+    delivery_fee_vc = models.PositiveIntegerField(default=0)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    tracking = models.CharField(max_length=80, blank=True, default='')
+
     class Meta:
         ordering = ['-created_at']
 
@@ -748,6 +1157,10 @@ class VendorOrder(models.Model):
 class VendorOrderItem(models.Model):
     id = models.AutoField(primary_key=True)
     order = models.ForeignKey(VendorOrder, on_delete=models.CASCADE, related_name='items')
+    # Which choice they asked for, as text. On the ITEM because that is where
+    # the stallholder reads it when they are packing, and because a product
+    # renamed or a variant removed afterwards must not change what was ordered.
+    variant = models.CharField(max_length=60, blank=True, default='')
     product = models.ForeignKey(VendorProduct, on_delete=models.PROTECT, related_name='order_items')
     quantity = models.PositiveIntegerField(default=1)
     unit_vc = models.PositiveIntegerField(default=0)
@@ -1551,3 +1964,321 @@ class DoorLookup(models.Model):
 
     def __str__(self):
         return '%s "%s" -> %d' % (self.event_id, self.term, self.matched)
+
+
+class EventFunnelDay(models.Model):
+    """How many people did one thing on one event on one day.
+
+    CEO, 7 September 2026: "organizers hsould be able o see mad metric for
+    thier events and tickets, how many clicks, how many people opened it up,
+    how many tapped buy, how many check out vendor, stuff like that, very
+    detailed stuff."
+
+    The tickets table already answers what was SOLD. What it cannot answer is
+    what happened before that: two hundred people opened the page, forty tapped
+    Buy, twelve reached checkout and nine paid. Those first three numbers exist
+    nowhere until something records them, and the gap between any two of them
+    is the only thing that says WHERE an event is losing people. Selling nine
+    tickets because forty people wanted one is a checkout problem; selling nine
+    because eleven people opened the page is a marketing problem, and the
+    ticket table reads identically in both cases.
+
+    Shaped exactly like `ReferralDay`, and for the same reason: a day per step,
+    never a row per visitor. A row carrying an address and a user agent for
+    every arrival is a log of who read what, which is a thing to be subpoenaed
+    rather than a thing to be useful.
+
+    `people` counts the arrivals whose browser said it had not done this step
+    on this event before. Nothing is stored to work that out - the browser
+    knows, and it is the only party that needs to.
+
+    `ref` names the sub-thing where a step has one, and is '' everywhere else.
+    Today that is the stall slug on `vendor_stall`, which is how an organiser
+    sees WHICH vendor people walked to rather than only that some did.
+    """
+    STEP_OPEN = 'page_open'
+    STEP_BUY = 'buy_tap'
+    STEP_CHECKOUT = 'checkout_start'
+    STEP_VENDORS = 'vendor_open'
+    STEP_STALL = 'vendor_stall'
+    STEP_SHARE = 'share'
+    STEP_DIRECTIONS = 'directions'
+    STEP_TICKETS = 'ticket_open'
+
+    # The order is the funnel, and the summary reads it in this order. A step
+    # added later goes where it belongs in the journey, not at the end.
+    STEPS = (
+        STEP_OPEN, STEP_TICKETS, STEP_BUY, STEP_CHECKOUT,
+        STEP_VENDORS, STEP_STALL, STEP_SHARE, STEP_DIRECTIONS,
+    )
+
+    id = models.AutoField(primary_key=True)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE,
+                              related_name='funnel_days')
+    day = models.DateField(db_index=True)
+    step = models.CharField(max_length=32)
+    ref = models.CharField(max_length=80, blank=True, default='')
+    count = models.PositiveIntegerField(default=0)
+    people = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = ('event', 'day', 'step', 'ref')
+        ordering = ['day', 'step']
+        indexes = [models.Index(fields=['event', 'day'])]
+
+    def __str__(self):
+        return '%s %s %s x%d' % (self.event_id, self.day, self.step, self.count)
+
+
+class EventSettlement(models.Model):
+    """One pass that paid everybody owed anything on one event.
+
+    A RUN, not a queue. A queue of individual payouts worked through twice pays
+    twice; a run stamps every line it paid, in the same transaction that moved
+    the coins, so a second run pays nothing. That property is the whole reason
+    this row exists rather than a boolean on each line.
+    """
+    id = models.AutoField(primary_key=True)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE,
+                              related_name='settlements')
+    run_by = models.ForeignKey('vent_auth.Users', on_delete=models.SET_NULL,
+                               null=True, blank=True,
+                               related_name='settlements_run')
+    amount_vc = models.IntegerField(default=0)
+    lines_paid = models.PositiveIntegerField(default=0)
+    note = models.CharField(max_length=200, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return '%s settlement %s VC' % (self.event_id, self.amount_vc)
+
+
+class EventLedgerEntry(models.Model):
+    """One party, owed one amount, out of one purchase.
+
+    A ledger rather than a balance. A running total incremented at the till
+    drifts the first time a refund lands or an issue runs twice, and once it
+    has drifted there is no way to find out by how much - so a balance here is
+    always the SUM of unsettled lines, never a stored number.
+
+    `fee_pct` and `fee_bearer` are stamped on the line at the sale. The
+    platform rate can change; what a ticket sold under cannot, and a rate
+    change next month must never rewrite what an event earned last month.
+
+    A refund writes a REVERSAL line with the opposite sign rather than editing
+    the original. Editing a settled line would rewrite a payment already made,
+    and editing an unsettled one would erase the fact that a sale happened.
+    """
+    KIND_ORGANISER = 'organiser'
+    KIND_PLATFORM = 'platform'
+    KIND_AFFILIATE = 'affiliate'
+    KIND_REVERSAL = 'reversal'
+    KIND_CHOICES = [
+        (KIND_ORGANISER, 'Organiser'),
+        (KIND_PLATFORM, 'Platform fee'),
+        (KIND_AFFILIATE, 'Affiliate commission'),
+        (KIND_REVERSAL, 'Reversal'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE,
+                              related_name='ledger')
+    kind = models.CharField(max_length=16, choices=KIND_CHOICES, db_index=True)
+    # Null for the platform's own lines, which are not paid into a wallet, and
+    # for an affiliate link whose owner has not claimed an account yet.
+    user = models.ForeignKey('vent_auth.Users', on_delete=models.SET_NULL,
+                             null=True, blank=True, related_name='event_ledger')
+    referral = models.ForeignKey('EventReferral', on_delete=models.SET_NULL,
+                                 null=True, blank=True, related_name='ledger')
+    ticket = models.ForeignKey(Ticket, on_delete=models.SET_NULL, null=True,
+                               blank=True, related_name='ledger')
+
+    amount_vc = models.IntegerField(default=0)
+    gross_vc = models.IntegerField(default=0)
+    fee_vc = models.IntegerField(default=0)
+    fee_pct = models.FloatField(default=0)
+    fee_bearer = models.CharField(max_length=16, default='organiser')
+    quantity = models.PositiveIntegerField(default=1)
+    note = models.CharField(max_length=200, blank=True, default='')
+
+    reverses = models.ForeignKey('self', on_delete=models.SET_NULL, null=True,
+                                 blank=True, related_name='reversal_of')
+    reversed_by = models.ForeignKey('self', on_delete=models.SET_NULL,
+                                    null=True, blank=True,
+                                    related_name='reverses_line')
+
+    settlement = models.ForeignKey(EventSettlement, on_delete=models.SET_NULL,
+                                   null=True, blank=True, related_name='lines')
+    settled_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['event', 'kind', 'settled_at'])]
+
+    def __str__(self):
+        return '%s %s %s VC' % (self.event_id, self.kind, self.amount_vc)
+
+
+class TicketTransfer(models.Model):
+    """One ticket changing hands, and the trail it leaves.
+
+    CEO, 7 September 2026, from the ticketing research: give a ticket to
+    somebody else, the code reissues, the door sees the new holder.
+
+    A row rather than an edit to the ticket, because the question that gets
+    asked at a door is "whose ticket was this", and a ticket that has simply
+    been overwritten cannot answer it. Somebody arrives with a screenshot of
+    the OLD code, and the steward has to know that code was real, who it
+    belonged to, and who holds it now.
+
+    The old code is dead the moment the transfer completes. That is the point
+    of reissuing rather than renaming: a code that still admits somebody after
+    the ticket was given away means two people at one gate with one seat, and
+    the second one is turned away having done nothing wrong.
+    """
+    id = models.AutoField(primary_key=True)
+    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE,
+                               related_name='transfers')
+    from_user = models.ForeignKey('vent_auth.Users', on_delete=models.SET_NULL,
+                                  null=True, blank=True,
+                                  related_name='tickets_given')
+    to_user = models.ForeignKey('vent_auth.Users', on_delete=models.SET_NULL,
+                                null=True, blank=True,
+                                related_name='tickets_received')
+    from_email = models.EmailField(blank=True, default='')
+    to_email = models.EmailField(blank=True, default='')
+    from_name = models.CharField(max_length=120, blank=True, default='')
+    to_name = models.CharField(max_length=120, blank=True, default='')
+    # Both codes, so a steward handed the old one can see it was real and say
+    # what happened to it rather than "no such ticket".
+    old_code = models.CharField(max_length=18, db_index=True)
+    new_code = models.CharField(max_length=18, db_index=True)
+    note = models.CharField(max_length=200, blank=True, default='')
+    at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-at']
+
+    def __str__(self):
+        return '%s -> %s' % (self.old_code, self.new_code)
+
+
+class GeocodedAddress(models.Model):
+    """One address, looked up once, ever.
+
+    CEO, 8 September 2026: an organiser who types an address should get a pin
+    from it. `vent_event/geo.geocode` does the asking; this is what stops it
+    asking twice.
+
+    A MISS is cached as deliberately as a hit, with both columns null. An
+    address nobody can find will not become findable on the next save, and
+    re-asking every time an organiser edits their event is how a free service's
+    rate limit is reached and then withdrawn.
+    """
+    id = models.AutoField(primary_key=True)
+    # Normalised by the caller: trimmed, single-spaced. Unique because the
+    # whole point is one lookup per address.
+    address = models.CharField(max_length=300, unique=True)
+    latitude = models.DecimalField(max_digits=9, decimal_places=6,
+                                   null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6,
+                                    null=True, blank=True)
+    # WHICH form answered. A pin found from "Landmark Centre Lagos" is a
+    # building; one found from "Lagos" is a city. Keeping this means a screen
+    # can eventually say which, rather than drawing both the same way and
+    # looking precise while being wrong.
+    matched = models.CharField(max_length=300, blank=True, default='')
+    looked_up_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['address']
+
+    def __str__(self):
+        if self.latitude is None:
+            return '%s (not found)' % self.address
+        return '%s (%s, %s)' % (self.address, self.latitude, self.longitude)
+
+
+class AbandonedCheckout(models.Model):
+    """Somebody who reached the payment page for a paid ticket and never paid.
+
+    The last GAP on the tix and selar research (inbox row 148, "abandoned
+    checkout recovery"). Everything else on that list is built.
+
+    ## Why a row exists here when `guest_buy` deliberately writes none
+
+    `guest_buy` holds the whole order in the Paystack metadata rather than in a
+    pending row, with the reason written beside it: "a payment nobody completes
+    should leave nothing behind to clean up". That is still right for the
+    ORDER. It is wrong for the fact that somebody tried, which is the only
+    thing an organiser can act on and which the metadata takes to the grave.
+
+    So this stores the smallest thing that answers "who nearly bought": an
+    address, an event, how many, and when. Not the answers they typed, not the
+    attendee names, not the card. If it is never converted and never reminded,
+    it is swept.
+
+    ## One reminder, ever, and a person presses it
+
+    `reminded_at` is set once and checked before every send. There is no
+    scheduler here on purpose. An automatic sequence to somebody who did not
+    buy is a marketing list built out of a checkout, and the address was given
+    to pay for a ticket, not to be marketed at. One "you did not finish"
+    message about that same purchase, sent because the organiser chose to, is
+    the thing a buyer expects and the most that address was given for.
+
+    ## It resolves itself
+
+    `converted_at` is stamped when a ticket for that reference is issued, so
+    the list only ever shows people who really did not come back. A row that
+    is converted is kept briefly for the funnel and then swept like the rest:
+    see `sweep()`, which is what stops this table becoming an address book.
+    """
+
+    id = models.AutoField(primary_key=True)
+    event = models.ForeignKey(
+        Event, on_delete=models.CASCADE, related_name='abandoned_checkouts')
+    tier = models.ForeignKey(
+        'TicketTier', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='abandoned_checkouts')
+
+    email = models.EmailField()
+    quantity = models.PositiveIntegerField(default=1)
+    # The Paystack reference this attempt was started under. It is how the
+    # verification that DOES arrive finds the row to close, and it is unique
+    # so a retried request cannot write the attempt twice.
+    reference = models.CharField(max_length=64, unique=True)
+    total_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    started_at = models.DateTimeField(auto_now_add=True)
+    converted_at = models.DateTimeField(null=True, blank=True)
+    reminded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-started_at']
+        indexes = [models.Index(fields=['event', 'converted_at'])]
+
+    def __str__(self):
+        return '%s x%s %s' % (self.email, self.quantity, self.reference)
+
+    @property
+    def open(self):
+        return self.converted_at is None
+
+    @classmethod
+    def sweep(cls, days=30, now=None):
+        """Delete anything older than `days`, converted or not.
+
+        A row here is an email address somebody gave in order to pay. Keeping
+        it indefinitely because it might one day be useful is how a checkout
+        becomes a mailing list. Thirty days is longer than any reminder is
+        worth sending and shorter than anybody would call a record.
+        """
+        from django.utils import timezone as _tz
+        cutoff = (now or _tz.now()) - timedelta(days=days)
+        deleted, _ = cls.objects.filter(started_at__lt=cutoff).delete()
+        return deleted

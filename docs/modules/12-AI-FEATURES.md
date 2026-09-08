@@ -1,7 +1,7 @@
-# 12 — AI Features
+# 12 - AI Features
 
 **Phase:** 2+ (some Phase 2 features, most Phase 3+)
-**Status:** ❌ Not built — no design, no code
+**Status:** ❌ Not built - no design, no code
 **Design track:** Track B (self-design required, CEO approval before build)
 **Dependencies:** Tournaments (01), Events (02), User System (05), Community (14)
 
@@ -11,15 +11,15 @@
 
 V-ENT AI features augment the platform with intelligent assistance and automation. Planned features from the BRD:
 
-1. **Tournament Bracket Auto-Generation** — AI suggests bracket format, seeding, and schedule based on participant count and game type (Phase 2)
-2. **Match Prediction** — predict match outcomes based on team/player history; shown as fun stat, not wager-related (Phase 2)
-3. **Personalized Feed** — recommendations for tournaments, events, and content based on user's games, interests, and activity (Phase 2)
-4. **Chatbot / Help Assistant** — in-platform support bot that answers questions about platform features, rules, and navigation (Phase 2)
-5. **Content Moderation Assist** — AI-flagged content for admin review; not autonomous deletion (Phase 3)
-6. **Performance Analytics** — player/team stat insights, win pattern analysis shown in profile (Phase 3)
-7. **Anime/Content Recommendations** — suggest manga series, AMVs, and co-reading rooms based on user preferences (Phase 5)
+1. **Tournament Bracket Auto-Generation** - AI suggests bracket format, seeding, and schedule based on participant count and game type (Phase 2)
+2. **Match Prediction** - predict match outcomes based on team/player history; shown as fun stat, not wager-related (Phase 2)
+3. **Personalized Feed** - recommendations for tournaments, events, and content based on user's games, interests, and activity (Phase 2)
+4. **Chatbot / Help Assistant** - in-platform support bot that answers questions about platform features, rules, and navigation (Phase 2)
+5. **Content Moderation Assist** - AI-flagged content for admin review; not autonomous deletion (Phase 3)
+6. **Performance Analytics** - player/team stat insights, win pattern analysis shown in profile (Phase 3)
+7. **Anime/Content Recommendations** - suggest manga series, AMVs, and co-reading rooms based on user preferences (Phase 5)
 
-> **Note on model choice:** When building any AI-powered feature, use the latest available Claude model. Current recommended IDs: `claude-opus-4-6` (most capable), `claude-sonnet-4-6` (balanced), `claude-haiku-4-5-20251001` (fast/cheap). Do not hardcode model IDs — make them configurable via environment variables.
+> **Note on model choice:** When building any AI-powered feature, use the latest available Claude model. Current recommended IDs: `claude-opus-4-6` (most capable), `claude-sonnet-4-6` (balanced), `claude-haiku-4-5-20251001` (fast/cheap). Do not hardcode model IDs - make them configurable via environment variables.
 
 ---
 
@@ -41,7 +41,7 @@ Planned structure (Phase 2 first):
 
 ```
 src/app/
-└── (AI features are embedded in existing pages — no standalone /ai/ route needed initially)
+└── (AI features are embedded in existing pages - no standalone /ai/ route needed initially)
 
 src/components/
 └── ai/
@@ -49,7 +49,7 @@ src/components/
     ├── MatchPredictionBadge.js              # ⬜ Small prediction display on tournament detail
     ├── PersonalizedFeed.js                  # ⬜ "Recommended for you" section on home page
     ├── HelpChatbot.js                       # ⬜ Floating chat widget available platform-wide
-    └── ContentModerationFlag.js             # ⬜ Admin panel integration — flagged items queue
+    └── ContentModerationFlag.js             # ⬜ Admin panel integration - flagged items queue
 ```
 
 ---
@@ -57,9 +57,9 @@ src/components/
 ## API Endpoints (Needed)
 
 > These could be:
-> a) Backend Django endpoints that call Claude API server-side (recommended — keeps API key off client)
+> a) Backend Django endpoints that call Claude API server-side (recommended - keeps API key off client)
 > b) Next.js API route handlers that proxy to Claude API (acceptable if backend not ready)
-> Never call Claude API directly from the browser — API key would be exposed.
+> Never call Claude API directly from the browser - API key would be exposed.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -138,7 +138,7 @@ src/components/
 ### Backend Architecture (Recommended)
 
 ```python
-# Backend Django view — calls Claude API server-side
+# Backend Django view - calls Claude API server-side
 import anthropic
 
 def bracket_suggest(request):
@@ -146,7 +146,7 @@ def bracket_suggest(request):
     data = request.data
 
     message = client.messages.create(
-        model=settings.AI_MODEL,  # e.g., "claude-sonnet-4-6" — from env, not hardcoded
+        model=settings.AI_MODEL,  # e.g., "claude-sonnet-4-6" - from env, not hardcoded
         max_tokens=1024,
         messages=[{
             "role": "user",
@@ -170,29 +170,29 @@ Conversation history must be stored server-side (not in browser localStorage) to
 
 ## Acceptance Criteria
 
-### Bracket Suggestor (embedded in tournament creation wizard) — Track B
+### Bracket Suggestor (embedded in tournament creation wizard) - Track B
 
 - [ ] Step 2 "Format & Participants" shows an "AI Suggest" button
 - [ ] On click: calls `/ai/bracket-suggest/` with current form values → pre-fills format fields
 - [ ] User can override any suggestion
 - [ ] Suggestion includes an explanation ("why this format") in a collapsible tooltip
 
-### Match Prediction Badge (tournament detail page) — Track B
+### Match Prediction Badge (tournament detail page) - Track B
 
 - [ ] Shown on upcoming match cards in the bracket view
 - [ ] Displays win probability bars for each team
 - [ ] Clear "entertainment only" disclaimer
 - [ ] Only shows when sufficient match history exists (confidence ≠ "insufficient_data")
 
-### Help Chatbot — Track B
+### Help Chatbot - Track B
 
 - [ ] Floating button visible platform-wide (except overlay page and auth pages)
 - [ ] Opens as a slide-in panel
 - [ ] Maintains conversation history for the session
 - [ ] Has quick-reply suggestion chips for common questions
-- [ ] Falls back gracefully if AI endpoint is unavailable (shows "Support unavailable — try again later")
+- [ ] Falls back gracefully if AI endpoint is unavailable (shows "Support unavailable - try again later")
 
-### Personalized Feed — Track B
+### Personalized Feed - Track B
 
 - [ ] "Recommended for you" section on logged-in home page
 - [ ] Recommendations based on user's games and interests from profile
@@ -205,8 +205,8 @@ Conversation history must be stored server-side (not in browser localStorage) to
 
 ### ⬜ Phase 2
 
-- [ ] Design HTML mockup for chatbot widget — CEO approval
-- [ ] Design HTML mockup for personalized feed section — CEO approval
+- [ ] Design HTML mockup for chatbot widget - CEO approval
+- [ ] Design HTML mockup for personalized feed section - CEO approval
 - [ ] Backend: `/ai/bracket-suggest/` endpoint (calls Claude API server-side)
 - [ ] Backend: `/ai/chat/` endpoint with conversation history storage
 - [ ] Backend: `/ai/feed/recommendations/` endpoint

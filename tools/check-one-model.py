@@ -113,6 +113,32 @@ def main():
                 continue
             if 'avatar' in body and 'founder_badge' in body:
                 continue                   # carries the whole shape already
+            # Calibration, 7 September 2026. Three of the eleven were not
+            # hand-built people at all, and reading a dict literal alone
+            # cannot tell:
+            #
+            #   * a WRAPPER whose person is nested - an org join request is
+            #     `{id, message, 'user': _person_row(...)}`, and the outer
+            #     keys look like a flat copy;
+            #   * a dict COMPLETED afterwards - the team member list attaches
+            #     pictures and founder marks in one bulk query below the
+            #     literal, which is a query saved rather than a shape lost.
+            #
+            # Both are answered by reading to the end of the enclosing
+            # function rather than the literal, because that is where the
+            # completion lives - the bulk attach that finishes a member list
+            # sits about thirty lines below it. Capped, so this cannot drift
+            # into the next function and start excusing a partial dict.
+            after = text[match.end():match.end() + 2500]
+            end = re.search(r'\n(?:@|def )', after)
+            around = (text[max(0, match.start() - 200):match.end()]
+                      + (after[:end.start()] if end else after))
+            nests_a_person = re.search(
+                r"'user'\s*:\s*_person", around) is not None
+            completed_after = ('founder_badge' in around and
+                               ('avatar' in around or 'profile_pic' in around))
+            if nests_a_person or completed_after:
+                continue
             line = text.count('\n', 0, match.start()) + 1
             hand_built.append((rel, line, body.replace('\n', ' ')[:90]))
 

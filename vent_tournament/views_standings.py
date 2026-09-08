@@ -145,13 +145,22 @@ def tie_detail(request, tie_id):
 
 
 def _person(user):
+    """A player in a fixture, through the one person builder.
+
+    This was a local copy that returned a user_id, a username and a name. A
+    standings table is a list of PEOPLE, so it drew every player with no face
+    and no founder mark while the same players carried both everywhere else.
+    A partial copy of a shape is a copy that has already drifted.
+
+    `name` is kept on top because the standings table reads that key.
+    """
     if user is None:
         return None
-    return {
-        'user_id': user.pk,
-        'username': user.username,
-        'name': getattr(user, 'full_name', '') or user.username,
-    }
+    from vent_auth.views_community import _person as described
+
+    row = described(None, user)
+    row['name'] = getattr(user, 'full_name', '') or user.username
+    return row
 
 
 @api_view(['POST'])

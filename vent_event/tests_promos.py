@@ -151,19 +151,43 @@ class TicketingSetupTests(TestCase):
         self.assertFalse(promo.is_active)
 
     # --------------------------------------------------------------- managers
-    def test_a_personal_event_cannot_be_handed_to_anybody(self):
-        """The door list and the attendee data go with management.
+    def test_a_personal_event_CAN_be_handed_to_somebody(self):
+        """Superseded on 7 September 2026.
 
-        CEO, 4 September 2026, after being offered the alternative: "dont
-        ulock it, instead do a way to add events to an oganization". So this
-        stays refused, and the way out is to move the event into an
-        organisation, which is now something a screen can do.
+        The rule used to be that only an event inside an organisation could be
+        shared, on the CEO's instruction of 4 September: "dont ulock it,
+        instead do a way to add events to an oganization".
+
+        They then said the opposite, and meant it: "Users should now be able to
+        invite people to manage their events and tournaments, withouth creating
+        an organizatioon, it'll just mean that uner an organization those
+        people you have added will always have acces to all your
+        events/tournaments, without you having to always add them."
+
+        So the two routes differ in REACH rather than in permission now, and
+        that difference is a better reason to make an organisation than
+        "otherwise you cannot share at all". The test is inverted rather than
+        deleted, because the old behaviour is exactly what must not come back.
         """
         res = self.client.post('/event/%s/managers/' % self.event.event_id,
                                data=json.dumps({'username': self.other.username}),
                                content_type='application/json', **self.owner_auth)
-        self.assertEqual(res.status_code, 409, res.content)
-        self.assertEqual(res.json()['code'], 'EVENT_NOT_IN_ORGANISATION')
+        self.assertEqual(res.status_code, 201, res.content)
+        from vent_event.models import EventManager
+        self.assertTrue(EventManager.objects.filter(
+            event=self.event, user=self.other).exists())
+
+    def test_somebody_with_no_account_is_invited_rather_than_refused(self):
+        """An organiser knows the email address, not the handle. Saying "no
+        member with that username" to an address is the wrong answer to a
+        reasonable request."""
+        res = self.client.post('/event/%s/managers/' % self.event.event_id,
+                               data=json.dumps({'username': 'newhelper@example.com'}),
+                               content_type='application/json', **self.owner_auth)
+        self.assertEqual(res.status_code, 200, res.content)
+        body = res.json()['data']
+        self.assertEqual(body['invited'], 'newhelper@example.com')
+        self.assertIs(body['awaiting_signup'], True)
 
     def test_an_organisation_event_can_be_shared(self):
         org = Organization.objects.create(org_name='Vermillion %s' % uuid.uuid4().hex[:4],

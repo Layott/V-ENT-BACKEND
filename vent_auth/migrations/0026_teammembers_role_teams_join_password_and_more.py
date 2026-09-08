@@ -79,6 +79,6 @@ class Migration(migrations.Migration):
                 ('team', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='join_requests', to='vent_auth.teams')),
             ],
         ),
-        # Data upsert LAST — runs after role/columns exist. ORM-only, no DDL.
+        # Data upsert LAST - runs after role/columns exist. ORM-only, no DDL.
         migrations.RunPython(upsert_team_members, noop),
     ]

@@ -660,9 +660,42 @@ def feed(request, token):
     # implementation here would eventually disagree with the page the players
     # or the attendees are reading.
     if session.kind == 'event':
-        from .views_overlay_feed import event_overlay_feed
+        from .views_overlay_feed import (event_overlay_feed,
+                                         run_of_show_for_event)
         inner = event_overlay_feed(raw, session.event.slug or session.event.event_id)
         data = (getattr(inner, 'data', {}) or {}).get('data') or {}
+
+        # The run of show, asked for again with the organiser's own access,
+        # exactly as the tournament branch below does it. The public feed
+        # withholds a sheet that is not published, and a private sheet is the
+        # one an organiser runs their show from. Without this an event's now
+        # and next graphic drew nothing while the sheet sat there with 161 cues
+        # in it, which is what a walk on 8 September found.
+        run_of_show, run_stamp = run_of_show_for_event(session.event,
+                                                       include_private=True)
+        event_block = dict(data.get('event', {}) or {})
+        programme = data.get('programme', []) or []
+        if run_of_show.get('items'):
+            if not programme:
+                programme = [
+                    {
+                        'title': cue.get('activity') or '',
+                        'room': cue.get('owner') or '',
+                        'speaker': cue.get('match') or '',
+                        'starts_at': cue.get('starts_at'),
+                        'ends_at': cue.get('ends_at'),
+                    }
+                    for cue in run_of_show['items']
+                ]
+            # A published session still wins for what is ON, because that is
+            # the schedule the audience is holding.
+            if not event_block.get('now_on'):
+                event_block['now_on'] = (run_of_show.get('now') or {}).get('activity') or ''
+                event_block['room'] = (run_of_show.get('now') or {}).get('owner') or ''
+            if not event_block.get('next_on'):
+                event_block['next_on'] = (run_of_show.get('next') or {}).get('activity') or ''
+                event_block['next_room'] = (run_of_show.get('next') or {}).get('owner') or ''
+
         return _ok({
             'session': {'id': session.id, 'name': session.name,
                         'is_live': True, 'theme': session.theme},
@@ -671,12 +704,17 @@ def feed(request, token):
             # What each of the four layers is holding right now. A slot page
             # reads its own role out of this and renders whatever it names.
             'slots': _slot_state(session),
-            'event': data.get('event', {}),
-            'programme': data.get('programme', []),
+            'event': event_block,
+            'programme': programme,
+            'run_of_show': run_of_show,
             'sponsors': data.get('sponsors', []),
             'assets': assets,
-            'version': '%s|%s|%s' % (_version(session, elements),
-                                     data.get('version', ''), len(assets)),
+            # The run stamp joins the version for the same reason it does on a
+            # tournament: the cue on screen changes when the clock passes 14:00
+            # and no row in any table moves when it does.
+            'version': '%s|%s|%s|%s' % (_version(session, elements),
+                                        data.get('version', ''), len(assets),
+                                        run_stamp),
         }, 'Studio feed')
 
     from .views_overlay_feed import (BLANK_RIVALRY, overlay_feed,

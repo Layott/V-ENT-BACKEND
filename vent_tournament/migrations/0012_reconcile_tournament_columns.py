@@ -14,7 +14,7 @@ rebuild, so they stay missing. This migration is validated against a *drifted*
 schema (columns removed), not a plain fresh SQLite build.
 
 Same idempotent RunPython pattern as 0011: introspect, and `ADD` each column only
-if absent — a no-op on any DB that already has them (deployed / already-run). The
+if absent - a no-op on any DB that already has them (deployed / already-run). The
 three FKs (tournament_creator -> Users, tournament_game -> Games,
 tournament_organization -> Organization) target models whose PKs are explicit
 `AutoField`s (INT), so `schema_editor.add_field` emits INT FK columns that match

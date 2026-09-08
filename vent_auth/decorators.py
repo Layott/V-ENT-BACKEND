@@ -25,20 +25,40 @@ SESSION_TIMEOUT_MINUTES = 120
 # number again rather than two that could disagree.
 ADMIN_SESSION_MINUTES = SESSION_TIMEOUT_MINUTES
 
-ADMIN_ROLES = ('super_admin', 'finance_admin', 'mod_admin', 'support_admin')
+# Every admin role. This MUST match `Users.ADMIN_ROLE_CHOICES`, and
+# `tests_admin_roles.py` fails if it does not.
+#
+# A plain tuple rather than something derived: this module is imported before
+# the app registry is ready, so reading the model here cannot work. Two lists
+# of the same thing is the fault - adding the three roles the admin spec asks
+# for changed the model and not this, and the new roles could not open the
+# console at all, because `view_dashboard` is `set(ADMIN_ROLES)`. The test is
+# what keeps them in step now.
+ADMIN_ROLES = (
+    'super_admin', 'admin', 'finance_admin', 'mod_admin',
+    'tournament_admin', 'marketplace_admin', 'wager_admin', 'support_admin',
+)
 
 # canonical -> short alias consumed by the FE AdminNav / adminUser
 ROLE_SHORT = {
     'super_admin': 'super',
+    'admin': 'admin',
     'finance_admin': 'finance',
     'mod_admin': 'moderator',
+    'tournament_admin': 'tournaments',
+    'marketplace_admin': 'marketplace',
+    'wager_admin': 'wager',
     'support_admin': 'support',
 }
 
 ROLE_LABEL = {
     'super_admin': 'Super Admin',
-    'finance_admin': 'Finance',
+    'admin': 'Admin',
+    'finance_admin': 'Financial Manager',
     'mod_admin': 'Moderator',
+    'tournament_admin': 'Tournament Organizer',
+    'marketplace_admin': 'Marketplace Manager',
+    'wager_admin': 'Wager Manager',
     'support_admin': 'Support',
 }
 
@@ -47,32 +67,95 @@ ROLE_LABEL = {
 # the lead to narrow if desired. Payouts = super/finance per the lead's ruling.
 ROLE_PERMISSIONS = {
     'view_dashboard':        set(ADMIN_ROLES),
-    'view_users':            set(ADMIN_ROLES),
-    'ban_users':             {'super_admin', 'mod_admin'},
+    # Not every role. The spec gives the user section to Super Admin and
+    # Admin, gives the Financial Manager "finance only", the Tournament
+    # Organizer "tournaments and events" and the Moderator "community and
+    # content". A Marketplace Manager's access is the marketplace.
+    #
+    # Moderator and Support keep it for a reason each: a moderator acts on a
+    # report ABOUT an account and holds `ban_users`, and banning somebody whose
+    # account you may not open is banning blind; support exists to look an
+    # account up. Nobody else needs the whole list.
+    'view_users':            {'super_admin', 'admin', 'mod_admin',
+                              'support_admin'},
+    'ban_users':             {'super_admin', 'admin', 'mod_admin'},
     'set_user_roles':        {'super_admin'},
     'delete_users':          {'super_admin'},
-    'view_transactions':     {'super_admin', 'finance_admin'},
+    'view_transactions':     {'super_admin', 'admin', 'finance_admin'},
     'list_payouts':          {'super_admin', 'finance_admin'},
     'approve_payouts':       {'super_admin', 'finance_admin'},
     'reject_payouts':        {'super_admin', 'finance_admin'},
-    'list_kyc':              {'super_admin', 'finance_admin', 'mod_admin', 'support_admin'},
-    'approve_kyc':           {'super_admin', 'finance_admin', 'mod_admin'},
-    'reject_kyc':            {'super_admin', 'finance_admin', 'mod_admin'},
-    'cancel_tournament':     {'super_admin', 'mod_admin'},
+    'list_kyc':              {'super_admin', 'admin', 'finance_admin',
+                              'mod_admin', 'support_admin'},
+    'approve_kyc':           {'super_admin', 'admin', 'finance_admin', 'mod_admin'},
+    'reject_kyc':            {'super_admin', 'admin', 'finance_admin', 'mod_admin'},
+    'cancel_tournament':     {'super_admin', 'admin', 'mod_admin', 'tournament_admin'},
     # Named in production_access.py and access.py since 1 September, and
     # absent from here until 3 September, so may_override always said no and
     # the admin path through the studio quietly did not exist. The same
     # roles that may cancel a tournament may run its production and its
     # results desk.
-    'manage_tournaments':    {'super_admin', 'mod_admin'},
-    'manage_events':         {'super_admin', 'mod_admin'},
-    'resolve_dispute':       {'super_admin', 'mod_admin'},
+    'manage_tournaments':    {'super_admin', 'admin', 'mod_admin', 'tournament_admin'},
+    'manage_events':         {'super_admin', 'admin', 'mod_admin', 'tournament_admin'},
+    'resolve_dispute':       {'super_admin', 'admin', 'mod_admin'},
     'override_match_score':  {'super_admin', 'mod_admin'},
     'distribute_prizes':     {'super_admin', 'finance_admin'},
-    'view_audit_log':        set(ADMIN_ROLES),
+    'view_audit_log':        {'super_admin', 'admin', 'finance_admin',
+                              'mod_admin', 'tournament_admin', 'support_admin'},
     'export_audit_log':      {'super_admin'},
     'manage_admins':         {'super_admin'},
     'list_usernames_emails': {'super_admin', 'support_admin'},
+
+    # ---- added 8 September for the admin dashboard spec ------------------
+    #
+    # `admin` is "most things, not the super-admin ones": it may not assign
+    # roles, delete accounts, manage other admins or export the audit log,
+    # which is the whole difference the spec draws between Admin and Super
+    # Admin.
+    # Reading an organisation and running one are two different permissions.
+    # A Financial Manager may move money into an organisation's wallet and
+    # download its statement, so they have to be able to FIND it; they may not
+    # verify it, change its type or change who is in it.
+    'view_organizations':    {'super_admin', 'admin', 'finance_admin'},
+    'manage_organizations':  {'super_admin', 'admin'},
+    'manage_communities':    {'super_admin', 'admin', 'mod_admin'},
+    'moderate_content':      {'super_admin', 'admin', 'mod_admin'},
+    'transfer_funds':        {'super_admin', 'finance_admin'},
+    # Cancelling an event and voiding a ticket both take a seat away from
+    # somebody who paid for it, so they are separate from reading the events
+    # console. Support is here because the door and the refund desk is what
+    # support does; a Moderator is not, because an event is not content.
+    'cancel_event':          {'super_admin', 'admin', 'tournament_admin',
+                              'support_admin'},
+    'void_ticket':           {'super_admin', 'admin', 'tournament_admin',
+                              'support_admin'},
+    # The game catalogue every tournament picks from, and the exchange rates
+    # every price is shown in. Both were gated by a list written at the call
+    # site and by nothing else.
+    'manage_games':          {'super_admin', 'admin', 'mod_admin'},
+    'manage_rates':          {'super_admin', 'finance_admin'},
+    'manage_settings':       {'super_admin'},
+    # Sending a reset does not reveal a password and does not set one: it
+    # emails the person the same code the front door does. Support exists to
+    # do exactly this, which is why it is here and not with the ban.
+    'reset_user_password':   {'super_admin', 'admin', 'support_admin'},
+    'send_notifications':    {'super_admin', 'admin', 'mod_admin',
+                              'tournament_admin'},
+
+    # Marketplace and wager: named so the console can ASK about them, and
+    # granted to nobody, because neither feature exists. When Phase 4 and
+    # Phase 6 arrive these gain their managers and nothing else changes.
+    'manage_marketplace':    set(),
+    'manage_wagers':         set(),
+    'manage_shop':           set(),
+}
+
+# Roles that exist so they can be assigned, and grant nothing yet. Kept
+# explicit so a console can say "this role does nothing until that feature is
+# built" rather than quietly showing somebody an empty screen.
+ROLES_AWAITING_THEIR_FEATURE = {
+    'marketplace_admin': 'the marketplace (Phase 4)',
+    'wager_admin': 'the wager system (Phase 6)',
 }
 
 
@@ -89,6 +172,23 @@ def permissions_for(admin_role):
     return {action: (admin_role in roles) for action, roles in ROLE_PERMISSIONS.items()}
 
 
+def _profile_picture(user):
+    """The admin's own picture, relative to MEDIA_URL.
+
+    Relative rather than absolute because this descriptor is built without a
+    request in hand, and the front end already resolves media paths through
+    `mediaUrl()`.
+    """
+    from .models import UserProfile
+    profile = UserProfile.objects.filter(user=user).first()
+    if not profile or not profile.profile_picture:
+        return None
+    try:
+        return profile.profile_picture.url
+    except ValueError:
+        return None
+
+
 def admin_identity(user):
     """The admin descriptor the FE stores as `adminUser` / reads from /me/."""
     role = effective_admin_role(user)
@@ -97,6 +197,10 @@ def admin_identity(user):
         'username': user.username,
         'email': user.email,
         'full_name': user.full_name,
+        # The console header and side panel drew the admin's own initials and
+        # had nothing else to draw, because this descriptor carried no picture.
+        # An admin has a profile like anybody else.
+        'avatar': _profile_picture(user),
         'admin_role': role,                          # canonical (spec model value)
         'role': ROLE_SHORT.get(role),                # short alias for AdminNav
         'role_label': ROLE_LABEL.get(role, 'Admin'),

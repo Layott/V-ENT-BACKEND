@@ -451,6 +451,32 @@ def join_tournament(request):
                     'data': {'visibility': tournament.tournament_visibility},
                 }, status=status.HTTP_403_FORBIDDEN)
 
+        # Registration that has not opened yet. `registration_opens_at` was on
+        # the model, was sent to every screen, and was enforced by nothing: an
+        # organiser who set a date found anybody who opened the page could
+        # register regardless. Enforced only where a date was actually SET, so
+        # the tournaments that carry no window - almost all of them - are
+        # unaffected.
+        #
+        # This is also the only thing early access can be early TO, which is
+        # why the membership benefit is asked here rather than sold as a
+        # promise nothing keeps.
+        from vent_billing import entitlements as _entitlements
+        _window_code, _opens_at = _entitlements.registration_window_error(
+            user, tournament)
+        if _window_code:
+            return Response({
+                'status': 'error',
+                'code': _window_code,
+                'message': 'Registration for this tournament has not opened yet.',
+                'data': {
+                    'opens_at': _opens_at,
+                    # So the page can offer the membership that would let them
+                    # in now, rather than only telling them to come back.
+                    'early_access_benefit': 'priority_registration',
+                },
+            }, status=status.HTTP_409_CONFLICT)
+
         # Two tournaments at the same time is two matches somebody cannot play.
         # The PRD asks for a warning rather than a refusal, so this answers with
         # the clash and what it collides with, and goes ahead when the caller
@@ -508,6 +534,16 @@ def join_tournament(request):
         _covered, _event_link = entry_is_covered(user, tournament)
         covered_by_ticket = bool(is_paid and _covered)
         if covered_by_ticket:
+            is_paid = False
+
+        # A membership of this organiser that grants free entry. Asked BEFORE
+        # the wallet is debited, and read on this request rather than off a
+        # flag, so somebody whose membership lapsed an hour ago pays now.
+        # Gate C1: the benefit is enforced here, not merely hidden on a page.
+        from vent_billing import entitlements as _entitlements
+        waived_by_membership = bool(
+            is_paid and _entitlements.waives_entry_fee(user, tournament))
+        if waived_by_membership:
             is_paid = False
 
         entry_fee_coins = int(tournament.entry_fee_price) if is_paid else 0
@@ -630,6 +666,11 @@ def join_tournament(request):
                 'entry_fee_paid': registration.entry_fee_paid,
                 'coins_deducted': entry_fee_coins if is_paid else 0,
                 'covered_by_event_ticket': covered_by_ticket,
+                # What paid for the entry when it was not the wallet. Reported
+                # rather than left to be inferred from a zero: "you were not
+                # charged" and "your membership covered it" are different
+                # sentences and only one of them is worth reading.
+                'entry_waived_by_membership': waived_by_membership,
             }
         }, status=status.HTTP_201_CREATED)
 
@@ -713,6 +754,23 @@ def _wants_league(bracket_type):
     """
     definition = _formats.get(bracket_type)
     return bool(definition and definition.advancement == 'table')
+
+
+def _typed_amount(raw):
+    """A prize figure as the organiser typed it, or None when it is not a number.
+
+    `to_coins` returns 0 for anything unparseable, which is right for a blank
+    box but hides a typo: the converted figure becomes 0 and the ORIGINAL is
+    stored beside it on a decimal column, so "lots" reached the database and
+    came back as a 500 with no field named. Blank is None; a real value that
+    is not a number is refused by name.
+    """
+    if raw in (None, '', 'null'):
+        return None, True
+    try:
+        return Decimal(str(raw)), True
+    except (InvalidOperation, TypeError, ValueError):
+        return None, False
 
 
 def _league_settings(data, team_size):
@@ -842,6 +900,22 @@ def create_tournament(request):
                 "bigolive_link": request.data.get('bigolive_link')
             }
 
+            # The wizard knows the game's id as well as its title, and sends
+            # both. Only the title was read, so the id travelled on every
+            # create and was thrown away - and matching on a typed name is the
+            # weaker of the two, because a game renamed in the catalogue
+            # between the organiser opening the wizard and pressing Create
+            # then fails on a name that was correct when they chose it.
+            #
+            # The id wins when it names a real game. A stale or wrong id falls
+            # through to the title rather than refusing, because the title is
+            # what the organiser actually saw and chose.
+            game_id = request.data.get('game_id')
+            if game_id not in (None, '', 'null'):
+                by_id = Games.objects.filter(game_id=game_id).first()
+                if by_id is not None:
+                    game = by_id
+
             # A missing game was a 500 reading "'NoneType' object has no
             # attribute 'title'", which tells the organiser nothing and tells
             # whoever reads the log almost as little.
@@ -857,7 +931,8 @@ def create_tournament(request):
                 # be created on most of the games in the catalogue, and the
                 # error blamed the organiser for naming a game that was there
                 # all along.
-                game = Games.objects.get(game_title__iexact=str(game).strip())
+                if not isinstance(game, Games):
+                    game = Games.objects.get(game_title__iexact=str(game).strip())
             except Games.DoesNotExist:
                 return Response(
                     {'code': 'GAME_NOT_FOUND', 'status': 'error',
@@ -994,11 +1069,20 @@ def create_tournament(request):
                     )
             elif prize_type == 'winner_takes_all':
                 typed = request.data.get('winner_prize', request.data.get('total_prize', 0))
+                # Refused by name rather than saved and 500ing on the decimal
+                # column, which is what "lots" in the prize box used to do.
+                amount, ok = _typed_amount(typed)
+                if not ok:
+                    return Response({
+                        'status': 'error', 'code': 'PRIZE_NOT_A_NUMBER',
+                        'field': 'winner_prize',
+                        'message': 'The prize has to be a number.', 'data': {},
+                    }, status=status.HTTP_400_BAD_REQUEST)
                 TournamentPrizeDistribution.objects.create(
                     tournament=tournament,
                     position=1,
-                    prize=to_coins(typed, prize_currency),
-                    amount_original=typed or None,
+                    prize=to_coins(amount, prize_currency),
+                    amount_original=amount,
                     currency=prize_currency,
                     extras='Winner Takes All',
                 )
@@ -2048,6 +2132,61 @@ def edit_tournament(request, tournament_id):
             if sent in request.data:
                 setattr(tournament, column, request.data.get(sent) or None)
                 updated_fields.append(column)
+
+        # Hiding the venue, and the headline prize. Both were read on create
+        # and by nothing here, so an organiser who continued a draft and
+        # switched "hide the location" on, or corrected the prize, was told it
+        # saved and it was not - the same shape as the eight fields that made a
+        # tournament set to 5 teams report 0 of 32.
+        #
+        # `hide_location` is not a column: it means "store no location", so it
+        # is applied to the location rather than saved beside it. Only when the
+        # location is not itself being edited in the same request, because then
+        # that value is the organiser's newer answer.
+        if 'hide_location' in request.data:
+            hidden = str(request.data.get('hide_location')).lower() in ('1', 'true', 'yes', 'on')
+            if hidden:
+                tournament.tournament_location = None
+                if 'tournament_location' not in updated_fields:
+                    updated_fields.append('tournament_location')
+            elif 'tournament_location' in request.data:
+                tournament.tournament_location = request.data.get('tournament_location') or None
+                if 'tournament_location' not in updated_fields:
+                    updated_fields.append('tournament_location')
+
+        # The single prize on a winner-takes-all tournament. The wizard calls
+        # it `winner_prize` and the older name is `total_prize`; create accepts
+        # either and edit accepted neither, so correcting the prize while
+        # continuing a draft did nothing and said it saved.
+        #
+        # It is not a column: create writes it as the position-1 row of the
+        # prize distribution, so this rewrites that one row rather than adding
+        # a second. Nothing is appended to `updated_fields` because nothing on
+        # the tournament itself changed.
+        if 'winner_prize' in request.data or 'total_prize' in request.data:
+            typed = request.data.get('winner_prize', request.data.get('total_prize'))
+            currency = (request.data.get('prize_currency')
+                        or tournament.prize_distributions.filter(position=1)
+                        .values_list('currency', flat=True).first()
+                        or 'VC').upper()
+            amount, ok = _typed_amount(typed)
+            if not ok:
+                return Response({
+                    'status': 'error',
+                    'code': 'PRIZE_NOT_A_NUMBER',
+                    'field': 'winner_prize',
+                    'message': 'The prize has to be a number.',
+                    'data': {},
+                }, status=status.HTTP_400_BAD_REQUEST)
+            tournament.prize_distributions.update_or_create(
+                position=1,
+                defaults={
+                    'prize': to_coins(amount, currency),
+                    'amount_original': amount,
+                    'currency': currency,
+                    'extras': 'Winner Takes All',
+                },
+            )
 
         # The game itself. Missing until now, so an organiser who picked the
         # wrong one in the wizard had no way to correct it and had to make the

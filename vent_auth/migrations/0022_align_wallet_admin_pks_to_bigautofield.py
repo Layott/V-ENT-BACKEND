@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
 
     Consequence on a fresh build: `vent_tournament.PrizePayout.transaction`
     (a BigAutoField-state FK -> `vent_auth.Transaction`) emits a BIGINT column
-    that MySQL refuses to point at the INT `transaction.id` (error 3780) — the
+    that MySQL refuses to point at the INT `transaction.id` (error 3780) - the
     failure the fresh vent_mysql:3307 migrate hit. `DEFAULT_AUTO_FIELD` is
     BigAutoField and none of these models declare an explicit `id`, so the model
     state legitimately wants BigAutoField; the DATABASE is what is out of step.

@@ -1,7 +1,7 @@
-# 03 — Production & Streaming Integration
+# 03 - Production & Streaming Integration
 
 **Phase:** 1 MVP (must ship with bracket visualization)
-**Status:** ❌ Nothing built — no Figma design, no code
+**Status:** ❌ Nothing built - no Figma design, no code
 **Design track:** Track B (self-design required, CEO approval before build)
 **Dependencies:** Tournament brackets (01-TOURNAMENTS.md), backend match data API
 
@@ -11,10 +11,10 @@
 
 The Production module gives tournament organizers a live broadcast control room inside V-ENT. It covers:
 
-1. **Tournament Overlay Engine** — a configurable overlay for OBS/VMIX/Streamlabs that displays match info, scores, player cards, and sponsor logos over the stream
-2. **Score & Match Control** — organizer UI for starting/pausing/ending matches, updating scores in real time, and advancing brackets
-3. **Spectator Screen Scanning** — camera-based tool that reads the game screen (score HUD, kill feed) and auto-updates match data
-4. **Stream Dashboard** — organizer HQ for a live tournament: match queue, current match status, chat/alerts feed
+1. **Tournament Overlay Engine** - a configurable overlay for OBS/VMIX/Streamlabs that displays match info, scores, player cards, and sponsor logos over the stream
+2. **Score & Match Control** - organizer UI for starting/pausing/ending matches, updating scores in real time, and advancing brackets
+3. **Spectator Screen Scanning** - camera-based tool that reads the game screen (score HUD, kill feed) and auto-updates match data
+4. **Stream Dashboard** - organizer HQ for a live tournament: match queue, current match status, chat/alerts feed
 
 This is a Phase 1 MVP requirement. Without it, tournament organizers have no way to run a broadcast event through the platform.
 
@@ -24,10 +24,10 @@ This is a Phase 1 MVP requirement. Without it, tournament organizers have no way
 
 | Screen | nodeId | Status |
 |--------|--------|--------|
-| Tournament Production | `4052:20591` area | 🟡 Basic version only — needs redesign for streaming software integration |
+| Tournament Production | `4052:20591` area | 🟡 Basic version only - needs redesign for streaming software integration |
 | Overlay Config | ❌ None | Not designed |
 | Score Update UI | see Tournament Management `4052:20591` | 🟡 Partial |
-| Screen Scanning | ❌ None | Not designed — "screen scanning feature needs original design" |
+| Screen Scanning | ❌ None | Not designed - "screen scanning feature needs original design" |
 
 > **Verified in Figma audit:** "Production screen needs redesign for streaming software integration (OBS/VMIX/Streamlabs). Screen scanning feature needs original design."
 
@@ -78,7 +78,7 @@ No production-related endpoints have been called from the frontend.
 | `POST` | `/tournament/match/end/` | End a match, record result |
 | `PATCH` | `/tournament/match/score/` | Update score mid-match |
 | `POST` | `/tournament/match/advance/` | Advance winner to next bracket slot |
-| `GET` | `/tournament/overlay/{id}/` | Fetch overlay config (public, no auth — used by OBS browser source) |
+| `GET` | `/tournament/overlay/{id}/` | Fetch overlay config (public, no auth - used by OBS browser source) |
 | `PATCH` | `/tournament/overlay/{id}/` | Update overlay settings |
 | `POST` | `/tournament/scan/upload/` | Upload screen scan image → returns extracted score data |
 | `GET` | `/tournament/production/{id}/live/` | WebSocket or long-poll for real-time state |
@@ -146,7 +146,7 @@ The overlay is a separate Next.js page (`/tournaments/overlay?id=...`) intended 
 
 ---
 
-## Django Models (Inferred — Does Not Exist Yet)
+## Django Models (Inferred - Does Not Exist Yet)
 
 ```python
 class Match(models.Model):
@@ -175,7 +175,7 @@ class OverlayConfig(models.Model):
 
 ## Acceptance Criteria
 
-### Stream Dashboard (`/tournaments/production?id=...`) — Track B
+### Stream Dashboard (`/tournaments/production?id=...`) - Track B
 
 **Pre-condition:** User is authenticated, owns/manages the tournament.
 
@@ -185,9 +185,9 @@ class OverlayConfig(models.Model):
 - [ ] Organizer can start, pause, and end matches with confirmation
 - [ ] Score update inputs (numeric) submit immediately; scores update for all connected overlay views
 - [ ] On match end, organizer selects winner → bracket advances automatically
-- [ ] Any error (network, unauthorized) shows a user-facing error message — never silently fails
+- [ ] Any error (network, unauthorized) shows a user-facing error message - never silently fails
 
-### Overlay Page (`/tournaments/overlay?id=...`) — Track B
+### Overlay Page (`/tournaments/overlay?id=...`) - Track B
 
 **Pre-condition:** Page is public (no auth required). Intended as OBS Browser Source.
 
@@ -198,13 +198,13 @@ class OverlayConfig(models.Model):
 - [ ] No navigation, header, sidebar, or footer rendered
 - [ ] Works at `/tournaments/overlay?id={tournament_id}`
 
-### Overlay Configurator — Track B
+### Overlay Configurator - Track B
 
 - [ ] Organizer can toggle sponsor visibility, choose theme color
 - [ ] Live preview of overlay before going live
 - [ ] Save config persists to backend
 
-### Score Updater — Track B
+### Score Updater - Track B
 
 - [ ] Separate modal/panel within stream dashboard
 - [ ] Input fields for both team scores
@@ -212,7 +212,7 @@ class OverlayConfig(models.Model):
 - [ ] Confirmation dialog before submission
 - [ ] Optimistic UI update, rolls back on error
 
-### Screen Scanner — Track B
+### Screen Scanner - Track B
 
 **This is the most complex component in this module.**
 
@@ -221,7 +221,7 @@ class OverlayConfig(models.Model):
 - [ ] Shows confidence score and extracted numbers
 - [ ] Organizer confirms before auto-filling score fields
 - [ ] Works for at minimum: FIFA, PUBG, Mobile Legends (the 3 games currently in the platform)
-- [ ] Shows "low confidence" warning if confidence < 0.70 — do not auto-submit
+- [ ] Shows "low confidence" warning if confidence < 0.70 - do not auto-submit
 
 ---
 
@@ -229,25 +229,25 @@ class OverlayConfig(models.Model):
 
 ### 🔴 Must Design Before Any Build
 
-- [ ] Create HTML mockup for Stream Dashboard — get CEO approval (Track B)
-- [ ] Create HTML mockup for Overlay page (transparent bg, 1920×1080) — get CEO approval
-- [ ] Create HTML mockup for Screen Scanner UI — get CEO approval
+- [ ] Create HTML mockup for Stream Dashboard - get CEO approval (Track B)
+- [ ] Create HTML mockup for Overlay page (transparent bg, 1920×1080) - get CEO approval
+- [ ] Create HTML mockup for Screen Scanner UI - get CEO approval
 - [ ] Determine: WebSocket (django-channels) or long-poll for real-time? Decision needed before backend starts
 
 ### 🔴 Critical Build (Phase 1 MVP)
 
-- [ ] `Match` and `OverlayConfig` Django models — backend ticket required
+- [ ] `Match` and `OverlayConfig` Django models - backend ticket required
 - [ ] `POST /tournament/match/start|end/` and `PATCH /tournament/match/score/` endpoints
 - [ ] `GET /tournament/overlay/{id}/` public endpoint
 - [ ] `POST /tournament/scan/upload/` endpoint (OCR/CV backend)
-- [ ] `/tournaments/production?id=...` page — stream dashboard
-- [ ] `/tournaments/overlay?id=...` page — OBS browser source
+- [ ] `/tournaments/production?id=...` page - stream dashboard
+- [ ] `/tournaments/overlay?id=...` page - OBS browser source
 - [ ] Score update integration: overlay auto-updates when score changes
 
 ### 🟡 Important (Phase 1, can ship slightly after MVP)
 
-- [ ] `OverlayConfigurator` — theme + sponsor config UI
-- [ ] `ScreenScanner` — camera capture + OCR confirmation flow
+- [ ] `OverlayConfigurator` - theme + sponsor config UI
+- [ ] `ScreenScanner` - camera capture + OCR confirmation flow
 - [ ] Bracket advance on match completion (ties into 01-TOURNAMENTS.md bracket task)
 - [ ] Match queue display in stream dashboard
 - [ ] OBS/VMIX/Streamlabs setup guide page or tooltip within configurator

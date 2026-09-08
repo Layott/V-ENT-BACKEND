@@ -267,6 +267,10 @@ class EverythingSetAtCreationCanBeChangedTests(TestCase):
             'interaction_count',
             # set through their own endpoints, with their own permission rules
             'organization', 'series',
+            # POST /event/<ref>/fee-bearer/. Not on the edit form because it
+            # only means anything beside the number it applies to, and that
+            # number lives on the Money tab with what it has already cost.
+            'fee_bearer',
             # admin only, never the organiser's to set
             'is_featured',
             # Legacy columns kept for old rows. start_date and end_date are

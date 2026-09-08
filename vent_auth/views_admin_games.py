@@ -14,12 +14,12 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from .decorators import admin_role_required
+from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .models import GameMode, GameSeries, Games
 
 # Adding a game shapes what every organiser can run, so it sits with the other
 # structural powers rather than with day-to-day moderation.
-GAME_ADMIN_ROLES = ['super_admin', 'mod_admin']
+GAME_ADMIN_ROLES = ROLE_PERMISSIONS['manage_games']
 
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):

@@ -6,6 +6,18 @@ from . import views_admin_events as admin_events
 
 
 from .views_rankings import games_list
+from . import views_wallets_shared
+from . import views_admin_orgs
+from . import views_admin_admins
+from . import views_admin_finance
+from . import views_admin_moderation
+from . import views_admin_tournaments
+from .views_follow import follow, followers, following
+from .views_user_activity import user_tournaments, user_events
+from .views_twofactor import (
+    two_factor_start, two_factor_confirm, two_factor_disable,
+    two_factor_status,
+)
 from .views_admin_rates import (
     admin_rates, admin_rate_detail, admin_refresh_rates,
 )
@@ -26,6 +38,70 @@ from . import views_cards as cards
 from . import views_feedback
 
 urlpatterns = [
+    # Organisations and communities in the console. Two of the ten sections
+    # the admin spec asks for; the rest are either already built or waiting on
+    # a feature that does not exist yet.
+    path("admin/organizations/", views_admin_orgs.admin_organizations,
+         name="admin_organizations"),
+    path("admin/organizations/<str:org_ref>/",
+         views_admin_orgs.admin_organization_detail,
+         name="admin_organization_detail"),
+    path("admin/transfer-funds/", views_admin_orgs.admin_transfer_funds,
+         name="admin_transfer_funds"),
+    path("admin/communities/", views_admin_orgs.admin_communities,
+         name="admin_communities"),
+    path("admin/communities/<str:slug>/",
+         views_admin_moderation.admin_community_detail,
+         name="admin_community_detail"),
+    path("admin/organizations/<str:org_ref>/report.csv",
+         views_admin_orgs.admin_organization_report,
+         name="admin_organization_report"),
+
+    # The rest of the sections the admin dashboard spec asks for, added 8
+    # September. Marketplace, wager and the shop are NOT here: their features
+    # are Phases 4, 6 and 3 and none of them is built, so the console says so
+    # in a sentence rather than drawing controls with nothing behind them.
+    path("admin/transactions/", views_admin_finance.admin_transactions,
+         name="admin_transactions"),
+    path("admin/transactions/report.csv",
+         views_admin_finance.admin_transactions_report,
+         name="admin_transactions_report"),
+    path("admin/finance/summary/", views_admin_finance.admin_finance_summary,
+         name="admin_finance_summary"),
+
+    path("admin/reports/", views_admin_moderation.admin_reports,
+         name="admin_reports"),
+    path("admin/reports/<int:report_id>/",
+         views_admin_moderation.admin_report_action,
+         name="admin_report_action"),
+    path("admin/content/", views_admin_moderation.admin_content,
+         name="admin_content"),
+    path("admin/content/<str:kind>/<str:ref>/",
+         views_admin_moderation.admin_content_action,
+         name="admin_content_action"),
+
+    path("admin/administrators/", views_admin_admins.admin_admins,
+         name="admin_administrators"),
+    path("admin/administrators/roles/",
+         views_admin_admins.admin_roles_catalogue,
+         name="admin_roles_catalogue"),
+    path("admin/administrators/grant/", views_admin_admins.admin_grant_role,
+         name="admin_grant_role"),
+
+    path("admin/tournaments/<str:tournament_ref>/analytics/",
+         views_admin_tournaments.admin_tournament_analytics,
+         name="admin_tournament_analytics"),
+    path("admin/tournaments/<str:tournament_ref>/announce/",
+         views_admin_tournaments.admin_tournament_announce,
+         name="admin_tournament_announce"),
+
+    # A team's money and an organisation's money. One shape each: GET reads
+    # the balance and the statement, POST sends or sets the PIN.
+    path("team/<str:team_ref>/wallet/", views_wallets_shared.team_wallet,
+         name="team_wallet"),
+    path("organization/<str:org_ref>/wallet/", views_wallets_shared.org_wallet,
+         name="org_wallet"),
+
     # Somewhere to say what is wrong. Open to anybody: the wall somebody hit is
     # sometimes the sign-in page itself.
     path("feedback/", views_feedback.feedback, name="feedback"),
@@ -34,6 +110,24 @@ urlpatterns = [
     path('verify/<uidb64>/<token>/', verify_token_3, name='verify_token_3'),
     path('login/', login, name='login'),
     path('login/2fa/verify/', login_2fa_verify, name='login_2fa_verify'),
+    # Turning it on and off for an ordinary member. The login half above has
+    # existed and worked for a while; there was no way to enrol.
+    path('2fa/start/', two_factor_start, name='two_factor_start'),
+    path('2fa/confirm/', two_factor_confirm, name='two_factor_confirm'),
+    path('2fa/disable/', two_factor_disable, name='two_factor_disable'),
+    path('2fa/status/', two_factor_status, name='two_factor_status'),
+
+    # Following a team or a person, and who follows what. Organisations already
+    # had this; teams and people had no table, no endpoint and no count.
+    # Addressed by slug or username, never by a primary key.
+    # What somebody has taken part in. Both profile history panels have been
+    # fetching these two since they were written and neither route existed, so
+    # both tabs were empty for every account. Found by check-api-paths.mjs.
+    path('user-activity/tournaments/', user_tournaments, name='user_tournaments'),
+    path('user-activity/events/', user_events, name='user_events'),
+    path('follow/mine/', following, name='following_mine'),
+    path('follow/<str:kind>/<str:ref>/', follow, name='follow'),
+    path('follow/<str:kind>/<str:ref>/followers/', followers, name='followers'),
     path('logout/', logout, name='logout'),
     path('dj-rest-auth/', include('dj_rest_auth.urls')),
     path('dj-rest-auth/registration/', include('dj_rest_auth.registration.urls')),
@@ -58,10 +152,14 @@ urlpatterns = [
     path("admin/settings/", admin_settings, name="admin_settings"),
     path("admin/users/", admin_list_users, name="admin_list_users"),
     path("admin/users/bulk/", admin_bulk_user_action, name="admin_bulk_user_action"),
-    path("admin/users/<int:user_id>/", admin_get_user, name="admin_get_user"),
-    path("admin/users/<int:user_id>/ban/", admin_ban_user, name="admin_ban_user"),
-    path("admin/users/<int:user_id>/role/", admin_set_user_role, name="admin_set_user_role"),
-    path("admin/users/<int:user_id>/delete/", admin_delete_user, name="admin_delete_user"),
+    path("admin/users/<str:user_id>/", admin_get_user, name="admin_get_user"),
+    path("admin/users/<str:user_id>/ban/", admin_ban_user, name="admin_ban_user"),
+    path("admin/users/<str:user_id>/role/", admin_set_user_role, name="admin_set_user_role"),
+    path("admin/users/<str:user_id>/delete/", admin_delete_user, name="admin_delete_user"),
+    path("admin/users/<str:user_id>/reset-password/", admin_reset_password,
+         name="admin_reset_password"),
+    path("admin/users/<str:user_id>/notify/",
+         views_admin_moderation.admin_notify_user, name="admin_notify_user"),
     path("admin/tournaments/", admin_list_tournaments, name="admin_list_tournaments"),
     path("admin/events/", admin_list_events, name="admin_list_events"),
     # The console's view of one event: its numbers, its tickets, what was sent.
@@ -202,6 +300,11 @@ urlpatterns = [
     path("wallet/pin/verify/", verify_wallet_pin, name="verify_wallet_pin"),
     path("wallet/pin/set/", set_wallet_pin, name="set_wallet_pin"),
     path("wallet/deduct/", wallet_deduct, name="wallet_deduct"),
+    # Where a USDT payout is allowed to go. One endpoint with an action
+    # rather than four routes carrying a row id: an address is somebody's
+    # money leaving, and a sequential id lets anybody count them.
+    path("wallet/payout-addresses/", payout_addresses,
+         name="payout_addresses"),
     path("wallet/withdraw/initiate/", withdraw_initiate, name="withdraw_initiate"),
     path("wallet/withdraw/status/", withdraw_status, name="withdraw_status"),
     path("wallet/kyc/submit/", kyc_submit, name="kyc_submit"),

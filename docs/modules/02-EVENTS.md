@@ -1,7 +1,7 @@
 # Module 02: Events
 **Phase:** 2
 **Last Updated:** March 2026
-**Figma File:** [VENT-Main](https://www.figma.com/design/Ne1xquUxx1yZc0NhkN8kUE/VENT-Main) — fileKey: `Ne1xquUxx1yZc0NhkN8kUE`
+**Figma File:** [VENT-Main](https://www.figma.com/design/Ne1xquUxx1yZc0NhkN8kUE/VENT-Main) - fileKey: `Ne1xquUxx1yZc0NhkN8kUE`
 
 ---
 
@@ -18,7 +18,7 @@ The events module covers:
 
 **What's live:** Event listing (`/events`) and view event (`/events/view-event?id=`) are built and wired to real API. Event creation wizard (`/events/create-event`) is built but has API field mapping issues and no draft support.
 
-**What's a stub/broken:** `EventDetailsBracket.js` and `EventDetailsTournaments.js` status unknown — check if stubs. The event creation form sends `session_token` as a form field instead of Authorization header, which may conflict with how the backend handles auth.
+**What's a stub/broken:** `EventDetailsBracket.js` and `EventDetailsTournaments.js` status unknown - check if stubs. The event creation form sends `session_token` as a form field instead of Authorization header, which may conflict with how the backend handles auth.
 
 **What's not built:** Ticketing system, QR check-in, tournament-event linking, vendor shop system, event management dashboard, event search/filter, event registration/attendees flow.
 
@@ -28,9 +28,9 @@ The events module covers:
 
 | Screen | Node ID | Status |
 |--------|---------|--------|
-| Explore Events (homepage) | `783:7978` | ✅ Built — needs visual comparison |
-| Event Details (view) | *(within `783:7978`)* | ✅ Built — needs visual comparison |
-| Event Creation Wizard | ❌ No Figma design | ✅ Built without design — needs CEO approval |
+| Explore Events (homepage) | `783:7978` | ✅ Built - needs visual comparison |
+| Event Details (view) | *(within `783:7978`)* | ✅ Built - needs visual comparison |
+| Event Creation Wizard | ❌ No Figma design | ✅ Built without design - needs CEO approval |
 | Event Management Dashboard | ❌ No Figma design | ❌ Not built |
 | Ticketing System | ❌ No Figma design | ❌ Not built |
 | Tournament-Event Linking UI | ❌ No Figma design | ❌ Not built |
@@ -38,7 +38,7 @@ The events module covers:
 
 ---
 
-## 3. Pages & Components — Status
+## 3. Pages & Components - Status
 
 ### Pages (`src/app/events/`)
 
@@ -46,9 +46,9 @@ The events module covers:
 |-------|------|--------------|--------|
 | `/events` | `page.js` | ✅ Yes (in middleware `protectedRoutes`) | ✅ Built |
 | `/events/view-event?id={id}` | `view-event/page.js` | ✅ Yes | ✅ Built |
-| `/events/create-event` | `create-event/page.js` | ✅ Yes | ✅ Built (wizard UI) — API issues |
+| `/events/create-event` | `create-event/page.js` | ✅ Yes | ✅ Built (wizard UI) - API issues |
 
-> ⚠️ **Auth gap:** `/events/create-event` starts with `/events` so it IS protected by middleware. But the event creation form sends `session_token` as a FormData field AND as an Authorization header — backend should only use the header. Verify which the backend expects and remove the redundant field.
+> ⚠️ **Auth gap:** `/events/create-event` starts with `/events` so it IS protected by middleware. But the event creation form sends `session_token` as a FormData field AND as an Authorization header - backend should only use the header. Verify which the backend expects and remove the redundant field.
 
 ### Component Tree
 
@@ -56,7 +56,7 @@ The events module covers:
 src/components/events/
 ├── EventsComponent.js               ✅ Uses axios; fetches from GET /event/get-all-events/
 │                                       Separates featured and upcoming events
-│                                       Uses session token (required — events listing is auth-gated)
+│                                       Uses session token (required - events listing is auth-gated)
 ├── events-featured/
 │   ├── EventsFeatured.js            ✅ Featured events display
 │   └── eventsFeaturedList.js        ⚠️ Check: may be hardcoded fallback data
@@ -73,7 +73,7 @@ src/components/events/
 
 src/components/view-event/
 ├── event-details-banner/
-│   └── EventDetailsBanner.js        ✅ Banner, register button — check if Join/Register is wired
+│   └── EventDetailsBanner.js        ✅ Banner, register button - check if Join/Register is wired
 ├── event-details-overview/
 │   ├── EventDetailsOverview.js      ✅ Two-column layout
 │   ├── event-details-overview-left/
@@ -82,11 +82,11 @@ src/components/view-event/
 │       ├── EventDetailsOverviewRight.js ✅
 │       └── SocialIcons.js               ✅
 ├── event-details-tournament/
-│   ├── EventDetailsTournaments.js   ⚠️ Status unknown — likely stub or hardcoded
+│   ├── EventDetailsTournaments.js   ⚠️ Status unknown - likely stub or hardcoded
 │   └── event-details-rules-left/
 │       └── EventDetailsTournamentsLeft.js ⚠️ Status unknown
 ├── event-details-bracket/
-│   └── EventDetailsBracket.js       ⚠️ Likely stub — verify
+│   └── EventDetailsBracket.js       ⚠️ Likely stub - verify
 ├── event-details-participants/
 │   ├── EventDetailsParticipants.js  ⚠️ Check if API-driven or uses participantsList.js hardcoded
 │   └── participantsList.js          ⚠️ Likely hardcoded
@@ -95,20 +95,20 @@ src/components/view-event/
     └── eventResults.js              ⚠️ Likely hardcoded
 
 src/components/create-event-component/  ✅ 5-step wizard (mirrors tournament wizard)
-├── CreateEventComponent.js          ✅ Parent — uses useRouter, no localStorage persistence (unlike tournament)
+├── CreateEventComponent.js          ✅ Parent - uses useRouter, no localStorage persistence (unlike tournament)
 │                                       ⚠️ Sends session_token as form field AND Authorization header
 │                                       ⚠️ Tries 4 different game field names (game, game_title, game_name, title)
 │                                       ⚠️ No draft support (no is_draft field)
-│                                       ⚠️ No success redirect — unclear what happens after submit
+│                                       ⚠️ No success redirect - unclear what happens after submit
 ├── progress-menu/ProgressMenu.js    ✅
-├── basic-info/                      ✅ (uses tournament field names — needs event-specific fields)
+├── basic-info/                      ✅ (uses tournament field names - needs event-specific fields)
 ├── format-participants/             ✅
 ├── prize-distribution/              ✅
 ├── sponsors-links/                  ✅
 └── review/                          ✅
 ```
 
-> ⚠️ **Critical:** The event creation wizard was built by copying the tournament wizard. It uses `tournament_title`, `tournament_type`, `tournament_banner`, etc. — all tournament field names. The event API likely expects different field names (`name`, `event_type`, `banner`, etc.). This field mismatch is likely causing submission failures.
+> ⚠️ **Critical:** The event creation wizard was built by copying the tournament wizard. It uses `tournament_title`, `tournament_type`, `tournament_banner`, etc. - all tournament field names. The event API likely expects different field names (`name`, `event_type`, `banner`, etc.). This field mismatch is likely causing submission failures.
 
 ---
 
@@ -116,22 +116,22 @@ src/components/create-event-component/  ✅ 5-step wizard (mirrors tournament wi
 
 | Method | Endpoint | Auth | Used By | Status |
 |--------|----------|------|---------|--------|
-| `GET` | `/event/get-all-events/` | Bearer token | Events homepage + view-event fallback | ✅ Wired — returns `{ featured, upcoming, by_game }` |
-| `GET` | `/event/view-event/{id}` | Optional Bearer | View event detail (primary) | ✅ Wired — id via `?id=` URL param |
-| `POST` | `/event/create-event/` | Bearer token | Event creation wizard | ✅ Wired — but field names may be mismatched |
+| `GET` | `/event/get-all-events/` | Bearer token | Events homepage + view-event fallback | ✅ Wired - returns `{ featured, upcoming, by_game }` |
+| `GET` | `/event/view-event/{id}` | Optional Bearer | View event detail (primary) | ✅ Wired - id via `?id=` URL param |
+| `POST` | `/event/create-event/` | Bearer token | Event creation wizard | ✅ Wired - but field names may be mismatched |
 
 ### Endpoints Still Needed
 
 | Method | Endpoint (suggested) | Purpose |
 |--------|---------------------|---------|
 | `POST` | `/event/register-event/` | Attendee registration / ticket purchase |
-| `GET` | `/event/view-event/{id}/attendees/` | Attendees tab — registered attendees |
-| `GET` | `/event/view-event/{id}/tournaments/` | Tournaments tab — linked tournaments |
-| `GET` | `/event/get-organizer-events/` | Event management — organizer's event list |
+| `GET` | `/event/view-event/{id}/attendees/` | Attendees tab - registered attendees |
+| `GET` | `/event/view-event/{id}/tournaments/` | Tournaments tab - linked tournaments |
+| `GET` | `/event/get-organizer-events/` | Event management - organizer's event list |
 | `PUT` | `/event/edit-event/{id}/` | Edit a published event |
 | `DELETE` | `/event/delete-event/{id}/` | Delete or cancel an event |
 | `POST` | `/event/create-ticket-type/` | Create ticket tiers (GA, VIP, etc.) |
-| `POST` | `/event/verify-ticket/` | QR code check-in — validate ticket |
+| `POST` | `/event/verify-ticket/` | QR code check-in - validate ticket |
 | `GET` | `/event/get-attendance/{id}/` | Attendance tracking |
 | `POST` | `/event/link-tournament/` | Link a tournament to an event |
 | `POST` | `/event/vendor-shop/create/` | Create vendor shop for an event |
@@ -163,7 +163,7 @@ src/components/create-event-component/  ✅ 5-step wizard (mirrors tournament wi
 }
 ```
 
-### Event creation payload — CURRENT (broken field names)
+### Event creation payload - CURRENT (broken field names)
 The wizard currently sends these tournament-named fields to the event API:
 ```js
 // What the wizard sends vs. what the event API likely expects:
@@ -244,7 +244,7 @@ class VendorProduct(models.Model):
 ## 7. Acceptance Criteria
 
 ### Page 1: Events Homepage (`/events`)
-**Track A** — Figma node `783:7978`
+**Track A** - Figma node `783:7978`
 
 - [ ] Requires login (already enforced by middleware)
 - [ ] Fetches events via `GET /event/get-all-events/` using session token
@@ -260,7 +260,7 @@ class VendorProduct(models.Model):
 - [ ] Pull Figma node `783:7978`, compare, mark **VERIFIED**
 
 ### Page 2: View Event (`/events/view-event?id={id}`)
-**Track A** — Within Figma node `783:7978`
+**Track A** - Within Figma node `783:7978`
 
 - [ ] Fetches event via `GET /event/view-event/{id}` first, falls back to searching `get-all-events` if needed
 - [ ] localStorage caching of event data works and is cleared when stale
@@ -276,10 +276,10 @@ class VendorProduct(models.Model):
 - [ ] Compare to Figma node, mark **VERIFIED**
 
 ### Page 3: Event Creation Wizard (`/events/create-event`)
-**Track B** — No Figma design
+**Track B** - No Figma design
 
 **First: Fix the broken API integration**
-- [ ] Audit all field names sent to `POST /event/create-event/` — align with backend API docs
+- [ ] Audit all field names sent to `POST /event/create-event/` - align with backend API docs
 - [ ] Remove duplicate `session_token` form field; use only Authorization header
 - [ ] Resolve game field naming issue (only send the field the backend accepts)
 - [ ] Add `is_draft` support (save as draft like tournament wizard)
@@ -300,7 +300,7 @@ class VendorProduct(models.Model):
 - [ ] Mark **VERIFIED (SELF-DESIGNED)**
 
 ### Page 4: Ticketing System (NOT BUILT)
-**Track B** — No Figma design
+**Track B** - No Figma design
 
 - [ ] Create ticket types for an event (name, price, quantity, description)
 - [ ] Attendee purchases ticket: select type → payment (VENT COINS / Paystack) → confirmation
@@ -310,7 +310,7 @@ class VendorProduct(models.Model):
 - [ ] Ticket sales report per type
 
 ### Page 5: Tournament-Event Linking (NOT BUILT)
-**Track B** — No Figma design
+**Track B** - No Figma design
 
 - [ ] Organizer can link one or more tournaments to an event
 - [ ] Linked tournaments appear in the "Tournaments" tab of view-event
@@ -318,7 +318,7 @@ class VendorProduct(models.Model):
 - [ ] Event-embedded tournament shows event branding on tournament detail page
 
 ### Page 6: Vendor Shop System (NOT BUILT)
-**Track B** — No Figma design
+**Track B** - No Figma design
 
 - [ ] Event organizer can create a vendor shop slot for an event
 - [ ] Vendor applies to sell at event; organizer approves
@@ -330,18 +330,18 @@ class VendorProduct(models.Model):
 
 ## 8. Task Checklist
 
-### 🔴 Critical — Fix broken event creation
+### 🔴 Critical - Fix broken event creation
 
-- [ ] **Audit and fix event creation field names:** Compare `CreateEventComponent.js` form fields against actual `POST /event/create-event/` API spec — every field name must match
+- [ ] **Audit and fix event creation field names:** Compare `CreateEventComponent.js` form fields against actual `POST /event/create-event/` API spec - every field name must match
 - [ ] **Remove redundant `session_token` form field:** Use only `Authorization: Bearer` header
-- [ ] **Resolve game field ambiguity:** Remove the 4-field workaround (`game`, `game_title`, `game_name`, `title`) — confirm which field the backend uses and send only that
+- [ ] **Resolve game field ambiguity:** Remove the 4-field workaround (`game`, `game_title`, `game_name`, `title`) - confirm which field the backend uses and send only that
 - [ ] **Add localStorage persistence to event creation wizard:** Currently loses data on refresh (tournament wizard has this, event wizard does not)
 - [ ] **Add success redirect after event creation:** Currently unclear what happens after submit
 - [ ] **Add draft support to event creation:** Match tournament wizard's `is_draft` field
 
-### 🟡 Important — Data and UI fixes
+### 🟡 Important - Data and UI fixes
 
-- [ ] **Audit game-tab components for hardcoded data:** Confirm if `fifaEventsList.js`, `fortniteEventsList.js` etc. are hardcoded — remove and use API `by_game` response if available
+- [ ] **Audit game-tab components for hardcoded data:** Confirm if `fifaEventsList.js`, `fortniteEventsList.js` etc. are hardcoded - remove and use API `by_game` response if available
 - [ ] **Fix EventDetailsTournaments stub:** Implement or show empty state
 - [ ] **Fix EventDetailsBracket stub:** Show empty state or remove tab if events don't have brackets
 - [ ] **Wire EventDetailsParticipants to API:** Remove hardcoded `participantsList.js`
@@ -355,7 +355,7 @@ class VendorProduct(models.Model):
 - [ ] Get CEO approval on event creation mockup
 - [ ] Mark each page **VERIFIED** once fixed
 
-### ⬜ Phase 2 — Not yet started
+### ⬜ Phase 2 - Not yet started
 
 - [ ] Ticketing system (ticket types, purchase, QR generation)
 - [ ] QR check-in scanner (organizer-facing)

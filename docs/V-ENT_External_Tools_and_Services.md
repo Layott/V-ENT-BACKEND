@@ -1,6 +1,6 @@
 # V-ENT External Tools & Services Guide
 
-Every third-party tool, API, and service V-ENT needs — organized by module, with AWS-first approach using $1,000 AWS credits.
+Every third-party tool, API, and service V-ENT needs - organized by module, with AWS-first approach using $1,000 AWS credits.
 
 ---
 
@@ -59,8 +59,8 @@ Every third-party tool, API, and service V-ENT needs — organized by module, wi
 
 ### Primary Payment Gateway: Paystack
 - **Website:** https://paystack.com
-- **Why Paystack over AWS:** AWS has no African payment gateway. Paystack is the gold standard in Nigeria — Stripe-backed, best docs, widest local payment method support.
-- **Free tier:** No setup fee, no monthly fee — pay only per transaction
+- **Why Paystack over AWS:** AWS has no African payment gateway. Paystack is the gold standard in Nigeria - Stripe-backed, best docs, widest local payment method support.
+- **Free tier:** No setup fee, no monthly fee - pay only per transaction
 - **Fees:**
   - Local cards (Visa, Mastercard, Verve): 1.5% + ₦100 (capped at ₦2,000)
   - International cards: 3.9% + ₦100
@@ -68,12 +68,12 @@ Every third-party tool, API, and service V-ENT needs — organized by module, wi
   - USSD: 1.5% (capped at ₦2,000)
 - **Django integration:** `pip install paystackapi` or use REST API directly
 - **Key endpoints needed:**
-  - `POST /transaction/initialize` — start payment (buying VENT COINS, registration fees)
-  - `GET /transaction/verify/:reference` — confirm payment went through
-  - `POST /transferrecipient/create` — set up payout recipient
-  - `POST /transfer` — send money (prize distribution, payouts)
-  - Webhook handler at your endpoint — real-time payment confirmation
-- **Action needed:** Your codebase has a simulated Paystack flow in `Payment.js` — replace with real API
+  - `POST /transaction/initialize` - start payment (buying VENT COINS, registration fees)
+  - `GET /transaction/verify/:reference` - confirm payment went through
+  - `POST /transferrecipient/create` - set up payout recipient
+  - `POST /transfer` - send money (prize distribution, payouts)
+  - Webhook handler at your endpoint - real-time payment confirmation
+- **Action needed:** Your codebase has a simulated Paystack flow in `Payment.js` - replace with real API
 - **Setup steps:**
   1. Create account at https://dashboard.paystack.com
   2. Get test keys (public + secret) from dashboard
@@ -125,8 +125,8 @@ DEFAULT_FROM_EMAIL = 'noreply@v-ent.co'
   - Premium subscription confirmations
 - **Setup steps:**
   1. Enable SES in AWS Console
-  2. Verify your domain (`v-ent.co`) — add DNS records (SPF, DKIM, DMARC)
-  3. Request production access (SES starts in sandbox — can only send to verified emails)
+  2. Verify your domain (`v-ent.co`) - add DNS records (SPF, DKIM, DMARC)
+  3. Request production access (SES starts in sandbox - can only send to verified emails)
   4. Create IAM user with SES permissions
   5. Add credentials to Django `.env`
   6. Build HTML email templates matching V-ENT dark theme (#000 background, #4caf50 accent)
@@ -181,7 +181,7 @@ AWS_S3_FILE_OVERWRITE = False
 ```
 - **Bucket structure:**
 ```
-v-ent-media/              (public bucket — served via CloudFront)
+v-ent-media/              (public bucket - served via CloudFront)
 ├── avatars/
 ├── esports-images/
 ├── team-logos/
@@ -192,19 +192,19 @@ v-ent-media/              (public bucket — served via CloudFront)
 ├── marketplace/          (Phase 4)
 └── shop/                 (Phase 3)
 
-v-ent-private/            (private bucket — signed URLs only)
+v-ent-private/            (private bucket - signed URLs only)
 ├── exports/
 ├── receipts/
 └── kyc-documents/
 ```
 
 ### AWS CloudFront (CDN)
-- **Why:** Serves S3 files from edge locations globally — fast loading for African users
+- **Why:** Serves S3 files from edge locations globally - fast loading for African users
 - **Cost:** ~$3-5/month (covered by credits)
 - **Setup:** Create distribution → point to S3 bucket → use CloudFront URL in app
 
 ### Image Processing: Sharp (npm) + Pillow (Django)
-- **Frontend:** `npm install sharp`
+- **Frontend:** `pnpm add sharp`
 - **Backend:** `pip install Pillow`
 - **Use cases:** Resize avatars (140px, 80px, 60px, 48px), compress banners, generate thumbnails, convert to WebP
 - **Cost:** Free (open source, runs locally)
@@ -226,7 +226,7 @@ v-ent-private/            (private bucket — signed URLs only)
   - Admin dashboard live metrics
   - Notification delivery
 - **Architecture:** Browser (WebSocket) → Daphne → Redis Channel Layer → Broadcast
-- **Cost:** Free software — only EC2/ElastiCache costs (covered by credits)
+- **Cost:** Free software - only EC2/ElastiCache costs (covered by credits)
 
 ---
 
@@ -235,7 +235,7 @@ v-ent-private/            (private bucket — signed URLs only)
 ### Firebase Cloud Messaging (FCM)
 - **Website:** https://firebase.google.com/products/cloud-messaging
 - **Why FCM over AWS SNS:** FCM is completely free with unlimited messages. AWS SNS charges per notification.
-- **Free tier:** Unlimited — FCM is free with no caps, ever
+- **Free tier:** Unlimited - FCM is free with no caps, ever
 - **Use cases:** Match reminders, check-in alerts, team invitations, payment notifications, new chapters, wager results
 - **Django:** `pip install firebase-admin`
 ```python
@@ -259,7 +259,7 @@ def send_push(token, title, body, data=None):
 
 ## 7. SMS & 2FA
 
-### Primary 2FA: TOTP (Google Authenticator / Authy) — FREE
+### Primary 2FA: TOTP (Google Authenticator / Authy) - FREE
 - **Django:** `pip install django-otp pyotp qrcode`
 - **How:** User scans QR code with authenticator app → enters 6-digit code on login
 - **Cost:** Completely free (no per-message cost)
@@ -269,7 +269,7 @@ def send_push(token, title, body, data=None):
 - **Why Termii over AWS SNS:** Nigerian company, best local SMS rates, built-in OTP. AWS SNS doesn't handle Nigerian local SMS well.
 - **Free tier:** Free test credits for development
 - **Production cost:** From ₦4 per SMS
-- **When to integrate:** After TOTP is working — SMS is the fallback
+- **When to integrate:** After TOTP is working - SMS is the fallback
 - **Alternative:** Africa's Talking (https://africastalking.com)
 
 ---
@@ -277,7 +277,7 @@ def send_push(token, title, body, data=None):
 ## 8. QR CODES
 
 ### QR Code Generation: qrcode (npm) + python-qrcode
-- **Frontend:** `npm install qrcode`
+- **Frontend:** `pnpm add qrcode`
 - **Backend:** `pip install qrcode[pil]`
 - **Use cases:** Event tickets, tournament check-in, marketplace listing links, team invite QR
 - **Cost:** Free (open source, runs locally, no API calls)
@@ -291,10 +291,10 @@ def send_push(token, title, body, data=None):
 - **Why Sentry over CloudWatch:** Sentry is purpose-built for app error tracking (stack traces, breadcrumbs, user context). CloudWatch is for infrastructure monitoring.
 - **Free tier:** 5,000 events/month, 1 user
 - **Django:** `pip install sentry-sdk[django]`
-- **Next.js:** `npm install @sentry/nextjs`
+- **Next.js:** `pnpm add @sentry/nextjs`
 
 ### Application Logging: AWS CloudWatch Logs
-- **Why:** Already included with EC2 — no extra cost
+- **Why:** Already included with EC2 - no extra cost
 - **Use for:** Django request logs, Celery task logs, system health
 - **Cost:** Covered by AWS credits
 
@@ -307,14 +307,14 @@ def send_push(token, title, body, data=None):
 - **Why PostHog over AWS:** AWS has no equivalent product analytics. PostHog has session recordings, feature flags, funnels.
 - **Free tier:** 1M events/month, session recordings, feature flags, A/B testing
 - **Django:** `pip install posthog`
-- **Next.js:** `npm install posthog-js`
+- **Next.js:** `pnpm add posthog-js`
 
 ---
 
 ## 11. STREAMING & PRODUCTION (Phase 1 Priority)
 
 ### OBS/VMIX/Streamlabs Integration
-- **No external service needed** — you build web pages that streaming software loads as Browser Sources
+- **No external service needed** - you build web pages that streaming software loads as Browser Sources
 - **What you build:**
 ```
 /production/overlay/leaderboard?tournament_id=X    → transparent leaderboard overlay
@@ -325,7 +325,7 @@ def send_push(token, title, body, data=None):
 /production/control?tournament_id=X                → organizer control panel
 ```
 - **Requirements:** Transparent backgrounds, WebSocket for real-time updates, V-ENT branding
-- **Cost:** $0 — just web pages served from existing infrastructure
+- **Cost:** $0 - just web pages served from existing infrastructure
 
 ### AI Screen Scanning (future)
 - **Tesseract.js** (free OCR) + browser Screen Capture API
@@ -335,8 +335,8 @@ def send_push(token, title, body, data=None):
 
 ## 12. MAPS & LOCATION
 
-### Leaflet.js + OpenStreetMap — FREE
-- **Install:** `npm install leaflet react-leaflet`
+### Leaflet.js + OpenStreetMap - FREE
+- **Install:** `pnpm add leaflet react-leaflet`
 - **Why over Google Maps:** Completely free, no API key, no usage limits
 - **Use cases:** Event venue maps, "Get Directions" button, location picker for events
 
@@ -356,13 +356,13 @@ def send_push(token, title, body, data=None):
 
 ## 14. SEARCH
 
-### MVP: Django ORM Search — FREE
+### MVP: Django ORM Search - FREE
 ```python
 Tournament.objects.filter(
     Q(name__icontains=query) | Q(game__name__icontains=query)
 ).order_by('-created_at')
 ```
-- Start here — works fine for <10K records
+- Start here - works fine for <10K records
 
 ### Scale-up: AWS OpenSearch (when needed)
 - **Cost:** ~$25/month (covered by credits)
@@ -405,14 +405,14 @@ CHANNEL_LAYERS = {
 
 ## 17. SECURITY SERVICES
 
-### Rate Limiting: django-ratelimit — FREE
+### Rate Limiting: django-ratelimit - FREE
 ```python
 @ratelimit(key='ip', rate='5/m', method='POST')    # Login
 @ratelimit(key='ip', rate='3/h', method='POST')    # Registration
 @ratelimit(key='user', rate='100/m', method='GET')  # API
 ```
 
-### CAPTCHA: Cloudflare Turnstile — FREE
+### CAPTCHA: Cloudflare Turnstile - FREE
 - **Website:** https://www.cloudflare.com/products/turnstile/
 - Invisible CAPTCHA (better UX than reCAPTCHA). Use on registration, login (after failures), password reset.
 
@@ -423,20 +423,20 @@ CHANNEL_LAYERS = {
 ### AWS Security (included):
 - **IAM:** Role-based access for team
 - **Security Groups:** Firewall (restrict RDS to EC2 only)
-- **Secrets Manager:** Store API keys ($0.40/secret/month — credits)
+- **Secrets Manager:** Store API keys ($0.40/secret/month - credits)
 - **CloudTrail:** Audit log of all AWS API calls (free)
 
 ---
 
 ## 18. AI FEATURES (Phase 1+)
 
-### OCR: Tesseract — FREE
+### OCR: Tesseract - FREE
 - **Backend:** `pip install pytesseract` + `sudo apt-get install tesseract-ocr`
-- **Frontend:** `npm install tesseract.js`
+- **Frontend:** `pnpm add tesseract.js`
 
 ### Chatbot: Anthropic API (Claude)
 - **Model:** Claude Sonnet (~$3 per 1M input tokens)
-- **Rule:** NEVER call API from frontend — always proxy through Django
+- **Rule:** NEVER call API from frontend - always proxy through Django
 - Track prompts per user in DB, enforce monthly limits
 
 ---
@@ -497,35 +497,35 @@ CHANNEL_LAYERS = {
 ## Setup Priority Order
 
 ### Set up IMMEDIATELY (before coding):
-1. **AWS Account** — apply $1,000 credits
-2. **EC2 t3.small** — Django backend server
-3. **RDS MySQL db.t3.micro** — production database
-4. **S3 buckets** — media storage (public + private)
-5. **Cloudflare** — DNS proxy, SSL, DDoS (free)
-6. **Sentry** — error tracking (free tier)
-7. **GitHub Actions** — CI/CD (free)
-8. **Vercel** — frontend deployment (free)
+1. **AWS Account** - apply $1,000 credits
+2. **EC2 t3.small** - Django backend server
+3. **RDS MySQL db.t3.micro** - production database
+4. **S3 buckets** - media storage (public + private)
+5. **Cloudflare** - DNS proxy, SSL, DDoS (free)
+6. **Sentry** - error tracking (free tier)
+7. **GitHub Actions** - CI/CD (free)
+8. **Vercel** - frontend deployment (free)
 
 ### Set up for Phase 1 (Tournaments):
-9. **AWS SES** — emails (verify domain first — takes 24-48hrs)
-10. **ElastiCache Redis** — caching + WebSocket channel layer
-11. **CloudFront** — CDN for S3 media
-12. **Paystack** — payment gateway (test mode first)
-13. **Firebase Cloud Messaging** — push notifications
-14. **ipinfo.io** — IP geolocation
-15. **PostHog** — product analytics
+9. **AWS SES** - emails (verify domain first - takes 24-48hrs)
+10. **ElastiCache Redis** - caching + WebSocket channel layer
+11. **CloudFront** - CDN for S3 media
+12. **Paystack** - payment gateway (test mode first)
+13. **Firebase Cloud Messaging** - push notifications
+14. **ipinfo.io** - IP geolocation
+15. **PostHog** - product analytics
 
 ### Set up for Phase 2 (Events):
 16. **QR code library** (local install)
-17. **Leaflet.js** — maps (local install)
-18. **Celery Beat** — scheduled reminders
+17. **Leaflet.js** - maps (local install)
+18. **Celery Beat** - scheduled reminders
 
 ### Set up later (Phase 3+):
-19. **Smile ID / Dojah** — KYC (when payouts go live)
-20. **Termii** — SMS 2FA fallback
-21. **NOWPayments** — crypto USDT payouts
-22. **Anthropic API** — AI chatbot/assistant
-23. **AWS OpenSearch** — full-text search (when content volume grows)
+19. **Smile ID / Dojah** - KYC (when payouts go live)
+20. **Termii** - SMS 2FA fallback
+21. **NOWPayments** - crypto USDT payouts
+22. **Anthropic API** - AI chatbot/assistant
+23. **AWS OpenSearch** - full-text search (when content volume grows)
 
 ---
 
@@ -563,7 +563,7 @@ External Services (not on AWS):
 ├── Sentry (error tracking)
 ├── PostHog (analytics)
 ├── Cloudflare Turnstile (CAPTCHA)
-└── Smile ID (KYC — when needed)
+└── Smile ID (KYC - when needed)
 ```
 
 ---

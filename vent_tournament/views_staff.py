@@ -40,8 +40,16 @@ def _person(row):
     try:
         described = shared(None, user)
     except Exception:
-        described = {'id': user.user_id, 'user_id': user.user_id,
-                     'username': user.username, 'full_name': user.full_name}
+        # Same KEYS as the builder, so a screen reading this fallback is not
+        # handed a person with no face and no founder mark. A partial copy of
+        # a shape is a copy that has already drifted.
+        described = {
+            'id': user.user_id, 'user_id': user.user_id,
+            'username': user.username, 'full_name': user.full_name,
+            'avatar': None,
+            'founder_badge': bool(getattr(user, 'is_founder', False)
+                                  and user.show_founder_badge),
+        }
     described['role'] = row.role
     described['added_at'] = row.created_at.isoformat()
     return described

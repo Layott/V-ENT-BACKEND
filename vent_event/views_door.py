@@ -47,6 +47,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from . import attendance
+from .transfers import transferred_away as _transferred_away
 from .attendance import SELF_GATE
 from .models import Event, Ticket, DoorLookup
 from .permissions import may_work_the_door, may_run_event
@@ -134,6 +135,20 @@ def ticket_lookup(request, code):
               .select_related('event', 'tier', 'user', 'checked_in_by')
               .filter(code=str(code).upper()).first())
     if ticket is None:
+        # A code that WAS real and has been transferred away is not the same as
+        # a code that never existed. "No such ticket" makes a steward think the
+        # person in front of them is lying; naming the transfer lets them send
+        # that person to whoever now holds it.
+        moved = _transferred_away(str(code).upper())
+        if moved is not None:
+            return _error('That code was transferred and no longer works.',
+                          'TICKET_TRANSFERRED', status.HTTP_409_CONFLICT,
+                          extra=moved)
+        moved = _transferred_away(code)
+        if moved is not None:
+            return _error('That code was transferred and no longer works.',
+                          'TICKET_TRANSFERRED', status.HTTP_409_CONFLICT,
+                          extra=moved)
         return _error('No ticket with that code.', 'NOT_FOUND',
                       status.HTTP_404_NOT_FOUND)
 
@@ -262,6 +277,11 @@ def undo_check_in(request, code):
               .select_related('event', 'tier', 'user', 'checked_in_by')
               .filter(code=str(code).upper()).first())
     if ticket is None:
+        moved = _transferred_away(code)
+        if moved is not None:
+            return _error('That code was transferred and no longer works.',
+                          'TICKET_TRANSFERRED', status.HTTP_409_CONFLICT,
+                          extra=moved)
         return _error('No ticket with that code.', 'NOT_FOUND',
                       status.HTTP_404_NOT_FOUND)
 

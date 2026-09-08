@@ -15,13 +15,13 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from .decorators import admin_role_required
+from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .models import Currency
 from .rates import FEED_URL, refresh_rates
 
 # Adding a currency or moving a rate changes what every reader sees a price as,
 # which is a platform-shaping decision rather than a moderation one.
-RATE_ADMIN_ROLES = ['super_admin', 'finance_admin']
+RATE_ADMIN_ROLES = ROLE_PERMISSIONS['manage_rates']
 
 
 def _row(c):

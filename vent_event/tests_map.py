@@ -126,6 +126,18 @@ class EventCoordinateTests(TestCase):
         self.assertEqual(event.latitude, Decimal('9.050000'))
 
     def test_an_event_with_no_link_has_no_coordinate_rather_than_a_default(self):
+        """The LINK parser invents nothing.
+
+        Read this narrowly. It does not say an address never becomes a pin -
+        since 8 September `Event.save()` geocodes a typed address, and
+        `tests_geocode.SavingAnEventTests` covers that. What it says is that
+        the map-link path, given no link, leaves the columns alone instead of
+        dropping the event on a city centre.
+
+        Geocoding is off under the test runner (settings.GEOCODING_ENABLED),
+        which is what makes that distinction testable at all. Before that this
+        test passed or failed depending on whether OpenStreetMap answered.
+        """
         event = self._event()
         self.assertIsNone(event.latitude)
         self.assertIsNone(event.longitude)

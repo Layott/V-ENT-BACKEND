@@ -1,7 +1,7 @@
-# 08 — Vent Shop (E-Commerce)
+# 08 - Vent Shop (E-Commerce)
 
 **Phase:** 3
-**Status:** ❌ Not built — no design, no code
+**Status:** ❌ Not built - no design, no code
 **Design track:** Track B (self-design required, CEO approval before build)
 **Dependencies:** Wallet (06), User System (05)
 
@@ -9,13 +9,13 @@
 
 ## Module Overview
 
-The Vent Shop is V-ENT's first-party e-commerce storefront. V-ENT sells gaming peripherals, merchandise, apparel, and digital items (game keys, in-game currency, etc.) directly to users. Users pay with VENT COINS or fiat (Paystack). The Shop is separate from the Marketplace (09-MARKETPLACE.md) — the Shop is run by V-ENT; the Marketplace is user-to-user.
+The Vent Shop is V-ENT's first-party e-commerce storefront. V-ENT sells gaming peripherals, merchandise, apparel, and digital items (game keys, in-game currency, etc.) directly to users. Users pay with VENT COINS or fiat (Paystack). The Shop is separate from the Marketplace (09-MARKETPLACE.md) - the Shop is run by V-ENT; the Marketplace is user-to-user.
 
 Key features:
-1. **Product catalog** — browsable with categories, search, and filters
-2. **Product detail page** — images, description, variants (size, color), stock
-3. **Cart + checkout** — multi-item cart, VENT COIN payment, delivery address
-4. **Order management** — order history, status tracking, returns (Phase 3+)
+1. **Product catalog** - browsable with categories, search, and filters
+2. **Product detail page** - images, description, variants (size, color), stock
+3. **Cart + checkout** - multi-item cart, VENT COIN payment, delivery address
+4. **Order management** - order history, status tracking, returns (Phase 3+)
 
 ---
 
@@ -30,7 +30,7 @@ Key features:
 | Checkout | ❌ Not designed |
 | Order History | ❌ Not designed |
 
-> All screens require Track B. Note: the Landing Page Figma (`3322:11575`) shows a "Shop Feature" section — use that as visual direction for the shop theme.
+> All screens require Track B. Note: the Landing Page Figma (`3322:11575`) shows a "Shop Feature" section - use that as visual direction for the shop theme.
 
 ---
 
@@ -43,7 +43,7 @@ Planned structure:
 ```
 src/app/
 ├── shop/
-│   ├── page.js                              # ⬜ Shop homepage — featured, categories, deals
+│   ├── page.js                              # ⬜ Shop homepage - featured, categories, deals
 │   ├── product/
 │   │   └── page.js                          # ⬜ Product detail (?id=...)
 │   ├── cart/
@@ -172,7 +172,7 @@ class OrderItem(models.Model):
 
 ### ⬜ Phase 3 (all)
 
-- [ ] Design HTML mockups for all shop screens — CEO approval
+- [ ] Design HTML mockups for all shop screens - CEO approval
 - [ ] Django models: `Product`, `ProductImage`, `ProductVariant`, `Order`, `OrderItem`
 - [ ] All shop API endpoints
 - [ ] Product catalog page with categories + search + filters
@@ -180,5 +180,5 @@ class OrderItem(models.Model):
 - [ ] Cart (persistent, stored server-side)
 - [ ] Checkout flow with VENT COINS payment + delivery address
 - [ ] Order confirmation + order history
-- [ ] Admin product management (add/edit/remove products, update stock) — see 13-ADMIN-DASHBOARD.md
+- [ ] Admin product management (add/edit/remove products, update stock) - see 13-ADMIN-DASHBOARD.md
 - [ ] Delivery/fulfillment tracking integration (Phase 3+)

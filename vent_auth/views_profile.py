@@ -16,6 +16,7 @@ from . import login_2fa
 from .models import (
     Users, UserProfile, UserInterests, UserCommunity, UserWallet,
     Games, GameAccount, FavoriteGames, Teams, TeamProfile, SocialLink,
+    Follow, OrgFollower, follower_count, is_following,
 )
 from . import emails
 from .views_helpers import session_timeout_minutes, username_refusal
@@ -370,6 +371,13 @@ def get_user_informations(request):
             # and the community payloads; keep the three in step.
             'founder_badge': bool(getattr(user, 'is_founder', False)
                                   and user.show_founder_badge),
+            # How many people follow this account, and how many it follows.
+            # People had no follower table at all until 7 September 2026, so a
+            # player could not see anybody following them - the CEO asked for
+            # the same thing teams and organisations have.
+            'follower_count': follower_count('user', user.user_id),
+            'following_count': Follow.objects.filter(follower=user).count()
+                               + OrgFollower.objects.filter(user=user).count(),
             'country': user.country,
             # The city, so a profile can read "Lagos, Nigeria". The city is only
             # ever what the person typed: an IP places somebody in a country
@@ -887,6 +895,11 @@ def lookup_user(request):
             'full_name': user.full_name,
             'avatar': avatar,
             'profile_picture': avatar,
+            # The founder mark travels with the name. Without it this lookup
+            # described somebody more completely than the badge allowed, and
+            # whichever screen reads it drew a founder without their mark.
+            'founder_badge': bool(getattr(user, 'is_founder', False)
+                                  and user.show_founder_badge),
         }},
     }, status=status.HTTP_200_OK)
 
@@ -895,6 +908,11 @@ def _may_message(viewer, owner):
     """Deferred import: views_usersearch imports from this module."""
     from .views_usersearch import may_message
     return may_message(viewer, owner)
+
+
+def _message_policy(owner):
+    from .views_usersearch import message_policy
+    return message_policy(owner)
 
 
 @api_view(['GET'])
@@ -965,12 +983,24 @@ def public_profile(request, user_id):
             # The badge is only reported when the person is wearing it, so a
             # profile that switched it off does not show one anywhere.
             'founder_badge': bool(getattr(user, 'is_founder', False) and user.show_founder_badge),
+            'follower_count': follower_count('user', user.user_id),
+            'following_count': Follow.objects.filter(follower=user).count()
+                               + OrgFollower.objects.filter(user=user).count(),
+            # Whether the person READING this follows them, so the button says
+            # Following rather than Follow. Never None for a signed-out
+            # visitor: that is a third state nothing on the frontend handles.
+            'is_following': is_following(viewer, 'user', user.user_id),
             'date_joined': user.date_joined,
             # Whether the person reading this may start a conversation. The
             # profile had no way to message anybody at all, and the setting
             # that governs it was written and never read, so it is reported
             # here and enforced in dm_send.
             'can_message': _may_message(viewer if not _ignored else None, user),
+            # What they SAY they accept, so a viewer with no button knows why.
+            # Never derived from the viewer: a block also makes can_message
+            # false, and reporting that here would tell somebody they had been
+            # blocked. Blocked and simply-not-allowed look identical.
+            'message_policy': _message_policy(user),
             # What this person actually has. Without these the profile page
             # had nothing of theirs to draw and filled its panels from the
             # reader's own endpoints, which is how somebody else's profile

@@ -58,6 +58,8 @@ urlpatterns = [
     path("tournament/", include('vent_tournament.urls')),
     path("event/", include('vent_event.urls')),
     path("team/", include('vent_team.urls')),
+    # Subscriptions and memberships an organiser sells.
+    path("billing/", include('vent_billing.urls')),
     # Root-mounted /setting/, /device/, /user/<id>/update/ for the settings page.
     # The partner API is versioned and mounted separately, because it is the one
     # surface outside developers build against and its URLs must stay put.

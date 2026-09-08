@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 import pymysql
 from django.core.exceptions import ImproperlyConfigured
@@ -103,6 +104,10 @@ INSTALLED_APPS = [
     'allauth.socialaccount',
     'allauth.socialaccount.providers.google',
     'allauth.socialaccount.providers.facebook',
+    # Organiser subscriptions and memberships. Its own app so recurring
+    # billing does not sit inside the wallet: the two are related and the
+    # failure modes are not.
+    'vent_billing',
     'rest_framework',
     'dj_rest_auth',
     'dj_rest_auth.registration',
@@ -159,6 +164,23 @@ def _origins(env_name):
 
 CORS_ALLOWED_ORIGINS = _origins('CORS_ALLOWED_ORIGINS')
 CSRF_TRUSTED_ORIGINS = _origins('CSRF_TRUSTED_ORIGINS')
+
+# Any localhost port, but only while DEBUG.
+#
+# The list above has been extended four times, once per port somebody happened
+# to start a dev server on, and each time the symptom was the same: the page
+# renders its shell, every fetch answers "Failed to fetch", and nothing in the
+# browser or the server log says the word CORS. It cost an hour on 8 September
+# on port 3200, with the warning about exactly this written three lines above.
+#
+# A regex ends the class. It is guarded by DEBUG, so production still answers
+# only the origins it was configured with, and the named list stays because it
+# is what documents the ports people actually use.
+if DEBUG:
+    CORS_ALLOWED_ORIGIN_REGEXES = [
+        r'^http://localhost:\d+$',
+        r'^http://127\.0\.0\.1:\d+$',
+    ]
 
 SITE_ID = 1
 
@@ -331,8 +353,25 @@ SOCIALACCOUNT_PROVIDERS = {
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
 
+# Looking an address up with OpenStreetMap. On by default, and OFF under the
+# test runner: `Event.save()` geocodes, so with it on every test that creates
+# an event with an address reaches a third party. A test that wants the real
+# thing overrides this with `@override_settings(GEOCODING_ENABLED=True)` and
+# stubs the network, which is what `tests_geocode` already does.
+GEOCODING_ENABLED = (
+    os.environ.get('GEOCODING_ENABLED', '') != '0'
+    and 'test' not in sys.argv
+)
+
 # Email Backend
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+#
+# Overridable so a local machine, which cannot reach the relay, can still walk
+# every screen that sends something. Without this the whole mail surface is
+# untestable in a browser: a send simply fails, and a page that reports the
+# failure badly looks identical to one that reports it well. Production sets
+# nothing and keeps SMTP.
+EMAIL_BACKEND = os.environ.get(
+    'EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
 
 # SMTP Configuration
 # Mail goes to the local Postfix, which relays to the configured provider.
@@ -384,3 +423,34 @@ WAITLIST_CLAIM_BONUS_VC = int(os.environ.get('WAITLIST_CLAIM_BONUS_VC', '0'))
 # the right default: a write endpoint with no key set must refuse everybody
 # rather than accept anybody.
 CARDS_INGEST_KEY = os.environ.get("CARDS_INGEST_KEY", "")
+
+# ---------------------------------------------------------------------------
+# Payouts
+# ---------------------------------------------------------------------------
+
+# The floor and the daily ceiling on a payout, in VENT COINS. The same numbers
+# whichever rail the money leaves by, which is why they are set once here. `0`
+# on the ceiling means no ceiling. A ceiling is what caps how much a stolen
+# account can take out before anybody looks at the queue.
+PAYOUT_MINIMUM_VC = int(os.environ.get('PAYOUT_MINIMUM_VC', '5'))
+PAYOUT_DAILY_MAX_VC = int(os.environ.get('PAYOUT_DAILY_MAX_VC', '500'))
+
+# Whether somebody may ask to be paid in USDT.
+#
+# OFF, deliberately, and it is not a stub: the whole request pipeline is built,
+# tested and ready - the address, the proof it belongs to them, the network
+# check, the hold, the approval, the audit line, the notification. What is NOT
+# decided is the custody question in `tasks/specs/crypto-and-custody.md`, which
+# is whose key signs the send, and there is no funded float or agreed USDT rate
+# behind it either.
+#
+# Switching it on before those exist would hold somebody's balance for a payout
+# nobody can complete, which is worse than not offering it. One environment
+# variable opens it the day the answer arrives.
+USDT_PAYOUTS_ENABLED = os.environ.get('USDT_PAYOUTS_ENABLED', '0') == '1'
+
+# Who checks identity. `in_house` means a V-ENT reviewer reads the uploaded
+# document, which is what actually happens today. See `vent_auth/kyc.py` for
+# the three providers under consideration and what has to be decided first.
+KYC_PROVIDER = os.environ.get('KYC_PROVIDER', 'in_house')
+

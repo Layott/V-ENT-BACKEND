@@ -104,7 +104,14 @@ def serialize_invite(request, inv):
         'message': inv.message,
         'created_at': inv.created_at,
         'responded_at': inv.responded_at,
-        'user': _person_row(request, inv.user),
+        # NULL when the invitation is addressed to an email nobody has
+        # claimed. The screen still has to draw the row, so it gets the
+        # address and a flag rather than a half-built person - a hand-made
+        # dict here would lose the face and the founder mark, which is the
+        # fault this codebase has produced four times.
+        'user': _person_row(request, inv.user) if inv.user_id else None,
+        'email': inv.email or (inv.user.email if inv.user_id else ''),
+        'awaiting_signup': not inv.user_id,
         'invited_by': _person_row(request, inv.invited_by) if inv.invited_by else None,
         'organization': {
             'id': inv.org.org_id,
@@ -254,21 +261,56 @@ def org_set_role(request, org_id):
 # Invites
 # ---------------------------------------------------------------------------
 
+def _email_the_invite(org, email, role, inviter, invite):
+    """Post the invitation, because there is nobody here to notify.
+
+    Never raises: an organiser has done their part by sending it, and a mail
+    server having a bad minute must not turn a created invitation into an
+    error they think means it did not save. The row exists either way, and it
+    can be re-sent.
+    """
+    from vent.settings import FRONTEND_URL
+    from . import emails
+
+    try:
+        emails.send_invitation(
+            email,
+            what=org.org_name,
+            who=inviter.username if inviter else 'V-ENT',
+            role=role,
+            join_url='%s/organizations/invites?token=%s' % (FRONTEND_URL, invite.token),
+            message=invite.message or '',
+        )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception(
+            'could not email org invitation to %s', email)
+
+
 @api_view(['POST'])
 def org_invite(request, org_id):
     org, me, err = _require(request, org_id, minimum=OrgMember.ROLE_ADMIN)
     if err:
         return err
 
-    username = (request.data.get('username') or '').strip().lstrip('@')
-    if not username:
-        return _error('Give the username of the person to invite.', 'VALIDATION_ERROR',
+    # A username OR an email address, and the email may belong to nobody yet.
+    #
+    # CEO, 7 September 2026: "you should be able to type in peoples emails and
+    # it shows users or just even people who dont have accounts and they
+    # receive invites to the website and to the org." An organiser knows the
+    # caterer's email, not their handle, and being told to go and find the
+    # handle first is how the invite never gets sent.
+    from .invites import invitee_for
+    raw = (request.data.get('username') or request.data.get('email') or
+           request.data.get('invitee') or '').strip()
+    if not raw:
+        return _error('Give an email address or a username.', 'VALIDATION_ERROR',
                       status.HTTP_400_BAD_REQUEST)
-    target = Users.objects.filter(username__iexact=username).first()
-    if target is None:
-        return _error('No V-ENT account with that username.', 'NOT_FOUND',
-                      status.HTTP_404_NOT_FOUND)
-    if OrgMember.objects.filter(org=org, user=target).exists():
+
+    target, email, problem = invitee_for(raw)
+    if problem:
+        return _error(problem, 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    if target is not None and OrgMember.objects.filter(org=org, user=target).exists():
         return _error('@%s is already in this organization.' % target.username,
                       'ALREADY_MEMBER', status.HTTP_400_BAD_REQUEST)
 
@@ -282,8 +324,16 @@ def org_invite(request, org_id):
 
     scopes = _clean_scopes(request.data.get('scopes')) if role == OrgMember.ROLE_MANAGER else []
 
-    existing = OrgInvite.objects.filter(
-        org=org, user=target, status=OrgInvite.STATUS_PENDING).first()
+    # Found by whoever it is FOR: the account when there is one, the address
+    # when there is not. Looking up by user alone would send a second invite to
+    # somebody already invited by email.
+    if target is not None:
+        existing = OrgInvite.objects.filter(
+            org=org, user=target, status=OrgInvite.STATUS_PENDING).first()
+    else:
+        existing = OrgInvite.objects.filter(
+            org=org, email__iexact=email, user__isnull=True,
+            status=OrgInvite.STATUS_PENDING).first()
     if existing:
         # Re-inviting somebody is how a role is corrected before they answer,
         # rather than a second invite they then have to choose between.
@@ -294,9 +344,19 @@ def org_invite(request, org_id):
         invite = existing
     else:
         invite = OrgInvite.objects.create(
-            org=org, user=target, invited_by=me.user, role=role, scopes=scopes,
+            org=org, user=target, email=email, invited_by=me.user, role=role,
+            scopes=scopes,
             message=(request.data.get('message') or '').strip()[:280],
         )
+
+    # A notification needs somebody to notify. When the invitation is addressed
+    # to an address nobody has claimed, the EMAIL is the whole delivery: the
+    # person finds out by opening their inbox, signs up, and
+    # `invites.claim_pending` attaches this row to them.
+    if target is None:
+        _email_the_invite(org, email, role, me.user, invite)
+        return _ok({'invite': serialize_invite(request, invite)},
+                   'Invitation sent to %s.' % email)
 
     create_notification(
         target, 'system',

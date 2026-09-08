@@ -1,21 +1,156 @@
 {
+  "admin nav": {
+    "count": 0,
+    "first_seen": "2026-09-08",
+    "since": "2026-09-08"
+  },
+  "api paths": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "ask register": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
   "avatars": {
-    "count": 22,
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "colour variables": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "control bytes": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "css classes": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "dangling refs": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "dead ticket codes": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "design bans": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "dev distdir": {
+    "count": 0,
+    "first_seen": "2026-09-08",
+    "since": "2026-09-08"
+  },
+  "dictionary parity": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "ledger parse": {
+    "count": 0,
+    "first_seen": "2026-09-08",
+    "since": "2026-09-08"
+  },
+  "ledger writeback": {
+    "count": 0,
+    "first_seen": "2026-09-08",
+    "since": "2026-09-08"
+  },
+  "live updates": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "offer surface": {
+    "count": 0,
+    "first_seen": "2026-09-08",
+    "since": "2026-09-08"
+  },
+  "one model": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "parity": {
+    "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
   "prose": {
-    "count": 27,
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "raw errors": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "seo": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "signed out": {
+    "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
   "slugs": {
-    "count": 21,
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "stale builds": {
+    "count": 0,
+    "first_seen": "2026-09-09",
+    "since": "2026-09-09"
+  },
+  "stale gates": {
+    "count": 0,
+    "first_seen": "2026-09-08",
+    "since": "2026-09-08"
+  },
+  "tap targets": {
+    "count": 140,
+    "first_seen": "2026-09-08",
+    "since": "2026-09-09"
+  },
+  "timezone picker": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "timing model": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "translation keys": {
+    "count": 0,
+    "first_seen": "2026-09-07",
+    "since": "2026-09-07"
+  },
+  "user chips": {
+    "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
   "wizard round trip": {
-    "count": 50,
+    "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   }

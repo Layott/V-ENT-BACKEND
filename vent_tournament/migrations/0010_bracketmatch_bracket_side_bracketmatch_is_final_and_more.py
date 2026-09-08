@@ -35,7 +35,7 @@ class Migration(migrations.Migration):
         # those PKs to BigAutoField in STATE ONLY (`database_operations=[]`,
         # because the then-deployed DB already had BIGINT columns). On a freshly
         # built database the columns are therefore still INT while the migration
-        # state claims BigAutoField — so the self-referential BigAutoField FKs
+        # state claims BigAutoField - so the self-referential BigAutoField FKs
         # added below emit BIGINT columns that MySQL refuses to point at INT PKs
         # (error 3780). A plain AlterField(->BigAutoField) here would be a state
         # no-op (state is already BigAutoField) and emit no DDL.

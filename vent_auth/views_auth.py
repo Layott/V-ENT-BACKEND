@@ -34,6 +34,22 @@ from .geo import locate_request, record_login, refresh_daily_location
 logger = logging.getLogger(__name__)
 
 
+def _login_avatar(request, user):
+    """The signing-in account's own picture, absolute.
+
+    Deliberately tolerant: a login must never fail because a profile row is
+    missing or an image file has gone. The face is a nicety on this response
+    and the session is not.
+    """
+    try:
+        profile = UserProfile.objects.filter(user=user).first()
+        if not profile or not profile.profile_picture:
+            return None
+        return request.build_absolute_uri(profile.profile_picture.url)
+    except Exception:
+        return None
+
+
 @api_view(['POST'])
 def signup(request):
     email = request.data.get('email')
@@ -138,6 +154,14 @@ def signup(request):
             user_prof.save()
         if not UserWallet.objects.filter(user=user).exists():
             create_user_wallet(user=user)
+        # The verify path claims pending invitations; this path skips verify
+        # entirely, so it has to claim them too or invites by email are
+        # untestable in local development - which is where they get tested.
+        try:
+            from .invites import claim_pending
+            claim_pending(user)
+        except Exception:
+            pass
         return Response({"status": "success", "message": "Account created successfully (email verification bypassed in debug mode)"}, status=status.HTTP_200_OK)
 
     try:
@@ -186,6 +210,24 @@ def verify_token_3(request, *args, **kwargs):
                 except Exception:
                     # A ticket that fails to attach is a support question. A
                     # verification that fails is somebody locked out.
+                    pass
+
+                # And every invitation already addressed to this email.
+                #
+                # An organisation, a team or a stall can be offered to somebody
+                # who has no account yet, so the offer sits in a table until
+                # they make one. Without this it sits there for ever while the
+                # person it was for signs up and sees nothing - which is
+                # invisible to everybody involved.
+                try:
+                    from .invites import claim_pending
+                    attached = claim_pending(user)
+                    if attached:
+                        logger.info('attached %s pending invite(s) to %s',
+                                    attached, user.username)
+                except Exception:
+                    # Same reasoning as above: an invite that fails to attach
+                    # can be re-sent; a verification that fails cannot.
                     pass
 
                 user_prof, created = UserProfile.objects.get_or_create(user=user)
@@ -323,6 +365,12 @@ def issue_session(user, request, method='password', with_2fa=False):
         'user_id': user.user_id,
         'username': user.username,
         'email': user.email,
+        # The face and the founder mark, so the session carries a whole person
+        # rather than a name. The header had to fetch the profile separately
+        # to know whether to draw the badge on the viewer's own name.
+        'avatar': _login_avatar(request, user),
+        'founder_badge': bool(getattr(user, 'is_founder', False)
+                              and user.show_founder_badge),
         # Whether this account can reach the console. The console no longer has
         # a sign-in of its own, so this is what tells the frontend to offer it.
         'is_staff': bool(user.is_staff or user.is_superuser),

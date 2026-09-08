@@ -9,10 +9,22 @@ from .storages import private_storage
 
 
 class Users(AbstractUser):
+    # The seven roles the admin spec of 7 September asks for, mapped onto the
+    # four that already existed rather than replacing them. See
+    # vent_auth/decorators.py for what each one may actually do.
+    #
+    # `marketplace_admin` and `wager_admin` deliberately grant NOTHING today:
+    # the marketplace and the wager system are Phases 4 and 6 and neither is
+    # built. A role that grants nothing is honest; a console section for a
+    # feature that does not exist is not.
     ADMIN_ROLE_CHOICES = [
         ('super_admin', 'Super Admin'),
-        ('finance_admin', 'Finance Admin'),
-        ('mod_admin', 'Moderator Admin'),
+        ('admin', 'Admin'),
+        ('finance_admin', 'Financial Manager'),
+        ('mod_admin', 'Moderator'),
+        ('tournament_admin', 'Tournament Organizer'),
+        ('marketplace_admin', 'Marketplace Manager'),
+        ('wager_admin', 'Wager Manager'),
         ('support_admin', 'Support Admin'),
     ]
 
@@ -678,11 +690,57 @@ class Organization(models.Model):
     full profile - identity, stats, verification. The rest of it lives here now.
     """
 
+    # What KIND of organisation this is.
+    #
+    # CEO, 7 September 2026: "not all orgs will be esports orgs or event orgs,
+    # can just be for teams. so lets manage accordingly."
+    #
+    # Every organisation was assumed to run tournaments and sell tickets, so a
+    # club that exists only to field a squad was asked about ticketing, prize
+    # pools and event consoles it will never use. The type does not RESTRICT
+    # anything - an org that changes what it does changes its type - it decides
+    # what the console leads with and what it stops asking about.
+    #
+    # `mixed` is the honest default for everything created before this existed:
+    # claiming to know is worse than saying it has not been said.
+    TYPE_CHOICES = [
+        ('team', 'Team or club'),
+        ('esports', 'Esports organisation'),
+        ('events', 'Event organiser'),
+        ('brand', 'Brand or sponsor'),
+        ('community', 'Community or fan group'),
+        ('mixed', 'A bit of everything'),
+    ]
+
+    # Which parts of the platform each type actually uses. Read by the API so
+    # the console and the frontend agree without either one holding a second
+    # copy of this table - the two-sources-of-truth fault this codebase keeps
+    # producing.
+    CAPABILITIES_BY_TYPE = {
+        'team':      {'teams': True,  'tournaments': True,  'events': False, 'ticketing': False, 'vendors': False},
+        'esports':   {'teams': True,  'tournaments': True,  'events': True,  'ticketing': True,  'vendors': False},
+        'events':    {'teams': False, 'tournaments': True,  'events': True,  'ticketing': True,  'vendors': True},
+        'brand':     {'teams': False, 'tournaments': False, 'events': True,  'ticketing': True,  'vendors': True},
+        'community': {'teams': True,  'tournaments': True,  'events': True,  'ticketing': False, 'vendors': False},
+        'mixed':     {'teams': True,  'tournaments': True,  'events': True,  'ticketing': True,  'vendors': True},
+    }
+
     org_id = models.AutoField(primary_key=True)
     org_name = models.CharField(max_length=148, unique=True)
     slug = models.SlugField(max_length=160, unique=True, null=True, blank=True, db_index=True)
+    org_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='mixed')
     org_creator = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='created_organizations')
     org_owner = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='owned_organizations')
+
+    def capabilities(self):
+        """What this organisation actually does, from its type.
+
+        A dict rather than a list so the frontend can ask a direct question -
+        `capabilities.ticketing` - instead of searching an array, which is the
+        shape that ends up written two different ways on two screens.
+        """
+        return dict(self.CAPABILITIES_BY_TYPE.get(
+            self.org_type, self.CAPABILITIES_BY_TYPE['mixed']))
 
     # Identity
     tag = models.CharField(max_length=12, blank=True, default='')        # e.g. VEC
@@ -755,13 +813,20 @@ class OrgMember(models.Model):
     ]
     RANK = {ROLE_MEMBER: 0, ROLE_MANAGER: 1, ROLE_ADMIN: 2, ROLE_OWNER: 3}
 
-    # The four things an organisation holds. Adding a fifth means adding it
-    # here and nowhere else: every check reads this list.
+    # The things an organisation holds. Adding another means adding it here
+    # and nowhere else: every check reads this list.
     SCOPE_TEAMS = 'teams'
     SCOPE_EVENTS = 'events'
     SCOPE_TOURNAMENTS = 'tournaments'
     SCOPE_CLUBS = 'clubs'
-    ALL_SCOPES = [SCOPE_TEAMS, SCOPE_EVENTS, SCOPE_TOURNAMENTS, SCOPE_CLUBS]
+    # The organisation's MONEY, which is its own scope and not a corner of any
+    # of the other four. A tournaments manager runs brackets and a teams
+    # manager fields rosters; neither of them is thereby entitled to empty the
+    # wallet, and the wallet is the one thing here that cannot be undone by
+    # editing a row back. It is granted deliberately or not at all.
+    SCOPE_FINANCE = 'finance'
+    ALL_SCOPES = [SCOPE_TEAMS, SCOPE_EVENTS, SCOPE_TOURNAMENTS, SCOPE_CLUBS,
+                  SCOPE_FINANCE]
 
     org = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='members')
     user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='org_memberships')
@@ -825,7 +890,19 @@ class OrgInvite(models.Model):
     ]
 
     org = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='invites')
-    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='org_invites')
+    # NULL until somebody with this email has an account.
+    #
+    # CEO, 7 September 2026: "you should be able to type in peoples emails and
+    # it shows users or just even people who dont have accounts and they
+    # receive invites to the website and to the org." An organiser knows the
+    # caterer's email address, not their V-ENT username, and being told to find
+    # that out first is how the invite never gets sent.
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, null=True,
+                             blank=True, related_name='org_invites')
+    # Who it was addressed to. Always set, even when `user` is, so an invite
+    # can be found by the address it was sent to whatever happens to the
+    # account afterwards.
+    email = models.EmailField(blank=True, default='', db_index=True)
     invited_by = models.ForeignKey(
         Users, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='org_invites_sent')
@@ -868,12 +945,91 @@ class OrgJoinRequest(models.Model):
 
 
 class OrgFollower(models.Model):
+    """Somebody following an organisation.
+
+    Kept as the organisation's own table because it holds real rows and every
+    organisation screen reads it. `Follow` below is the general form, for
+    teams and people, and the two are reconciled by `follower_count()` rather
+    than by having organisations in both - which would be the same concept in
+    two tables, and this codebase has unpicked that migration once already.
+    """
+
     org = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='followers')
     user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='followed_orgs')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = ('org', 'user')
+
+
+class Follow(models.Model):
+    """One person following a team or another person.
+
+    CEO, 7 September 2026: "org owners should also be able to see their
+    followers, same for teams and users and info on like how many."
+
+    Organisations already had `OrgFollower`. Teams and people had nothing at
+    all - no table, no endpoint, no count - so "same for teams and users" is
+    the whole of this model.
+
+    ONE table for both rather than `TeamFollower` and `UserFollower`, because
+    following is one concept and two tables of it drift: the day somebody adds
+    a mute, or a notification preference, or a blocked flag, they add it to
+    one. `Teams` was defined twice in this codebase and it took a migration to
+    unpick; this is that lesson applied before rather than after.
+    """
+
+    KIND_CHOICES = [
+        ('team', 'Team'),
+        ('user', 'Person'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    follower = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='follows')
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES)
+    # The primary key of the thing being followed. Not a ForeignKey because it
+    # points at two different tables; the pair (kind, target_id) is the address.
+    target_id = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Following twice is not a thing somebody can mean, and without this a
+        # double tap on a slow connection makes two rows and a count of two.
+        unique_together = ('follower', 'kind', 'target_id')
+        indexes = [
+            models.Index(fields=['kind', 'target_id']),
+        ]
+
+    def __str__(self):
+        return f'{self.follower_id} follows {self.kind}:{self.target_id}'
+
+
+def follower_count(kind, target_id):
+    """How many people follow this thing, whatever kind of thing it is.
+
+    One function so a count is computed the same way everywhere. Organisations
+    read their own table; teams and people read `Follow`. Callers do not need
+    to know which, and that is the point: the day organisations move into
+    `Follow`, this is the only place that changes.
+    """
+    if kind == 'org':
+        return OrgFollower.objects.filter(org_id=target_id).count()
+    return Follow.objects.filter(kind=kind, target_id=target_id).count()
+
+
+def is_following(viewer, kind, target_id):
+    """Whether this viewer follows it. False for a signed-out visitor.
+
+    Never `viewer and ...` returning None: a screen reading this puts it
+    straight into `is_following` on the payload, and None there is a third
+    state nothing on the frontend handles.
+    """
+    if viewer is None or not getattr(viewer, 'pk', None):
+        return False
+    if kind == 'org':
+        return OrgFollower.objects.filter(org_id=target_id, user=viewer).exists()
+    return Follow.objects.filter(follower=viewer, kind=kind,
+                                 target_id=target_id).exists()
 
 
 class UserWallet(models.Model):
@@ -888,17 +1044,41 @@ class UserWallet(models.Model):
 
 
 class TeamWallet(models.Model):
+    """A team's own money, for entry fees, prizes and paying its players.
+
+    CEO, 7 September 2026: "Teams should have their own wallets and
+    organizations should also have their own wallets."
+
+    `pin_hash` sits beside the old integer `team_wallet_pin`, which is left in
+    place and unused so nothing that still reads it breaks. A PIN stored as the
+    integer 1234 is not a PIN, and these wallets held nothing until today,
+    which is why the moment to fix it is before they hold anything.
+    """
     team_wallet_id = models.CharField(primary_key=True, max_length=10)
     team = models.OneToOneField(Teams, on_delete=models.CASCADE, related_name='wallet')
     wallet_balance = models.IntegerField(default=0)
+    #: Legacy, unused. See the note above.
     team_wallet_pin = models.IntegerField(null=True, blank=True)
+    pin_hash = models.CharField(max_length=128, null=True, blank=True)
+
+    def __str__(self):
+        return '%s wallet (%d VC)' % (self.team.team_name, self.wallet_balance)
 
 
 class OrgWallet(models.Model):
+    """An organisation's money, for the events and tournaments it runs.
+
+    Same shape as `TeamWallet`, and the same note about the PIN.
+    """
     org_wallet_id = models.CharField(primary_key=True, max_length=10)
     org = models.OneToOneField(Organization, on_delete=models.CASCADE, related_name='wallet')
     wallet_balance = models.IntegerField(default=0)
+    #: Legacy, unused. See TeamWallet.
     org_wallet_pin = models.IntegerField(null=True, blank=True)
+    pin_hash = models.CharField(max_length=128, null=True, blank=True)
+
+    def __str__(self):
+        return '%s wallet (%d VC)' % (self.org.org_name, self.wallet_balance)
 
 
 class SocialLink(models.Model):
@@ -991,6 +1171,10 @@ class Transaction(models.Model):
         ('receive', 'Receive'),
         ('withdrawal', 'Withdrawal'),
         ('refund', 'Refund'),
+        # Money moving between two V-ENT wallets. Not a `send`, which means
+        # money leaving for somebody else: calling both the same makes a
+        # statement impossible to read.
+        ('transfer', 'Transfer'),
     ]
     STATUS_CHOICES = [
         ('pending', 'Pending'),
@@ -999,8 +1183,23 @@ class Transaction(models.Model):
         ('cancelled', 'Cancelled'),
     ]
 
+    # A transaction belongs to exactly ONE of three wallets.
+    #
+    # Nullable columns beside the original rather than a rewrite: every row
+    # written before today keeps its `wallet`, every query that filters on it
+    # keeps working, and nothing has to be migrated. The constraint below is
+    # what stops this becoming three half-filled columns.
     wallet = models.ForeignKey(
-        UserWallet, related_name='transactions', on_delete=models.CASCADE
+        UserWallet, related_name='transactions', on_delete=models.CASCADE,
+        null=True, blank=True,
+    )
+    team_wallet = models.ForeignKey(
+        'TeamWallet', related_name='transactions', on_delete=models.CASCADE,
+        null=True, blank=True,
+    )
+    org_wallet = models.ForeignKey(
+        'OrgWallet', related_name='transactions', on_delete=models.CASCADE,
+        null=True, blank=True,
     )
     type = models.CharField(max_length=20, choices=TYPE_CHOICES)
     # Positive for credits (top_up, prize, receive, refund), negative for debits
@@ -1023,8 +1222,38 @@ class Transaction(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        constraints = [
+            # Exactly one owner. Without this the three nullable columns are
+            # three chances to write a transaction that belongs to nobody, or
+            # to two wallets at once, and either one makes a balance summed
+            # from lines wrong in a way nothing would notice.
+            models.CheckConstraint(
+                name='transaction_has_exactly_one_wallet',
+                check=(
+                    models.Q(wallet__isnull=False, team_wallet__isnull=True,
+                             org_wallet__isnull=True)
+                    | models.Q(wallet__isnull=True, team_wallet__isnull=False,
+                               org_wallet__isnull=True)
+                    | models.Q(wallet__isnull=True, team_wallet__isnull=True,
+                               org_wallet__isnull=False)
+                ),
+            ),
+        ]
+
+    @property
+    def owner_name(self):
+        """Whose statement this line is on, whichever kind of wallet it is."""
+        if self.wallet_id:
+            return self.wallet.user.username
+        if self.team_wallet_id:
+            return self.team_wallet.team.team_name
+        if self.org_wallet_id:
+            return self.org_wallet.org.org_name
+        return '?'
+
     def __str__(self):
-        return f"{self.type} {self.amount} - {self.wallet.user.username}"
+        return f"{self.type} {self.amount} - {self.owner_name}"
 
 
 class WithdrawalRequest(models.Model):
@@ -1036,17 +1265,57 @@ class WithdrawalRequest(models.Model):
         ('completed', 'Completed'),
     ]
 
+    #: How the money leaves. `bank` is naira through the payout queue that has
+    #: always been here; `usdt` is a crypto payout to an address the account
+    #: owner has proved. ONE queue, one approval and one hold for both, because
+    #: a second payout table would be a second place a balance is debited and
+    #: the two would eventually disagree about what has been paid.
+    METHOD_BANK = 'bank'
+    METHOD_USDT = 'usdt'
+    METHOD_CHOICES = [(METHOD_BANK, 'Bank transfer'), (METHOD_USDT, 'USDT')]
+
     wallet = models.ForeignKey(
         UserWallet, on_delete=models.CASCADE, related_name='withdrawals'
     )
     amount = models.IntegerField()  # in VENT COINS
-    bank_name = models.CharField(max_length=100)
-    account_number = models.CharField(max_length=20)
-    account_name = models.CharField(max_length=100)
+    method = models.CharField(max_length=10, choices=METHOD_CHOICES,
+                              default=METHOD_BANK)
+    # Blank for a USDT payout. They were required columns when a bank was the
+    # only destination; making them optional rather than adding a second model
+    # is what keeps one queue.
+    bank_name = models.CharField(max_length=100, blank=True, default='')
+    account_number = models.CharField(max_length=20, blank=True, default='')
+    account_name = models.CharField(max_length=100, blank=True, default='')
+
+    #: The proved address, for a USDT payout. PROTECT rather than CASCADE: a
+    #: person removing an address must not take the record of where a past
+    #: payout went with it, and where money went is the part an auditor asks
+    #: about.
+    payout_address = models.ForeignKey(
+        'PayoutAddress', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='withdrawals')
+
+    #: What the sending rail called it: a bank reference, or a chain
+    #: transaction hash. Written when the money actually leaves, which is a
+    #: step a person does today. Without it, "did this get paid" is somebody's
+    #: memory rather than a lookup.
+    payout_reference = models.CharField(max_length=120, blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     admin_note = models.TextField(blank=True)
     requested_at = models.DateTimeField(auto_now_add=True)
     processed_at = models.DateTimeField(null=True, blank=True)
+
+    # The statement line the money is sitting on while this is pending.
+    #
+    # Nullable, and it has to be: every request made before 8 September was
+    # written under the old shape, where nothing was debited until an admin
+    # approved. Approving one of those must still take the money, and the only
+    # way to tell the two apart is whether a hold exists. See
+    # `wallets.settle_payout`.
+    hold = models.OneToOneField(
+        'Transaction', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='payout_request',
+    )
 
     def __str__(self):
         return f"Withdrawal {self.amount} COINS - {self.wallet.user.username} ({self.status})"
@@ -1074,6 +1343,24 @@ class KYCDocument(models.Model):
     rejection_reason = models.TextField(blank=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
     reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    # Who actually decided this identity was real, and what they can be asked
+    # to show for it.
+    #
+    # The spec asks for KYC "through a third-party service" and no provider is
+    # contracted yet, so the seam is here and the reviewer behind it is a
+    # person. What matters is that the answer to "who verified this, when, and
+    # against what" is a stored fact rather than a memory. On the day a
+    # provider is signed, `provider` becomes its name, `provider_reference`
+    # becomes the check id it returns, and nothing else about this model or the
+    # screens over it changes. See `vent_auth/kyc.py`.
+    provider = models.CharField(max_length=40, default='in_house')
+    provider_reference = models.CharField(max_length=128, blank=True)
+    provider_response = models.JSONField(default=dict, blank=True)
+    reviewed_by = models.ForeignKey(
+        Users, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='kyc_reviews',
+    )
 
     def __str__(self):
         return f"KYC {self.document_type} - {self.user.username} ({self.status})"
@@ -1129,6 +1416,11 @@ DEFAULT_ADMIN_SETTINGS = {
         'tournament_fee_pct': 0,
         'withdrawal_fee_pct': 0,
         'listing_fee_pct': 0,
+        # What the platform takes from a ticket sale. Whether the buyer or the
+        # organiser bears it is the EVENT's setting; this is the rate. Stamped
+        # on each ledger line at the sale, so changing it here never rewrites
+        # what an event earned before the change.
+        'ticket_fee_pct': 0,
         'payout_min_vc': 0,
         'topup_max_ngn_per_day': 0,
     },
@@ -1821,9 +2113,13 @@ class TeamInvite(models.Model):
     kind = models.CharField(max_length=10, choices=KIND_CHOICES, default='direct')
     invited_by = models.ForeignKey(Users, on_delete=models.CASCADE,
                                    related_name='team_invites_sent')
-    # Null on a link invite: it is addressed to nobody in particular.
+    # Null on a link invite: it is addressed to nobody in particular. Also null
+    # on a DIRECT invite sent to an email address nobody has claimed yet - see
+    # vent_auth/invites.py, which attaches it the moment they sign up.
     user = models.ForeignKey(Users, on_delete=models.CASCADE, null=True, blank=True,
                              related_name='team_invites_received')
+    # Who a direct invite was addressed to, whether or not they have an account.
+    email = models.EmailField(blank=True, default='', db_index=True)
     # The role they arrive as. An owner inviting a coach should not have to
     # invite them and then change their role in a second step.
     role = models.CharField(max_length=20, default='member')
@@ -2164,6 +2460,100 @@ class Feedback(models.Model):
     def __str__(self):
         return '%s/%s from %s' % (self.area, self.kind,
                                   self.user or self.email or 'anonymous')
+
+
+class PayoutAddress(models.Model):
+    """A crypto address a payout is allowed to go to, once it is proved.
+
+    From the VENT WALLET spec: "Request payouts in USDT to my crypto wallet".
+    Nothing here touches a chain, and that is now settled rather than pending.
+    CEO, 8 September 2026, asked which of the three custody answers applies:
+    "A way in or out, once it enters the platform it turns to VENT coins."
+
+    So nobody ever holds a USDT balance on V-ENT. USDT is a rail in and a rail
+    out, the internal balance is always VENT COINS, and V-ENT holds no keys and
+    no customer crypto: only its own short lived payout float. That is the
+    lightest of the three answers in `tasks/specs/crypto-and-custody.md`, and
+    this model is what it needs: a proved destination, and nothing that looks
+    like an account somebody can leave coins in.
+
+    ## Why an address is a row rather than a field on the request
+
+    A typed address is the most common way a platform loses money: somebody
+    gets into an account, changes the destination, and the payout leaves for
+    ever, because a chain transaction does not reverse. So an address is added
+    once, PROVED once with a code sent to the account's email, and afterwards
+    it is chosen from a list. A request carrying an address typed in the same
+    breath cannot be made.
+
+    ## The network is part of the address, never a label beside it
+
+    USDT on TRON and USDT on Ethereum are different assets at different
+    addresses. Sending TRC-20 to an ERC-20 address destroys the money with no
+    error anywhere, which is why the shape of the address is checked against
+    the network it was filed under rather than trusted.
+    """
+
+    NETWORK_TRC20 = 'trc20'
+    NETWORK_ERC20 = 'erc20'
+    NETWORK_CHOICES = [
+        # TRON first, and first on the screen too: it is what most Nigerian
+        # holders actually use, because the fee is cents where Ethereum gas
+        # can cost more than the payout is worth.
+        (NETWORK_TRC20, 'USDT on TRON (TRC-20)'),
+        (NETWORK_ERC20, 'USDT on Ethereum (ERC-20)'),
+    ]
+
+    user = models.ForeignKey(Users, on_delete=models.CASCADE,
+                             related_name='payout_addresses')
+    network = models.CharField(max_length=10, choices=NETWORK_CHOICES,
+                               default=NETWORK_TRC20)
+    address = models.CharField(max_length=128)
+    #: What the person calls it. Their own word, shown back to them.
+    label = models.CharField(max_length=60, blank=True, default='')
+
+    #: Not the primary key. A payout address is somebody's money leaving, and
+    #: a sequential id in a payload lets anybody count how many exist.
+    ref = models.CharField(max_length=24, unique=True, blank=True)
+
+    confirm_code = models.CharField(max_length=12, blank=True, default='')
+    confirm_sent_at = models.DateTimeField(null=True, blank=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'network', 'address')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return '%s %s (%s)' % (self.user_id, self.short, self.network)
+
+    def save(self, *args, **kwargs):
+        if not self.ref:
+            import secrets
+            self.ref = 'pa_' + secrets.token_hex(8)
+            if kwargs.get('update_fields'):
+                # Without this, a save naming its own fields computes the ref
+                # and silently drops it. Same trap the slug helper carries a
+                # note about, and the same one line answer.
+                kwargs['update_fields'] = list(kwargs['update_fields']) + ['ref']
+        super().save(*args, **kwargs)
+
+    @property
+    def confirmed(self):
+        return self.confirmed_at is not None
+
+    @property
+    def short(self):
+        """Enough of the address to recognise, never the whole of it.
+
+        Somebody checking a payout is going to the right place reads the first
+        and last characters, which is also all that belongs in an email or a
+        notification.
+        """
+        if len(self.address) <= 12:
+            return self.address
+        return '%s...%s' % (self.address[:6], self.address[-4:])
 
 
 # The Discord webhook a tournament or an event announces into. Kept in its

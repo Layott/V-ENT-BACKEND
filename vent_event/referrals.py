@@ -114,6 +114,9 @@ def stats_for(event):
 
     sales = (EventReferral.objects
              .filter(event=event)
+             # The payee is read for every row, so it is joined rather than
+             # fetched one query per link.
+             .select_related('payee')
              .annotate(
                  tickets_sold=Count('tickets', filter=live, distinct=True),
                  revenue_vc=Sum('tickets__price_vc', filter=live),
@@ -147,6 +150,12 @@ def stats_for(event):
             'is_active': r.is_active,
             'allocation': r.allocation,
             'remaining': r.remaining,
+            # What the link earns per sale, and whether there is anybody to pay
+            # it to. One row shape wherever a link is drawn, so the console and
+            # the metrics screen cannot show different things about it.
+            'commission_pct': r.commission_pct,
+            'payee': r.payee.username if r.payee_id else '',
+            'has_payee': bool(r.payee_id),
             'visits': visits,
             'visitors': int(people.get(r.id) or 0),
             'tickets_sold': sold,
