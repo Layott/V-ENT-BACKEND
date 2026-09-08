@@ -192,6 +192,17 @@ CATCHERS = [
      'two dev servers on one checkout cannot share a build directory',
      FRONTEND, ['node', 'scripts/check-dev-distdir.mjs'], True),
 
+    # The cost of that fix, which nobody was paying: one build directory per
+    # port anybody has ever run a dev server on, about a gigabyte each. Eight
+    # had built up holding 5.6 GB before the CEO noticed them in Explorer.
+    #
+    # NOT blocking, because a full disk is not a reason to refuse a commit and
+    # because deleting is the fix rather than a code change. It is debt, so the
+    # number is on the table every time and cannot quietly grow.
+    ('stale builds',
+     'a dev build directory nobody is serving is deleted',
+     FRONTEND, ['node', 'scripts/check-stale-builds.mjs'], False),
+
     # The ledger reads a number off each line above, and on 8 September it was
     # reading the wrong one: 311 stylesheets scanned instead of 145 tap targets
     # broken. A checker that is not in this table is a checker nobody runs, so
