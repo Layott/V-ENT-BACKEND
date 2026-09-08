@@ -154,6 +154,62 @@ changes across 100+ files unwalked at the end of a shipping pass is how a
 shipping pass causes an outage. The page this session touched is fixed and
 reports 0. The rest is now visible, tracked, and cannot grow.
 
+## Four gates that had been open for days, closed by actually walking them
+
+Once Chrome and the emulator were both live it was cheaper to close these than
+to carry them, and three of the four found something.
+
+**One instant, two zones** (08-timezone G8). Driven over CDP with
+`Emulation.setTimezoneOverride`, which is the only way to ask a real browser
+what somebody in another country would see. `/events/rivalry-series-season-2`
+read twice:
+
+    Africa/Lagos      Sep 12, 2026, 09:32 PM
+    Pacific/Auckland  Sep 13, 2026, 08:32 AM
+
+Eleven hours, and note it crosses the DATE. A reader in Auckland is told the
+13th for an event whose organiser typed the 12th, and that is correct.
+
+**A slot changes on air** (06-slots G4, and the unproven half of 17-the-rest
+E.3). The slot URL was built against localhost by hand, because FRONTEND_URL
+here points at test.app.v-ent.co and that is what left this unproven. It
+rendered the standings graphic with real data. Then
+`BroadcastSlot(session=6, role='full').item_kind` was changed from `standings`
+to `lower_third` in the database with the browser untouched, and eight seconds
+later the same page was drawing a lower third at the bottom left, no reload and
+no keystroke. Restored afterwards.
+
+**Event pages keep themselves current** (09-second-batch G6). Its old evidence
+said "useLiveData is imported by NOTHING". It is now imported by 44 files. All
+20 event routes were walked one at a time: nine refresh, four are `[slug]`
+wrappers around one of those nine, and the seven that do not are correct not to
+- create-event and edit-event are FORMS, and a form that reloads under somebody
+mid-sentence discards their typing.
+One real gap found and fixed: the run of show reloaded only on
+`visibilitychange`, and that screen is read DURING the show by staff watching
+for the next cue. A phone left open never changed. `useAutoRefresh` at 20s now.
+**And one correction**: the first inventory called the organiser console
+static. It is not - the console has that poller hand-rolled with `setTimeout`
+rather than `setInterval` and the grep missed it. The pattern was wrong, not
+the code. That is the second time in one session that trusting a grep produced
+a wrong number; the first was the tap-target checker.
+
+**A5 was already met** and its box had never been ticked, while its own
+evidence line said so. Not to be confused with the BACKUP cron, which is a
+different crontab entry and is genuinely blocked.
+
+## What is left open, and why each one is
+
+Nine gates were open at the start of this pass; eight now, and none of them is
+work that can be done from here:
+
+| Gate | Why |
+|---|---|
+| A5 backup cron (G.1, N.1) | Neither Cloudflare nor this machine can reach the origin. The SCRIPT is fixed, so what the cron runs will hold data |
+| AFC sign-in (Q3, H.1, N.2) | Their /oauth/authorize and /api/me both answer 404 |
+| USDT wallet half (M.3) | Needs a custody decision before a line is worth writing |
+| Merge and deploy (Z5, 07 G8) | The CEO's call. Nobody merges their own PR |
+
 ## Not verified
 
 Nothing outstanding on this feature. The unmet gates that remain are all
