@@ -15,7 +15,11 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from django.contrib.auth.hashers import make_password
-from .models import Users, UserWallet, TeamWallet, OrgWallet, Transaction, WithdrawalRequest, KYCDocument
+from . import kyc as kyc_service
+from . import payouts
+from . import wallets
+from .models import (Users, UserWallet, TeamWallet, OrgWallet, Transaction,
+                     WithdrawalRequest, KYCDocument, PayoutAddress)
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +115,10 @@ def get_wallet_balance(request):
     if err:
         return err
 
+    # Money on its way out. Since 8 September it has ALREADY left `balance`:
+    # a payout is held when it is asked for, not when an admin gets to it. So
+    # this is shown beside the balance rather than subtracted from it, and a
+    # screen must never take it off the balance a second time.
     pending_withdrawal = wallet.withdrawals.filter(
         status__in=['pending', 'approved', 'processing']
     ).values_list('amount', flat=True)
@@ -123,7 +131,12 @@ def get_wallet_balance(request):
             'currency': 'VENT COINS',
             'kyc_verified': wallet.kyc_verified,
             'has_pin': bool(wallet.pin_hash),
+            # Whether a spend from this wallet has to carry an authenticator
+            # code. The screen asks for one only when the answer is yes, so
+            # nobody is shown a field they have nothing to type into.
+            'requires_2fa': wallets.second_factor_required(wallet.user),
             'pending_withdrawal': pending_total,
+            'pending_withdrawal_already_deducted': True,
             'balance_ngn': coins_to_ngn(wallet.wallet_balance),
             'ngn_per_coin': NGN_PER_COIN,
             'exchange_rate': f'{NGN_PER_COIN:,} NGN per VENT COIN',
@@ -385,16 +398,37 @@ def topup_verify(request):
 
 @api_view(['POST'])
 def send_funds(request):
+    """Send coins from this person's wallet to a person, a team or an organisation.
+
+    The spec's first user-wallet line is "Send VENT COINS to other users,
+    organizations, teams, tournament organizers", and until 8 September this
+    endpoint could only do the first of those: it took a `recipient_username`
+    and looked it up in `UserWallet`. A team wallet that only another team
+    could pay is not a wallet anybody can use.
+
+    `recipient_username` still works, because `/wallets/send` sends it and a
+    payload nothing sends is a contract nobody is keeping. It now means
+    `to_kind='user'`, which is what it always meant.
+
+    The money itself is `wallets.transfer`, the same function the team and
+    organisation wallets use. What was here before was a second copy of it -
+    its own locking, its own balance check, its own two row writes - and two
+    copies of "take from one, give to the other" is two chances for one of them
+    to forget a line.
+    """
     wallet, err = _get_user_from_token(request)
     if err:
         return err
 
-    recipient_username = request.data.get('recipient_username')
     amount = request.data.get('amount')
     pin = request.data.get('pin')
-    note = request.data.get('note', '')
+    note = str(request.data.get('note', '') or '')[:200]
 
-    if not all([recipient_username, amount, pin]):
+    recipient_username = request.data.get('recipient_username')
+    to_kind = request.data.get('to_kind') or ('user' if recipient_username else '')
+    to_ref = request.data.get('to') or recipient_username
+
+    if not all([to_ref, amount, pin]):
         return Response(
             { 'code': 'RECIPIENT_USERNAME_AMOUNT_PIN','status': 'error', 'message': 'recipient_username, amount, and pin are required'},
             status=status.HTTP_400_BAD_REQUEST,
@@ -420,82 +454,72 @@ def send_funds(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    try:
-        recipient_wallet = UserWallet.objects.select_related('user').get(
-            user__username=recipient_username
-        )
-    except UserWallet.DoesNotExist:
-        return Response(
-            { 'code': 'RECIPIENT_NOT_FOUND','status': 'error', 'message': 'Recipient not found'},
-            status=status.HTTP_404_NOT_FOUND,
-        )
+    sender_username = wallet.user.username
 
-    if recipient_wallet.user_wallet_id == wallet.user_wallet_id:
+    try:
+        wallets.check_second_factor(wallet.user, request.data.get('code'))
+        target = wallets.resolve_target(to_kind, to_ref)
+    except wallets.WalletError as exc:
+        http = (status.HTTP_404_NOT_FOUND if exc.code == 'NOT_FOUND'
+                else status.HTTP_400_BAD_REQUEST)
+        return Response({'code': exc.code, 'status': 'error',
+                         'message': str(exc)}, status=http)
+
+    if isinstance(target, UserWallet) and target.pk == wallet.pk:
         return Response(
             { 'code': 'CANNOT_SEND_YOURSELF','status': 'error', 'message': 'Cannot send to yourself'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    sender_username = wallet.user.username
+    to_user = target.user if isinstance(target, UserWallet) else None
+    named = wallets.describe(target)
 
-    # Lock both wallets before mutating balances (F12). Order the locks by PK so
-    # two opposing transfers can't deadlock. Balance is re-checked under the lock.
-    with transaction.atomic():
-        first_pk, second_pk = sorted([wallet.pk, recipient_wallet.pk])
-        locked = {
-            w.pk: w
-            for w in UserWallet.objects.select_for_update().filter(
-                pk__in=[first_pk, second_pk]
-            )
-        }
-        sender = locked[wallet.pk]
-        recipient = locked[recipient_wallet.pk]
+    # Person to person keeps the two words it has always had on the two
+    # statements. Money to a team or an organisation is a transfer on both
+    # sides, because neither `send` nor `receive` describes it.
+    if to_user is not None:
+        debit_kind, credit_kind = 'send', 'receive'
+    else:
+        debit_kind = credit_kind = 'transfer'
 
-        if sender.wallet_balance < amount:
-            return Response(
-                { 'code': 'INSUFFICIENT_BALANCE','status': 'error', 'message': 'Insufficient balance'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        sender.wallet_balance -= amount
-        sender.save(update_fields=['wallet_balance'])
-        Transaction.objects.create(
-            wallet=sender,
-            type='send',
-            amount=-amount,
-            description=f'Sent to @{recipient_username}{": " + note if note else ""}',
-            status='completed',
+    try:
+        debit, _credit = wallets.transfer(
+            wallet, target, amount,
+            debit_kind=debit_kind, credit_kind=credit_kind,
+            debit_note='Sent to %s%s' % (named, (': ' + note) if note else ''),
+            credit_note='Received from @%s%s' % (
+                sender_username, (': ' + note) if note else ''),
         )
+    except wallets.WalletError as exc:
+        return Response({'code': exc.code, 'status': 'error',
+                         'message': str(exc)},
+                        status=status.HTTP_400_BAD_REQUEST)
 
-        recipient.wallet_balance += amount
-        recipient.save(update_fields=['wallet_balance'])
-        Transaction.objects.create(
-            wallet=recipient,
-            type='receive',
-            amount=amount,
-            description=f'Received from @{sender_username}{": " + note if note else ""}',
-            status='completed',
-        )
-
-        new_balance = sender.wallet_balance
+    wallet.refresh_from_db()
+    new_balance = wallet.wallet_balance
 
     # Notify the recipient they received VC (fire-and-forget - never break the
-    # transfer if the notification insert fails).
-    try:
-        from vent_auth.views_notifications import create_notification
-        create_notification(
-            recipient_wallet.user, 'wallet',
-            f'You received {amount} VC from @{sender_username}',
-            link='/wallets',
-            metadata={'amount': amount, 'from': sender_username},
-        )
-    except Exception:
-        pass
+    # transfer if the notification insert fails). Only a person has somewhere
+    # for a notification to arrive; a team or an organisation is told by its
+    # wallet screen, which is the statement this just wrote.
+    if to_user is not None:
+        try:
+            from vent_auth.views_notifications import create_notification
+            create_notification(
+                to_user, 'wallet',
+                f'You received {amount} VC from @{sender_username}',
+                link='/wallets',
+                metadata={'amount': amount, 'from': sender_username},
+            )
+        except Exception:
+            pass
 
     return Response({
         'status': 'success',
         'data': {
             'new_balance': new_balance,
+            'sent_to': named,
+            'transaction_id': debit.id,
         }
     }, status=status.HTTP_200_OK)
 
@@ -641,22 +665,70 @@ def wallet_deduct(request):
 
 @api_view(['POST'])
 def withdraw_initiate(request):
-    """Request a fiat withdrawal. Requires KYC + PIN."""
+    """Request a payout, to a bank in naira or to a proved USDT address.
+
+    ONE queue for both. The hold on the balance, the admin approval, the
+    return on a denial, the notification and the audit line are identical
+    whichever rail the money leaves by, and a second payout table would be a
+    second place a balance is debited from. What differs is four lines: where
+    it is going.
+
+    The USDT half stops at the send itself, which is the one part that cannot
+    be written until the custody question in `tasks/specs/crypto-and-custody.md`
+    is answered. Everything up to it is here.
+    """
     wallet, err = _get_user_from_token(request)
     if err:
         return err
 
     amount = request.data.get('amount')
-    bank_name = request.data.get('bank_name')
-    account_number = request.data.get('account_number')
-    account_name = request.data.get('account_name')
     pin = request.data.get('pin')
-
-    if not all([amount, bank_name, account_number, account_name, pin]):
+    method = str(request.data.get('method')
+                 or WithdrawalRequest.METHOD_BANK).strip().lower()
+    if method not in (WithdrawalRequest.METHOD_BANK,
+                      WithdrawalRequest.METHOD_USDT):
         return Response(
-            { 'code': 'AMOUNT_BANK_NAME_ACCOUNT','status': 'error', 'message': 'amount, bank_name, account_number, account_name, and pin are required'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+            {'code': 'VALIDATION_ERROR', 'status': 'error',
+             'message': 'Choose a bank transfer or a USDT payout.'},
+            status=status.HTTP_400_BAD_REQUEST)
+
+    address = None
+    bank_name = account_number = account_name = ''
+
+    if method == WithdrawalRequest.METHOD_USDT:
+        if not payouts.usdt_enabled():
+            # Named rather than silently absent. The pipeline is built; what
+            # it waits on is the custody decision and a funded float, and
+            # holding somebody's balance for a payout nobody can send is
+            # worse than saying so.
+            return Response(
+                {'code': 'USDT_NOT_OPEN', 'status': 'error',
+                 'message': 'USDT payouts are not open yet.'},
+                status=status.HTTP_400_BAD_REQUEST)
+        try:
+            # A proved address, chosen from the list, never one typed into
+            # this request. See `payouts.confirmed_address`.
+            address = payouts.confirmed_address(
+                wallet.user, request.data.get('address_ref'))
+        except payouts.PayoutError as exc:
+            http = (status.HTTP_404_NOT_FOUND if exc.code == 'NOT_FOUND'
+                    else status.HTTP_400_BAD_REQUEST)
+            return Response({'code': exc.code, 'status': 'error',
+                             'message': str(exc)}, status=http)
+        if not all([amount, pin]):
+            return Response(
+                {'code': 'AMOUNT_AND_PIN', 'status': 'error',
+                 'message': 'amount and pin are required'},
+                status=status.HTTP_400_BAD_REQUEST)
+    else:
+        bank_name = request.data.get('bank_name')
+        account_number = request.data.get('account_number')
+        account_name = request.data.get('account_name')
+        if not all([amount, bank_name, account_number, account_name, pin]):
+            return Response(
+                { 'code': 'AMOUNT_BANK_NAME_ACCOUNT','status': 'error', 'message': 'amount, bank_name, account_number, account_name, and pin are required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     try:
         amount = int(amount)
@@ -675,40 +747,136 @@ def withdraw_initiate(request):
     if not wallet.pin_hash or not check_password(str(pin), wallet.pin_hash):
         return Response({ 'code': 'INVALID_PIN','status': 'error', 'message': 'Invalid PIN'}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Lock the wallet so the balance check and request creation are consistent
-    # against concurrent debits/approvals (F12). Funds are debited at admin
-    # approval time (admin_approve_payout), not here.
-    with transaction.atomic():
-        locked_wallet = UserWallet.objects.select_for_update().get(pk=wallet.pk)
+    try:
+        wallets.check_second_factor(wallet.user, request.data.get('code'))
+    except wallets.WalletError as exc:
+        return Response({'code': exc.code, 'status': 'error',
+                         'message': str(exc)},
+                        status=status.HTTP_400_BAD_REQUEST)
 
-        if locked_wallet.wallet_balance < amount:
-            return Response({ 'code': 'INSUFFICIENT_BALANCE','status': 'error', 'message': 'Insufficient balance'}, status=status.HTTP_400_BAD_REQUEST)
+    # The floor and the daily ceiling, checked BEFORE anything is held. They
+    # are the same numbers whichever rail the money leaves by, which is why
+    # they are built now rather than waiting on the custody answer: a ceiling
+    # is what limits how much a stolen account can take before anybody looks.
+    try:
+        payouts.check_limits(wallet, amount)
+    except payouts.PayoutError as exc:
+        # The numbers travel beside the code, so the translation can name them.
+        # A sentence built in Python cannot be translated; a code with no
+        # numbers cannot say which limit was hit.
+        return Response(dict({'code': exc.code, 'status': 'error',
+                              'message': str(exc)}, **exc.params),
+                        status=status.HTTP_400_BAD_REQUEST)
 
-        wr = WithdrawalRequest.objects.create(
-            wallet=locked_wallet,
-            amount=amount,
-            bank_name=bank_name,
-            account_number=account_number,
-            account_name=account_name,
-        )
-
-        Transaction.objects.create(
-            wallet=locked_wallet,
-            type='withdrawal',
-            amount=-amount,
-            description=f'Withdrawal to {bank_name} {account_number[-4:]}',
-            status='pending',
-        )
+    # The money is HELD here, not at approval.
+    #
+    # Before this, a request wrote a pending row and touched no balance, so
+    # somebody could ask for their whole balance, spend it, and have the
+    # approval fail on them days later. Worse, approval then wrote a SECOND
+    # withdrawal line, so a single payout appeared twice on the statement and a
+    # rejection left the first one pending for ever.
+    #
+    # One line per payout, and it is the held one. See `wallets.hold_for_payout`.
+    try:
+        with transaction.atomic():
+            wr = WithdrawalRequest(
+                wallet_id=wallet.pk,
+                amount=amount,
+                method=method,
+                bank_name=bank_name or '',
+                account_number=account_number or '',
+                account_name=account_name or '',
+                payout_address=address,
+            )
+            # The statement line says where it went, in the same words the
+            # console and the email use. One function builds that sentence, so
+            # a payout cannot be described three ways by three screens.
+            wr.hold = wallets.hold_for_payout(
+                wallet, amount, payouts.describe_destination(wr))
+            wr.save()
+    except wallets.WalletError as exc:
+        return Response({'code': exc.code, 'status': 'error',
+                         'message': str(exc)},
+                        status=status.HTTP_400_BAD_REQUEST)
 
     return Response({
         'status': 'success',
         'data': {
             'withdrawal_id': wr.id,
             'amount': wr.amount,
+            'method': wr.method,
+            'destination': payouts.describe_destination(wr),
             'status': wr.status,
             'message': 'Withdrawal request submitted. Pending admin approval.',
         }
     }, status=status.HTTP_201_CREATED)
+
+
+# ---------------------------------------------------------------------------
+# GET/POST /auth/wallet/payout-addresses/
+# ---------------------------------------------------------------------------
+
+@api_view(['GET', 'POST'])
+def payout_addresses(request):
+    """The crypto addresses this account may be paid to.
+
+    One endpoint with an `action`, the same shape the team and organisation
+    wallets use, rather than four routes carrying a row id. A payout address
+    is somebody's money leaving, and a sequential id in a path lets anybody
+    count how many exist and guess at somebody else's.
+
+    Actions: `add` files one and emails the code, `confirm` proves it,
+    `remove` takes it off.
+    """
+    wallet, err = _get_user_from_token(request)
+    if err:
+        return err
+    user = wallet.user
+
+    def listing(message=''):
+        rows = [payouts.address_payload(r)
+                for r in user.payout_addresses.all()]
+        return Response({
+            'status': 'success',
+            'data': {
+                'addresses': rows,
+                'networks': [{'value': v, 'label': label}
+                             for v, label in PayoutAddress.NETWORK_CHOICES],
+                'limits': payouts.limits(),
+                # Whether a payout to one of these may be asked for yet. The
+                # screen reads this rather than assuming, so the day it is
+                # switched on nothing else has to change.
+                'usdt_enabled': payouts.usdt_enabled(),
+            },
+            'message': message,
+        }, status=status.HTTP_200_OK)
+
+    if request.method == 'GET':
+        return listing()
+
+    action = str(request.data.get('action') or 'add').strip().lower()
+    try:
+        if action == 'add':
+            payouts.add_address(user, request.data.get('network'),
+                                request.data.get('address'),
+                                request.data.get('label'))
+            return listing('Check your email for the code that confirms it.')
+        if action == 'confirm':
+            payouts.confirm_address(user, request.data.get('ref'),
+                                    request.data.get('code'))
+            return listing('That address is confirmed.')
+        if action == 'remove':
+            payouts.remove_address(user, request.data.get('ref'))
+            return listing('That address has been removed.')
+    except payouts.PayoutError as exc:
+        http = (status.HTTP_404_NOT_FOUND if exc.code == 'NOT_FOUND'
+                else status.HTTP_400_BAD_REQUEST)
+        return Response({'code': exc.code, 'status': 'error',
+                         'message': str(exc)}, status=http)
+
+    return Response({'code': 'VALIDATION_ERROR', 'status': 'error',
+                     'message': 'Say what to do: add, confirm or remove.'},
+                    status=status.HTTP_400_BAD_REQUEST)
 
 
 # ---------------------------------------------------------------------------
@@ -728,15 +896,22 @@ def withdraw_status(request):
         {
             'id': w.id,
             'amount': w.amount,
+            'method': w.method,
+            # One sentence naming where it went, built by the same function
+            # the statement line and the console read.
+            'destination': payouts.describe_destination(w),
             'bank_name': w.bank_name,
             'account_number': w.account_number[-4:].rjust(len(w.account_number), '*'),
             'account_name': w.account_name,
+            # What the rail called it once it left: a bank reference or a
+            # chain transaction hash. Empty until the money actually moves.
+            'reference': w.payout_reference,
             'status': w.status,
             'admin_note': w.admin_note,
             'requested_at': w.requested_at,
             'processed_at': w.processed_at,
         }
-        for w in withdrawals
+        for w in withdrawals.select_related('payout_address')
     ]
 
     return Response({'status': 'success', 'data': data}, status=status.HTTP_200_OK)
@@ -778,6 +953,12 @@ def kyc_submit(request):
         document_type=document_type,
         document_image=document_image,
     )
+    # Wherever identity checking happens, it happens through here. Today that
+    # is a V-ENT reviewer; the day a provider is contracted, this same call
+    # sends it and stores the reference it comes back with, and no screen
+    # changes. See vent_auth/kyc.py for the providers under consideration and
+    # what has to be decided before one is wired.
+    kyc_service.submit(doc)
 
     return Response({
         'status': 'success',
@@ -786,6 +967,7 @@ def kyc_submit(request):
             'document_type': doc.document_type,
             'status': doc.status,
             'submitted_at': doc.submitted_at,
+            'checked_by': kyc_service.describe(doc),
         }
     }, status=status.HTTP_201_CREATED)
 
@@ -813,6 +995,10 @@ def kyc_status(request):
                 'status': latest_doc.status,
                 'rejection_reason': latest_doc.rejection_reason if latest_doc.status == 'rejected' else None,
                 'submitted_at': latest_doc.submitted_at,
+                # Who verified it, when, and against what. A verified wallet
+                # that cannot answer that is a compliance record with nothing
+                # behind it.
+                'checked_by': kyc_service.describe(latest_doc),
             } if latest_doc else None,
         }
     }, status=status.HTTP_200_OK)

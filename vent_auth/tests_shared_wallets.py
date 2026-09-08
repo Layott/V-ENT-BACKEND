@@ -207,7 +207,7 @@ class WhoMaySpendTests(WalletBase):
              'amount': 1}, format='json', **self.member_auth)
         self.assertEqual(res.status_code, 403)
 
-    def test_an_org_manager_needs_the_teams_scope_to_spend(self):
+    def test_an_org_manager_needs_the_finance_scope_to_spend(self):
         row = OrgMember.objects.get(org=self.org, user=self.member)
         row.role = OrgMember.ROLE_MANAGER
         row.scopes = []
@@ -216,11 +216,33 @@ class WhoMaySpendTests(WalletBase):
                        self.member_auth)
         self.assertFalse(res.json()['data']['can_spend'])
 
-        row.scopes = [OrgMember.SCOPE_TEAMS]
+        row.scopes = [OrgMember.SCOPE_FINANCE]
         row.save()
         res = self.get('/auth/organization/%s/wallet/' % self.org.slug,
                        self.member_auth)
         self.assertTrue(res.json()['data']['can_spend'])
+
+    def test_running_the_teams_is_not_permission_to_spend_the_money(self):
+        """The scope that was wrong until 8 September, held as a test.
+
+        A manager given the roster to run could empty the organisation's
+        wallet, which is not a thing anybody granted them.
+        """
+        row = OrgMember.objects.get(org=self.org, user=self.member)
+        row.role = OrgMember.ROLE_MANAGER
+        row.scopes = [OrgMember.SCOPE_TEAMS, OrgMember.SCOPE_TOURNAMENTS,
+                      OrgMember.SCOPE_EVENTS, OrgMember.SCOPE_CLUBS]
+        row.save()
+        res = self.get('/auth/organization/%s/wallet/' % self.org.slug,
+                       self.member_auth)
+        self.assertFalse(res.json()['data']['can_spend'])
+
+        # And it is refused on press, not only hidden on the screen.
+        res = self.client.post(
+            '/auth/organization/%s/wallet/' % self.org.slug,
+            {'action': 'send', 'to_kind': 'user', 'to': self.stranger.username,
+             'amount': 1, 'pin': '1234'}, format='json', **self.member_auth)
+        self.assertEqual(res.status_code, 403)
 
 
 class SendingThroughTheEndpointTests(WalletBase):

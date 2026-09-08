@@ -101,11 +101,20 @@ def check_pin(wallet, pin):
         raise WalletError('Incorrect wallet PIN.', 'INVALID_PIN')
 
 
-def transfer(source, target, amount, *, note='', kind='transfer', pin=None):
+def transfer(source, target, amount, *, note='', kind='transfer', pin=None,
+             debit_kind=None, credit_kind=None,
+             debit_note='', credit_note=''):
     """Move coins from one wallet to another. Returns (debit, credit).
 
     `source` and `target` are any of UserWallet, TeamWallet or OrgWallet, in
     any combination, which is what makes the nine directions one function.
+
+    `debit_kind` and `credit_kind` exist because one move can be two different
+    words on the two statements. A person sending to another person has always
+    read as `send` on one side and `receive` on the other, and renaming both to
+    `transfer` would rewrite the meaning of every row already written. Money
+    between a person and a team is a `transfer` on both sides, because neither
+    of the other two words is true of it.
     """
     try:
         amount = int(amount)
@@ -143,12 +152,12 @@ def transfer(source, target, amount, *, note='', kind='transfer', pin=None):
         # that does not add up to the balance is not a state this can reach.
         debit = Transaction.objects.create(
             **{column_for(src): src},
-            type=kind, amount=-amount, status='completed',
-            description=note or ('To %s' % describe(dst)))
+            type=debit_kind or kind, amount=-amount, status='completed',
+            description=debit_note or note or ('To %s' % describe(dst)))
         credit = Transaction.objects.create(
             **{column_for(dst): dst},
-            type=kind, amount=amount, status='completed',
-            description=note or ('From %s' % describe(src)))
+            type=credit_kind or kind, amount=amount, status='completed',
+            description=credit_note or note or ('From %s' % describe(src)))
         return debit, credit
 
 
@@ -180,3 +189,192 @@ def wallet_for_org(org, create=True):
     wallet, _ = OrgWallet.objects.get_or_create(
         org=org, defaults={'org_wallet_id': ('o%s' % org.pk)[:10]})
     return wallet
+
+
+def wallet_for_user(user, create=False):
+    if not create:
+        return UserWallet.objects.filter(user=user).first()
+    from .views_helpers import get_or_create_user_wallet
+    return get_or_create_user_wallet(user)
+
+
+# ---------------------------------------------------------------------------
+# Who the money is going to
+# ---------------------------------------------------------------------------
+
+def resolve_target(kind, ref):
+    """The wallet a `{to_kind, to}` pair names. Raises WalletError if it cannot.
+
+    Named explicitly rather than guessed from the string, because "vermillion"
+    could be a username, a team or an organisation, and guessing wrong sends
+    somebody's money to a stranger with the same name.
+
+    One resolver, used by the person's own wallet and by the team and
+    organisation wallets alike. Two copies would eventually disagree about what
+    "vermillion" means, which is the same fault seen from the inside.
+    """
+    kind = str(kind or '').strip().lower()
+    ref = str(ref or '').strip()
+    if not kind or not ref:
+        raise WalletError('Say who it is going to.', 'VALIDATION_ERROR')
+
+    if kind == 'user':
+        from .invites import invitee_for
+        user, _email, problem = invitee_for(ref)
+        if problem or user is None:
+            raise WalletError('No account called %s.' % ref, 'NOT_FOUND')
+        wallet = UserWallet.objects.filter(user=user).first()
+        if wallet is None:
+            # Created rather than refused: a wallet is made at signup, and an
+            # account old enough to predate that should still be payable.
+            wallet = wallet_for_user(user, create=True)
+        return wallet
+
+    if kind == 'team':
+        from .models import Teams
+        team = (Teams.objects.filter(slug=ref).first()
+                or Teams.objects.filter(team_name__iexact=ref).first())
+        if team is None:
+            raise WalletError('No team called %s.' % ref, 'NOT_FOUND')
+        return wallet_for_team(team)
+
+    if kind == 'org':
+        from .models import Organization
+        org = (Organization.objects.filter(slug=ref).first()
+               or Organization.objects.filter(org_name__iexact=ref).first())
+        if org is None:
+            raise WalletError('No organisation called %s.' % ref, 'NOT_FOUND')
+        return wallet_for_org(org)
+
+    raise WalletError('Send to a user, a team or an organisation.',
+                      'VALIDATION_ERROR')
+
+
+# ---------------------------------------------------------------------------
+# The second factor
+# ---------------------------------------------------------------------------
+
+def second_factor_required(user):
+    """Whether this person's wallet spends have to produce an authenticator code.
+
+    The spec asks for "two-factor authentication and a PIN for wallet
+    transactions". The two are not the same thing and are not interchangeable:
+    a PIN is something typed into this site and lives in its database; the code
+    comes off a device the site has never seen. Somebody who has set up an
+    authenticator has said they want the second one, so their money is held to
+    it, on every debit, without a separate switch to forget to turn on.
+
+    It reuses the factor already enrolled at sign-in rather than adding a
+    second mechanism, so there is one secret per person and one place a code
+    can be spent.
+    """
+    from .login_2fa import factor_for
+    factor = factor_for(user)
+    return bool(factor is not None and factor.confirmed)
+
+
+def check_second_factor(user, code):
+    """Raise unless this debit carries a valid code, when one is required.
+
+    Silent when the account has no confirmed factor, so nothing changes for
+    somebody who has not enrolled.
+    """
+    if user is None or not second_factor_required(user):
+        return
+    if not code:
+        raise WalletError(
+            'Enter the code from your authenticator app.',
+            'TWO_FACTOR_REQUIRED')
+    from .login_2fa import spend_code
+    ok, _problem = spend_code(user, code)
+    if not ok:
+        raise WalletError('That code is not right, or it has been used.',
+                          'INVALID_CODE')
+
+
+# ---------------------------------------------------------------------------
+# A payout, which is money held before it is money gone
+# ---------------------------------------------------------------------------
+
+def hold_for_payout(wallet, amount, description):
+    """Take the amount out of the balance and mark it pending. Returns the row.
+
+    The money leaves the spendable balance the moment it is requested, not when
+    an admin gets to it. Before this, a payout request touched nothing: the
+    balance was debited at approval, so anybody could request their whole
+    balance, spend it, and leave the approval to fail on them days later with
+    "Insufficient wallet balance". Holding is what makes the number on the
+    screen a number somebody can rely on.
+
+    The caller has already checked the PIN, the second factor and KYC. This
+    function does the money and nothing else.
+    """
+    amount = int(amount)
+    with db_transaction.atomic():
+        locked = UserWallet.objects.select_for_update().get(pk=wallet.pk)
+        if locked.wallet_balance < amount:
+            raise WalletError(
+                'There is not enough in your wallet: %d VC available.'
+                % locked.wallet_balance, 'INSUFFICIENT_BALANCE')
+        locked.wallet_balance -= amount
+        locked.save(update_fields=['wallet_balance'])
+        return Transaction.objects.create(
+            wallet=locked, type='withdrawal', amount=-amount,
+            status='pending', description=description)
+
+
+def settle_payout(request_row):
+    """The payout was approved and the money is gone. (ok, reason).
+
+    A request made before holds existed carries no hold, and its balance was
+    never debited, so it is debited here instead. That fallback is the whole
+    reason `WithdrawalRequest.hold` is nullable: without it, approving one of
+    those old requests would pay somebody without taking anything.
+    """
+    with db_transaction.atomic():
+        wallet = UserWallet.objects.select_for_update().get(
+            pk=request_row.wallet_id)
+        held = request_row.hold
+
+        if held is not None and held.status == 'pending':
+            held.status = 'completed'
+            held.save(update_fields=['status'])
+            return True, None
+
+        # No hold: the old shape. Take it now, and refuse rather than pay out
+        # of a balance that is no longer there.
+        if wallet.wallet_balance < request_row.amount:
+            return False, 'Insufficient wallet balance'
+        wallet.wallet_balance -= request_row.amount
+        wallet.save(update_fields=['wallet_balance'])
+        Transaction.objects.create(
+            wallet=wallet, type='withdrawal', amount=-request_row.amount,
+            status='completed',
+            description='Withdrawal to %s %s' % (
+                request_row.bank_name, request_row.account_number[-4:]))
+        return True, None
+
+
+def return_payout(request_row, reason=''):
+    """The payout was denied. Put the held amount back. (ok, reason).
+
+    The held row is cancelled rather than answered with a second, positive row.
+    A refund line beside a debit line that is also still on the statement would
+    make the statement sum to more than the balance, and a statement that does
+    not add up to the balance is the one thing this module exists to prevent.
+    """
+    with db_transaction.atomic():
+        wallet = UserWallet.objects.select_for_update().get(
+            pk=request_row.wallet_id)
+        held = request_row.hold
+        if held is None or held.status != 'pending':
+            # Nothing was held, so there is nothing to give back. An older
+            # request, or one already settled.
+            return True, None
+        wallet.wallet_balance += request_row.amount
+        wallet.save(update_fields=['wallet_balance'])
+        held.status = 'cancelled'
+        held.description = '%s - returned%s' % (
+            held.description, (': %s' % reason) if reason else '')
+        held.save(update_fields=['status', 'description'])
+        return True, None

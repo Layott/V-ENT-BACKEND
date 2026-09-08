@@ -813,13 +813,20 @@ class OrgMember(models.Model):
     ]
     RANK = {ROLE_MEMBER: 0, ROLE_MANAGER: 1, ROLE_ADMIN: 2, ROLE_OWNER: 3}
 
-    # The four things an organisation holds. Adding a fifth means adding it
-    # here and nowhere else: every check reads this list.
+    # The things an organisation holds. Adding another means adding it here
+    # and nowhere else: every check reads this list.
     SCOPE_TEAMS = 'teams'
     SCOPE_EVENTS = 'events'
     SCOPE_TOURNAMENTS = 'tournaments'
     SCOPE_CLUBS = 'clubs'
-    ALL_SCOPES = [SCOPE_TEAMS, SCOPE_EVENTS, SCOPE_TOURNAMENTS, SCOPE_CLUBS]
+    # The organisation's MONEY, which is its own scope and not a corner of any
+    # of the other four. A tournaments manager runs brackets and a teams
+    # manager fields rosters; neither of them is thereby entitled to empty the
+    # wallet, and the wallet is the one thing here that cannot be undone by
+    # editing a row back. It is granted deliberately or not at all.
+    SCOPE_FINANCE = 'finance'
+    ALL_SCOPES = [SCOPE_TEAMS, SCOPE_EVENTS, SCOPE_TOURNAMENTS, SCOPE_CLUBS,
+                  SCOPE_FINANCE]
 
     org = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='members')
     user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='org_memberships')
@@ -1258,17 +1265,57 @@ class WithdrawalRequest(models.Model):
         ('completed', 'Completed'),
     ]
 
+    #: How the money leaves. `bank` is naira through the payout queue that has
+    #: always been here; `usdt` is a crypto payout to an address the account
+    #: owner has proved. ONE queue, one approval and one hold for both, because
+    #: a second payout table would be a second place a balance is debited and
+    #: the two would eventually disagree about what has been paid.
+    METHOD_BANK = 'bank'
+    METHOD_USDT = 'usdt'
+    METHOD_CHOICES = [(METHOD_BANK, 'Bank transfer'), (METHOD_USDT, 'USDT')]
+
     wallet = models.ForeignKey(
         UserWallet, on_delete=models.CASCADE, related_name='withdrawals'
     )
     amount = models.IntegerField()  # in VENT COINS
-    bank_name = models.CharField(max_length=100)
-    account_number = models.CharField(max_length=20)
-    account_name = models.CharField(max_length=100)
+    method = models.CharField(max_length=10, choices=METHOD_CHOICES,
+                              default=METHOD_BANK)
+    # Blank for a USDT payout. They were required columns when a bank was the
+    # only destination; making them optional rather than adding a second model
+    # is what keeps one queue.
+    bank_name = models.CharField(max_length=100, blank=True, default='')
+    account_number = models.CharField(max_length=20, blank=True, default='')
+    account_name = models.CharField(max_length=100, blank=True, default='')
+
+    #: The proved address, for a USDT payout. PROTECT rather than CASCADE: a
+    #: person removing an address must not take the record of where a past
+    #: payout went with it, and where money went is the part an auditor asks
+    #: about.
+    payout_address = models.ForeignKey(
+        'PayoutAddress', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='withdrawals')
+
+    #: What the sending rail called it: a bank reference, or a chain
+    #: transaction hash. Written when the money actually leaves, which is a
+    #: step a person does today. Without it, "did this get paid" is somebody's
+    #: memory rather than a lookup.
+    payout_reference = models.CharField(max_length=120, blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     admin_note = models.TextField(blank=True)
     requested_at = models.DateTimeField(auto_now_add=True)
     processed_at = models.DateTimeField(null=True, blank=True)
+
+    # The statement line the money is sitting on while this is pending.
+    #
+    # Nullable, and it has to be: every request made before 8 September was
+    # written under the old shape, where nothing was debited until an admin
+    # approved. Approving one of those must still take the money, and the only
+    # way to tell the two apart is whether a hold exists. See
+    # `wallets.settle_payout`.
+    hold = models.OneToOneField(
+        'Transaction', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='payout_request',
+    )
 
     def __str__(self):
         return f"Withdrawal {self.amount} COINS - {self.wallet.user.username} ({self.status})"
@@ -1296,6 +1343,24 @@ class KYCDocument(models.Model):
     rejection_reason = models.TextField(blank=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
     reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    # Who actually decided this identity was real, and what they can be asked
+    # to show for it.
+    #
+    # The spec asks for KYC "through a third-party service" and no provider is
+    # contracted yet, so the seam is here and the reviewer behind it is a
+    # person. What matters is that the answer to "who verified this, when, and
+    # against what" is a stored fact rather than a memory. On the day a
+    # provider is signed, `provider` becomes its name, `provider_reference`
+    # becomes the check id it returns, and nothing else about this model or the
+    # screens over it changes. See `vent_auth/kyc.py`.
+    provider = models.CharField(max_length=40, default='in_house')
+    provider_reference = models.CharField(max_length=128, blank=True)
+    provider_response = models.JSONField(default=dict, blank=True)
+    reviewed_by = models.ForeignKey(
+        Users, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='kyc_reviews',
+    )
 
     def __str__(self):
         return f"KYC {self.document_type} - {self.user.username} ({self.status})"
@@ -2395,6 +2460,100 @@ class Feedback(models.Model):
     def __str__(self):
         return '%s/%s from %s' % (self.area, self.kind,
                                   self.user or self.email or 'anonymous')
+
+
+class PayoutAddress(models.Model):
+    """A crypto address a payout is allowed to go to, once it is proved.
+
+    From the VENT WALLET spec: "Request payouts in USDT to my crypto wallet".
+    Nothing here touches a chain, and that is now settled rather than pending.
+    CEO, 8 September 2026, asked which of the three custody answers applies:
+    "A way in or out, once it enters the platform it turns to VENT coins."
+
+    So nobody ever holds a USDT balance on V-ENT. USDT is a rail in and a rail
+    out, the internal balance is always VENT COINS, and V-ENT holds no keys and
+    no customer crypto: only its own short lived payout float. That is the
+    lightest of the three answers in `tasks/specs/crypto-and-custody.md`, and
+    this model is what it needs: a proved destination, and nothing that looks
+    like an account somebody can leave coins in.
+
+    ## Why an address is a row rather than a field on the request
+
+    A typed address is the most common way a platform loses money: somebody
+    gets into an account, changes the destination, and the payout leaves for
+    ever, because a chain transaction does not reverse. So an address is added
+    once, PROVED once with a code sent to the account's email, and afterwards
+    it is chosen from a list. A request carrying an address typed in the same
+    breath cannot be made.
+
+    ## The network is part of the address, never a label beside it
+
+    USDT on TRON and USDT on Ethereum are different assets at different
+    addresses. Sending TRC-20 to an ERC-20 address destroys the money with no
+    error anywhere, which is why the shape of the address is checked against
+    the network it was filed under rather than trusted.
+    """
+
+    NETWORK_TRC20 = 'trc20'
+    NETWORK_ERC20 = 'erc20'
+    NETWORK_CHOICES = [
+        # TRON first, and first on the screen too: it is what most Nigerian
+        # holders actually use, because the fee is cents where Ethereum gas
+        # can cost more than the payout is worth.
+        (NETWORK_TRC20, 'USDT on TRON (TRC-20)'),
+        (NETWORK_ERC20, 'USDT on Ethereum (ERC-20)'),
+    ]
+
+    user = models.ForeignKey(Users, on_delete=models.CASCADE,
+                             related_name='payout_addresses')
+    network = models.CharField(max_length=10, choices=NETWORK_CHOICES,
+                               default=NETWORK_TRC20)
+    address = models.CharField(max_length=128)
+    #: What the person calls it. Their own word, shown back to them.
+    label = models.CharField(max_length=60, blank=True, default='')
+
+    #: Not the primary key. A payout address is somebody's money leaving, and
+    #: a sequential id in a payload lets anybody count how many exist.
+    ref = models.CharField(max_length=24, unique=True, blank=True)
+
+    confirm_code = models.CharField(max_length=12, blank=True, default='')
+    confirm_sent_at = models.DateTimeField(null=True, blank=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'network', 'address')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return '%s %s (%s)' % (self.user_id, self.short, self.network)
+
+    def save(self, *args, **kwargs):
+        if not self.ref:
+            import secrets
+            self.ref = 'pa_' + secrets.token_hex(8)
+            if kwargs.get('update_fields'):
+                # Without this, a save naming its own fields computes the ref
+                # and silently drops it. Same trap the slug helper carries a
+                # note about, and the same one line answer.
+                kwargs['update_fields'] = list(kwargs['update_fields']) + ['ref']
+        super().save(*args, **kwargs)
+
+    @property
+    def confirmed(self):
+        return self.confirmed_at is not None
+
+    @property
+    def short(self):
+        """Enough of the address to recognise, never the whole of it.
+
+        Somebody checking a payout is going to the right place reads the first
+        and last characters, which is also all that belongs in an email or a
+        notification.
+        """
+        if len(self.address) <= 12:
+            return self.address
+        return '%s...%s' % (self.address[:6], self.address[-4:])
 
 
 # The Discord webhook a tournament or an event announces into. Kept in its

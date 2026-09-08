@@ -380,8 +380,47 @@ def send_ticket_purchased(ticket):
 # Money
 # ---------------------------------------------------------------------------
 
+def _payout_destination(withdrawal):
+    """Where a payout went, in the same words every other screen uses."""
+    from . import payouts
+
+    return payouts.describe_destination(withdrawal)
+
+
 def send_payout_approved(withdrawal, *, amount_ngn):
+    """One payout, two destinations, and the words are not interchangeable.
+
+    A USDT payout does not go "to your bank", and it does not arrive as a
+    number of naira. There is no USDT rate on this platform that anybody
+    transacts on, so this email states the coins and where they went and
+    invents nothing. Quoting a naira figure for a crypto payment would be a
+    number nobody can stand behind.
+    """
+    from . import payouts
+    from .models import WithdrawalRequest
+
     user = withdrawal.wallet.user
+    where = payouts.describe_destination(withdrawal)
+    crypto = withdrawal.method == WithdrawalRequest.METHOD_USDT
+
+    if crypto:
+        rows = [
+            ('Amount', f'{withdrawal.amount:,} VC', '#D4AF37'),
+            ('Sent to', where),
+            ('Reference', withdrawal.payout_reference or f'WDR-{withdrawal.id}'),
+            ('Arrives', 'once the network confirms it'),
+        ]
+        intro = 'your payout has been approved and is on its way to your crypto address.'
+    else:
+        rows = [
+            ('Amount', f'{withdrawal.amount:,} VC', '#D4AF37'),
+            ('You receive', f'NGN {amount_ngn:,}', '#4CAF50'),
+            ('Bank', f'{withdrawal.bank_name} {withdrawal.account_number}'),
+            ('Reference', withdrawal.payout_reference or f'WDR-{withdrawal.id}'),
+            ('Arrives', 'within 1 to 3 business days'),
+        ]
+        intro = 'your withdrawal has been approved and sent to your bank.'
+
     return _send(
         user.email,
         'Your withdrawal is on the way',
@@ -391,15 +430,35 @@ def send_payout_approved(withdrawal, *, amount_ngn):
             'headline': 'Your withdrawal is on the way',
             'state': 'approved',
             'rejected': False,
-            'intro': 'your withdrawal has been approved and sent to your bank.',
-            'amount_ngn': f'NGN {amount_ngn:,}',
-            'rows': [
-                ('Amount', f'{withdrawal.amount:,} VC', '#D4AF37'),
-                ('You receive', f'NGN {amount_ngn:,}', '#4CAF50'),
-                ('Bank', f'{withdrawal.bank_name} {withdrawal.account_number}'),
-                ('Reference', f'WDR-{withdrawal.id}'),
-                ('Arrives', 'within 1 to 3 business days'),
-            ],
+            'intro': intro,
+            'amount_ngn': '' if crypto else f'NGN {amount_ngn:,}',
+            'rows': rows,
+        },
+    )
+
+
+def send_payout_address_code(user, row):
+    """The code that proves a crypto payout address belongs to this account.
+
+    It goes to the mailbox, not to the session, and that is the whole point: a
+    stolen session cannot add a destination without also holding the email. A
+    chain payment does not reverse, so the only place to be careful is before
+    the address exists.
+    """
+    from .models import PayoutAddress
+
+    return _send(
+        user.email,
+        'Confirm a payout address',
+        'payout_address_code.html',
+        {
+            'name': _first_name(user),
+            'preheader': 'Code to confirm %s' % row.short,
+            'code': row.confirm_code,
+            'note': 'Expires in 30 minutes.',
+            'address': row.address,
+            'network_label': dict(PayoutAddress.NETWORK_CHOICES).get(
+                row.network, row.network),
         },
     )
 
@@ -419,7 +478,10 @@ def send_payout_rejected(withdrawal, *, reason):
             'reason': reason or 'No reason was recorded. Contact support and we will explain.',
             'rows': [
                 ('Amount returned', f'{withdrawal.amount:,} VC', '#D4AF37'),
-                ('Bank', f'{withdrawal.bank_name} {withdrawal.account_number}'),
+                # Where it WOULD have gone. Naming a bank on a refused crypto
+                # payout is the kind of wrong detail that makes somebody
+                # doubt the rest of the message.
+                ('Destination', _payout_destination(withdrawal)),
                 ('Reference', f'WDR-{withdrawal.id}'),
             ],
         },
@@ -664,6 +726,28 @@ def send_event_announcement(to_address, *, event, subject, body):
             'event': event.name,
             'preheader': (body or '')[:120],
             'event_url': f'{APP_URL}/events/{event.slug or event.event_id}',
+        },
+    )
+
+
+def send_tournament_announcement(to_address, *, tournament, subject, body):
+    """One message about a tournament to one person registered for it.
+
+    The same shape as `send_event_announcement`, and per address for the same
+    reason: a bcc list is one mistake away from publishing who is in the
+    bracket, and a tournament entry list is somebody's own information.
+    """
+    return _send(
+        to_address,
+        subject,
+        'tournament_announcement.html',
+        {
+            'subject': subject,
+            'body': body,
+            'tournament': tournament.tournament_title,
+            'preheader': (body or '')[:120],
+            'tournament_url': '%s/tournaments/%s' % (
+                APP_URL, tournament.slug or tournament.tournament_id),
         },
     )
 
