@@ -9,10 +9,22 @@ from .storages import private_storage
 
 
 class Users(AbstractUser):
+    # The seven roles the admin spec of 7 September asks for, mapped onto the
+    # four that already existed rather than replacing them. See
+    # vent_auth/decorators.py for what each one may actually do.
+    #
+    # `marketplace_admin` and `wager_admin` deliberately grant NOTHING today:
+    # the marketplace and the wager system are Phases 4 and 6 and neither is
+    # built. A role that grants nothing is honest; a console section for a
+    # feature that does not exist is not.
     ADMIN_ROLE_CHOICES = [
         ('super_admin', 'Super Admin'),
-        ('finance_admin', 'Finance Admin'),
-        ('mod_admin', 'Moderator Admin'),
+        ('admin', 'Admin'),
+        ('finance_admin', 'Financial Manager'),
+        ('mod_admin', 'Moderator'),
+        ('tournament_admin', 'Tournament Organizer'),
+        ('marketplace_admin', 'Marketplace Manager'),
+        ('wager_admin', 'Wager Manager'),
         ('support_admin', 'Support Admin'),
     ]
 
@@ -1025,17 +1037,41 @@ class UserWallet(models.Model):
 
 
 class TeamWallet(models.Model):
+    """A team's own money, for entry fees, prizes and paying its players.
+
+    CEO, 7 September 2026: "Teams should have their own wallets and
+    organizations should also have their own wallets."
+
+    `pin_hash` sits beside the old integer `team_wallet_pin`, which is left in
+    place and unused so nothing that still reads it breaks. A PIN stored as the
+    integer 1234 is not a PIN, and these wallets held nothing until today,
+    which is why the moment to fix it is before they hold anything.
+    """
     team_wallet_id = models.CharField(primary_key=True, max_length=10)
     team = models.OneToOneField(Teams, on_delete=models.CASCADE, related_name='wallet')
     wallet_balance = models.IntegerField(default=0)
+    #: Legacy, unused. See the note above.
     team_wallet_pin = models.IntegerField(null=True, blank=True)
+    pin_hash = models.CharField(max_length=128, null=True, blank=True)
+
+    def __str__(self):
+        return '%s wallet (%d VC)' % (self.team.team_name, self.wallet_balance)
 
 
 class OrgWallet(models.Model):
+    """An organisation's money, for the events and tournaments it runs.
+
+    Same shape as `TeamWallet`, and the same note about the PIN.
+    """
     org_wallet_id = models.CharField(primary_key=True, max_length=10)
     org = models.OneToOneField(Organization, on_delete=models.CASCADE, related_name='wallet')
     wallet_balance = models.IntegerField(default=0)
+    #: Legacy, unused. See TeamWallet.
     org_wallet_pin = models.IntegerField(null=True, blank=True)
+    pin_hash = models.CharField(max_length=128, null=True, blank=True)
+
+    def __str__(self):
+        return '%s wallet (%d VC)' % (self.org.org_name, self.wallet_balance)
 
 
 class SocialLink(models.Model):
@@ -1128,6 +1164,10 @@ class Transaction(models.Model):
         ('receive', 'Receive'),
         ('withdrawal', 'Withdrawal'),
         ('refund', 'Refund'),
+        # Money moving between two V-ENT wallets. Not a `send`, which means
+        # money leaving for somebody else: calling both the same makes a
+        # statement impossible to read.
+        ('transfer', 'Transfer'),
     ]
     STATUS_CHOICES = [
         ('pending', 'Pending'),
@@ -1136,8 +1176,23 @@ class Transaction(models.Model):
         ('cancelled', 'Cancelled'),
     ]
 
+    # A transaction belongs to exactly ONE of three wallets.
+    #
+    # Nullable columns beside the original rather than a rewrite: every row
+    # written before today keeps its `wallet`, every query that filters on it
+    # keeps working, and nothing has to be migrated. The constraint below is
+    # what stops this becoming three half-filled columns.
     wallet = models.ForeignKey(
-        UserWallet, related_name='transactions', on_delete=models.CASCADE
+        UserWallet, related_name='transactions', on_delete=models.CASCADE,
+        null=True, blank=True,
+    )
+    team_wallet = models.ForeignKey(
+        'TeamWallet', related_name='transactions', on_delete=models.CASCADE,
+        null=True, blank=True,
+    )
+    org_wallet = models.ForeignKey(
+        'OrgWallet', related_name='transactions', on_delete=models.CASCADE,
+        null=True, blank=True,
     )
     type = models.CharField(max_length=20, choices=TYPE_CHOICES)
     # Positive for credits (top_up, prize, receive, refund), negative for debits
@@ -1160,8 +1215,38 @@ class Transaction(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        constraints = [
+            # Exactly one owner. Without this the three nullable columns are
+            # three chances to write a transaction that belongs to nobody, or
+            # to two wallets at once, and either one makes a balance summed
+            # from lines wrong in a way nothing would notice.
+            models.CheckConstraint(
+                name='transaction_has_exactly_one_wallet',
+                check=(
+                    models.Q(wallet__isnull=False, team_wallet__isnull=True,
+                             org_wallet__isnull=True)
+                    | models.Q(wallet__isnull=True, team_wallet__isnull=False,
+                               org_wallet__isnull=True)
+                    | models.Q(wallet__isnull=True, team_wallet__isnull=True,
+                               org_wallet__isnull=False)
+                ),
+            ),
+        ]
+
+    @property
+    def owner_name(self):
+        """Whose statement this line is on, whichever kind of wallet it is."""
+        if self.wallet_id:
+            return self.wallet.user.username
+        if self.team_wallet_id:
+            return self.team_wallet.team.team_name
+        if self.org_wallet_id:
+            return self.org_wallet.org.org_name
+        return '?'
+
     def __str__(self):
-        return f"{self.type} {self.amount} - {self.wallet.user.username}"
+        return f"{self.type} {self.amount} - {self.owner_name}"
 
 
 class WithdrawalRequest(models.Model):

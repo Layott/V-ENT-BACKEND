@@ -6,6 +6,8 @@ from . import views_admin_events as admin_events
 
 
 from .views_rankings import games_list
+from . import views_wallets_shared
+from . import views_admin_orgs
 from .views_follow import follow, followers, following
 from .views_user_activity import user_tournaments, user_events
 from .views_twofactor import (
@@ -32,6 +34,26 @@ from . import views_cards as cards
 from . import views_feedback
 
 urlpatterns = [
+    # Organisations and communities in the console. Two of the ten sections
+    # the admin spec asks for; the rest are either already built or waiting on
+    # a feature that does not exist yet.
+    path("admin/organizations/", views_admin_orgs.admin_organizations,
+         name="admin_organizations"),
+    path("admin/organizations/<str:org_ref>/",
+         views_admin_orgs.admin_organization_detail,
+         name="admin_organization_detail"),
+    path("admin/transfer-funds/", views_admin_orgs.admin_transfer_funds,
+         name="admin_transfer_funds"),
+    path("admin/communities/", views_admin_orgs.admin_communities,
+         name="admin_communities"),
+
+    # A team's money and an organisation's money. One shape each: GET reads
+    # the balance and the statement, POST sends or sets the PIN.
+    path("team/<str:team_ref>/wallet/", views_wallets_shared.team_wallet,
+         name="team_wallet"),
+    path("organization/<str:org_ref>/wallet/", views_wallets_shared.org_wallet,
+         name="org_wallet"),
+
     # Somewhere to say what is wrong. Open to anybody: the wall somebody hit is
     # sometimes the sign-in page itself.
     path("feedback/", views_feedback.feedback, name="feedback"),
