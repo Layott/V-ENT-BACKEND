@@ -87,6 +87,7 @@ def _row(org):
         # account does not.
         'is_premium': org.is_premium,
         'premium_note': org.premium_note,
+        'premium_until': org.premium_until,
     }
 
 

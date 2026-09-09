@@ -1435,6 +1435,16 @@ DEFAULT_ADMIN_SETTINGS = {
         'wager_enabled': False,
         'referral_program_enabled': False,
     },
+    'premium': {
+        # What V-ENT premium costs, per month and per year, in VENT COINS.
+        #
+        # ZERO MEANS NOT ON SALE, and it is the default, because the pricing is
+        # still open. It does not mean free. With no price the offer page still
+        # has a working control and pressing it records that somebody wants it,
+        # so nobody is ever told to go and find a member of staff.
+        'price_vc_monthly': 0,
+        'price_vc_yearly': 0,
+    },
     'banner': {
         'enabled': False,
         'title': '',
@@ -2562,3 +2572,89 @@ class PayoutAddress(models.Model):
 # other model in this app.
 from .models_discord import (DiscordAction, DiscordServer,   # noqa: E402,F401
                              DiscordWebhook)
+
+
+class PremiumPurchase(models.Model):
+    """One payment for premium, by somebody who bought it themselves.
+
+    Written by `premium_sale.buy` and by nothing else. It is the record of what
+    was charged and what it bought, kept separately from the flag it sets for
+    the same reason the marketplace keeps `Purchase` beside the wallet: the flag
+    says what is true now, and this says what was paid to make it true.
+
+    Exactly one of `user` and `org` is set. The BUYER is always a person, even
+    when what they bought is an organisation's premium, because an organisation
+    has no wallet of its own to charge and somebody has to be accountable for
+    the spend.
+    """
+
+    purchase_id = models.AutoField(primary_key=True)
+
+    buyer = models.ForeignKey('Users', on_delete=models.CASCADE,
+                              related_name='premium_purchases')
+    user = models.ForeignKey('Users', on_delete=models.CASCADE, null=True,
+                             blank=True, related_name='premium_bought_for')
+    org = models.ForeignKey('Organization', on_delete=models.CASCADE, null=True,
+                            blank=True, related_name='premium_purchases')
+
+    #: What was actually charged, in VENT COINS, stamped here rather than read
+    #: back from the settings row. A price change next month must never rewrite
+    #: what somebody paid last month, which is the same rule the ticketing fee
+    #: and the marketplace commission both follow.
+    coins = models.IntegerField()
+    months = models.PositiveSmallIntegerField(default=1)
+
+    #: Where the period landed. Both ends, because "one month from when" is a
+    #: question a receipt has to answer without recomputing anything.
+    period_start = models.DateTimeField()
+    period_end = models.DateTimeField()
+
+    transaction = models.ForeignKey('Transaction', on_delete=models.SET_NULL,
+                                    null=True, blank=True,
+                                    related_name='premium_purchases')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['buyer', '-created_at']),
+            models.Index(fields=['period_end']),
+        ]
+
+    def __str__(self):
+        who = self.org.org_name if self.org_id else (
+            self.user.username if self.user_id else '?')
+        return 'Premium %s months for %s' % (self.months, who)
+
+
+class PremiumInterest(models.Model):
+    """Somebody pressed the button while premium was not on sale.
+
+    The alternative to this row is the sentence the CEO objected to on
+    10 September: "Ask a V-ENT admin to turn premium on for this account". A
+    refusal that names a person to go and find is not a path, it is a dead end
+    with instructions.
+
+    So when there is no price set, the offer page still has a control, it still
+    does something, and what it does is recorded here where the console can
+    read it. One row per account: pressing twice is the same person still
+    wanting it, not two of them.
+    """
+
+    interest_id = models.AutoField(primary_key=True)
+    user = models.OneToOneField('Users', on_delete=models.CASCADE,
+                                related_name='premium_interest')
+
+    #: Which refusal they came from, so the console can see WHICH feature is
+    #: the one people are hitting. A count with no cause cannot be acted on.
+    surface = models.CharField(max_length=60, blank=True, default='')
+    times = models.PositiveIntegerField(default=1)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-last_at']
+
+    def __str__(self):
+        return 'Wants premium: %s' % self.user.username

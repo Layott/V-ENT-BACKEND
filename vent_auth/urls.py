@@ -36,6 +36,7 @@ from . import views_linking as linking
 from . import views_cards as cards
 
 from . import views_feedback
+from . import views_premium
 
 urlpatterns = [
     # Organisations and communities in the console. Two of the ten sections
@@ -160,6 +161,13 @@ urlpatterns = [
     # somebody, and it should not travel with it.
     path("admin/users/<str:user_id>/premium/", admin_set_premium,
          name="admin_set_premium"),
+
+    # Premium, bought rather than asked for. The offer is open to everybody
+    # because a price behind a login is a price nobody finds.
+    path("premium/offer/", views_premium.premium_offer, name="premium_offer"),
+    path("premium/buy/", views_premium.premium_buy, name="premium_buy"),
+    path("premium/interest/", views_premium.premium_interest,
+         name="premium_interest"),
     path("admin/users/<str:user_id>/delete/", admin_delete_user, name="admin_delete_user"),
     path("admin/users/<str:user_id>/reset-password/", admin_reset_password,
          name="admin_reset_password"),

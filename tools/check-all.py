@@ -203,6 +203,18 @@ CATCHERS = [
      'a dev build directory nobody is serving is deleted',
      FRONTEND, ['node', 'scripts/check-stale-builds.mjs'], False),
 
+    # The guard that stops a production build while a dev server is serving the
+    # same tree, which gutted node_modules/next twice on 10 September.
+    #
+    # Its SELF-TEST runs here, not the guard itself. The guard lives in
+    # `prebuild`, where it fires on every `pnpm build` without anybody
+    # remembering it, and running it here would fail every check-all done with
+    # a dev server up, which is the normal way to work. So what this holds is
+    # that the guard still works, which is the part that can rot.
+    ('build guard',
+     'a build refuses to run while a dev server is on this tree',
+     FRONTEND, ['node', 'scripts/check-before-build.mjs', '--self-test'], True),
+
     # A page that can show "Loading..." for ever.
     #
     # Fourth occurrence of one fault: three admin pages in August with a bare

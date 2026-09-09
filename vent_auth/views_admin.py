@@ -254,6 +254,12 @@ def admin_list_users(request):
     # 'suspended' not tracked - ignore.
     elif status_filter == 'premium':
         qs = qs.filter(is_premium=True)
+    elif status_filter == 'wants_premium':
+        # Everybody who pressed "I want premium" while there was no price. The
+        # list exists because the alternative to it was a refusal that told
+        # people to go and find a member of staff, and a request with nowhere
+        # to land is a request nobody hears.
+        qs = qs.filter(premium_interest__isnull=False)
 
     ordering_map = {
         '-date_joined': '-date_joined',
@@ -284,6 +290,10 @@ def admin_list_users(request):
             # account at a time cannot answer "who is on premium", which is the
             # first question anybody with a revenue number asks.
             'is_premium': u.is_premium,
+            # How many times they have asked, and where from. Only ever set on
+            # somebody who pressed the button, so it is absent for everybody
+            # else rather than a zero on every row.
+            'wants_premium': _wants_premium(u),
         }
         for u in users
     ]
@@ -292,6 +302,18 @@ def admin_list_users(request):
         'status': 'success',
         'data': {'results': results, 'count': total, 'page': page, 'page_size': page_size},
     }, status=status.HTTP_200_OK)
+
+
+def _wants_premium(user):
+    """What this account has asked for, or None.
+
+    A dict rather than a count, because "asked four times from the prize plan"
+    is a different thing to act on than "asked once".
+    """
+    row = getattr(user, 'premium_interest', None)
+    if row is None:
+        return None
+    return {'times': row.times, 'surface': row.surface, 'last_at': row.last_at}
 
 
 def _person_for_admin(request, user):
@@ -375,6 +397,10 @@ def admin_get_user(request, user_id):
         'kyc_status': _user_kyc_status(user),
         'is_premium': user.is_premium,
         'premium_note': user.premium_note,
+        # NULL when an admin granted it, a date when it was bought. The console
+        # shows the difference, because "premium for ever" and "premium until
+        # the 9th of October" are not the same account to look at.
+        'premium_until': user.premium_until,
     }
 
     # logins - no login-history model yet; synthesize a single stub row from

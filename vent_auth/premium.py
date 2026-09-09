@@ -65,8 +65,34 @@ class PremiumMixin(models.Model):
     #: takes an afternoon.
     premium_note = models.CharField(max_length=200, blank=True, default='')
 
+    #: When it runs out, or NULL for premium that does not.
+    #:
+    #: An admin grant has no end date, because "granted for the Rivalry season"
+    #: is a sentence somebody wrote and not a date anything can enforce. A
+    #: PURCHASE has one, and `premium_sale.expire_due()` is what turns the flag
+    #: off when it passes.
+    #:
+    #: Deliberately not a second boolean: "is it on" and "until when" are one
+    #: fact, and two columns that can disagree is how an account ends up
+    #: premium with an expiry in the past.
+    premium_until = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         abstract = True
+
+    def premium_has_lapsed(self, now=None):
+        """Whether this holder's premium is on but past its end date.
+
+        Read by `expire_due` and by anything that wants to be right between
+        cron runs. `has_premium` deliberately does NOT call it: a nightly sweep
+        that has not run yet must not make a paid account's features flicker
+        off mid-session, and being a few hours generous to somebody who paid is
+        the right direction to be wrong in.
+        """
+        from django.utils import timezone
+        if not self.is_premium or self.premium_until is None:
+            return False
+        return self.premium_until <= (now or timezone.now())
 
 
 def _owner_and_org(obj):
