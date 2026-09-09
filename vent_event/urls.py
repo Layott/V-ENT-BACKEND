@@ -2,6 +2,7 @@ from django.urls import path
 from django.conf import settings
 from django.conf.urls.static import static
 
+from . import views_delete
 from . import views_guest, views_recovery
 from vent_tournament import views_overlays as overlay_views
 from vent_tournament import views_overlay_feed as overlay_feed_views
@@ -70,6 +71,11 @@ urlpatterns = [
     path("vendor/<str:vendor_id>/orders/", vendor_orders, name="vendor_orders"),
     path("vendor/order/<str:code>/collect/", collect_order, name="collect_vendor_order"),
     path("vendor-orders/", my_vendor_orders, name="my_vendor_orders"),
+
+    # Deleting an event, which had no path at all, and putting it back. Same
+    # rules and the same refusals as the tournament twin.
+    path("<str:event_id>/delete/", views_delete.delete_event, name="delete_event"),
+    path("<str:event_id>/restore/", views_delete.restore_event, name="restore_event"),
 
     # Running a stall. Nothing on the site called ANY of the vendor endpoints
     # until now: somebody who bought a pitch got a stall they could not stock.

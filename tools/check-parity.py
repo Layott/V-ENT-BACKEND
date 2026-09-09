@@ -77,6 +77,41 @@ def present(text, pattern):
 # A probe is (path relative to its repo, regex).
 PAIRS = [
     (
+        'a soft delete endpoint',
+        'The organiser can remove it and an admin can put it back.',
+        'event', (BACKEND, 'vent_event/views_delete.py', r'def delete_event'),
+        'tournament', (BACKEND, 'vent_tournament/views_delete.py',
+                       r'def delete_tournament'),
+    ),
+    (
+        'an admin restore endpoint',
+        'A delete with no restore is a delete, whatever it is called.',
+        'event', (BACKEND, 'vent_event/views_delete.py', r'def restore_event'),
+        'tournament', (BACKEND, 'vent_tournament/views_delete.py',
+                       r'def restore_tournament'),
+    ),
+    (
+        'soft delete is tested',
+        'The refusals are the whole feature: paid seats and a second ask.',
+        'event', (BACKEND, 'vent_event/tests_soft_delete.py', r'PAID_ENTRANTS'),
+        'tournament', (BACKEND, 'vent_tournament/tests_soft_delete.py',
+                       r'PAID_ENTRANTS'),
+    ),
+    (
+        'deleted has a bucket in the admin console',
+        'A row belonging to no tab has vanished, not been filtered.',
+        'event', (FRONTEND, 'src/app/(admin)/admin/events/page.js', r"'deleted'"),
+        'tournament', (FRONTEND, 'src/app/(admin)/admin/tournaments/page.js',
+                       r"'deleted'"),
+    ),
+    (
+        'the organiser can delete from their own list',
+        'An endpoint with no control is the same as no feature.',
+        'event', (FRONTEND, 'src/app/events/my-events/page.js', r'/delete/'),
+        'tournament', (FRONTEND, 'src/app/tournaments/my-tournaments/page.js',
+                       r'/delete/'),
+    ),
+    (
         'short links',
         'A long address is worth shortening whatever it points at.',
         'event', (BACKEND, 'vent_event/urls.py', r'short-links'),

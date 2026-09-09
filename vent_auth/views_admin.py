@@ -20,6 +20,7 @@ from .models import (
     Users, Waitlist, UserWallet, UserProfile,
     Transaction, WithdrawalRequest, KYCDocument, AdminAction, AdminTOTP,
 )
+from . import softdelete
 from . import totp as totp_lib
 from .views_helpers import send_email, generate_session_token
 from .views_kyc_files import kyc_document_url
@@ -649,6 +650,10 @@ def _tournament_status(t, now):
     derived, because the dates are the truth about a tournament that is
     running.
     """
+    # Deleted is read before anything else, because a deleted tournament shown
+    # as "completed" in the bin is a row nobody can interpret.
+    if getattr(t, 'deleted_at', None) is not None:
+        return 'deleted'
     if getattr(t, 'status', None) == 'cancelled':
         return 'cancelled'
     if t.is_draft:
@@ -673,8 +678,15 @@ def admin_list_tournaments(request):
 
     now = timezone.now()
 
+    # A deleted tournament is invisible to `Tournament.objects` by design, so
+    # the admin bin has to ask the unfiltered manager. Without this the deleted
+    # ones would not merely be filtered out of a tab, they would be unreachable
+    # from the console entirely, which is the same shape as the fault where
+    # three cancelled tournaments belonged to no tab and vanished.
+    deleted_only = request.GET.get('status') == 'deleted'
+    base = Tournament.deleted_objects if deleted_only else Tournament.objects
     qs = (
-        Tournament.objects
+        base
         .select_related('tournament_creator', 'tournament_game')
         .annotate(_participants=Count('registrations', distinct=True),
                   _prize=Sum('prize_distributions__prize'))
@@ -699,6 +711,10 @@ def admin_list_tournaments(request):
         # a cancelled tournament could only be found by looking in the tab it
         # did not belong to.
         qs = qs.filter(status='cancelled')
+    elif status_filter == 'deleted':
+        # Already narrowed by the manager above; the branch is here so the
+        # filter is not read as an unknown value and silently ignored.
+        pass
 
     ordering_map = {
         '-created_at': '-start_date_and_time',
@@ -727,6 +743,7 @@ def admin_list_tournaments(request):
             'participants_count': t._participants or 0,
             'prize_pool': float(t._prize) if t._prize is not None else 0,
             'created_at': t.start_date_and_time,
+            **softdelete.deletion_row(t),
         }
         for t in rows
     ]
@@ -1565,6 +1582,8 @@ def add_email_to_waitlist(request):
 
 def _event_status(e, now):
     """What an event is doing right now, in the console's vocabulary."""
+    if getattr(e, 'deleted_at', None) is not None:
+        return 'deleted'
     if not e.is_active:
         return 'cancelled'
     if e.start_date and now < e.start_date:
@@ -1589,8 +1608,10 @@ def admin_list_events(request):
 
     now = timezone.now()
 
+    deleted_only = request.GET.get('status') == 'deleted'
+    base = Event.deleted_objects if deleted_only else Event.objects
     qs = (
-        Event.objects
+        base
         .select_related('creator', 'game')
         .annotate(_tickets=Count('tickets', distinct=True))
     )
@@ -1608,6 +1629,8 @@ def admin_list_events(request):
         qs = qs.filter(is_active=True, end_date__lt=now)
     elif status_filter == 'cancelled':
         qs = qs.filter(is_active=False)
+    elif status_filter == 'deleted':
+        pass
 
     ordering_map = {
         '-created_at': '-created_at',
@@ -1637,6 +1660,9 @@ def admin_list_events(request):
             'capacity': e.capacity,
             'start_date': e.start_date,
             'created_at': e.created_at,
+            # Present on every row, not only in the deleted tab, so a row that
+            # should not be here is visible wherever it turns up.
+            **softdelete.deletion_row(e),
         }
         for e in rows
     ]

@@ -198,6 +198,11 @@ class EditEverythingTests(TestCase):
             # The 22 organiser settings, which have their own endpoint and
             # their own per-key validation.
             'options',
+            # Deleting is an action with its own endpoint, its own refusal
+            # when seats are sold, and its own restore. An edit form that
+            # could set these would let a tournament be deleted by accident
+            # while somebody was changing its start time.
+            'deleted_at', 'deleted_by', 'deleted_reason',
         }
         editable_here = {
             'tournament_title', 'tournament_description', 'tournament_rules',

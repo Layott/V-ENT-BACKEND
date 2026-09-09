@@ -37,6 +37,14 @@ class Command(BaseCommand):
                             help='Stop after this many subscriptions.')
 
     def handle(self, *args, **options):
+        # The switch guards the scheduler too. Gating only the endpoints would
+        # leave the one path that moves money on its own still running, which
+        # is the half of "billing is off" that actually costs somebody.
+        from vent_billing import switch
+        if not switch.billing_is_on():
+            self.stdout.write('BILLING_ENABLED is off. Nothing was charged.')
+            return
+
         at = timezone.now()
         if options.get('now'):
             at = clock.parse_moment(options['now'])

@@ -12,6 +12,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 from . import views_formats
+from . import views_delete
 from . import views_standings as standings_views
 from vent_event import views_short_links as short_link_views
 from . import views_running_order
@@ -144,6 +145,13 @@ urlpatterns = [
     path("update-bracket/<str:tournament_id>/", update_bracket, name="update_bracket"),
     path("get-organizer-tournaments/", get_organizer_tournaments, name="get_organizer_tournaments"),
     path("delete-draft/<str:tournament_id>/", delete_draft, name="delete_draft"),
+    # Deleting a published tournament, which nothing could do: the only path
+    # was `delete-draft/`, which refuses anything published and destroyed the
+    # row outright. This one is reversible and an admin can restore it.
+    path("<str:tournament_id>/delete/", views_delete.delete_tournament,
+         name="delete_tournament"),
+    path("<str:tournament_id>/restore/", views_delete.restore_tournament,
+         name="restore_tournament"),
     path("edit-tournament/<str:tournament_id>/", edit_tournament, name="edit_tournament"),
 
     # --- M1 lifecycle endpoints ------------------------------------------

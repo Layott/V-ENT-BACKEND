@@ -71,6 +71,14 @@ CANCELLED_BY_ORGANISER = 'cancelled_by_organiser'
 REFUNDED = 'refunded'
 PERIOD_ENDED = 'period_ended'
 PLAN_CHANGED = 'plan_changed'
+# Undoing a cancellation. Three reasons rather than one, because a resume lands
+# back where it came FROM: somebody who cancelled mid-trial gets their trial
+# back, and somebody who cancelled while a payment was failing is still failing
+# it. `resume()` used to write `state = ACTIVE` by hand, which gave a trial
+# away as a paid period and gave a past_due account access nobody had paid for.
+RESUMED_TO_TRIAL = 'resumed_to_trial'
+RESUMED_TO_ACTIVE = 'resumed_to_active'
+RESUMED_TO_PAST_DUE = 'resumed_to_past_due'
 
 #: reason -> (states it may be applied from, the state it moves to)
 #:
@@ -90,6 +98,16 @@ TRANSITIONS = {
     # holds it: "why is this person on a different plan than last month" is a
     # question somebody asks, and an unrecorded change cannot answer it.
     PLAN_CHANGED: ((TRIALING, ACTIVE, PAST_DUE), None),
+    RESUMED_TO_TRIAL: ((CANCELLED,), TRIALING),
+    RESUMED_TO_ACTIVE: ((CANCELLED,), ACTIVE),
+    RESUMED_TO_PAST_DUE: ((CANCELLED,), PAST_DUE),
+}
+
+#: Where a resume goes back to, by the state it was cancelled from.
+RESUME_REASON = {
+    TRIALING: RESUMED_TO_TRIAL,
+    ACTIVE: RESUMED_TO_ACTIVE,
+    PAST_DUE: RESUMED_TO_PAST_DUE,
 }
 
 #: States that let somebody through the door, subject to the dates. Never used

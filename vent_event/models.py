@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 
 from django.db import models
 from vent_auth.models import Users, Games, Teams, Organization
+from vent_auth.softdelete import DeletedManager, LiveManager
 from django.utils import timezone
 
 
@@ -188,6 +189,28 @@ class Event(models.Model):
             return None, None
         opens = started - timedelta(minutes=self.self_check_in_opens_minutes or 0)
         return opens, (self.ends_at() or started + timedelta(hours=6))
+
+    # ------------------------------------------------------- soft delete
+    #
+    # An organiser deletes an event and it leaves every listing, every search
+    # and its own address. The row stays, so tickets already sold still resolve
+    # and an admin can put it back. See `vent_auth/softdelete.py`.
+    deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    deleted_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='+')
+    deleted_reason = models.CharField(max_length=200, blank=True, default='')
+
+    # `objects` cannot see a deleted event, which is what makes this hold at
+    # all 62 places that query one. `all_objects` is for the admin console and
+    # the restore path, and `base_manager_name` keeps FK traversal working so a
+    # ticket can still reach the event it was sold for.
+    objects = LiveManager()
+    all_objects = models.Manager()
+    deleted_objects = DeletedManager()
+
+    class Meta:
+        base_manager_name = 'all_objects'
 
     def __str__(self):
         return self.name

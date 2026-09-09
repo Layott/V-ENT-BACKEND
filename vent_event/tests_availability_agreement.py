@@ -277,6 +277,9 @@ class EverythingSetAtCreationCanBeChangedTests(TestCase):
             # what the wizard and the console both write; editing these as
             # well would give one event two answers about when it happens.
             'event_date', 'start_time', 'end_time',
+            # Deleting has its own endpoint, its own refusal when tickets are
+            # sold, and its own admin restore. Never a field on the edit form.
+            'deleted_at', 'deleted_by', 'deleted_reason',
         }
 
         columns = {f.name for f in EventModel._meta.get_fields()

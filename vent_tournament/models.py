@@ -1,6 +1,7 @@
 from django.db import models
 from django.utils import timezone
 from vent_auth.models import Users, Games, Teams, Organization
+from vent_auth.softdelete import DeletedManager, LiveManager
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 
@@ -185,6 +186,25 @@ class Tournament(models.Model):
     # no-shows were forfeited would change a roster the organiser had already
     # signed off.
     check_in_closed_at = models.DateTimeField(null=True, blank=True)
+
+    # ------------------------------------------------------- soft delete
+    #
+    # The same three columns and the same managers as Event, because an
+    # organiser deleting a tournament and an organiser deleting an event is one
+    # job wearing two names, and building it on one side is the fault this repo
+    # repeats most often. See `vent_auth/softdelete.py`.
+    deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    deleted_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='+')
+    deleted_reason = models.CharField(max_length=200, blank=True, default='')
+
+    objects = LiveManager()
+    all_objects = models.Manager()
+    deleted_objects = DeletedManager()
+
+    class Meta:
+        base_manager_name = 'all_objects'
 
     def __str__(self):
         return self.tournament_title
