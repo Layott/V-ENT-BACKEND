@@ -8,7 +8,7 @@ is the permission, and the way that stops being true is a test nobody wrote.
 """
 from datetime import timedelta
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -591,3 +591,68 @@ class SubscriberScreenTests(TestCase):
         self.assertEqual(res.data['code'], 'INSUFFICIENT_FUNDS')
         self.assertEqual(res.data['data']['price_vc'], 5)
         self.assertEqual(res.data['data']['price_ngn'], 5000)
+
+
+class BillingSwitchTests(TestCase):
+    """Gate D2: whether billing is on is a DECISION.
+
+    It shipped with no switch at all and went live because it deployed.
+    Nothing was charged only because production carries no Paystack key and
+    nothing schedules the renewal run, which are two accidents standing in for
+    a decision. Either could be undone by somebody fixing an unrelated thing.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.organiser, self.org_auth = a_user('sw_org')
+        self.member, self.auth = a_user('sw_member', coins=100)
+        self.plan = a_plan(self.organiser, price_vc=5)
+
+    def test_on_by_default_which_is_what_production_does_today(self):
+        res = self.client.get('/billing/plans/public/')
+        self.assertEqual(res.status_code, 200, res.content)
+
+    @override_settings(BILLING_ENABLED=False)
+    def test_off_refuses_reading(self):
+        res = self.client.get('/billing/plans/public/')
+        self.assertEqual(res.status_code, 503, res.content)
+        self.assertEqual(res.json()['code'], 'BILLING_OFF')
+
+    @override_settings(BILLING_ENABLED=False)
+    def test_off_refuses_subscribing(self):
+        res = self.client.post('/billing/plan/%s/subscribe/' % self.plan.slug,
+                               {}, format='json', **self.auth)
+        self.assertEqual(res.status_code, 503, res.content)
+        self.assertEqual(res.json()['code'], 'BILLING_OFF')
+
+    @override_settings(BILLING_ENABLED=False)
+    def test_every_billing_route_refuses_while_it_is_off(self):
+        """One wrapper at the urlconf, so a route added later is gated by
+        being a route rather than by somebody remembering."""
+        from vent_billing import urls as billing_urls
+        # `billing_gated`, not `__wrapped__`. DRF's own `@api_view` sets
+        # `__wrapped__` on every view in this app, so the first version of this
+        # test passed with a route deliberately left open.
+        opened = [str(route.pattern) for route in billing_urls.urlpatterns
+                  if not getattr(route.callback, 'billing_gated', False)]
+        self.assertEqual(opened, [],
+                         'these billing routes are not behind the switch: %s' % opened)
+
+    @override_settings(BILLING_ENABLED=False)
+    def test_off_stops_the_renewal_run_too(self):
+        """Gating only the endpoints would leave the one path that moves money
+        on its own still running."""
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command('run_renewals', stdout=out)
+        self.assertIn('off', out.getvalue().lower())
+
+    @override_settings(BILLING_ENABLED=False)
+    def test_turning_it_off_writes_nothing(self):
+        """Somebody's membership must not vanish because a switch moved."""
+        sub, _invoice = lifecycle.subscribe(self.member, self.plan)
+        before = (sub.state, sub.period_end)
+        self.client.get('/billing/subscriptions/', **self.auth)
+        sub.refresh_from_db()
+        self.assertEqual((sub.state, sub.period_end), before)

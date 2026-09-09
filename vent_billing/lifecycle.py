@@ -159,14 +159,31 @@ def resume(subscription, *, actor=None, at=None):
     if at >= subscription.period_end:
         raise SubscribeError('PERIOD_OVER')
 
+    # Back to the state it was cancelled FROM, not to active.
+    #
+    # This used to write `state = ACTIVE` by hand, which did two things wrong.
+    # It bypassed `states.move`, the only writer of `state` and the thing that
+    # makes the history complete rather than mostly complete. And it landed
+    # everybody on active: somebody who cancelled three days into a trial got a
+    # paid period they had not paid for, and somebody who cancelled while a
+    # charge was failing came back with full access and a failed payment.
+    #
+    # The history already knows where they were. The cancelling event carries
+    # it, so it is read rather than stored a second time.
+    from .models import SubscriptionEvent
+    cancelled_from = (
+        SubscriptionEvent.objects
+        .filter(subscription=subscription, to_state=states.CANCELLED)
+        .order_by('-at', '-pk')
+        .values_list('from_state', flat=True)
+        .first()
+    )
+    reason = states.RESUME_REASON.get(cancelled_from, states.RESUMED_TO_ACTIVE)
+
     subscription.cancel_at_period_end = False
     subscription.cancelled_at = None
-    subscription.state = states.ACTIVE
-    subscription.save(update_fields=['cancel_at_period_end', 'cancelled_at', 'state'])
-    from .models import SubscriptionEvent
-    SubscriptionEvent.objects.create(
-        subscription=subscription, from_state=states.CANCELLED,
-        to_state=states.ACTIVE, reason='resumed', actor=actor, at=at)
+    subscription.save(update_fields=['cancel_at_period_end', 'cancelled_at'])
+    states.move(subscription, reason, actor=actor, at=at)
     return subscription
 
 

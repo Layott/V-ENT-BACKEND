@@ -37,6 +37,18 @@ DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
+# Whether subscriptions are open, as a decision rather than an accident.
+#
+# `vent_billing` shipped on 8 September with no switch and went live because it
+# deployed. Nothing was charged only because production carries no Paystack key
+# and nothing schedules the renewal run, which are two accidents standing in
+# for a decision. See `vent_billing/switch.py`.
+#
+# Default '1', which is exactly what production does today. Set to '0' and
+# every billing endpoint answers BILLING_OFF and the renewal command refuses to
+# run. Nothing is written either way, so it can be turned back on unchanged.
+BILLING_ENABLED = os.environ.get('BILLING_ENABLED', '1') == '1'
+
 # Fail loudly rather than booting production on a missing/dev key.
 if not DEBUG and (not SECRET_KEY or SECRET_KEY.startswith('django-insecure-')):
     raise ImproperlyConfigured(

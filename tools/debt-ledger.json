@@ -94,6 +94,11 @@
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
+  "pnpm store": {
+    "count": 0,
+    "first_seen": "2026-09-09",
+    "since": "2026-09-09"
+  },
   "prose": {
     "count": 0,
     "first_seen": "2026-09-07",
@@ -118,6 +123,11 @@
     "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
+  },
+  "spinner for ever": {
+    "count": 42,
+    "first_seen": "2026-09-09",
+    "since": "2026-09-09"
   },
   "stale builds": {
     "count": 0,

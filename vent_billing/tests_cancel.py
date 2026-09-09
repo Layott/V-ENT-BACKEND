@@ -147,3 +147,132 @@ class OrganiserEndingTests(TestCase):
         res = self.client.post('/billing/subscription/%s/end/' % self.sub.token,
                                {}, format='json', **other_auth)
         self.assertEqual(res.status_code, 403)
+
+
+class CancelFromTrialAndPastDueTests(TestCase):
+    """Gate D1: the state machine proven from `trialing` and from `past_due`.
+
+    Every test above starts from `active`, which is the state where nothing
+    surprising happens. The two that matter are the ones where cancelling and
+    then changing your mind could quietly hand somebody something:
+
+    * cancel during a TRIAL and resume, and the trial must still be a trial. It
+      used to come back as `active`, which is a paid period nobody paid for.
+    * cancel while a charge is FAILING and resume, and it must still be failing.
+      It used to come back as `active`, which is access on an unpaid invoice.
+
+    Both were one line: `resume()` wrote `state = ACTIVE` by hand, bypassing the
+    state machine that is meant to be the only writer of `state`.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.organiser, self.org_auth = a_user('td_org')
+        self.member, self.auth = a_user('td_member', coins=100)
+
+    # ------------------------------------------------------------- trialing
+
+    def a_trial(self):
+        plan = a_plan(self.organiser, price_vc=5, trial_days=14)
+        sub, _invoice = lifecycle.subscribe(self.member, plan)
+        self.assertEqual(sub.state, states.TRIALING)
+        return sub
+
+    def test_cancelling_during_a_trial_is_allowed(self):
+        sub = self.a_trial()
+        res = self.client.post('/billing/subscription/%s/cancel/' % sub.token,
+                               {}, format='json', **self.auth)
+        self.assertEqual(res.status_code, 200, res.content)
+        sub.refresh_from_db()
+        self.assertEqual(sub.state, states.CANCELLED)
+        self.assertTrue(sub.cancel_at_period_end)
+
+    def test_a_cancelled_trial_keeps_the_trial_to_its_end(self):
+        """The trial is time somebody was given. Cancelling declines the charge
+        at the end of it, and takes nothing back."""
+        sub = self.a_trial()
+        ends = sub.period_end
+        lifecycle.cancel(sub, actor=self.member)
+        sub.refresh_from_db()
+        self.assertEqual(sub.period_end, ends)
+        self.assertTrue(sub.has_access)
+
+    def test_resuming_a_cancelled_trial_is_still_a_trial(self):
+        sub = self.a_trial()
+        lifecycle.cancel(sub, actor=self.member)
+        lifecycle.resume(sub, actor=self.member)
+        sub.refresh_from_db()
+        self.assertEqual(sub.state, states.TRIALING)
+        self.assertFalse(sub.cancel_at_period_end)
+
+    def test_the_resume_is_recorded_as_going_back_to_the_trial(self):
+        sub = self.a_trial()
+        lifecycle.cancel(sub, actor=self.member)
+        lifecycle.resume(sub, actor=self.member)
+        last = sub.events.order_by('-at', '-pk').first()
+        self.assertEqual(last.reason, states.RESUMED_TO_TRIAL)
+        self.assertEqual(last.from_state, states.CANCELLED)
+        self.assertEqual(last.to_state, states.TRIALING)
+
+    # ------------------------------------------------------------- past_due
+
+    def a_failing_one(self):
+        plan = a_plan(self.organiser, price_vc=5)
+        sub, _invoice = lifecycle.subscribe(self.member, plan)
+        states.move(sub, states.CHARGE_FAILED, note='no coins')
+        sub.refresh_from_db()
+        self.assertEqual(sub.state, states.PAST_DUE)
+        return sub
+
+    def test_cancelling_while_a_payment_is_failing_is_allowed(self):
+        """Somebody whose card is failing is exactly who wants out, and making
+        them settle an invoice first to escape a subscription is a trap."""
+        sub = self.a_failing_one()
+        res = self.client.post('/billing/subscription/%s/cancel/' % sub.token,
+                               {}, format='json', **self.auth)
+        self.assertEqual(res.status_code, 200, res.content)
+        sub.refresh_from_db()
+        self.assertEqual(sub.state, states.CANCELLED)
+
+    def test_cancelling_while_failing_stops_the_retries(self):
+        """Otherwise dunning keeps trying to charge somebody who has left."""
+        sub = self.a_failing_one()
+        lifecycle.cancel(sub, actor=self.member)
+        sub.refresh_from_db()
+        self.assertIsNone(sub.next_attempt_at)
+
+    def test_resuming_from_past_due_does_not_grant_a_paid_period(self):
+        sub = self.a_failing_one()
+        lifecycle.cancel(sub, actor=self.member)
+        lifecycle.resume(sub, actor=self.member)
+        sub.refresh_from_db()
+        self.assertEqual(sub.state, states.PAST_DUE)
+
+    def test_the_resume_from_past_due_is_recorded_as_such(self):
+        sub = self.a_failing_one()
+        lifecycle.cancel(sub, actor=self.member)
+        lifecycle.resume(sub, actor=self.member)
+        last = sub.events.order_by('-at', '-pk').first()
+        self.assertEqual(last.reason, states.RESUMED_TO_PAST_DUE)
+        self.assertEqual(last.to_state, states.PAST_DUE)
+
+    # ------------------------------------------------- the ordinary case too
+
+    def test_resuming_from_active_still_lands_on_active(self):
+        plan = a_plan(self.organiser, price_vc=5)
+        sub, _invoice = lifecycle.subscribe(self.member, plan)
+        lifecycle.cancel(sub, actor=self.member)
+        lifecycle.resume(sub, actor=self.member)
+        sub.refresh_from_db()
+        self.assertEqual(sub.state, states.ACTIVE)
+
+    def test_every_state_change_went_through_the_machine(self):
+        """`states.move` is meant to be the only writer of `state`. `resume()`
+        wrote it by hand, so the history recorded a move to `active` that the
+        transition table would have refused."""
+        sub = self.a_trial()
+        lifecycle.cancel(sub, actor=self.member)
+        lifecycle.resume(sub, actor=self.member)
+        for event in sub.events.all():
+            self.assertIn(event.reason, states.TRANSITIONS,
+                          '%s is not a transition the table knows' % event.reason)
