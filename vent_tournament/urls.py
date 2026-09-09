@@ -33,6 +33,7 @@ from . import views_reminders
 from . import views_scheduled
 from . import views_requirements
 from . import views_stages
+from . import views_prizes
 from . import views_rules
 
 # Every tournament route takes `<str:tournament_id>` and resolves a slug or an
@@ -157,6 +158,11 @@ urlpatterns = [
     # --- M1 lifecycle endpoints ------------------------------------------
     path("<str:tournament_id>/generate-bracket/", generate_bracket, name="generate_bracket"),
     path("<str:tournament_id>/distribute-prizes/", distribute_prizes, name="distribute_prizes"),
+    # Who would be paid what, before anybody is, and paying it on a timer.
+    path("<str:tournament_id>/prizes/plan/", views_prizes.prize_plan,
+         name="prize_plan"),
+    path("<str:tournament_id>/prizes/schedule/", views_prizes.prize_schedule,
+         name="prize_schedule"),
     path("<str:tournament_id>/cancel/", cancel_tournament, name="cancel_tournament"),
     path("match/<int:match_id>/", match_detail, name="match_detail"),
     path("match/<int:match_id>/report-score/", report_match_score, name="report_match_score"),

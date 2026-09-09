@@ -70,6 +70,20 @@ def wallet_for_registration(registration, locked_map):
     return locked_map.get(user_id)
 
 
+def has_wallet(registration):
+    """Whether this entrant has a wallet to be paid into.
+
+    Asked before anybody is paid, by `prizes.plan`. The locked-map lookup above
+    cannot answer it: an empty map means "nothing locked yet", not "no wallet",
+    and reading it that way would have told an organiser every one of their
+    winners was unpayable.
+    """
+    user_id = _owner_user_id(registration)
+    if user_id is None:
+        return False
+    return UserWallet.objects.filter(user_id=user_id).exists()
+
+
 def credit(wallet, amount, *, tx_type, description, tournament=None, reference=None):
     """Credit `amount` (positive VC) to an already-locked wallet + write a Transaction."""
     if amount <= 0:

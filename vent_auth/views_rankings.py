@@ -18,12 +18,12 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from .models import Users, UserProfile, Teams, Organization, FavoriteGames
+from . import ranking_core
 from . import regions
-from vent_tournament.models import BracketMatch, TournamentRegistration
 
 
-WIN_POINTS = 10
-PLAYED_POINTS = 3
+WIN_POINTS = ranking_core.WIN_POINTS
+PLAYED_POINTS = ranking_core.PLAYED_POINTS
 
 
 def _session_user(request):
@@ -34,25 +34,6 @@ def _session_user(request):
     if not token:
         return None
     return Users.objects.filter(login_session_token=token).first()
-
-
-def _match_records(game=None):
-    """Return {registration_id: {'wins': n, 'played': n}} from completed matches."""
-    matches = BracketMatch.objects.filter(status='completed')
-    if game:
-        matches = matches.filter(tournament__tournament_game__game_title__iexact=game)
-
-    records = {}
-    # values_list keeps this to a single query - no model instances needed.
-    for p1, p2, winner in matches.values_list('participant_1_id', 'participant_2_id', 'winner_id'):
-        for reg_id in (p1, p2):
-            if not reg_id:
-                continue
-            rec = records.setdefault(reg_id, {'wins': 0, 'played': 0})
-            rec['played'] += 1
-            if winner == reg_id:
-                rec['wins'] += 1
-    return records
 
 
 def _org_logo(request, org):
@@ -105,7 +86,7 @@ def _row(entity_id, name, avatar, country, region, favorite_game, wins, played,
 
 
 def _rank(rows):
-    rows.sort(key=lambda r: (-r['points'], -r['wins'], r['name'] or ''))
+    rows.sort(key=ranking_core.sort_key)
     for i, r in enumerate(rows, start=1):
         r['rank'] = i
     return rows
@@ -160,42 +141,9 @@ def rankings(request):
         search = (request.GET.get('search') or '').strip()
 
         me = _session_user(request)
-        records = _match_records(game)
-
-        # Map registrations → their user / team so match records can be attributed.
-        regs = (
-            TournamentRegistration.objects
-            .filter(id__in=records.keys())
-            .select_related('user', 'team')
-        )
-        user_stats, team_stats = {}, {}
-        for reg in regs:
-            rec = records.get(reg.id, {'wins': 0, 'played': 0})
-            if reg.user_id:
-                agg = user_stats.setdefault(reg.user_id, {'wins': 0, 'played': 0})
-                agg['wins'] += rec['wins']
-                agg['played'] += rec['played']
-            if reg.team_id:
-                agg = team_stats.setdefault(reg.team_id, {'wins': 0, 'played': 0})
-                agg['wins'] += rec['wins']
-                agg['played'] += rec['played']
-            if reg.squad_id:
-                # A squad is assembled for one tournament and is not a club, so
-                # it earns no club ranking. Its PLAYERS did play those fixtures
-                # though, and before this they counted towards nothing at all:
-                # not the club, because a squad is not one, and not themselves,
-                # because `reg.user_id` is null. Four fixtures for Nigeria
-                # showed as zero.
-                #
-                # They are credited with the side's record, which is what this
-                # endpoint measures for a club's members too. A player's own
-                # per-seat record is a different question and lives in
-                # `league.player_table`.
-                for person in reg.people:
-                    agg = user_stats.setdefault(
-                        person.user_id, {'wins': 0, 'played': 0})
-                    agg['wins'] += rec['wins']
-                    agg['played'] += rec['played']
+        # One place works out who won what, because an entry requirement now
+        # asks the same question and two leaderboards would give two answers.
+        user_stats, team_stats = ranking_core.records_by_entity(game)
 
         # ---- players ----
         user_qs = Users.objects.all()
