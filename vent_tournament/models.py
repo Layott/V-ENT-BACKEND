@@ -922,6 +922,55 @@ class BracketGeneration(models.Model):
         return f"Bracket gen #{self.id} for {self.tournament.tournament_title}"
 
 
+class PrizeSchedule(models.Model):
+    """When a tournament pays its winners without being asked.
+
+    The spec: "automated prize distribution", with "a warning before coins
+    leave". Both halves are here, and the warning is the reason this is a row
+    rather than one column on `Tournament`: something has to remember that the
+    organiser was told, and when, so a payout can never be the first they hear
+    of it.
+
+    Nothing here decides WHO gets what. That is `services/prizes.plan`, the same
+    resolution the manual path uses, so an automatic payout cannot pay a
+    different list from the one the organiser approved.
+    """
+
+    STATES = (
+        ('scheduled', 'Waiting for its time'),
+        ('warned', 'The organiser has been told it is coming'),
+        ('paid', 'Paid'),
+        ('cancelled', 'Called off before it ran'),
+        ('failed', 'Tried and could not'),
+    )
+
+    tournament = models.OneToOneField(
+        Tournament, on_delete=models.CASCADE, related_name='prize_schedule')
+    run_at = models.DateTimeField()
+
+    # How long before `run_at` the organiser is told. Their own number, because
+    # an organiser who wants a day to check the standings and one who wants an
+    # hour are both right.
+    warn_hours = models.PositiveIntegerField(default=24)
+
+    state = models.CharField(max_length=20, choices=STATES, default='scheduled')
+    warned_at = models.DateTimeField(null=True, blank=True)
+    ran_at = models.DateTimeField(null=True, blank=True)
+    problem = models.CharField(max_length=80, blank=True, default='')
+
+    created_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='prize_schedules')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def warn_at(self):
+        from datetime import timedelta
+        return self.run_at - timedelta(hours=self.warn_hours or 0)
+
+    def __str__(self):
+        return '%s pays at %s (%s)' % (self.tournament_id, self.run_at, self.state)
+
+
 class PrizePayout(models.Model):
     """Audit + idempotency record for a single prize-position payout."""
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='prize_payouts')
@@ -987,6 +1036,47 @@ class TournamentStage(models.Model):
     # would silently change who was already sent through.
     advanced = models.JSONField(default=list, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+
+    # When and where this stage is played, which is not always when and where
+    # the tournament is. The spec asks for "bracket dates, times and location"
+    # separately from the tournament's own, and it asks because that is how
+    # events run: groups online on the Saturday, the playoff at a venue on the
+    # Sunday. A tournament had exactly one start, one end and one address.
+    #
+    # NULL and empty mean "the same as the tournament", which is what almost
+    # every stage wants and is why these are not required. `effective_when` and
+    # `effective_where` below are the one place that decision is made, so no
+    # screen can answer it differently.
+    starts_at = models.DateTimeField(null=True, blank=True)
+    ends_at = models.DateTimeField(null=True, blank=True)
+
+    PLACES = (
+        ('', 'Same as the tournament'),
+        ('online', 'Online'),
+        ('physical', 'At a venue'),
+        ('hybrid', 'Both'),
+    )
+    place_type = models.CharField(max_length=10, choices=PLACES, blank=True,
+                                  default='')
+    location = models.CharField(max_length=255, blank=True, default='')
+    virtual_link = models.URLField(max_length=400, blank=True, default='')
+
+    def effective_when(self):
+        """(starts_at, ends_at, is_its_own), falling back to the tournament."""
+        if self.starts_at or self.ends_at:
+            return (self.starts_at or self.tournament.start_date_and_time,
+                    self.ends_at or self.tournament.end_date_and_time,
+                    True)
+        return (self.tournament.start_date_and_time,
+                self.tournament.end_date_and_time, False)
+
+    def effective_where(self):
+        """(place_type, location, virtual_link, is_its_own)."""
+        if self.place_type:
+            return (self.place_type, self.location, self.virtual_link, True)
+        return (self.tournament.tournament_type or '',
+                self.tournament.tournament_location or '',
+                self.tournament.virtual_link or '', False)
 
     class Meta:
         ordering = ['order']

@@ -15,6 +15,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from vent_auth.actors import actor_from_request, may_override
+from vent_auth import premium
 
 import logging
 
@@ -49,6 +50,7 @@ def _row(requirement):
         'config': requirement.config or {},
         'required': requirement.required,
         'order': requirement.order,
+        'premium': bool(spec.get('premium')),
     }
 
 
@@ -83,6 +85,11 @@ def entry_requirements(request, tournament_id):
         'tournament': tournament.tournament_id,
         'requirements': rows,
         'catalogue': req.kind_catalogue(),
+        # Whether THIS tournament may use the paid kinds, so the composer can
+        # show them as locked instead of rendering a control that will be
+        # refused. The catalogue itself is the same for everybody: what is on
+        # offer should not be a secret from the people who might buy it.
+        'has_premium': premium.has_premium(tournament),
         # An empty list is the normal case and means open to everyone.
         'open_to_everyone': not rows,
     }, 'Entry requirements')
@@ -120,6 +127,16 @@ def set_entry_requirements(request, tournament_id):
     if len(set(kinds)) != len(kinds):
         return _err('The same requirement cannot be added twice.',
                     'VALIDATION_FAILED', field='requirements')
+
+    # Penalty points and ranking are the two the spec marks premium. Refused
+    # here rather than silently dropped: a requirement an organiser believes
+    # they set, and which never runs, admits exactly the people it was added to
+    # keep out.
+    wanted_premium = sorted(set(kinds) & req.PREMIUM_KINDS)
+    if wanted_premium and not premium.has_premium(tournament):
+        body = premium.refuse('entry_requirements_advanced')
+        body['data'] = dict(body['data'], kinds=wanted_premium)
+        return Response(body, status=status.HTTP_402_PAYMENT_REQUIRED)
 
     # Replaced wholesale, so the order on screen is the order stored. Anything
     # somebody already submitted against a requirement that survives is kept,

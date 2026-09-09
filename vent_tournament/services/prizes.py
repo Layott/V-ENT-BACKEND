@@ -3,6 +3,13 @@
 Credits VENT COINS to winners based on final placement. Atomic and idempotent:
 the (tournament, position) unique constraint on PrizePayout guarantees a position
 can never be paid twice, so re-running only fills gaps.
+
+`plan()` is the same resolution WITHOUT paying anybody, and it exists because
+the spec asks for a warning before coins leave. A confirmation that says "are
+you sure" warns nobody; one that lists four names, four amounts and a total is
+something an organiser can actually check. Both functions resolve the winners
+through the same code, so the list somebody approves is the list that gets
+paid.
 """
 from django.db import transaction
 
@@ -18,6 +25,70 @@ class PrizeError(Exception):
 
 # Cap enforced by spec (§6/§7): synchronous payout kept bounded.
 MAX_POSITIONS = 16
+
+
+def plan(tournament):
+    """Who would be paid what, and what is wrong with it. Writes nothing.
+
+    Returns {'rows': [...], 'total': n, 'already_paid': n, 'problems': [...]}.
+    A problem is a code, never a sentence: this is shown to an organiser who may
+    be reading in French.
+    """
+    from ..models import (PrizePayout, TournamentPrizeDistribution,
+                          TournamentRegistration)
+
+    problems = []
+    if tournament.status != 'completed' or tournament.completed_at is None:
+        problems.append('tournament_not_completed')
+    if tournament.prize_type == 'no_prize':
+        problems.append('no_prize_configured')
+
+    prize_rows = list(
+        TournamentPrizeDistribution.objects.filter(tournament=tournament)
+        .order_by('position')[:MAX_POSITIONS])
+    if not prize_rows:
+        problems.append('prize_distribution_missing')
+
+    paid = {p.position: p for p in PrizePayout.objects.filter(tournament=tournament)}
+
+    rows = []
+    total = 0
+    for row in prize_rows:
+        amount = int(row.prize)
+        reg = (TournamentRegistration.objects
+               .filter(tournament=tournament, final_position=row.position)
+               .select_related('user', 'team').first())
+        already = paid.get(row.position)
+        entry = {
+            'position': row.position,
+            'amount': amount,
+            'name': _participant_label(reg) if reg else '',
+            'registration_id': reg.id if reg else None,
+            'paid': already is not None,
+            'problem': None,
+        }
+        if already is not None:
+            rows.append(entry)
+            continue
+        if amount <= 0:
+            entry['problem'] = 'no_amount'
+        elif reg is None:
+            # Fewer entrants than prize positions. Not an error, and the
+            # organiser should see the money is NOT going anywhere rather than
+            # wondering later where it went.
+            entry['problem'] = 'nobody_finished_here'
+        elif not wallet_service.has_wallet(reg):
+            entry['problem'] = 'winner_wallet_missing'
+        else:
+            total += amount
+        rows.append(entry)
+
+    return {
+        'rows': rows,
+        'total': total,
+        'already_paid': len(paid),
+        'problems': problems,
+    }
 
 
 def distribute(tournament, *, triggered_by=None, auto=False, force_recompute=False):

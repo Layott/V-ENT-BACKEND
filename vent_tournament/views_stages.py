@@ -31,6 +31,8 @@ def _err(message, code, http_status=status.HTTP_400_BAD_REQUEST, **extra):
 
 def _row(stage):
     fmt = formats.get(stage.format)
+    starts_at, ends_at, own_when = stage.effective_when()
+    place_type, location, virtual_link, own_where = stage.effective_where()
     return {
         'id': stage.id,
         'order': stage.order,
@@ -43,6 +45,26 @@ def _row(stage):
         'status': stage.status,
         'advanced': stage.advanced,
         'completed_at': stage.completed_at,
+        # What was SET on the stage, which is what an editor has to load back.
+        'starts_at': stage.starts_at,
+        'ends_at': stage.ends_at,
+        'place_type': stage.place_type,
+        'location': stage.location,
+        'virtual_link': stage.virtual_link,
+        # And what actually applies, so a page showing "when is the final" does
+        # not have to work out the inheritance for itself and get it wrong on
+        # one screen out of five.
+        'when': {
+            'starts_at': starts_at,
+            'ends_at': ends_at,
+            'is_its_own': own_when,
+        },
+        'where': {
+            'place_type': place_type,
+            'location': location,
+            'virtual_link': virtual_link,
+            'is_its_own': own_where,
+        },
     }
 
 
@@ -70,6 +92,15 @@ def tournament_stages(request, tournament_id):
          'groups': s.groups, 'rules': s.rules}
         for s in rows
     ]
+    # The tournament's own window, so a stage that inherits it can be shown as
+    # inheriting it rather than as empty.
+    tournament_when = {
+        'starts_at': tournament.start_date_and_time,
+        'ends_at': tournament.end_date_and_time,
+        'place_type': tournament.tournament_type or '',
+        'location': tournament.tournament_location or '',
+        'virtual_link': tournament.virtual_link or '',
+    }
     return _ok({
         'stages': [_row(s) for s in rows],
         # An empty list is the normal case and means the tournament runs as one
@@ -77,6 +108,7 @@ def tournament_stages(request, tournament_id):
         'single_format': not rows,
         'summary': stages.summary(cleaned) if cleaned else [],
         'catalogue': formats.catalogue(),
+        'tournament_when': tournament_when,
     }, 'Stages')
 
 
@@ -119,6 +151,9 @@ def set_stages(request, tournament_id):
             tournament=tournament, order=order, label=stage['label'],
             format=stage['format'], advances=stage['advances'],
             groups=stage['groups'], rules=stage['rules'],
+            starts_at=stage['starts_at'], ends_at=stage['ends_at'],
+            place_type=stage['place_type'], location=stage['location'],
+            virtual_link=stage['virtual_link'],
         )
 
     rows = list(tournament.stages.all())

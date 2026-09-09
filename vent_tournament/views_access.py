@@ -29,6 +29,9 @@ from rest_framework.response import Response
 
 from vent_auth.actors import actor_from_request, may_override
 
+from vent_auth import premium
+
+from . import documents
 from .models import Tournament, TournamentInvite, TournamentRegistration
 
 # No I, O, 0 or 1. These get read off a phone screen and typed by somebody in a
@@ -210,11 +213,15 @@ def invites(request, tournament_id):
 
 @api_view(['GET'])
 def invites_download(request, tournament_id):
-    """The codes as a file. `?as=csv` for a spreadsheet, otherwise plain text.
+    """The codes as a file: txt, csv, xlsx, docx or pdf.
 
     Not `?format=`: DRF reserves that for content negotiation, so asking for
     `format=csv` looks like a request for a renderer that does not exist and
-    answers 404 rather than the file.
+    answers 404 rather than the file. `?as=` it is.
+
+    The spec asks for all five, and calls the document formats premium. txt and
+    csv stay free, because a list of codes somebody has to send out is not a
+    feature to sell; the formatted document is.
     """
     tournament = _tournament(tournament_id)
     if tournament is None:
@@ -225,32 +232,40 @@ def invites_download(request, tournament_id):
     if err:
         return err
 
-    rows = TournamentInvite.objects.filter(tournament=tournament)
-    wanted = str(request.GET.get('as') or 'txt').lower()
-    stem = (tournament.slug or str(tournament.pk))
+    wanted = documents.FORMATS.get(
+        str(request.GET.get('as') or 'txt').lower())
+    if wanted is None:
+        return _err('That file type is not one this can make.', 'UNKNOWN_FORMAT')
 
-    if wanted == 'csv':
-        buffer = io.StringIO()
-        writer = csv.writer(buffer)
-        writer.writerow(['code', 'label', 'uses_allowed', 'uses_taken', 'spent'])
-        for invite in rows:
-            writer.writerow([invite.code, invite.label, invite.max_uses,
-                             invite.used_count, 'yes' if invite.spent else 'no'])
-        body = buffer.getvalue()
-        content_type = 'text/csv'
-        name = '%s-invite-codes.csv' % stem
-    else:
+    # The document formats are premium. Asked in ONE place, and the refusal
+    # names what would lift it rather than pretending the format does not exist.
+    if wanted in ('xlsx', 'docx', 'pdf') and not premium.has_premium(tournament):
+        return Response(premium.refuse('ticket_codes'),
+                        status=status.HTTP_402_PAYMENT_REQUIRED)
+
+    rows = list(TournamentInvite.objects.filter(tournament=tournament))
+    stem = (tournament.slug or str(tournament.pk))
+    title = '%s: entry codes' % tournament.tournament_title
+    header = ['Code', 'Label', 'Uses allowed', 'Uses taken', 'Spent']
+    table = [[i.code, i.label, i.max_uses, i.used_count,
+              'yes' if i.spent else 'no'] for i in rows]
+    note = '%d code(s). Each one lets its holder register.' % len(rows)
+
+    if wanted == 'txt':
         # One per line and nothing else, because the usual next step is pasting
         # them into a message.
-        body = '\n'.join(i.code for i in rows) + '\n'
-        content_type = 'text/plain'
-        name = '%s-invite-codes.txt' % stem
-
-    # Plain, not DRF: a DRF Response renders through JSON and the file would
-    # arrive as a quoted string rather than the codes.
-    response = HttpResponse(body, content_type=content_type)
-    response['Content-Disposition'] = 'attachment; filename="%s"' % name
-    return response
+        return documents.as_txt([i.code for i in rows],
+                                '%s-invite-codes.txt' % stem)
+    if wanted == 'csv':
+        return documents.as_csv(header, table, '%s-invite-codes.csv' % stem)
+    if wanted == 'xlsx':
+        return documents.as_xlsx(header, table, '%s-invite-codes.xlsx' % stem,
+                                 sheet_title='Entry codes')
+    if wanted == 'docx':
+        return documents.as_docx(title, header, table,
+                                 '%s-invite-codes.docx' % stem, note=note)
+    return documents.as_pdf(title, header, table,
+                            '%s-invite-codes.pdf' % stem, note=note)
 
 
 @api_view(['GET', 'POST'])

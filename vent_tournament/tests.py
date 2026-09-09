@@ -386,8 +386,18 @@ class PrizeDistributionTests(TestCase):
         champ_reg = TournamentRegistration.objects.get(tournament=t, final_position=1)
         runner_reg = TournamentRegistration.objects.get(tournament=t, final_position=2)
 
-        resp = client_for(org).post(
+        # `confirm` is required now: the payout answers with the list of who
+        # gets what and moves nothing until somebody has seen it.
+        seen = client_for(org).post(
             f'/tournament/{t.tournament_id}/distribute-prizes/', {}, format='json')
+        self.assertEqual(seen.status_code, 409, seen.content)
+        self.assertEqual(seen.json()['code'], 'CONFIRM_REQUIRED')
+        self.assertEqual(seen.json()['data']['total'], 1500)
+        self.assertEqual(UserWallet.objects.get(user=champ_reg.user).wallet_balance, 0)
+
+        resp = client_for(org).post(
+            f'/tournament/{t.tournament_id}/distribute-prizes/',
+            {'confirm': True}, format='json')
         self.assertEqual(resp.status_code, 200, resp.content)
 
         champ_wallet = UserWallet.objects.get(user=champ_reg.user)
@@ -399,8 +409,10 @@ class PrizeDistributionTests(TestCase):
 
     def test_distribute_is_idempotent(self):
         org, t = self._completed_tournament_with_prizes()
-        client_for(org).post(f'/tournament/{t.tournament_id}/distribute-prizes/', {}, format='json')
-        resp2 = client_for(org).post(f'/tournament/{t.tournament_id}/distribute-prizes/', {}, format='json')
+        client_for(org).post(f'/tournament/{t.tournament_id}/distribute-prizes/',
+                             {'confirm': True}, format='json')
+        resp2 = client_for(org).post(f'/tournament/{t.tournament_id}/distribute-prizes/',
+                                     {'confirm': True}, format='json')
         self.assertEqual(resp2.status_code, 409, resp2.content)
         self.assertEqual(resp2.json()['code'], 'ALREADY_DISTRIBUTED')
         # No double credit.

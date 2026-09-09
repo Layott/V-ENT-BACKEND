@@ -119,12 +119,47 @@ KINDS = {
         'label': 'Answer a question',
         'config': {'field_label': '', 'help': ''},
     },
+    'penalty_points': {
+        'check': AUTOMATIC,
+        # The column has existed on both a profile and a team since the
+        # beginning and nothing has ever read it. The spec asks for it twice:
+        # "penalty point limit" as an entry condition, and "restrict or block
+        # teams on penalty points", which is the same rule seen from the two
+        # sides it applies to.
+        'label': 'Be under a penalty point limit',
+        'config': {'max_points': 5},
+        'premium': True,
+    },
+    'ranking': {
+        'check': AUTOMATIC,
+        # Above or below a position, because both directions are real: a closed
+        # invitational wants the top sixteen, and a newcomers' cup wants
+        # everybody outside it. The scope is the tournament's own game, and a
+        # region when the organiser names one.
+        'label': 'Be inside or outside a ranking position',
+        'config': {'mode': 'top', 'position': 100, 'region': ''},
+        'premium': True,
+    },
     'partner_verified': {
         'check': PARTNER,
         'label': 'A partner confirms the account',
         'config': {'partner': '', 'field_label': '', 'help': ''},
     },
 }
+
+
+def _options_for(kind):
+    """The choices behind a field, for the screen that draws it."""
+    if kind == 'ranking':
+        from vent_auth import regions
+        return {'modes': ['top', 'below'], 'regions': list(regions.ORDER)}
+    return {}
+
+
+#: The kinds a premium account may use. Built from the same table the kinds are
+#: defined in, so adding one cannot leave this list behind.
+PREMIUM_KINDS = frozenset(
+    key for key, spec in KINDS.items() if spec.get('premium'))
 
 
 def kind_catalogue():
@@ -135,6 +170,16 @@ def kind_catalogue():
             'label': spec['label'],
             'checked_by': spec['check'],
             'config': spec['config'],
+            # What a field may be set to, where the answer is a list the server
+            # owns. A region typed by hand and misspelled resolves to no
+            # countries, which silently means "the whole platform": a wider
+            # tournament than the organiser asked for, with nothing to see.
+            'options': _options_for(key),
+            # So the wizard can show it as a premium feature rather than
+            # offering it and refusing on save. A control rendered live and
+            # then refused is the thing the signed-out rule bans, and it is no
+            # better when the reason is a plan instead of an account.
+            'premium': bool(spec.get('premium')),
         }
         for key, spec in KINDS.items()
     ]
@@ -176,6 +221,45 @@ def clean(raw):
         if not 0 < age < 100:
             raise RequirementError('A minimum age between 1 and 99.', 'min_age')
         out['config']['min_age'] = age
+
+    elif kind == 'penalty_points':
+        try:
+            limit = int(config.get('max_points'))
+        except (TypeError, ValueError):
+            raise RequirementError('The penalty point limit has to be a number.',
+                                   'max_points')
+        if not 0 <= limit <= 1000:
+            raise RequirementError('A penalty point limit between 0 and 1000.',
+                                   'max_points')
+        out['config']['max_points'] = limit
+
+    elif kind == 'ranking':
+        mode = str(config.get('mode') or 'top').strip().lower()
+        if mode not in ('top', 'below'):
+            raise RequirementError(
+                'A ranking condition is either the top of the table or below a '
+                'position.', 'mode')
+        try:
+            position = int(config.get('position'))
+        except (TypeError, ValueError):
+            raise RequirementError('The ranking position has to be a number.',
+                                   'position')
+        if position < 1:
+            raise RequirementError('A ranking position of 1 or more.', 'position')
+        out['config']['mode'] = mode
+        out['config']['position'] = position
+        # Empty means the whole platform, which is what an unfilled field
+        # should mean. A region that is NOT empty and is not one we know is
+        # refused rather than ignored: ignoring it admits everybody, which is
+        # the opposite of what somebody typing a region wants.
+        region = str(config.get('region') or '').strip()[:60]
+        if region:
+            from vent_auth import regions
+            if region not in regions.ORDER:
+                raise RequirementError(
+                    'That is not a region V-ENT knows. Leave it blank for the '
+                    'whole platform.', 'region')
+        out['config']['region'] = region
 
     elif kind == 'social_follow':
         links = [str(u).strip() for u in (config.get('links') or []) if str(u).strip()]
@@ -300,6 +384,64 @@ def check_automatic(requirement, user, *, tournament=None, team=None):
                            % game.game_title), {
                 'code': 'game_details', 'params': {'game': game.game_title}}
 
+    elif kind == 'penalty_points':
+        limit = config.get('max_points', 0)
+        profile = user.userprofile_set.order_by('profile_id').first()
+        theirs = getattr(profile, 'penalty_point', 0) or 0
+        if theirs > limit:
+            return False, ('This tournament is for players with %s penalty '
+                           'points or fewer, and you have %s.'
+                           % (limit, theirs)), {
+                'code': 'penalty_points',
+                'params': {'limit': limit, 'points': theirs}}
+        # Both sides of one rule. A team carries penalties of its own, and a
+        # tournament that bars a player for them has no reason to admit a club
+        # with worse.
+        team_points = (getattr(team, 'penalty_points', 0) or 0) if team is not None else 0
+        if team_points > limit:
+            return False, ('This tournament is for teams with %s penalty points '
+                           'or fewer, and yours has %s.'
+                           % (limit, team_points)), {
+                'code': 'penalty_points_team',
+                'params': {'limit': limit, 'points': team_points}}
+
+    elif kind == 'ranking':
+        # Worked out from completed matches each time it is asked, which is the
+        # same work the rankings page does and through the same module, so the
+        # rank enforced here is the rank shown there. It runs only when an
+        # organiser has actually set this requirement.
+        from vent_auth import ranking_core
+        game = getattr(tournament, 'tournament_game', None)
+        rank, total = ranking_core.position_for(
+            user,
+            game=getattr(game, 'game_title', None),
+            region=config.get('region') or None)
+        position = config.get('position') or 1
+        where = config.get('region') or ''
+        if config.get('mode') == 'below':
+            # A newcomers' cup. Unranked counts as below, which is the point:
+            # somebody who has never played is exactly who it is for.
+            if rank is not None and rank <= position:
+                return False, ('This tournament is for players outside the top '
+                               '%s.' % position), {
+                    'code': 'ranking_below',
+                    'params': {'position': position, 'rank': rank,
+                               'region': where}}
+        elif rank is None:
+            # Unranked is its own answer. "You are in the top 100" is not a
+            # sentence to show somebody who has never played a match, and
+            # telling them so is the difference between a rule and a wall.
+            return False, ('This tournament is for ranked players, and you have '
+                           'not completed a ranked match yet.'), {
+                'code': 'ranking_unranked',
+                'params': {'position': position, 'region': where}}
+        elif rank > position:
+            return False, ('This tournament is for players in the top %s, and '
+                           'you are %s.' % (position, rank)), {
+                'code': 'ranking_top',
+                'params': {'position': position, 'rank': rank,
+                           'total': total, 'region': where}}
+
     elif kind == 'team_logo':
         if team is not None and not getattr(team, 'team_logo', None):
             return False, 'Your team needs a logo before it can enter.', {
@@ -317,6 +459,10 @@ def is_automatic(requirement):
 PER_MEMBER = {
     'country', 'min_age', 'verified_email', 'verified_identity',
     'profile_image', 'esports_image', 'game_account', 'game_details',
+    # Every player, not just whoever pressed the button. A team of five whose
+    # fourth player is suspended is not an eligible team, and nobody would find
+    # out until the match.
+    'penalty_points', 'ranking',
 }
 
 
