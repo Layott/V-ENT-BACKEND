@@ -203,6 +203,20 @@ CATCHERS = [
      'a dev build directory nobody is serving is deleted',
      FRONTEND, ['node', 'scripts/check-stale-builds.mjs'], False),
 
+    # A page that can show "Loading..." for ever.
+    #
+    # Fourth occurrence of one fault: three admin pages in August with a bare
+    # `await fetch`, and /admin/settings on 9 September, which caught the
+    # exception and raised a TOAST. The toast is gone in four seconds and the
+    # loading state is still there behind it.
+    #
+    # Debt rather than blocking, because 42 files share the shape and clearing
+    # them is a pass of its own. The number is on the table every commit and
+    # cannot rise.
+    ('spinner for ever',
+     'a failed load says so on the page, rather than spinning',
+     FRONTEND, ['node', 'scripts/check-spinner-forever.mjs'], False),
+
     # Backend code with no screen in front of it.
     #
     # This checker has existed for weeks and was never in this table, and it
