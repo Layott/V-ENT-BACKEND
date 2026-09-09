@@ -272,3 +272,96 @@ decision at all.
 * `pnpm build` gutted the pnpm store THREE times, always with a dev server
   running. `check-pnpm-store.mjs` is blocking in check-all now and prints the
   four commands that fix it.
+
+---
+
+## The four remaining things, 9 September evening
+
+CEO: "/unlazy fix alll above", answering my own list back.
+
+Ledger: `V-ENT/gates/27-tap-targets-emulator-ship.md`.
+
+### 1. FRONTEND_URL on the VPS: production was RIGHT
+
+```
+FRONTEND_URL=https://v-ent.co
+NEXTAUTH_URL=https://v-ent.co
+NEXT_PUBLIC_API_URL=https://api.v-ent.co
+DEBUG=False
+```
+
+The stale `test.app.v-ent.co` was LOCAL only, and is corrected. It now has a
+catcher, because this is the second time the value has been wrong and the
+failure is silent both ways: `tools/check-frontend-url.py`, blocking, catching a
+retired host by name, a non-absolute URL, a DEBUG machine pointing at
+production, and production pointing at localhost.
+
+### 2. Tap targets: 140 to 0, and then twelve more
+
+The stylesheet fix was mechanical: 140 classes across 79 files, each given a
+`@media (max-width: 720px)` block raising it to 44px, generated from the
+checker's own output. Square icon buttons got `min-width` too, or a 32px round
+button becomes a pill.
+
+**The emulator then found what the stylesheet cannot.** The checker read 0 while
+a real phone measured 30px tabs on /events, 28px buttons on /rankings, a 34px
+Create event. Those take their height from PADDING, which the checker
+deliberately refuses to guess at. Twelve more classes raised, each from a
+measurement.
+
+Final on the device at 412 CSS px: 380 controls across six pages, 0 under 44px,
+no page overflowing. The only remainder is two inline text links on /login,
+which are words inside a sentence rather than controls.
+
+Tap targets have left the debt table entirely.
+
+### 3. The emulator pass
+
+`evotv_test` at 1080x1920 density 420, which is 411 CSS px, with adb reverse on
+3005 and 8000. Six pages measured over the DevTools protocol.
+
+**Not walked signed IN**, and that is an honest gap: three attempts to type the
+password through the IME put it in the wrong field or dropped the last
+character. The signed-in screens were walked in Chrome at a real 412px viewport
+instead. The tap-target measurement covers both, because the classes are shared.
+
+Two things worth knowing for the next emulator session:
+
+* The device had 151 stale DevTools targets. Taking the first page target drives
+  a frozen tab, which is what a run of socket timeouts was. Open a fresh one
+  with `PUT /json/new?about:blank`.
+* Chrome refuses a websocket whose Origin it does not recognise. Send none:
+  `create_connection(url, suppress_origin=True)`.
+
+### 4. Shipping: BLOCKED at the merge, and only there
+
+Everything up to it is done. 3638 tests OK, every blocking catcher clean, no
+debt risen, `pnpm build` clean.
+
+`gh pr merge` was refused by this session's permission classifier. Working
+around that would be bypassing the intent of the refusal, so it stops here.
+Both PRs say MERGEABLE:
+
+```
+gh pr merge 165 --merge     # Layott/V-ENT-BACKEND
+gh pr merge 180 --merge     # Layott/V-ENT-FRONTEND
+```
+
+**The migrations were read before deciding no maintenance page.**
+`vent_event/0045` and `vent_tournament/0049` are three `AddField`s (all
+`null=True`) plus `AlterModelOptions` and `AlterModelManagers`. Nothing
+rewritten, nothing dropped, no NOT NULL without a default, so the old code
+simply ignores three columns it does not know about and the window between the
+migration and the new code being live is invisible to anybody using the site.
+That is the condition `deploy/deploy.sh` documents for rolling without the page.
+
+The live probes are written out in gates/27 D5, ready to run the moment it is
+deployed.
+
+### pnpm store, a correction
+
+The store was gutted twice more today, and once with **no dev server running**:
+`check-pnpm-store.mjs` read 0 damaged immediately before the build and 8
+immediately after. So the build itself does it, intermittently. My earlier
+diagnosis blaming the dev server was wrong, and the checker is what corrected
+it. Memory updated.
