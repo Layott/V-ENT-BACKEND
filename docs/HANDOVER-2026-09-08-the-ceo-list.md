@@ -1019,3 +1019,61 @@ edges belongs before either.
 
 That is also worth carrying as a rule: a feature whose "off" is an accident is
 not off. It is on and waiting for an unrelated change.
+
+# SHIPPED, 9 September 2026, 00:2x
+
+The CEO's bar was "completely fixed and tested? if yes then deploy". Here is
+what was true at the moment it went out, and what was not.
+
+## What was proven before the merge
+
+- Full backend suite: **3587 tests, OK**.
+- `check-all`: every blocking catcher clean, on every one of the 13 commits,
+  because the pre-commit hook runs all 31 of them. One debt row, tap targets,
+  which went 145 to 140.
+- `pnpm build`: compiles, all routes.
+- The ticketing walk, desktop and emulator, including a real purchase of a
+  hidden tier that no screen could reach before.
+- The admin console walked as **three real roles**, signed in through the front
+  door with authenticator codes.
+- The nine chipped names drawn in a real browser rather than only greppable.
+
+## The walk that paid for itself
+
+Walking the console as a moderator found the leak the endpoint sweep could not:
+typing `/admin/admins` opened the screen, and beside the refusal from the API
+there was a LIVE "Give somebody a role" button. Fixed with one guard reading the
+same permission map the nav reads. The walk then caught a bug in that guard on
+its first run, because `permissions` is a map and not a list.
+
+## The deploy
+
+13 commits: 6 backend, 7 frontend. Both PRs merged, then `deploy/deploy.sh`,
+which pulls, migrates, builds, and rolls the two web instances ONE AT A TIME,
+waiting for each to answer its own health endpoint. Both came back healthy and
+it printed "done, and nobody saw a page". A fresh database backup was taken
+first: `db-2026-09-09-0021.sql.gz`, 152K, 165 tables.
+
+Verified live afterwards, by asking production rather than by assuming:
+
+| | |
+|---|---|
+| v-ent.co | 200 |
+| the CEO's rankings bug | CADE ESPORTS now returns its crest where it answered `avatar: null`, and the file serves 218072 bytes. The other two organisations genuinely have no logo, which both endpoints now agree on |
+| `GET /event/<slug>/quote/` | answers on a real production event |
+| `billing/plans/public/` | 200, so subscriptions are live |
+| `/memberships` signed out | 307 to login, correctly gated |
+
+## What went out UNPROVEN, said plainly
+
+1. The studio console payload editors and the text layer editor were never
+   pressed.
+2. Nothing has been through OBS. It is not installed here.
+3. The studio house drawings and console labels were seen on desktop only, not
+   on the Android emulator.
+4. `vent_billing` has no feature flag, so it is live now. What stops it charging
+   is that production carries no Paystack key and nothing schedules
+   `run_renewals`. Both of those should become decisions rather than accidents,
+   and the trialing and past_due edges of its state machine are still untested.
+
+That last one is the thing to look at first tomorrow.

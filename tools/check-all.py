@@ -203,6 +203,19 @@ CATCHERS = [
      'a dev build directory nobody is serving is deleted',
      FRONTEND, ['node', 'scripts/check-stale-builds.mjs'], False),
 
+    # Backend code with no screen in front of it.
+    #
+    # This checker has existed for weeks and was never in this table, and it
+    # only failed on endpoints that were NEW since a baseline. So it answered
+    # "No new ones" while seventeen endpoints had no way in, and the CEO found
+    # them by looking at production and asking. Debt rather than blocking,
+    # because some of the seventeen are legacy duplicates that want deleting
+    # rather than a screen, and the ledger stops the number rising while they
+    # are worked through.
+    ('endpoints with no screen',
+     'every endpoint has a screen that can reach it, or a written reason',
+     ROOT, [sys.executable, 'tools/endpoint-callers.py'], False),
+
     # The ledger reads a number off each line above, and on 8 September it was
     # reading the wrong one: 311 stylesheets scanned instead of 145 tap targets
     # broken. A checker that is not in this table is a checker nobody runs, so

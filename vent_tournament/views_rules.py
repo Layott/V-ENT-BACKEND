@@ -18,7 +18,7 @@ from vent_auth.actors import actor_from_request, may_override
 
 from . import formats as fmt
 from . import rules as rules_mod
-from .models import BracketMatch, Tournament, TournamentRuleset
+from .models import BracketMatch, LeagueRules, Tournament, TournamentRuleset
 
 from . import lookup
 
@@ -33,6 +33,31 @@ def _err(message, code, http_status=status.HTTP_400_BAD_REQUEST, field=None):
     if field:
         body['field'] = field
     return Response(body, status=http_status)
+
+
+def _sync_league_rules(tournament, cleaned):
+    """Carry the edited rules into the row the league table is computed from.
+
+    There were two models for "what a win is worth": this ruleset, which the
+    editor writes, and `LeagueRules`, which `services/league.py` reads. An
+    organiser could change the points here and watch the table not move, which
+    is the "one model per thing" fault in its quietest form - nothing errors,
+    the number is simply ignored.
+
+    The ruleset is the one an organiser edits, so it is the one that wins.
+    `ordered_tiebreakers()` drops any name the table does not know, so passing
+    the ruleset's list straight in is safe even when the two vocabularies
+    differ - a knockout tiebreaker like `buchholz` is simply not a league one.
+    """
+    points = cleaned.get('points') or {}
+    row, _ = LeagueRules.objects.get_or_create(tournament=tournament)
+    row.points_win = int(points.get('win', row.points_win))
+    row.points_draw = int(points.get('draw', row.points_draw))
+    row.points_loss = int(points.get('loss', row.points_loss))
+    row.tiebreakers = list(cleaned.get('tiebreakers') or [])
+    row.save(update_fields=['points_win', 'points_draw', 'points_loss',
+                            'tiebreakers', 'updated_at'])
+    return row
 
 
 def _ruleset_for(tournament):
@@ -146,6 +171,7 @@ def set_tournament_rules(request, tournament_id):
     ruleset.data = cleaned
     ruleset.updated_by = user
     ruleset.save(update_fields=['data', 'updated_by', 'updated_at'])
+    _sync_league_rules(tournament, cleaned)
 
     # The format on the tournament follows the rules, so the two cannot disagree
     # about what is being played.
@@ -178,6 +204,7 @@ def reset_tournament_rules(request, tournament_id):
     ruleset.data = rules_mod.preset_for(wanted)
     ruleset.updated_by = user
     ruleset.save(update_fields=['data', 'updated_by', 'updated_at'])
+    _sync_league_rules(tournament, ruleset.data)
     return _ok(_payload(ruleset, tournament), 'Rules reset to the preset.')
 
 
@@ -189,4 +216,11 @@ def rule_presets(request):
         'presets': {key: rules_mod.preset_for(key) for key in fmt.FORMATS},
         'placement_presets': rules_mod.PLACEMENT_PRESETS,
         'tiebreakers': [{'key': k, 'label': v} for k, v in fmt.TIEBREAKERS.items()],
+        # The names, from the same catalogue that validates a save. A screen
+        # offering "single_elimination" as a chip is a screen that grew its own
+        # label map, which is the drift `check-format-catalogue` exists to stop.
+        'formats': [
+            {'key': f.key, 'label': f.label, 'summary': f.summary}
+            for f in fmt.FORMATS.values()
+        ],
     }, 'Rule presets')

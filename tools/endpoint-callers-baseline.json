@@ -1,21 +1,3 @@
 {
-  "orphaned": [
-    "change-fullname/",
-    "edit-favorite-games/",
-    "event/vendor-orders/",
-    "resend-forgot-password-token/",
-    "save-username/",
-    "send-code/",
-    "social-auth/",
-    "team/assign-new-role/",
-    "team/get-team-details/<str:team_id>/",
-    "team/transfer-ownership/",
-    "tournament/<str:tournament_id>/league-rules/",
-    "tournament/<str:tournament_id>/stages/",
-    "tournament/<str:tournament_id>/stages/<int:stage_id>/advance/",
-    "tournament/join-tournament/",
-    "tournament/rule-presets/",
-    "wallet/cards/charge/",
-    "wallet/deduct/"
-  ]
+  "orphaned": []
 }

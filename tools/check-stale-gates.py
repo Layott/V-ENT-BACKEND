@@ -185,6 +185,13 @@ def classify(command):
     if not command:
         return 'no check'
     body = payload(command)
+    # A gate whose check IS this suite cannot be run from inside this suite.
+    # `check-all` runs this checker, which would run `check-all` again, which
+    # runs this checker: on 9 September that hit the 300 second timeout and
+    # reported a BREACH on a file with nothing wrong with it. The suite decides
+    # that box by running at all.
+    if 'check-all' in body:
+        return 'manual'
     if MANUAL.search(command):
         return 'manual'
     if SLOW.search(body):
