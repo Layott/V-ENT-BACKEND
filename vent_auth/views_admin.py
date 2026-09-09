@@ -252,6 +252,8 @@ def admin_list_users(request):
         # active = is_active True AND no pending KYC
         qs = qs.filter(is_active=True).exclude(kyc_documents__status='pending').distinct()
     # 'suspended' not tracked - ignore.
+    elif status_filter == 'premium':
+        qs = qs.filter(is_premium=True)
 
     ordering_map = {
         '-date_joined': '-date_joined',
@@ -278,6 +280,10 @@ def admin_list_users(request):
             'status': _user_status(u),
             'wallet_vc': _wallet_vc(u),
             'date_joined': u.date_joined,
+            # On the ROW, not only on the detail. A flag that can be read one
+            # account at a time cannot answer "who is on premium", which is the
+            # first question anybody with a revenue number asks.
+            'is_premium': u.is_premium,
         }
         for u in users
     ]
@@ -367,6 +373,8 @@ def admin_get_user(request, user_id):
         'last_login': user.last_login,
         'role': user.role,
         'kyc_status': _user_kyc_status(user),
+        'is_premium': user.is_premium,
+        'premium_note': user.premium_note,
     }
 
     # logins - no login-history model yet; synthesize a single stub row from
@@ -553,6 +561,55 @@ def admin_ban_user(request, user_id):
     return Response({
         'status': 'success',
         'message': f'User {"banned" if ban else "unbanned"} successfully',
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['PATCH'])
+@admin_role_required(ROLE_PERMISSIONS['grant_premium'])
+def admin_set_premium(request, user_id):
+    """PATCH /auth/admin/users/{id}/premium/ - grant or take back premium.
+
+    The gap this closes: `is_premium` shipped on 9 September, eight features
+    read it, and nothing in the interface wrote it. So every one of those
+    features was live in a state where the only thing anybody could see was the
+    refusal.
+
+    Its own permission rather than a borrowed one. Giving away what the
+    platform intends to sell is a commercial decision, and somebody who may
+    suspend an abusive account has no particular claim on it.
+    """
+    from .premium_admin import apply_premium
+
+    admin = request.admin_user
+    user = _admin_user(user_id)
+
+    wanted = request.data.get('premium')
+    if wanted is None:
+        return Response(
+            {'code': 'PREMIUM_TRUE_FALSE_REQUIRED', 'status': 'error',
+             'message': 'Say whether premium is on or off.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    note = str(request.data.get('note') or '').strip()
+    # Granting asks for the reason in the same press. A note added afterwards
+    # is a note nobody adds, and "why does this account have premium" is the
+    # question this field exists to answer.
+    if wanted and not note:
+        return Response(
+            {'code': 'NOTE_REQUIRED', 'status': 'error', 'field': 'note',
+             'message': 'Say why they are being given premium.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    result = apply_premium(user, on=bool(wanted), note=note, admin=admin,
+                           kind='User')
+
+    return Response({
+        'status': 'success',
+        'data': {'username': user.username, **result},
+        'message': ('Premium is on for this account.' if user.is_premium
+                    else 'Premium is off for this account.'),
     }, status=status.HTTP_200_OK)
 
 

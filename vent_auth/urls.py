@@ -155,6 +155,11 @@ urlpatterns = [
     path("admin/users/<str:user_id>/", admin_get_user, name="admin_get_user"),
     path("admin/users/<str:user_id>/ban/", admin_ban_user, name="admin_ban_user"),
     path("admin/users/<str:user_id>/role/", admin_set_user_role, name="admin_set_user_role"),
+    # Granting premium. Its own permission, `grant_premium`: giving away what
+    # the platform intends to sell is not the same decision as banning
+    # somebody, and it should not travel with it.
+    path("admin/users/<str:user_id>/premium/", admin_set_premium,
+         name="admin_set_premium"),
     path("admin/users/<str:user_id>/delete/", admin_delete_user, name="admin_delete_user"),
     path("admin/users/<str:user_id>/reset-password/", admin_reset_password,
          name="admin_reset_password"),
