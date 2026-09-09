@@ -209,3 +209,66 @@ change, no data rewritten.
   coordinate, because the coordinate frame is the screenshot's, not the page's.
 * `demo_organizer`'s local TOTP row was deleted so the walk could sign in. It
   is a seed account on the dev sqlite database; production is untouched.
+
+---
+
+## Later the same day: gates C, D and F
+
+### C, the admin console
+
+`walk-admin-sweep.mjs` opened and pressed all 17 screens: none broken. Every
+capability in `tasks/specs/admin-dashboard.md` was read against the code and the
+table is in the gates file. Everything buildable is built; three gaps are
+deliberate and named (creating a tournament, an event or a community from the
+console, because there is ONE creation path and an admin uses it as themselves).
+
+The inventory's claim that six screens had no empty state was wrong about five
+of them: audit log, disputes, KYC, payouts and users each carry loading, empty
+and inline error states. They were reported as missing because the local
+database is not empty, so nothing was measuring the code.
+
+**Settings was a real fault, and worse than reported.** A failed load left
+`settings` null and `loading` false, so the page sat on "Loading..." for ever
+with a toast that had already gone; a refusal that was not an exception did
+nothing at all. Fourth page of that shape, so it has a catcher now:
+`check-spinner-forever.mjs`, 42 of 114 files, recorded as debt.
+
+Two destructive controls acted on a single press and now ask:
+`/admin/partners` removing a redirect address, and `/admin/content` withdrawing
+a gallery licence with the reason hardcoded.
+
+All 17 admin routes measured at 412 CSS px: nothing overflows.
+
+### D, subscriptions
+
+`resume()` wrote `state = ACTIVE` by hand and bypassed the state machine, so
+cancelling mid-trial and resuming handed out a paid period, and cancelling while
+a charge was failing and resuming handed out access on an unpaid invoice. Fixed
+by reading the cancelling event and moving back to where it came from. 11 tests,
+5 of which fail against the old code.
+
+`BILLING_ENABLED` exists now, wrapping all 22 routes at the urlconf and the
+renewal command. Default ON, which is what production does today. **The CEO's
+decision is one env var**, and the point of the gate was that it should be a
+decision at all.
+
+### F, the inbox remainder
+
+* Row 229: `/logout` is a real branded page and `pages.signOut` points at it.
+  Walked: pressed Sign out, session went to null, landed on /login.
+* Row 224: 15 gate CHECK lines corrected to the venv python. `check-stale-gates`
+  went from 4 undecided to 0.
+* Row 231: 16,418 one-pixel files removed from the local MEDIA_ROOT.
+  `tools/media-litter.py` asks the database first and left the four that real
+  rows point at.
+
+### Still open
+
+* Gate E, the studio console walk.
+* Gate G, 140 tap targets.
+* Gate H4: merge and deploy. **Both PRs are open and unmerged**, and deploying
+  runs two migrations against the production database.
+* The Android emulator pass.
+* `pnpm build` gutted the pnpm store THREE times, always with a dev server
+  running. `check-pnpm-store.mjs` is blocking in check-all now and prints the
+  four commands that fix it.

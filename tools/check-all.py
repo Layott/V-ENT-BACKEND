@@ -228,6 +228,17 @@ CATCHERS = [
      'the install is whole, so a build can actually run',
      FRONTEND, ['node', 'scripts/check-pnpm-store.mjs'], True),
 
+    # Where every link this machine builds points.
+    #
+    # Second time the value has been wrong: production carried a retired test
+    # host in August and every emailed link 404d, and the local .env still
+    # carried the same host on 9 September, so studio URLs and share links
+    # built here pointed at nothing. Silent both ways, because nothing on the
+    # machine that builds a link ever fetches it.
+    ('frontend url',
+     'links built here carry a host that exists',
+     os.path.join(ROOT, 'V-ENT-BACKEND'), [sys.executable, 'tools/check-frontend-url.py'], True),
+
     # Backend code with no screen in front of it.
     #
     # This checker has existed for weeks and was never in this table, and it
