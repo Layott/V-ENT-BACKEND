@@ -365,3 +365,56 @@ The store was gutted twice more today, and once with **no dev server running**:
 immediately after. So the build itself does it, intermittently. My earlier
 diagnosis blaming the dev server was wrong, and the checker is what corrected
 it. Memory updated.
+
+---
+
+## DEPLOYED, 9 September 15:10
+
+Both PRs merged (BE#165 13:59:05Z, FE#180 13:59:46Z), plus a third found on the
+way, and production verified by asking it rather than by watching the deploy.
+
+### The fault found on the way, which is why the order matters
+
+Checking the backups BEFORE deploying, not after:
+
+```
+2026-09-08T03:00:03+01:00 backup ok: db-2026-09-08-0300.sql.gz
+/bin/sh: 1: /srv/vent/backend/deploy/backup.sh: Permission denied
+/bin/sh: 1: /srv/vent/backend/deploy/backup.sh: Permission denied
+```
+
+**The nightly backup had not run since 8 September.** All four scripts in
+`deploy/` were committed `100644`, and `git pull` sets the mode from the index,
+so YESTERDAY'S DEPLOY stripped the execute bit off every one of them. The 03:00
+dump failed and so did the 11:00 freshness check, which exists precisely to
+notice a missing dump.
+
+`git update-index --chmod=+x` on all four, PR #166, merged BEFORE deploying.
+A `chmod` on the box alone would have been undone by this very deploy - and in
+fact my chmod made the working tree dirty and blocked the first pull, which is
+the same fact arriving from the other direction.
+
+Fresh dump before migrating: `db-2026-09-09-1503.sql.gz`, 181 tables.
+
+### What production says
+
+| Probe | Answer |
+|---|---|
+| `api.v-ent.co/tournament/rule-presets/` | 200, payload carries `formats` with 8 entries, added today |
+| `v-ent.co/logout` | 200, branded, names the real signed-in account |
+| `showmigrations` | `[X] vent_event/0045`, `[X] vent_tournament/0049` |
+| managers on live data | events live 5 / all 5 / deleted 0; tournaments live 9 / all 9 / deleted 0 |
+| `switch.billing_is_on()` | True, so nothing changed for anybody paying |
+| served bundle | one hit each for the delete control, the stages panel and the stall orders |
+| `/`, `/tournaments`, `/events` | 200 in about 1.3s |
+| `deploy/backup.sh` after the pull | `-rwxrwxr-x`, so tonight's cron runs |
+
+**live equals all** is the line that mattered: a LiveManager that accidentally
+hid existing rows would show live below all.
+
+No maintenance page. The script's own last line: "done, and nobody saw a page".
+
+### Next
+
+Rows 249 and 250: the tournament organiser features, then the gated
+marketplace. Specs are in `tasks/specs/`.
