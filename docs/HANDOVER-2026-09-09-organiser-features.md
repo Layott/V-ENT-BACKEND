@@ -6,14 +6,18 @@ is the shape of the day, what is proven, and what is not.
 
 ## Where it stands
 
-**Built, walked, committed, pushed, PRs open. Not merged and not deployed.**
+**SHIPPED. Merged, deployed and verified live on 9 September at 21:50.**
 
-* backend `feat/organiser-premium-tier` -> PR **V-ENT-BACKEND#167**, commit `d7874702`
-* frontend `feat/organiser-premium-tier` -> PR **V-ENT-FRONTEND#181**, commit `6218aa4`
+* PR **V-ENT-BACKEND#167** merged -> live at `b8168164`
+* PR **V-ENT-FRONTEND#181** merged -> live at `17d3a5e`
 
-Deploying runs **two additive migrations** on production: `vent_tournament`
-0050 (stage dates and place) and 0051 (PrizeSchedule). That is why E3 is the one
-gate still open: production writes need the CEO's word.
+A fresh dump was taken first: `db-2026-09-09-2148.sql.gz`, 181 tables. Three
+migrations applied - `vent_auth` 0080 and `vent_tournament` 0050 and 0051 - and
+the deploy rolled both web instances one at a time with no maintenance page.
+
+The `pay_due_prizes` cron line IS installed, every 15 minutes, logging to
+`/srv/vent/logs/prizes.log`. Dry-run on the box first: "0 warned, 0 paid, 0
+failed". Nothing can fire until a premium organiser sets a schedule.
 
 ## What the row actually asked, and what came out of it
 
@@ -137,11 +141,16 @@ organiser sets will simply never fire, which is the failure mode to watch for.
 
 ## What is NOT proven
 
-* **Nothing is on production.** The PRs are open and unmerged.
-* `pay_due_prizes` has never run on the VPS. It is tested and dry-run tested
-  locally, and the cron line above does not exist yet.
-* The automatic payout has never fired on real money. By design it warns first,
-  but the first real one is worth watching.
+* **The automatic payout has never fired on real money.** By design it warns
+  first, and there are zero schedules today, but the first real one is worth
+  watching in `/srv/vent/logs/prizes.log`.
+* **Nobody on production has premium.** 0 of 147 users and 0 of 3
+  organisations, so every premium path live today is the REFUSAL path. The
+  granting path has been walked locally and not on production, because there is
+  no console control to grant it with.
+* The live walk was signed out. Every organiser-only screen was walked locally
+  and against a live API by curl, not clicked on production, because doing that
+  needs somebody's real account.
 
 ## Two things worth knowing before the next session
 
@@ -159,8 +168,9 @@ CDP connection hang. Closing all but the live one through
 
 ## Next
 
-1. Row 249's E3: merge both PRs, deploy, verify live. Needs the CEO's word.
-2. An admin console control for `is_premium` and `premium_note`.
+1. An admin console control for `is_premium` and `premium_note`. Until it
+   exists, premium is a shell command and nobody on production has it, so every
+   premium feature shipped today is visible only as its refusal.
 3. Row 250: the whole Vermillion City marketplace, **built but GATED**. The
    CEO's constraint, verbatim: "But please make sure it is built, but still
    gated, we dont want to release the marketplace yet to the public." Gating
