@@ -217,6 +217,17 @@ CATCHERS = [
      'a failed load says so on the page, rather than spinning',
      FRONTEND, ['node', 'scripts/check-spinner-forever.mjs'], False),
 
+    # The pnpm store, gutted. Third occurrence on 9 September, each within
+    # seconds of building while a dev server was serving the same tree. The
+    # error names a module, so it reads like a missing dependency and gets
+    # treated as one; nothing in package.json changed.
+    #
+    # Blocking, because a damaged install means nothing else here can be
+    # trusted, and the fix is four commands.
+    ('pnpm store',
+     'the install is whole, so a build can actually run',
+     FRONTEND, ['node', 'scripts/check-pnpm-store.mjs'], True),
+
     # Backend code with no screen in front of it.
     #
     # This checker has existed for weeks and was never in this table, and it
