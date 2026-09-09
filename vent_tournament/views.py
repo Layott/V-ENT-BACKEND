@@ -2014,7 +2014,12 @@ def delete_draft(request, tournament_id):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        tournament.delete()
+        # Soft, like every other delete on the platform since 8 September.
+        # This used to destroy the row, so a draft somebody had spent an hour
+        # on was gone with no way back and no admin could look at what had
+        # been removed.
+        from vent_auth import softdelete
+        softdelete.mark_deleted(tournament, by=user, reason='draft deleted by owner')
         return Response({'status': 'success', 'message': 'Draft deleted'}, status=status.HTTP_200_OK)
 
     except Http404:
