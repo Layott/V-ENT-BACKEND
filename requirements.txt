@@ -18,3 +18,5 @@ qrcode==8.2
 # Reading an organiser run of show out of the spreadsheet it was written in.
 # See vent_tournament/runsheet_import.py.
 openpyxl==3.1.5
+python-docx==1.2.0
+reportlab==5.0.1

@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
+from .premium import PremiumMixin
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 import datetime
@@ -8,7 +9,7 @@ import uuid
 from .storages import private_storage
 
 
-class Users(AbstractUser):
+class Users(AbstractUser, PremiumMixin):
     # The seven roles the admin spec of 7 September asks for, mapped onto the
     # four that already existed rather than replacing them. See
     # vent_auth/decorators.py for what each one may actually do.
@@ -683,7 +684,7 @@ class GameAccount(models.Model):
     game_username = models.CharField(max_length=20)
 
 
-class Organization(models.Model):
+class Organization(PremiumMixin):
     """An esports organization: a brand that fields teams and runs tournaments.
 
     The model was four columns (id, name, creator, owner) while the UI expected a
