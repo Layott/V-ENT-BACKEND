@@ -49,6 +49,15 @@ ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(','
 # run. Nothing is written either way, so it can be turned back on unchanged.
 BILLING_ENABLED = os.environ.get('BILLING_ENABLED', '1') == '1'
 
+# Vermillion City. Defaults to '0', which is the OPPOSITE of billing's default
+# and is the point: the marketplace is built and closed, and a feature that is
+# off unless somebody says otherwise cannot be turned on by an unrelated deploy.
+# Billing went live by accident on 8 September for exactly that reason.
+#
+# The site reads the AND of this and the console's module flag, so turning this
+# on alone changes nothing anybody can see until an admin agrees.
+MARKETPLACE_ENABLED = os.environ.get('MARKETPLACE_ENABLED', '0') == '1'
+
 # Fail loudly rather than booting production on a missing/dev key.
 if not DEBUG and (not SECRET_KEY or SECRET_KEY.startswith('django-insecure-')):
     raise ImproperlyConfigured(

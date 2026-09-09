@@ -413,11 +413,31 @@ def public_platform_modules(request):
     banner = settings_blob.get('banner', {}) or {}
     maintenance = settings_blob.get('maintenance', {}) or {}
 
+    published = {k: bool(v) for k, v in flags.items()}
+
+    # The marketplace has TWO switches and they are not equals. The console
+    # flag is an admin's day-to-day decision; `MARKETPLACE_ENABLED` on the
+    # server is the platform one, it defaults to OFF, and every marketplace
+    # endpoint refuses while it says so. Publishing the console flag alone
+    # would put a live-looking Marketplace in the navigation above endpoints
+    # that answer 503, which is the "control that renders live and fails on
+    # press" fault written into the project rules.
+    #
+    # So the answer published here is the AND of the two. The server switch can
+    # keep it shut whatever the console says; the console can shut it while the
+    # server is open. Neither can open it alone.
+    try:
+        from vent_marketplace.switch import marketplace_is_on
+        published['marketplace_enabled'] = bool(
+            published.get('marketplace_enabled')) and marketplace_is_on()
+    except Exception:
+        published['marketplace_enabled'] = False
+
     return Response({
         'status': 'success',
         'message': 'OK',
         'data': {
-            'feature_flags': {k: bool(v) for k, v in flags.items()},
+            'feature_flags': published,
             # The banner and the maintenance notice are shown to visitors, so
             # they travel with the flags rather than needing a second request.
             'banner': {
