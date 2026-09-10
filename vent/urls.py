@@ -64,6 +64,7 @@ urlpatterns = [
     # switch is OFF unless MARKETPLACE_ENABLED says otherwise, so mounting it
     # here opens nothing.
     path("marketplace/", include('vent_marketplace.urls')),
+    path("anime/", include('vent_anime.urls')),
     # Root-mounted /setting/, /device/, /user/<id>/update/ for the settings page.
     # The partner API is versioned and mounted separately, because it is the one
     # surface outside developers build against and its URLs must stay put.

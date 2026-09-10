@@ -433,6 +433,15 @@ def public_platform_modules(request):
     except Exception:
         published['marketplace_enabled'] = False
 
+    # The anime module, the same way and for the same reason. Its own server
+    # switch rather than a shared one, so neither module can open the other.
+    try:
+        from vent_anime.switch import anime_is_on
+        published['anime_enabled'] = bool(
+            published.get('anime_enabled')) and anime_is_on()
+    except Exception:
+        published['anime_enabled'] = False
+
     return Response({
         'status': 'success',
         'message': 'OK',

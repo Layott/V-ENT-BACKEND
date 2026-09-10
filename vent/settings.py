@@ -58,6 +58,13 @@ BILLING_ENABLED = os.environ.get('BILLING_ENABLED', '1') == '1'
 # on alone changes nothing anybody can see until an admin agrees.
 MARKETPLACE_ENABLED = os.environ.get('MARKETPLACE_ENABLED', '0') == '1'
 
+# The anime module: manga uploads, the reader, co-reading rooms and the
+# character battles. Same default and the same reason as the marketplace, from
+# the same instruction: "still locked and not open to public". Its own env var
+# rather than a shared one, so the two can open independently and neither can
+# open the other by accident.
+ANIME_ENABLED = os.environ.get('ANIME_ENABLED', '0') == '1'
+
 # Fail loudly rather than booting production on a missing/dev key.
 if not DEBUG and (not SECRET_KEY or SECRET_KEY.startswith('django-insecure-')):
     raise ImproperlyConfigured(
