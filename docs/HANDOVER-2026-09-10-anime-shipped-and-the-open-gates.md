@@ -99,6 +99,26 @@ before the click fixed it every time. Anything beyond roughly x=1100 in
 screenshot space never arrived at all, which is why the room's right rail had
 to be pressed on the phone instead.
 
+## The other gates closed in the same session
+
+The CEO asked to "finish all rows and open gates", so after the anime work
+every gate box in the tree that a person here can close was closed. 17 became
+8, and the 8 are in the table below.
+
+| Box | What closed it |
+|---|---|
+| `GATES-RUN-OF-SHOW.md` H1 | An overlay uploaded to Lagos Anime Con through the console, classified "Follows the event", and its URL opened drawing the real event: 4 through the door, 9 tickets gone, 200 capacity |
+| `GATES-OVERLAY-DESIGN.md` C4 | The four payload editors and the text layer editor pressed on the EA FC Showdown console and confirmed in the database, then the on-air page opened showing what had been typed: THE ANALYST DESK / Zainab and Tomide |
+| `GATES-PRODUCTION-BUILD.md` B5 | A broadcast started on an event with a real programme; now-and-next drew "NEXT, Doors open, Main Hall" and the programme drew all six rows |
+| `GATES-TICKETING.md` I6 | Production asked rather than assumed: `api.v-ent.co/event/anime-night-lagos/ticket-types/` answers with tiers, remaining, per-email caps and early bird; the waitlist and my-tickets answer 401 to a stranger |
+| `gates/26-everything-left.md` F3 | Row 218's eleven browser-walk boxes: ten walked, one named as needing the CEO's files rather than a browser |
+
+Watching the programme graphic for the first time found a fault worth having:
+a two-day running order showed only clocks, so the wall read "09:00 PM
+After-party" above "12:00 PM Free Fire finals" and looked out of order. It now
+carries the day when the programme spans days, and only then. Committed as
+`5056563`.
+
 ## Still open, and who it waits on
 
 | Gate | Waits on |
