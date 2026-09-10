@@ -27,47 +27,78 @@ PORTS=(${PORTS:-3000 3001})
 
 fail() { echo "VERIFY FAILED: $*" >&2; exit 1; }
 
-# The build id a browser is being served, taken from the HTML rather than from
-# a header: every page references /_next/static/<BUILD_ID>/_buildManifest.js,
-# so this is the same string the browser resolves its chunks against.
-served_build() {
-    local port=$1
-    curl -sf --max-time 20 "http://127.0.0.1:$port/" \
-        | grep -o '/_next/static/[A-Za-z0-9_-]\{6,\}/_buildManifest' \
-        | head -1 | cut -d/ -f4
+# The build id out of a health answer.
+#
+# The App Router does NOT put the build id in the HTML: every asset is
+# /_next/static/chunks/... with no id in the path, so reading it off the page
+# only works for the pages router. The first version of this check did exactly
+# that, found nothing on a healthy site, and failed. That is the right way
+# round for a check to be wrong, and it is why the health endpoint publishes
+# the id instead.
+read_build() {
+    sed -n 's/.*"build":"\([^"]*\)".*/\1/p'
 }
 
-# What the process says about itself. Useful when the page cannot be fetched,
-# and it is the field the health endpoint exists to publish.
 health_build() {
     local port=$1
-    curl -sf --max-time 20 "http://127.0.0.1:$port/api/health" \
-        | sed -n 's/.*"build":"\([^"]*\)".*/\1/p'
+    curl -sf --max-time 20 "http://127.0.0.1:$port/api/health" | read_build
+}
+
+# The pages-router fallback, for anything still served that way. Kept because
+# it costs nothing and it is the only signal left if the health route is ever
+# the thing that broke.
+manifest_build() {
+    grep -o '/_next/static/[A-Za-z0-9_-]\{6,\}/_buildManifest' | head -1 | cut -d/ -f4
+}
+
+served_build() {
+    local port=$1
+    curl -sf --max-time 20 "http://127.0.0.1:$port/" | manifest_build
+}
+
+# The id this instance is really on, whichever way it can be read.
+build_on() {
+    local port=$1 id
+    id=$(health_build "$port")
+    if [ -z "$id" ] || [ "$id" = "unknown" ]; then
+        id=$(served_build "$port")
+    fi
+    printf '%s' "$id"
 }
 
 self_test() {
-    local tmp; tmp=$(mktemp -d)
-    printf 'abc123\n' > "$tmp/BUILD_ID"
-    local want; want=$(cat "$tmp/BUILD_ID")
+    local want='-VvxB_POy5Ptwp3KlLveO'
 
-    local html_match='<script src="/_next/static/abc123/_buildManifest.js"></script>'
-    local html_stale='<script src="/_next/static/OLDBUILDXYZ/_buildManifest.js"></script>'
+    # A real build id from this site, and it begins with a hyphen. Nothing here
+    # may treat one as an option, and the comparison is a plain string compare.
+    local ok='{"ok":true,"port":"3000","build":"-VvxB_POy5Ptwp3KlLveO","uptime":114}'
+    local stale='{"ok":true,"port":"3000","build":"OLDBUILDXYZ","uptime":90000}'
+    local unknown='{"ok":true,"port":"3000","build":"unknown","uptime":90000}'
 
     local got
-    got=$(printf '%s' "$html_match" | grep -o '/_next/static/[A-Za-z0-9_-]\{6,\}/_buildManifest' | head -1 | cut -d/ -f4)
-    [ "$got" = "$want" ] || { echo "self-test: matching build was not recognised ($got)"; exit 1; }
+    got=$(printf '%s' "$ok" | read_build)
+    [ "$got" = "$want" ] || { echo "self-test: the matching build was not recognised ($got)"; exit 1; }
 
-    got=$(printf '%s' "$html_stale" | grep -o '/_next/static/[A-Za-z0-9_-]\{6,\}/_buildManifest' | head -1 | cut -d/ -f4)
+    got=$(printf '%s' "$stale" | read_build)
     [ "$got" != "$want" ] || { echo "self-test: a stale build was accepted"; exit 1; }
-    [ "$got" = "OLDBUILDXYZ" ] || { echo "self-test: read the wrong id off the stale page ($got)"; exit 1; }
+    [ "$got" = "OLDBUILDXYZ" ] || { echo "self-test: read the wrong id off a stale instance ($got)"; exit 1; }
 
-    # And the shape the real fault took: a page that cannot be fetched at all
-    # must not read as a match, because an empty string equals an empty string.
-    got=$(printf '%s' '' | grep -o '/_next/static/[A-Za-z0-9_-]\{6,\}/_buildManifest' | head -1 | cut -d/ -f4)
-    [ -z "$got" ] || { echo "self-test: empty page produced an id"; exit 1; }
+    got=$(printf '%s' "$unknown" | read_build)
+    [ "$got" = "unknown" ] || { echo "self-test: unknown was not read as unknown ($got)"; exit 1; }
 
-    rm -rf "$tmp"
-    echo "self-test: 4 cases, all as expected"
+    # An instance that answers nothing must not read as a match: that is the
+    # shape the real fault took, and an empty string equals an empty string.
+    got=$(printf '%s' '' | read_build)
+    [ -z "$got" ] || { echo "self-test: an empty answer produced an id"; exit 1; }
+
+    # The pages-router fallback, both ways.
+    got=$(printf '%s' '<script src="/_next/static/abc123/_buildManifest.js">' | manifest_build)
+    [ "$got" = "abc123" ] || { echo "self-test: the fallback did not read a pages-router id ($got)"; exit 1; }
+
+    got=$(printf '%s' '<script src="/_next/static/chunks/main-app.js">' | manifest_build)
+    [ -z "$got" ] || { echo "self-test: the fallback invented an id from App Router HTML ($got)"; exit 1; }
+
+    echo "self-test: 7 cases, all as expected"
 }
 
 if [ "${1:-}" = "--self-test" ]; then
@@ -79,13 +110,13 @@ WANT=$(cat "$FRONTEND/.next/BUILD_ID" 2>/dev/null || true)
 [ -n "$WANT" ] || fail "no $FRONTEND/.next/BUILD_ID, so there is nothing to compare against"
 
 for PORT in "${PORTS[@]}"; do
-    GOT=$(served_build "$PORT")
-    [ -n "$GOT" ] || fail "instance on $PORT served no page, so it is not serving this build"
+    GOT=$(build_on "$PORT")
+    [ -n "$GOT" ] || fail "instance on $PORT answered nothing, so it is not serving this build"
+    [ "$GOT" != "unknown" ] || fail "instance on $PORT will not say which build it is on, so this cannot be verified"
     if [ "$GOT" != "$WANT" ]; then
         fail "instance on $PORT is serving build $GOT, the build on disk is $WANT. The roll did not happen. Fix: sudo systemctl restart vent-web@$PORT"
     fi
-    SAYS=$(health_build "$PORT")
-    echo "port $PORT serving $GOT (health says ${SAYS:-nothing})"
+    echo "port $PORT is serving $GOT"
 done
 
 # The backend half. A migration that did not run is the other way a deploy
