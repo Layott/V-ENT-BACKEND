@@ -125,10 +125,9 @@ carries the day when the programme spans days, and only then. Committed as
 |---|---|
 | `gates/31-anime-module.md` J1 | the CEO merging BE#172 and FE#184 |
 | `gates/30-premium-console.md` D4 | the CEO merging BE#171 and FE#183 |
-| `GATES.md` Z5, `GATES-TICKETING.md` I6, `gates/26` H4 | the CEO merging older PRs |
+| `GATES.md` Z5 and `gates/26` H4 | the CEO merging older PRs; H4's deploy runs two migrations against the production database |
 | `GATES-DRAFT-DUP.md` A5, `GATES-PRODUCTION-BUILD.md` A4 | the CEO saying which of production rows 26 and 28 to keep |
 | `GATES-RUN-OF-SHOW.md` H2 | the CEO's actual overlay files, which are not in this tree |
-| `GATES-PRODUCTION-BUILD.md` B5 | event 13 having programme rows and tickets |
 | `GATES-EAFC-CARDS.md` F5 | a production walk, which means production writes, which means the CEO |
 | `GATES-RESULTS-DESK.md` E2, `GATES.md` Q3, `gates/17` H.1, M.3, N.2 | ABANDONED with the reason written in each |
 
