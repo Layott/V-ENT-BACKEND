@@ -128,6 +128,15 @@ done
 
 systemctl is-active vent-api "vent-web@${PORTS[0]}" "vent-web@${PORTS[1]}"
 
+# `is-active` answers "is a process running", and on 10 September the answer
+# was yes while both instances served the PREVIOUS build: the documented path
+# was a copy of this script from 1 September that restarted the retired
+# single-instance unit, so the roll above never happened and nothing said so.
+# This asks the running site what it is serving and fails if it is not this
+# build. See the header of deploy/verify-live.sh.
+say "verifying the live site is this build"
+FRONTEND="$FRONTEND" BACKEND="$BACKEND" PORTS="${PORTS[*]}"     bash "$BACKEND/deploy/verify-live.sh"
+
 say "done, and nobody saw a page"
 
 # ---------------------------------------------------------------------------
