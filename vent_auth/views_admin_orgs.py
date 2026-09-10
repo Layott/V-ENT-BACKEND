@@ -81,6 +81,13 @@ def _row(org):
         'members': OrgMember.objects.filter(org=org).count(),
         'balance_vc': wallet.wallet_balance if wallet else 0,
         'capabilities': org.capabilities(),
+        # An organisation's premium carries everybody acting for it, which is
+        # the whole reason `has_premium` prefers the org: somebody running a
+        # tournament for an org that pays is not refused because their personal
+        # account does not.
+        'is_premium': org.is_premium,
+        'premium_note': org.premium_note,
+        'premium_until': org.premium_until,
     }
 
 
@@ -208,6 +215,29 @@ def admin_organization_detail(request, org_ref):
             target_model='Organization', target_id=str(org.org_id),
             reason=str(request.data.get('reason') or '')[:500],
             metadata={'verified': org.verified, 'name': org.org_name})
+        return _ok(_row(org), 'Saved.')
+
+    if action == 'set_premium':
+        # A DIFFERENT permission from the rest of this view. Verifying an
+        # organisation or renaming it is administration; giving it the paid
+        # features for nothing is a commercial decision, and `manage_
+        # organizations` includes people who should not be making it.
+        from .premium_admin import apply_premium
+
+        if role not in ROLE_PERMISSIONS['grant_premium']:
+            return _err('Only a super admin or the financial manager can grant '
+                        'premium.', 'NOT_ALLOWED', status.HTTP_403_FORBIDDEN)
+
+        wanted = request.data.get('premium')
+        if wanted is None:
+            return _err('Say whether premium is on or off.', 'VALIDATION_ERROR')
+        note = str(request.data.get('note') or '').strip()
+        if wanted and not note:
+            return _err('Say why this organisation is being given premium.',
+                        'NOTE_REQUIRED')
+
+        apply_premium(org, on=bool(wanted), note=note, admin=admin,
+                      kind='Organization')
         return _ok(_row(org), 'Saved.')
 
     if action == 'set_type':

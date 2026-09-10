@@ -118,6 +118,18 @@ ROLE_PERMISSIONS = {
     # verify it, change its type or change who is in it.
     'view_organizations':    {'super_admin', 'admin', 'finance_admin'},
     'manage_organizations':  {'super_admin', 'admin'},
+
+    # ---- added 9 September, for the premium flag -------------------------
+    #
+    # Its own name rather than one borrowed from banning or role-setting,
+    # because granting premium is a COMMERCIAL act: it gives away, for
+    # nothing, the thing the platform intends to sell. Somebody who may
+    # suspend an abusive account has no particular claim on that decision.
+    #
+    # Super Admin and the Financial Manager. The finance role is the one that
+    # already moves money into an organisation's wallet and approves payouts,
+    # so giving something away for free sits with the same person.
+    'grant_premium':         {'super_admin', 'finance_admin'},
     'manage_communities':    {'super_admin', 'admin', 'mod_admin'},
     'moderate_content':      {'super_admin', 'admin', 'mod_admin'},
     'transfer_funds':        {'super_admin', 'finance_admin'},

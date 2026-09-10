@@ -58,6 +58,14 @@ cd "$BACKEND"
 git pull --ff-only
 ./venv/bin/pip install -r requirements.txt
 
+# The shell scripts in here are run by cron, and a checkout can arrive without
+# the execute bit. That is not hypothetical: the 03:00 backup on 9 September
+# answered "Permission denied" and wrote nothing, and the 11:00 freshness check
+# that exists to catch exactly that failed the same way, because it is the same
+# file. The cron lines now call them through `bash` as well, so this is the belt
+# to that brace rather than the only thing holding it.
+chmod +x deploy/*.sh 2>/dev/null || true
+
 # Migrations run BEFORE the new frontend, and while the old API is still
 # serving. That is safe for an additive change and unsafe for a destructive
 # one, which is the whole reason for the rule at the bottom of this file.
