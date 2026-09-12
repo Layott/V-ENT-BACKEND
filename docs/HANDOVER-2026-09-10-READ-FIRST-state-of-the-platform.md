@@ -82,8 +82,8 @@ rebuilt:
 2. `git config core.fileMode false` in `/srv/vent/backend`, because the deploy
    runs `chmod +x deploy/*.sh` and the next `git pull --ff-only` would abort.
 
-The retired `vent-web` unit is stopped but still present; it cannot be masked
-while its unit file exists.
+The retired `vent-web` unit was removed from the box on 12 September, file and
+all; `systemctl status vent-web` now answers "could not be found".
 
 ## 5. What is undone, and who each piece waits on
 

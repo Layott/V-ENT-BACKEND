@@ -54,8 +54,8 @@ newer script exists to avoid.
 1. `/srv/vent/deploy/deploy.sh` is now a **symlink** to
    `/srv/vent/backend/deploy/deploy.sh`, so the documented path and the repo
    are the same file.
-2. The retired `vent-web` unit is **stopped** (it cannot be masked while its
-   unit file exists, so stopping it is the state to keep).
+2. The retired `vent-web` unit was **stopped** that day and **removed** on
+   12 September, file and all.
 3. `git config core.fileMode false` in `/srv/vent/backend`, because
    `chmod +x deploy/*.sh` inside the deploy made the next `git pull` refuse
    with "local changes would be overwritten".
