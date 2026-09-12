@@ -325,7 +325,7 @@ class BoughtAndInvitedAreTheSameTests(SlotBase):
         for vendor, who in ((bought, self.buyer), (invited, invited_user)):
             res = self.client.post(
                 '/event/vendor/%s/products/' % vendor.slug,
-                {'name': 'Thing', 'price': 100, 'stock': 5},
+                {'name': 'Thing', 'price': 1000, 'stock': 5},
                 format='json', **auth(who))
             self.assertEqual(res.status_code, 201,
                              '%s could not list a product: %s'

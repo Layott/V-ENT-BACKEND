@@ -132,7 +132,14 @@ def serialize_tier(tier):
         'name': tier.name,
         'price_ngn': float(tier.price),
         'price_vc': _ngn_to_coins(tier.price),
-        'price': _ngn_to_coins(tier.price),   # VC - what the buy modal renders
+        'price': _ngn_to_coins(tier.price),   # VC - the list price
+        # What ONE ticket costs right now, once an early bird has ended. The
+        # card showed `price` while the checkout quoted `price_for(1)`, so on
+        # 12 September a card read "2 VC" and the modal under it "3 VC". One
+        # number, computed once, for both.
+        'price_now_vc': _ngn_to_coins(tier.price_for(1)),
+        'early_bird_ended': bool(tier.early_bird_quantity and tier.early_bird_price is not None
+                                 and int(tier.sold) >= int(tier.early_bird_quantity)),
         'quantity': tier.quantity,
         'sold': tier.sold,
         'remaining': remaining,
@@ -424,6 +431,13 @@ def buy_ticket(request, event_id):
                       'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
 
     with transaction.atomic():
+        # The EVENT row first, then the type. The venue's capacity is counted
+        # across every type, so two buyers of two different types on the
+        # same day each locking only their own type could both read one
+        # seat of room and both take it. Locking the event serialises the
+        # room count the way locking the type serialises the allocation.
+        # Found by reading on 12 September 2026; sqlite cannot show it.
+        Event.objects.select_for_update().filter(pk=event.pk).first()
         tier = TicketTier.objects.select_for_update().filter(id=tier_id, event=event).first()
         if tier is None:
             return _error('That ticket type is not available for this event.',

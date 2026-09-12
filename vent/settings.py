@@ -262,8 +262,30 @@ if _USE_SQLITE:
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / os.environ.get('SQLITE_NAME', 'local-dev.sqlite3'),
+            # SQLite takes one writer at a time and refuses the rest after
+            # five seconds by default. Forty buyers in the same second is a
+            # thing this platform has to survive (tools/walk_event.py --rush),
+            # and locally the honest answer is to QUEUE them, not to fail 38
+            # of them with "database is locked" and call that a result.
+            # Production is MySQL and takes row locks instead.
+            'OPTIONS': {'timeout': 60},
         }
     }
+    # And the transactions have to be IMMEDIATE, or the timeout above never
+    # gets a chance: Django opens a sqlite transaction as DEFERRED, so forty
+    # requests all begin by reading, and the moment the second one tries to
+    # write sqlite refuses it outright ("database is locked") rather than
+    # waiting, because letting it wait would deadlock the first. Taking the
+    # write lock at BEGIN makes the second writer queue behind the first,
+    # which is what MySQL's row locks do in production and what makes a
+    # forty-buyer rush answer 25 sold rather than 2 sold and 38 errors.
+    # Django 5.1 exposes this as OPTIONS['transaction_mode']; 5.0 does not.
+    from django.db.backends.sqlite3 import base as _sqlite_base
+
+    def _begin_immediate(self):
+        self.cursor().execute('BEGIN IMMEDIATE')
+
+    _sqlite_base.DatabaseWrapper._start_transaction_under_autocommit = _begin_immediate
 else:
     DATABASES = {
     'default': {

@@ -159,6 +159,18 @@ class TournamentEntryRulesTests(TestCase):
         self.assertEqual(self.link.entry_mode, 'ticket')
         self.assertEqual(self.link.entry_tier_id, self.player_pass.pk)
 
+    def test_the_address_takes_the_slugs_too(self):
+        # Both records are addressed by slug everywhere else. A slug here was
+        # a 500 until 12 September; an unknown one is a 404, never a crash.
+        res = self.client.post(
+            '/event/%s/tournament/%s/ticketing/' % (self.event.slug, self.tournament.slug),
+            data={'shared_ticketing': True}, content_type='application/json', **self.auth)
+        self.assertEqual(res.status_code, 200, res.content[:200])
+        res = self.client.post(
+            '/event/%s/tournament/%s/ticketing/' % (self.event.slug, 'no-such-tournament'),
+            data={'shared_ticketing': True}, content_type='application/json', **self.auth)
+        self.assertEqual(res.status_code, 404)
+
     def test_an_unknown_arrangement_is_refused(self):
         res = self.client.post(
             '/event/%s/tournament/%s/ticketing/' % (

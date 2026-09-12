@@ -292,6 +292,13 @@ def create_event(request):
                     price = float(tier.get('price') or 0)
                 except (ValueError, TypeError):
                     price = 0
+                # Whole coins only; a 1,500 naira type charged one coin from
+                # a wallet until 12 September 2026. See vent_event/pricing.py.
+                from .pricing import refuse_if_not_whole
+                refused = refuse_if_not_whole(price, field='ticket_types', prefix=tier_name)
+                if refused is not None:
+                    transaction.set_rollback(True)
+                    return refused
                 try:
                     quantity = int(tier.get('quantity') or 0)
                 except (ValueError, TypeError):
