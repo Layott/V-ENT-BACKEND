@@ -147,3 +147,31 @@ D2 closes when the union reads 0.
 - 38 guides: new debt, named, not started
 - Two PRs to merge (BE#150, FE#171), then `fix/spinner-for-ever` and the peer's
   branch on top
+
+## 7. Added at the end of the day
+
+- **Spinner debt is 0.** The peer's seven pages are FE#188 (base #187); the
+  union reads `93 file(s) checked, 0 that can spin for ever`. Walked the
+  peer's community/post as a stranger with the API call failing: "This post
+  did not load." with a 44px Try again, no "Post not found", and Try again
+  brought the post back, at desktop and at 390.
+- **Guides debt is 0.** 36 entries written (FE#189, base #188), en/fr/pt by
+  hand, 177 strings. `/studio/...` and `/s/...` are SILENT by name: a help
+  button on an OBS browser source would be on the broadcast. `check-guides`
+  reads PageHelp's SILENT list so the two cannot drift, and `guide-keys
+  --check` learned double-quoted keys (it had reported all 177 absent).
+- **Build on the spinner branch: 153 routes**, after the store had to be
+  repaired a SECOND time. The peer's worktree node_modules is a junction to
+  this checkout's, so my mid-recipe `rm -rf` broke its dev server for a
+  minute; and `check-pnpm-store` is blind to `@swc/helpers/package.json`
+  going missing. One-line fixture for whoever touches that script next.
+- **Merge order**, per the peer's BE#178 body: FE#171, #187, #188, #189,
+  pull V-ENT-FRONTEND on the box, then BE#150, then BE#178 (it registers a
+  checker that lives on the frontend side).
+- **Gates: 22 of 22.** `check-stale-gates` reads 0. The only debt line left in
+  the ledger is link embeds, which needs a dev server on 3001 to measure at
+  all; run by hand against 3005 it found one og:image that a local media
+  URL cannot serve through the production proxy, an environment artefact.
+- **Not done, and cannot be from here:** a signed-in Chrome walk of the admin
+  finance holds section and the battle console. The browser tool will not
+  type a password, and the shared Chrome session was signed out today.
