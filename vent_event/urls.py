@@ -40,7 +40,7 @@ from .views_vendor_shop import (
 from .views_vendor_slots import event_slots, event_slot_detail, buy_slot
 from .views_vendors import (
     event_vendors, vendor_detail, create_vendor, create_product,
-    create_order, my_vendor_orders, vendor_orders, collect_order,
+    create_order, my_vendor_orders, vendor_orders, collect_order, contact_vendor,
 )
 from .views_promos import (
     event_referrals, event_referral_detail, event_promos, event_promo_detail,
@@ -68,6 +68,7 @@ urlpatterns = [
     path("<str:event_id>/vendor/<str:vendor_id>/", vendor_detail, name="vendor_detail"),
     path("vendor/<str:vendor_id>/products/", create_product, name="create_vendor_product"),
     path("vendor/<str:vendor_id>/order/", create_order, name="create_vendor_order"),
+    path("vendor/<str:vendor_id>/contact/", contact_vendor, name="contact_vendor"),
     path("vendor/<str:vendor_id>/orders/", vendor_orders, name="vendor_orders"),
     path("vendor/order/<str:code>/collect/", collect_order, name="collect_vendor_order"),
     path("vendor-orders/", my_vendor_orders, name="my_vendor_orders"),
@@ -252,6 +253,7 @@ urlpatterns = [
     # An arrival through an influencer's link. Public and unauthenticated,
     # because somebody arriving through an influencer's link is by definition
     # somebody who has never been here.
+    path("referrals/mine/", views_referrals.my_referrals, name="my_referrals"),
     path("<str:event_id>/ref/<str:code>/visit/", views_referrals.referral_visit,
          name="referral_visit"),
     path("<str:event_id>/referrals/", event_referrals, name="event_referrals"),

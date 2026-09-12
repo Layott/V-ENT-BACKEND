@@ -328,7 +328,12 @@ def set_shared_ticketing(request, event_id, tournament_id):
     if err:
         return err
 
-    link = EventTournamentLink.objects.filter(event=event, tournament_id=tournament_id).first()
+    # By id or by slug, like unlink: a slug in this address was a 500 until
+    # 12 September because the raw string went straight into `tournament_id=`.
+    from vent_tournament import lookup
+    tournament = lookup.find(tournament_id)
+    link = (EventTournamentLink.objects.filter(event=event, tournament=tournament).first()
+            if tournament is not None else None)
     if link is None:
         return _error('That tournament is not linked to this event.',
                       'NOT_FOUND', status.HTTP_404_NOT_FOUND)

@@ -97,6 +97,11 @@ def _fee_rate():
     return _ledger.platform_rate()
 
 
+def _ledger_fee():
+    from . import ledger as _ledger
+    return _ledger.platform_fee()
+
+
 def _new_code():
     while True:
         code = 'VT-' + ''.join(secrets.choice(CODE_ALPHABET) for _ in range(8))
@@ -132,7 +137,14 @@ def serialize_tier(tier):
         'name': tier.name,
         'price_ngn': float(tier.price),
         'price_vc': _ngn_to_coins(tier.price),
-        'price': _ngn_to_coins(tier.price),   # VC - what the buy modal renders
+        'price': _ngn_to_coins(tier.price),   # VC - the list price
+        # What ONE ticket costs right now, once an early bird has ended. The
+        # card showed `price` while the checkout quoted `price_for(1)`, so on
+        # 12 September a card read "2 VC" and the modal under it "3 VC". One
+        # number, computed once, for both.
+        'price_now_vc': _ngn_to_coins(tier.price_for(1)),
+        'early_bird_ended': bool(tier.early_bird_quantity and tier.early_bird_price is not None
+                                 and int(tier.sold) >= int(tier.early_bird_quantity)),
         'quantity': tier.quantity,
         'sold': tier.sold,
         'remaining': remaining,
@@ -281,6 +293,7 @@ def ticket_types(request, event_id):
             # nothing at all.
             'fee_bearer': event.fee_bearer,
             'fee_pct': _fee_rate(),
+            'fee_flat_ngn': float(_ledger_fee()[1]),
         },
         'Ticket tiers retrieved.',
     )
@@ -329,7 +342,12 @@ def ticket_quote(request, event_id):
     quantity = max(1, min(quantity, MAX_PER_PURCHASE))
 
     from . import ledger as _ledger
-    priced = _ledger.quote(tier, quantity, event, buyer=_maybe_viewer(request))
+    # `channel=naira` is the guest checkout asking; a wallet buyer is the
+    # default. The fee lands in a different place on each, and the panel has
+    # to say the right one.
+    channel = 'naira' if request.query_params.get('channel') == 'naira' else 'wallet'
+    priced = _ledger.quote(tier, quantity, event, buyer=_maybe_viewer(request),
+                           channel=channel)
 
     # Why the unit price is what it is, as a code rather than a sentence, so
     # the screen says it in the reader's language. `list` means nothing moved
@@ -356,10 +374,19 @@ def ticket_quote(request, event_id):
             'unit_vc': priced['unit_vc'],
             'list_unit_vc': list_unit_vc,
             'tickets_vc': priced['tickets_vc'],
+            'tickets_ngn': float(priced['tickets_ngn']),
             'fee_vc': priced['fee_vc'],
+            # The fee as it is: naira, 5% of the price plus the flat amount
+            # per ticket. `fee_vc` is its whole-coin floor and reads 0 on
+            # most tickets; a panel should say the naira.
+            'fee_ngn': float(priced['fee_ngn']),
             'fee_pct': priced['fee_pct'],
+            'fee_flat_ngn': float(priced['fee_flat_ngn']),
             'fee_bearer': priced['fee_bearer'],
+            'buyer_pays_fee': priced['buyer_pays_fee'],
+            'channel': priced['channel'],
             'total_vc': priced['total_vc'],
+            'total_ngn': float(priced['total_ngn']),
             'price_reason': reason,
             # A membership discount is reported BESIDE `price_reason` rather
             # than inside it, because it stacks on top of whatever the tier
@@ -424,6 +451,13 @@ def buy_ticket(request, event_id):
                       'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
 
     with transaction.atomic():
+        # The EVENT row first, then the type. The venue's capacity is counted
+        # across every type, so two buyers of two different types on the
+        # same day each locking only their own type could both read one
+        # seat of room and both take it. Locking the event serialises the
+        # room count the way locking the type serialises the allocation.
+        # Found by reading on 12 September 2026; sqlite cannot show it.
+        Event.objects.select_for_update().filter(pk=event.pk).first()
         tier = TicketTier.objects.select_for_update().filter(id=tier_id, event=event).first()
         if tier is None:
             return _error('That ticket type is not available for this event.',
