@@ -236,7 +236,15 @@ def passes(code, output, expect):
     # and a sentence was waved through on exit 0, and `tail -1` had already
     # turned the checker's exit 1 into a 0.
     if raw.startswith('`') and raw.endswith('`'):
-        return want.lower() in (output or '').lower()
+        # A number is a whole number: `0 that can spin for ever` is not
+        # inside "20 that can spin for ever", which plain containment said
+        # it was, ten minutes after the first fix.
+        pattern = re.escape(want.lower())
+        if want[:1].isdigit():
+            pattern = r'(?<![0-9.])' + pattern
+        if want[-1:].isdigit():
+            pattern = pattern + r'(?![0-9.])'
+        return re.search(pattern, (output or '').lower()) is not None
     # An expectation written as a sentence rather than a literal cannot be
     # matched, and pretending otherwise is how a checker earns a number nobody
     # believes. Exit 0 is all there is in that case.
@@ -307,6 +315,14 @@ FIXTURE_LONG_LITERAL = """# Fixture: a long literal in backticks is matched, not
   EVIDENCE: pending
 """
 
+FIXTURE_NUMBER_INSIDE = """# Fixture: a number is a whole number, not a substring of a bigger one
+
+- [ ] **F1** The count reads zero.
+  CHECK: `echo "95 file(s) checked, 20 that can spin for ever"`
+  EXPECT: `0 that can spin for ever`
+  EVIDENCE: pending
+"""
+
 FIXTURE_MANUAL = """# Fixture: a walk cannot be re-run from here
 
 - [ ] **D1** Walked in Chrome at 390x844.
@@ -324,7 +340,8 @@ def self_test():
                  ('genuine.md', FIXTURE_GENUINE, 'genuine'),
                  ('ticked.md', FIXTURE_TICKED, 'nothing'),
                  ('manual.md', FIXTURE_MANUAL, 'unrunnable'),
-                 ('long-literal.md', FIXTURE_LONG_LITERAL, 'genuine')]
+                 ('long-literal.md', FIXTURE_LONG_LITERAL, 'genuine'),
+                 ('number-inside.md', FIXTURE_NUMBER_INSIDE, 'genuine')]
         for name, body, want in cases:
             path = os.path.join(tmp, name)
             io.open(path, 'w', encoding='utf-8').write(body)
