@@ -4,6 +4,7 @@ Same money discipline as ticketing: wallet row locked, PIN verified, stock and
 debit written in one transaction, a Transaction row for the ledger.
 """
 import secrets
+from datetime import timedelta
 
 from django.contrib.auth.hashers import check_password
 from django.db import transaction
@@ -158,7 +159,13 @@ def _vendor_by_ref(ref, **extra):
 
 @api_view(['GET'])
 def vendor_detail(request, event_id, vendor_id):
-    vendor = _vendor_by_ref(vendor_id, event_id=event_id)
+    # The event is resolved by slug or id like everywhere else. Until
+    # 12 September this passed the raw address into `event_id=`, so every
+    # stall page opened from an event page (which links by slug) was a 500.
+    event = _event_by_ref(event_id)
+    if event is None:
+        return _error('Vendor not found for this event.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    vendor = _vendor_by_ref(vendor_id, event=event)
     if vendor is not None:
         vendor = Vendor.objects.filter(pk=vendor.pk).prefetch_related('products').first()
     if vendor is None:
@@ -239,6 +246,26 @@ def create_vendor(request, event_id):
 # POST /event/vendor/<vendor_id>/products/  - vendor owner or event organizer
 # ---------------------------------------------------------------------------
 
+
+def read_variants(raw):
+    """The choices a product comes in, as `(list, error)`. Accepts a list or
+    a comma separated line, because the stall screen types them as one line
+    and the API takes JSON. Absent is an empty list, not an error."""
+    if raw in (None, ''):
+        return [], ''
+    if isinstance(raw, str):
+        raw = [part.strip() for part in raw.split(',')]
+    if not isinstance(raw, list):
+        return [], 'Choices have to be a list, or a comma separated line.'
+    return [str(x).strip()[:60] for x in raw if str(x).strip()][:20], ''
+
+
+def _truthy(value):
+    if isinstance(value, str):
+        return value.strip().lower() in ('1', 'true', 'yes', 'on')
+    return bool(value)
+
+
 @api_view(['POST'])
 def create_product(request, vendor_id):
     user, auth_error = _authenticate(request)
@@ -262,6 +289,18 @@ def create_product(request, vendor_id):
         return _error('Price and stock must be numbers.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
     if price < 0 or stock < 0:
         return _error('Price and stock cannot be negative.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+    from .pricing import refuse_if_not_whole
+    refused = refuse_if_not_whole(price, field='price')
+    if refused is not None:
+        return refused
+
+    # Everything the stall screen sends is read here. Until 12 September this
+    # took name, price and stock and dropped the rest on the floor: a picture
+    # sent with the product never landed, and the screen had grown a second
+    # call to PATCH the choices and deliverability in afterwards.
+    variants, why = read_variants(request.data.get('variants'))
+    if why:
+        return _error(why, 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
 
     product = VendorProduct.objects.create(
         vendor=vendor,
@@ -269,12 +308,75 @@ def create_product(request, vendor_id):
         description=(request.data.get('description') or '').strip(),
         price=price,
         stock=stock,
+        variants=variants,
+        can_deliver=_truthy(request.data.get('can_deliver')),
+        image=request.FILES.get('image'),
     )
     return Response(
         {'status': 'success', 'data': {'product': serialize_product(request, product)},
          'message': f'{product.name} listed.'},
         status=status.HTTP_201_CREATED,
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /event/vendor/<vendor_id>/contact/   - a question for the stallholder
+# ---------------------------------------------------------------------------
+
+CONTACT_COOLDOWN_SECONDS = 60
+
+
+@api_view(['POST'])
+def contact_vendor(request, vendor_id):
+    """A signed-in person asks a stall something. The stallholder gets it as
+    a notification carrying the sender's username.
+
+    The stall page has offered a Contact box since the shop was built, and
+    until 12 September 2026 pressing Send set a flag and showed "Message sent"
+    without a request leaving the browser. Found by the Chrome walk: the
+    network tab was empty. There is no direct-message system on the platform,
+    so this is one-way and says so; the notification is real and lands in
+    the bell.
+    """
+    user, auth_error = _authenticate(request)
+    if auth_error:
+        return auth_error
+    vendor = _vendor_by_ref(vendor_id)
+    if vendor is None or vendor.status != 'approved':
+        return _error('Vendor not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    if vendor.owner_id == user.user_id:
+        return _error('That is your own stall.', 'OWN_STALL', status.HTTP_400_BAD_REQUEST)
+    message = str(request.data.get('message') or '').strip()
+    if not message:
+        return _error('Write the message first.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+    if len(message) > 400:
+        return _error('Keep it under 400 characters.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+
+    # One a minute per person per stall. A stall is a public page and the
+    # box is one text field; without this it is a way to fill somebody's
+    # bell from a loop.
+    from vent_auth.models import Notification
+    recent = Notification.objects.filter(
+        user_id=vendor.owner_id, category='event',
+        metadata__kind='vendor_message', metadata__from=user.username,
+        created_at__gte=timezone.now() - timedelta(seconds=CONTACT_COOLDOWN_SECONDS)).exists()
+    if recent:
+        return _error('Give them a minute before sending another.', 'TOO_SOON',
+                      status.HTTP_429_TOO_MANY_REQUESTS)
+
+    from vent_auth.views_notifications import create_notification
+    row = create_notification(
+        vendor.owner_id, 'event',
+        'Question for %s' % vendor.name,
+        body='%s: %s' % (user.username, message),
+        link='/u/%s' % user.username,
+        metadata={'kind': 'vendor_message', 'from': user.username,
+                  'stall': vendor.slug, 'event': vendor.event.slug})
+    if row is None:
+        return _error('That did not send. Try again.', 'SEND_FAILED',
+                      status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return Response({'status': 'success', 'data': {'sent': True},
+                     'message': 'Sent to %s.' % vendor.name}, status=status.HTTP_201_CREATED)
 
 
 # ---------------------------------------------------------------------------

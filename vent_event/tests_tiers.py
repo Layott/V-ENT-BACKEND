@@ -100,10 +100,10 @@ class TierManagementTests(TestCase):
     # ------------------------------------------------------------- editing
 
     def test_a_price_typed_wrong_can_be_corrected(self):
-        res = self.patch(self.tier, {'price': '7500'})
+        res = self.patch(self.tier, {'price': '7000'})
         self.assertEqual(res.status_code, 200, res.content)
         self.tier.refresh_from_db()
-        self.assertEqual(int(self.tier.price), 7500)
+        self.assertEqual(int(self.tier.price), 7000)
 
     def test_more_can_be_opened_when_a_tier_sells_out(self):
         self.tier.sold = 100
@@ -141,6 +141,76 @@ class TierManagementTests(TestCase):
     def test_a_stranger_cannot_edit_a_tier(self):
         res = self.patch(self.tier, {'price': '1'}, auth=self.stranger_auth)
         self.assertEqual(res.status_code, 403, res.content)
+
+    # ------------------------------------------------ the pricing panel's five
+    #
+    # The console's Pricing panel sends exactly these five keys to this
+    # endpoint. Until 12 September 2026 the endpoint read none of them: a
+    # pricing-only save was refused as "Nothing to change", and a save that
+    # also carried an email cap was reported as updated with the pricing
+    # discarded. These tests send what the panel sends.
+
+    def test_early_bird_is_set_from_the_pricing_panel(self):
+        res = self.patch(self.tier, {'early_bird_quantity': 50, 'early_bird_price': '9000'})
+        self.assertEqual(res.status_code, 200, res.content)
+        self.tier.refresh_from_db()
+        self.assertEqual(self.tier.early_bird_quantity, 50)
+        self.assertEqual(int(self.tier.early_bird_price), 9000)
+        # Fifty sold at the first price, the fifty-first at the second.
+        self.assertEqual(int(self.tier.price_for(1)), int(self.tier.price))
+        self.tier.sold = 50
+        self.assertEqual(int(self.tier.price_for(1)), 9000)
+        # And the card is told the price as it stands, not the list price:
+        # the two disagreed on screen on 12 September (card 2 VC, modal 3 VC).
+        from vent_event.views_tickets import serialize_tier
+        self.tier.save(update_fields=['sold'])
+        row = serialize_tier(self.tier)
+        self.assertEqual(row['price_now_vc'], 9)
+        self.assertTrue(row['early_bird_ended'])
+        self.tier.sold = 0
+        self.tier.save(update_fields=['sold'])
+        row = serialize_tier(self.tier)
+        self.assertEqual(row['price_now_vc'], row['price'])
+        self.assertFalse(row['early_bird_ended'])
+
+    def test_a_group_rate_is_set_from_the_pricing_panel(self):
+        res = self.patch(self.tier, {'group_min': 4, 'group_price': '2000'})
+        self.assertEqual(res.status_code, 200, res.content)
+        self.tier.refresh_from_db()
+        self.assertEqual(self.tier.group_min, 4)
+        self.assertEqual(int(self.tier.price_for(4)), 2000)
+        self.assertEqual(int(self.tier.price_for(3)), int(self.tier.price))
+
+    def test_an_access_code_is_set_and_cleared_from_the_pricing_panel(self):
+        res = self.patch(self.tier, {'access_code': '  VIPONLY '})
+        self.assertEqual(res.status_code, 200, res.content)
+        self.tier.refresh_from_db()
+        self.assertEqual(self.tier.access_code, 'VIPONLY')
+        self.assertTrue(self.tier.is_hidden)
+        self.assertTrue(self.tier.opened_by('viponly'))
+        res = self.patch(self.tier, {'access_code': ''})
+        self.assertEqual(res.status_code, 200, res.content)
+        self.tier.refresh_from_db()
+        self.assertFalse(self.tier.is_hidden)
+
+    def test_blank_early_bird_and_group_fields_clear_them(self):
+        self.patch(self.tier, {'early_bird_quantity': 5, 'early_bird_price': '9000',
+                               'group_min': 4, 'group_price': '2000'})
+        res = self.patch(self.tier, {'early_bird_quantity': '', 'early_bird_price': '',
+                                     'group_min': '', 'group_price': ''})
+        self.assertEqual(res.status_code, 200, res.content)
+        self.tier.refresh_from_db()
+        self.assertEqual(self.tier.early_bird_quantity, 0)
+        self.assertIsNone(self.tier.early_bird_price)
+        self.assertEqual(self.tier.group_min, 0)
+        self.assertIsNone(self.tier.group_price)
+
+    def test_a_pricing_field_that_is_not_a_number_is_refused(self):
+        res = self.patch(self.tier, {'group_price': 'cheap'})
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.json()['code'], 'INVALID_NUMBER')
+        res = self.patch(self.tier, {'early_bird_quantity': -1})
+        self.assertEqual(res.status_code, 400, res.content)
 
     # ------------------------------------------------------------- removing
 

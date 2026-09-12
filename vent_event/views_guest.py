@@ -372,6 +372,16 @@ def guest_buy(request, event_id):
             # catches somebody retyping their address; this catches two
             # requests arriving at once, which is what a double-tapped button
             # on a slow connection actually looks like.
+            # The room, re-read under the lock. A free ticket is the one
+            # kind two people can take in the same second with no gateway in
+            # between, and the check above was made before the lock. Locking
+            # the event first and the type second, as buy_ticket does.
+            from .models import Event as _Event, TicketTier as _Tier
+            _Event.objects.select_for_update().filter(pk=event.pk).first()
+            tier = _Tier.objects.select_for_update().get(pk=tier.pk)
+            err = _room_or_error(event, tier, quantity)
+            if err:
+                return err
             err = _email_limit_or_error(event, email, quantity, tier=tier)
             if err:
                 return err

@@ -76,6 +76,12 @@ def _read_price(raw, current=None):
     if price < 0:
         return None, _err('A price cannot be negative.', 'INVALID_NUMBER',
                           field='price')
+    # Whole coins only. See vent_event/pricing.py for the money that was
+    # being lost before this line existed.
+    from .pricing import refuse_if_not_whole
+    refused = refuse_if_not_whole(price, field='price')
+    if refused is not None:
+        return None, refused
     return price, None
 
 
@@ -345,6 +351,58 @@ def update_tier(request, event_id, tier_id):
     if 'day_label' in request.data:
         tier.day_label = str(request.data.get('day_label') or '')[:60]
         updated.append('day_label')
+
+    # The three ways a price moves, which the console's Pricing panel has
+    # sent to this endpoint since the panel was built and which this endpoint
+    # dropped on the floor until 12 September 2026. A pricing-only save was
+    # answered "Nothing to change"; a save that also carried an email cap was
+    # answered "Ticket type updated" with the pricing silently discarded.
+    # Found by the walk in tools/walk_event.py, not by any test, because the
+    # tests set these fields on the model directly.
+    #
+    # Empty clears. A quantity of 0 or a price left blank means "no early
+    # bird" / "no group rate", which is what the model's zero and null mean.
+    if 'early_bird_quantity' in request.data:
+        n, err = _read_quantity(request.data.get('early_bird_quantity'), current=0)
+        if err:
+            return err
+        tier.early_bird_quantity = n or 0
+        updated.append('early_bird_quantity')
+
+    if 'early_bird_price' in request.data:
+        raw = request.data.get('early_bird_price')
+        if raw in (None, ''):
+            tier.early_bird_price = None
+        else:
+            price, err = _read_price(raw)
+            if err:
+                return err
+            tier.early_bird_price = price
+        updated.append('early_bird_price')
+
+    if 'group_min' in request.data:
+        n, err = _read_quantity(request.data.get('group_min'), current=0)
+        if err:
+            return err
+        tier.group_min = n or 0
+        updated.append('group_min')
+
+    if 'group_price' in request.data:
+        raw = request.data.get('group_price')
+        if raw in (None, ''):
+            tier.group_price = None
+        else:
+            price, err = _read_price(raw)
+            if err:
+                return err
+            tier.group_price = price
+        updated.append('group_price')
+
+    if 'access_code' in request.data:
+        # Trimmed, and matched case-insensitively at the purchase, so it is
+        # stored as typed and compared lowercased there.
+        tier.access_code = str(request.data.get('access_code') or '').strip()[:40]
+        updated.append('access_code')
 
     if not updated:
         return _err('Nothing to change.', 'NO_FIELDS_TO_UPDATE')

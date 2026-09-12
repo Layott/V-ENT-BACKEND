@@ -69,3 +69,6 @@ local-dev.sqlite3
 node_modules/
 tools/.futbin-profile/
 tools/.futbin-state.json
+
+# The event walk keeps its state beside itself; never committed.
+tools/.walk-event-*.json

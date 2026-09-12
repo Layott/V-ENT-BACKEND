@@ -34,6 +34,7 @@ from rest_framework.response import Response
 
 from .models import Vendor, VendorOrder, VendorProduct
 from .views_tickets import _authenticate, _error, _ngn_to_coins, _ok
+from .views_vendors import read_variants
 
 PAGE_SIZE = 100
 
@@ -250,6 +251,11 @@ def my_product(request, vendor_id, product_id):
             if value < 0:
                 return _error('The %s cannot be negative.' % label,
                               'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+            if key == 'price':
+                from .pricing import refuse_if_not_whole
+                refused = refuse_if_not_whole(value, field='price')
+                if refused is not None:
+                    return refused
             setattr(product, key, value)
             fields.append(key)
     if 'is_active' in request.data:
@@ -259,13 +265,9 @@ def my_product(request, vendor_id, product_id):
         product.can_deliver = bool(request.data.get('can_deliver'))
         fields.append('can_deliver')
     if 'variants' in request.data:
-        raw = request.data.get('variants')
-        if isinstance(raw, str):
-            raw = [part.strip() for part in raw.split(',')]
-        if not isinstance(raw, list):
-            return _error('Choices have to be a list, or a comma separated line.',
-                          'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
-        product.variants = [str(x).strip()[:60] for x in raw if str(x).strip()][:20]
+        product.variants, why = read_variants(request.data.get('variants'))
+        if why:
+            return _error(why, 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
         fields.append('variants')
     if 'image' in request.FILES:
         product.image = request.FILES['image']

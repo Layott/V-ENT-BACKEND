@@ -21,6 +21,33 @@ from django.db import models
 from django.db.models import Sum
 
 
+#: How long a guest at Paystack keeps the seats they are paying for. Paystack's
+#: own checkout page gives up well inside this, and an abandoned row older
+#: than it stops counting on its own, with nothing to sweep.
+IN_FLIGHT_MINUTES = 20
+
+
+def in_flight_on_tier(tier, now=None):
+    """Seats a guest is paying for right now, at Paystack, not yet issued.
+
+    Found by the walk on 12 September 2026: the paid guest checkout checked
+    the room BEFORE sending somebody to Paystack and issued the tickets AFTER
+    they came back, and nothing held the seats in between. Two guests paying
+    for the last seat both paid and both got a ticket, because by the time
+    either came back the other had not yet been issued. The AbandonedCheckout
+    row written at the start of every paid checkout is exactly the record of
+    who is in that window, so it is what is counted here.
+    """
+    from django.utils import timezone
+    from .models import AbandonedCheckout
+    now = now or timezone.now()
+    since = now - timezone.timedelta(minutes=IN_FLIGHT_MINUTES)
+    total = (AbandonedCheckout.objects
+             .filter(tier=tier, converted_at__isnull=True, started_at__gte=since)
+             .aggregate(n=Sum('quantity'))['n'])
+    return int(total or 0)
+
+
 def held_on_tier(tier):
     """Tickets on this type that are reserved and not yet issued."""
     from .models import TicketHold
@@ -30,7 +57,7 @@ def held_on_tier(tier):
     for hold in rows:
         total += hold.outstanding
 
-    return total
+    return total + in_flight_on_tier(tier)
 
 
 def held_by_referrals(event):

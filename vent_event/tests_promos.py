@@ -288,6 +288,22 @@ class MyEventsTests(TestCase):
         self.assertEqual(rows[0]['role'], 'manager')
         self.assertFalse(rows[0]['is_owner'])
 
+    def test_a_door_steward_is_told_they_are_the_door(self):
+        """Both roles came back as "manager" until 12 September, and the screen
+        offered the steward Edit and the console, which then refused them."""
+        EventManager.objects.create(event=self.theirs, user=self.helper, role='door')
+        res = self.client.get('/event/my-events/', **self.helper_auth)
+        self.assertEqual(res.json()['data']['results'][0]['role'], 'door')
+
+    def test_tickets_sold_counts_live_tickets_only(self):
+        from vent_event.models import Ticket, TicketTier
+        tier = TicketTier.objects.create(event=self.mine, name='GA', price=0, quantity=10)
+        for status_ in ('valid', 'checked_in', 'transferred', 'refunded'):
+            Ticket.objects.create(event=self.mine, tier=tier, user=self.owner,
+                                  code='VT-%s' % status_[:6].upper(), status=status_)
+        res = self.client.get('/event/my-events/', **self.owner_auth)
+        self.assertEqual(res.json()['data']['results'][0]['tickets_sold'], 2)
+
     def test_a_retired_event_is_still_listed(self):
         """This is the only screen that can show it, and it may need fixing."""
         self.mine.is_active = False

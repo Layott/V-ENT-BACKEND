@@ -613,8 +613,13 @@ def my_events(request):
     if auth_error is not None:
         return auth_error
 
-    managed_ids = list(
-        EventManager.objects.filter(user=user).values_list('event_id', flat=True))
+    # The role this person was given on each event. A door steward and a
+    # manager are different things, and until 12 September both came back as
+    # "manager", so the screen offered the steward Edit and the console and
+    # both refused them.
+    managed_role = dict(
+        EventManager.objects.filter(user=user).values_list('event_id', 'role'))
+    managed_ids = list(managed_role)
 
     # And every event held by an organisation this person runs events for.
     # CEO, 4 September 2026: "when you add people to your organization you can
@@ -636,7 +641,11 @@ def my_events(request):
                       | Q(event_id__in=managed_ids)
                       | Q(organization_id__in=org_ids))
               .select_related('game', 'series', 'organization')
-              .annotate(tickets_sold=Count('tickets', distinct=True))
+              # Live tickets only. A transferred or refunded row is not a sale,
+              # and the number here read 42 while the console read 41.
+              .annotate(tickets_sold=Count(
+                  'tickets', distinct=True,
+                  filter=Q(tickets__status__in=['valid', 'checked_in'])))
               .order_by('-start_date', '-event_id')
               .distinct())
 
@@ -660,7 +669,8 @@ def my_events(request):
             # What this person may do with it, so the screen does not have to
             # guess and then be refused.
             'is_owner': e.creator_id == user.user_id,
-            'role': 'owner' if e.creator_id == user.user_id else 'manager',
+            'role': ('owner' if e.creator_id == user.user_id
+                     else managed_role.get(e.event_id, 'org')),
         })
 
     return _ok({'results': rows, 'count': len(rows)})
