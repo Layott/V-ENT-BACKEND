@@ -229,6 +229,20 @@ CATCHERS = [
      'a failed load says so on the page, rather than spinning',
      FRONTEND, ['node', 'scripts/check-spinner-forever.mjs'], False),
 
+    # The server half of the same fault. `fetchForMetadata` answered null for
+    # "does not exist" and for "never came back" alike, and every record route
+    # read null as the first: an API outage served each event, tournament,
+    # team and player page with the title "Event not found" and noindex, the
+    # one instruction a crawler acts on at once. Found on 12 September while
+    # walking the client fix with the API stopped; second occurrence of the
+    # class, so it gets a catcher.
+    #
+    # Blocking, because the routes were fixed in the same commit and there is
+    # nothing left to work down.
+    ('metadata outage',
+     'a record page describes an outage as unavailable, never as not found',
+     FRONTEND, ['node', 'scripts/check-metadata-outage.mjs'], True),
+
     # The pnpm store, gutted. Third occurrence on 9 September, each within
     # seconds of building while a dev server was serving the same tree. The
     # error names a module, so it reads like a missing dependency and gets
