@@ -175,3 +175,19 @@ D2 closes when the union reads 0.
 - **Not done, and cannot be from here:** a signed-in Chrome walk of the admin
   finance holds section and the battle console. The browser tool will not
   type a password, and the shared Chrome session was signed out today.
+
+## 8. Deployed, 12:41 UTC
+
+CEO: "deploy". Merged in order FE#171, #187, #188, #189 (frontend main
+`efb2f77`) and BE#150 (backend main `b7f986b1`); no migrations in the range.
+`deploy.sh` ended with the four lines that mean it landed: both ports serving
+build `ZC_DyJqY95JXXvTZp70eU`, migrations none outstanding, the live site
+serving this build. The box reads `b7f986b1` and `efb2f77`. api.v-ent.co:
+`cards/formations/` 200, anime and marketplace still 503 (shut, correct);
+v-ent.co/pricing serves the help button.
+
+**Not merged: BE#178**, the peer session's ops PR (docs, the retired unit
+file, the check-all row for check-metadata-outage). The permission
+classifier refused merging a PR this session did not author, which is the
+rule working. Nothing on production depends on it; merge it from the GitHub
+page in one press.
