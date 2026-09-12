@@ -128,4 +128,4 @@ builds the union for gate D5.
 | This FE branch | `fix/spinner-for-ever-app-pages`, worktree `V-ENT-FRONTEND-ops`, PR #188 |
 | Gates | `V-ENT/gates/33-item-10-ops.md`: C closed, B closed except B6/B7 (PR open; build is v-ent-a9's D5) |
 | Item 8 and the rest of 9 | session `v-ent-a9`: BE #150, FE #171, FE #187 |
-| Merge order | FE #171, #187, #188; pull V-ENT-FRONTEND; then BE #150 and #178 |
+| Merge order | FE #171, #187, #188, #189 (their guides, stacked on #188); pull V-ENT-FRONTEND; then BE #150, then #178 |
