@@ -7,9 +7,16 @@ rebuilt from scratch without copying snippets out of a document.
 |---|---|
 | `nginx-vent.conf` | `/etc/nginx/sites-available/vent` (symlink into `sites-enabled/`) |
 | `systemd/vent-api.service` | `/etc/systemd/system/vent-api.service` |
-| `systemd/vent-web.service` | `/etc/systemd/system/vent-web.service` |
+| `systemd/vent-web@.service` | `/etc/systemd/system/vent-web@.service`, then `systemctl enable --now vent-web@3000 vent-web@3001` |
 | `backup.sh` | `/srv/vent/deploy/backup.sh`, cron `0 3 * * *` |
-| `deploy.sh` | `/srv/vent/deploy/deploy.sh`, run by hand after merging to `main` |
+| `deploy.sh` | `/srv/vent/deploy/deploy.sh` is a SYMLINK to `backend/deploy/deploy.sh`; run by hand after merging to `main` |
+| `verify-live.sh` | run by `deploy.sh` after the roll; fails if an instance is not serving this build |
+
+There is no `vent-web.service` any more. The single-instance unit was retired on
+7 September when the two template instances arrived, its file was removed from
+the box on 12 September, and it is gone from this directory so a rebuilt box
+cannot get it back. The units that exist are `vent-api`, `vent-web@3000` and
+`vent-web@3001`.
 
 Full build order, sizing and the mail decision: `V-ENT/tasks/vps/INTERSERVER-SETUP.md`.
 
