@@ -2,157 +2,72 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>V-ENT is updating</title>
 <!--
-  Served by nginx when the app is not answering: mid-deploy, or a restart that
-  took longer than a second.
+  The page nginx serves while a deploy is running.
 
-  Everything here is inline on purpose. When this page is being shown the Node
-  server is down, and the Node server is what serves the fonts, the images and
-  every stylesheet. A maintenance page that depends on the thing that is broken
-  is a second broken page.
+  CEO, 7 September 2026, after seeing the old one: "Use the proper logo, then
+  dont put too much details, just that the site is being updated and apologize
+  for it."
 
-  It retries on its own rather than asking somebody to keep pressing reload,
-  and it says what is happening rather than showing a status code.
+  The old version drew its own triangle instead of the V-ENT mark, and then
+  explained wallet balances, ticket codes and form submissions in three boxes.
+  Somebody who has been interrupted for under a minute does not want a briefing;
+  they want to know it is not their fault and that it will be over shortly.
+
+  Standalone by necessity as well as by rule: it is served when the app is not
+  running, so it cannot reference anything the app serves. The mark is the real
+  logo_mark_red.svg, inlined.
 -->
 <style>
-  :root {
-    --page: #131316;
-    --surface: #1b1c1f;
-    --surface-2: #212225;
-    --text: #f4f4f5;
-    --muted: rgba(244, 244, 245, 0.58);
-    --quiet: rgba(244, 244, 245, 0.4);
-    --brand: #ed1c24;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root { color-scheme: dark; }
   html, body { height: 100%; }
   body {
-    background-color: var(--page);
-    color: var(--text);
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-                 "Helvetica Neue", Arial, sans-serif;
-    -webkit-font-smoothing: antialiased;
+    margin: 0;
+    background: #131316;
+    color: #fff;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 1.5rem;
-    padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
   }
-  .card {
-    background-color: var(--surface);
-    border-radius: 20px;
-    padding: 2.25rem 1.75rem 1.75rem;
-    width: 100%;
-    max-width: 460px;
-  }
-  .mark { display: block; width: 34px; height: auto; }
+  .card { max-width: 30rem; text-align: center; }
+  .mark { display: block; margin: 0 auto 1.75rem; }
   h1 {
-    font-size: 1.7rem;
-    line-height: 1.15;
-    letter-spacing: -0.015em;
-    font-weight: 650;
-    margin-top: 1.5rem;
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0 0 0.85rem;
   }
-  .lead { color: var(--muted); font-size: 1rem; line-height: 1.65; margin-top: 0.85rem; }
-  .rows { margin-top: 1.6rem; display: flex; flex-direction: column; gap: 0.5rem; }
-  .row {
-    background-color: var(--surface-2);
-    border-radius: 12px;
-    padding: 0.85rem 1rem;
-    font-size: 0.92rem;
-    line-height: 1.5;
-    color: rgba(244, 244, 245, 0.86);
+  p {
+    margin: 0;
+    font-size: 1rem;
+    line-height: 1.65;
+    color: rgba(255, 255, 255, 0.62);
   }
-  .row b { font-weight: 620; color: var(--text); }
-  .foot {
-    margin-top: 1.6rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
-  .status { color: var(--quiet); font-size: 0.84rem; }
-  button {
-    font: inherit;
-    font-size: 0.92rem;
-    font-weight: 600;
-    color: #fff;
-    background-color: var(--brand);
-    border: none;
-    border-radius: 10px;
-    padding: 0.7rem 1.2rem;
-    cursor: pointer;
-    outline: none;
-  }
-  button:hover { background-color: #ff2229; }
-  button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-  a { color: rgba(244, 244, 245, 0.8); }
-  @media (min-width: 700px) {
-    .card { padding: 2.75rem 2.5rem 2.25rem; }
-    h1 { font-size: 2.1rem; }
-  }
+  .back { margin-top: 1.5rem; font-size: 0.88rem; color: rgba(255,255,255,0.38); }
 </style>
 </head>
 <body>
   <main class="card">
-    <svg class="mark" viewBox="0 0 40 46" role="img" aria-label="V-ENT">
-      <path d="M0 0h40L20 46 0 0zm7.6 5.4L20 34.1 32.4 5.4H7.6z" fill="#ED1C24"/>
-    </svg>
-
+    <svg class="mark" width="52" height="54" id="ventmark" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 80.02 83.02"><defs><style>.cls-1{fill:url(#vg);}.cls-2{fill:url(#vg-2);}</style><linearGradient id="vg" y1="29.05" x2="56.04" y2="29.05" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#e30613"/><stop offset="0.48" stop-color="#e30613"/><stop offset="1" stop-color="#be1622"/></linearGradient><linearGradient id="vg-2" x1="32.34" y1="41.51" x2="80.02" y2="41.51" xlink:href="#vg"/></defs><path class="cls-1" d="M0,.15H56C53.56,5.2,51.28,10,48.81,14.68c-.28.53-1.62.68-2.47.69-7,.05-14.06,0-21.67,0,1.27,2.82,2.31,5.27,3.46,7.67,2.35,4.9,4.71,9.8,7.18,14.64a5.22,5.22,0,0,1,0,5.48c-2.56,4.66-4.81,9.48-7.45,14.75Z"/><path class="cls-2" d="M80,.05C66.63,27.77,53.46,55.05,40,83c-2.06-4.26-3.64-8.09-5.71-11.63-2.44-4.19-2.6-7.75-.17-12.31,6.27-11.81,11.82-24,17.67-36,3.39-7,6.84-13.95,10.16-21A3.16,3.16,0,0,1,65.35,0C70,.14,74.73.05,80,.05Z"/></svg>
     <h1>V-ENT is updating</h1>
-    <p class="lead">
-      A new version is going out right now. This takes about a minute, and this
-      page will take you back the moment it is done.
-    </p>
-
-    <div class="rows">
-      <p class="row"><b>Your money is untouched.</b> Wallet balances, entry fees and prizes are held on the server, not in this page.</p>
-      <p class="row"><b>Your tickets still work.</b> A ticket already bought keeps its code, and the door scanner reads it whether or not this page is up.</p>
-      <p class="row"><b>Nothing you submitted is lost.</b> Anything the server accepted before the update is saved. Anything it did not accept was never charged for.</p>
-    </div>
-
-    <div class="foot">
-      <span class="status" id="status" aria-live="polite">Checking again in 15 seconds</span>
-      <button type="button" id="retry">Try now</button>
-    </div>
+    <p>Sorry for the interruption. We are putting out a new version and it takes
+       about a minute.</p>
+    <p class="back">This page takes you back on its own.</p>
   </main>
-
-<script>
-(function () {
-  var status = document.getElementById('status');
-  var retry = document.getElementById('retry');
-  var left = 15;
-  var checking = false;
-
-  function check() {
-    if (checking) return;
-    checking = true;
-    status.textContent = 'Checking';
-    fetch('/?probe=' + Date.now(), { method: 'HEAD', cache: 'no-store' })
-      .then(function (res) {
-        if (res.ok) { location.reload(); return; }
-        throw new Error('still down');
-      })
-      .catch(function () {
-        checking = false;
-        left = 15;
-        status.textContent = 'Still updating. Checking again in 15 seconds';
-      });
-  }
-
-  retry.addEventListener('click', check);
-
-  setInterval(function () {
-    if (checking) return;
-    left -= 1;
-    if (left <= 0) { check(); return; }
-    status.textContent = 'Checking again in ' + left + (left === 1 ? ' second' : ' seconds');
-  }, 1000);
-})();
-</script>
+  <script>
+    // Ask for the real site, and go the moment it answers. No countdown and no
+    // button: a person watching a timer is a person being made to wait, and a
+    // button that does nothing for fifty seconds is worse than no button.
+    setInterval(function () {
+      fetch(location.href, { method: 'HEAD', cache: 'no-store' })
+        .then(function (r) { if (r.ok) location.reload(); })
+        .catch(function () {});
+    }, 3000);
+  </script>
 </body>
 </html>

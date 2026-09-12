@@ -12,11 +12,15 @@ from rest_framework.response import Response
 from django.core import signing
 
 from . import emails
+from . import kyc as kyc_service
+from . import payouts
+from . import wallets
 from .views_wallet import coins_to_ngn
 from .models import (
     Users, Waitlist, UserWallet, UserProfile,
     Transaction, WithdrawalRequest, KYCDocument, AdminAction, AdminTOTP,
 )
+from . import softdelete
 from . import totp as totp_lib
 from .views_helpers import send_email, generate_session_token
 from .views_kyc_files import kyc_document_url
@@ -162,7 +166,7 @@ def admin_me(request):
 # ---------------------------------------------------------------------------
 
 @api_view(['GET'])
-@admin_role_required(ADMIN_ROLES)
+@admin_role_required(ROLE_PERMISSIONS['view_dashboard'])
 def admin_metrics(request):
     admin = request.admin_user
 
@@ -213,7 +217,7 @@ def admin_metrics(request):
 # ---------------------------------------------------------------------------
 
 @api_view(['GET'])
-@admin_role_required(ADMIN_ROLES)
+@admin_role_required(ROLE_PERMISSIONS['view_users'])
 def admin_list_users(request):
     """GET /auth/admin/users/ - paginated/searchable/filterable (contract §6).
 
@@ -248,6 +252,14 @@ def admin_list_users(request):
         # active = is_active True AND no pending KYC
         qs = qs.filter(is_active=True).exclude(kyc_documents__status='pending').distinct()
     # 'suspended' not tracked - ignore.
+    elif status_filter == 'premium':
+        qs = qs.filter(is_premium=True)
+    elif status_filter == 'wants_premium':
+        # Everybody who pressed "I want premium" while there was no price. The
+        # list exists because the alternative to it was a refusal that told
+        # people to go and find a member of staff, and a request with nowhere
+        # to land is a request nobody hears.
+        qs = qs.filter(premium_interest__isnull=False)
 
     ordering_map = {
         '-date_joined': '-date_joined',
@@ -267,12 +279,21 @@ def admin_list_users(request):
         {
             'id': u.user_id,
             'username': u.username,
+            'avatar': _face(request, u),
             'email': u.email,
             'full_name': u.full_name,
             'country': u.country,
             'status': _user_status(u),
             'wallet_vc': _wallet_vc(u),
             'date_joined': u.date_joined,
+            # On the ROW, not only on the detail. A flag that can be read one
+            # account at a time cannot answer "who is on premium", which is the
+            # first question anybody with a revenue number asks.
+            'is_premium': u.is_premium,
+            # How many times they have asked, and where from. Only ever set on
+            # somebody who pressed the button, so it is absent for everybody
+            # else rather than a zero on every row.
+            'wants_premium': _wants_premium(u),
         }
         for u in users
     ]
@@ -283,18 +304,87 @@ def admin_list_users(request):
     }, status=status.HTTP_200_OK)
 
 
+def _wants_premium(user):
+    """What this account has asked for, or None.
+
+    A dict rather than a count, because "asked four times from the prize plan"
+    is a different thing to act on than "asked once".
+    """
+    row = getattr(user, 'premium_interest', None)
+    if row is None:
+        return None
+    return {'times': row.times, 'surface': row.surface, 'last_at': row.last_at}
+
+
+def _person_for_admin(request, user):
+    """A person, for a console row, through the one builder.
+
+    `_person` builds a relative avatar off the request; the console screens
+    want it absolute, which `_face` already does, so this joins the two rather
+    than making a third description of somebody.
+    """
+    from .views_community import _person
+
+    row = _person(request, user)
+    row['avatar'] = _face(request, user)
+    return row
+
+
+def _face(request, user):
+    """Somebody's profile picture, for a console screen that shows their name.
+
+    The whole admin console drew a two-letter monogram and nothing else, on
+    the user table, the user detail, the payout queue and the KYC queue -
+    because no admin payload carried an avatar at all. On the KYC queue that
+    is not cosmetic: whoever is approving an identity document has the
+    document and the account, and the account's own picture is one of the two
+    things worth comparing it against.
+    """
+    if not user:
+        return None
+    profile = UserProfile.objects.filter(user=user).first()
+    if not profile or not profile.profile_picture:
+        return None
+    try:
+        return request.build_absolute_uri(profile.profile_picture.url)
+    except ValueError:
+        return None
+
+
+def _admin_user(key):
+    """The account an admin console address names.
+
+    The console addressed people by primary key - `/admin/users/41` - which is
+    the slug rule's exact prohibition, and it lets anybody with console access
+    walk the whole user table by counting. The address is the username now,
+    and a numeric key still resolves so every link an admin has bookmarked and
+    every audit-log row that recorded one keeps working.
+
+    A username made only of digits would be ambiguous, so the numeric branch is
+    tried first and falls through to the username on a miss rather than 404ing
+    on a name that exists.
+    """
+    key = str(key)
+    if key.isdigit():
+        found = Users.objects.filter(user_id=int(key)).first()
+        if found:
+            return found
+    return get_object_or_404(Users, username=key)
+
+
 @api_view(['GET'])
-@admin_role_required(ADMIN_ROLES)
+@admin_role_required(ROLE_PERMISSIONS['view_users'])
 def admin_get_user(request, user_id):
     """GET /auth/admin/users/{id}/ - full user detail (contract §7)."""
     from vent_tournament.models import TournamentRegistration
 
-    user = get_object_or_404(Users, user_id=user_id)
+    user = _admin_user(user_id)
 
     tournaments_count = TournamentRegistration.objects.filter(user=user).count()
 
     user_block = {
         'username': user.username,
+        'avatar': _face(request, user),
         'full_name': user.full_name,
         'email': user.email,
         'status': _user_status(user),
@@ -305,6 +395,12 @@ def admin_get_user(request, user_id):
         'last_login': user.last_login,
         'role': user.role,
         'kyc_status': _user_kyc_status(user),
+        'is_premium': user.is_premium,
+        'premium_note': user.premium_note,
+        # NULL when an admin granted it, a date when it was bought. The console
+        # shows the difference, because "premium for ever" and "premium until
+        # the 9th of October" are not the same account to look at.
+        'premium_until': user.premium_until,
     }
 
     # logins - no login-history model yet; synthesize a single stub row from
@@ -356,8 +452,34 @@ def admin_get_user(request, user_id):
         }
         for a in AdminAction.objects
         .filter(action_type__in=['ban_user', 'unban_user'], target_model='User',
-                target_id=str(user_id))
+                target_id=str(user.user_id))
         .select_related('admin').order_by('-performed_at')
+    ]
+
+    # Reports filed ABOUT this person. This was the literal `[]` until 8
+    # September, so the tab existed, said "no reports" and meant "nobody has
+    # ever looked". Every one of these rows was already in the database.
+    from .models import UserReport
+
+    reports = [
+        {
+            'id': r.id,
+            'reason': r.reason,
+            'reason_label': dict(UserReport.REASONS).get(r.reason, r.reason),
+            'detail': r.detail,
+            'context': r.context,
+            'status': r.status,
+            'admin_note': r.admin_note,
+            # `reporter` is a person here and a person in the report queue.
+            # The same key carrying a string on one screen and an object on
+            # the other is how a name renders as [object Object] on exactly
+            # one page.
+            'reporter': (_person_for_admin(request, r.reporter)
+                         if r.reporter_id else None),
+            'created_at': r.created_at,
+        }
+        for r in UserReport.objects.filter(reported=user)
+        .select_related('reporter').order_by('-created_at')[:50]
     ]
 
     return Response({
@@ -367,19 +489,80 @@ def admin_get_user(request, user_id):
             'logins': logins,
             'tournaments': tournaments,
             'wallet': wallet_txns,
-            'reports': [],
+            'reports': reports,
             'ban_history': ban_history,
         }
     }, status=status.HTTP_200_OK)
 
 
+@api_view(['POST'])
+@admin_role_required(ROLE_PERMISSIONS['reset_user_password'])
+def admin_reset_password(request, user_id):
+    """POST /auth/admin/users/{id}/reset-password/ - send them a reset code.
+
+    It SENDS a reset, it does not set a password. An admin who can choose
+    somebody's password can sign in as them, and every account on this platform
+    would then be one console session away from being impersonated with nothing
+    on the record to show it.
+
+    The same `VerificationToken` row and the same email as the front door, so
+    there is one reset flow and one place a code can be spent.
+    """
+    import random
+
+    from .models import VerificationToken
+
+    admin = request.admin_user
+    user = _admin_user(user_id)
+
+    address = (user.email or '').strip().lower()
+    if not address:
+        return Response(
+            {'code': 'NO_EMAIL', 'status': 'error',
+             'message': 'That account has no email address to send it to.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    token = ''.join(random.choices('0123456789', k=6))
+    VerificationToken.objects.update_or_create(
+        user_email=address,
+        defaults={'token': token, 'created_at': timezone.now()},
+    )
+
+    sent = True
+    try:
+        emails.send_password_reset(
+            address, name=user.full_name or user.username, code=token)
+    except Exception:                                            # noqa: BLE001
+        # The row is written either way. A code that exists and an email that
+        # did not arrive is recoverable by resending; a missing row is not.
+        sent = False
+
+    _log_action(admin, 'reset_password', 'User', user.user_id,
+                reason=str(request.data.get('reason') or '')[:500],
+                metadata={'username': user.username, 'emailed': sent})
+
+    if not sent:
+        return Response(
+            {'code': 'EMAIL_NOT_SENT', 'status': 'error',
+             'message': 'The reset code was created but the email did not send.'},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    return Response({
+        'status': 'success',
+        'data': {'username': user.username},
+        'message': 'A reset code has been emailed to them.',
+    }, status=status.HTTP_200_OK)
+
+
 @api_view(['PATCH'])
-@admin_role_required(['super_admin', 'mod_admin'])
+@admin_role_required(ROLE_PERMISSIONS['ban_users'])
 def admin_ban_user(request, user_id):
     """PATCH /auth/admin/users/{id}/ban/ - ban or unban a user."""
     admin = request.admin_user
 
-    user = get_object_or_404(Users, user_id=user_id)
+    user = _admin_user(user_id)
     ban = request.data.get('ban')  # True to ban, False to unban
     reason = request.data.get('reason', '')
 
@@ -399,7 +582,7 @@ def admin_ban_user(request, user_id):
     user.save(update_fields=['is_active'])
 
     action = 'ban_user' if ban else 'unban_user'
-    _log_action(admin, action, 'User', user_id, reason=reason)
+    _log_action(admin, action, 'User', user.user_id, reason=reason)
 
     return Response({
         'status': 'success',
@@ -408,12 +591,61 @@ def admin_ban_user(request, user_id):
 
 
 @api_view(['PATCH'])
-@admin_role_required(['super_admin'])
+@admin_role_required(ROLE_PERMISSIONS['grant_premium'])
+def admin_set_premium(request, user_id):
+    """PATCH /auth/admin/users/{id}/premium/ - grant or take back premium.
+
+    The gap this closes: `is_premium` shipped on 9 September, eight features
+    read it, and nothing in the interface wrote it. So every one of those
+    features was live in a state where the only thing anybody could see was the
+    refusal.
+
+    Its own permission rather than a borrowed one. Giving away what the
+    platform intends to sell is a commercial decision, and somebody who may
+    suspend an abusive account has no particular claim on it.
+    """
+    from .premium_admin import apply_premium
+
+    admin = request.admin_user
+    user = _admin_user(user_id)
+
+    wanted = request.data.get('premium')
+    if wanted is None:
+        return Response(
+            {'code': 'PREMIUM_TRUE_FALSE_REQUIRED', 'status': 'error',
+             'message': 'Say whether premium is on or off.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    note = str(request.data.get('note') or '').strip()
+    # Granting asks for the reason in the same press. A note added afterwards
+    # is a note nobody adds, and "why does this account have premium" is the
+    # question this field exists to answer.
+    if wanted and not note:
+        return Response(
+            {'code': 'NOTE_REQUIRED', 'status': 'error', 'field': 'note',
+             'message': 'Say why they are being given premium.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    result = apply_premium(user, on=bool(wanted), note=note, admin=admin,
+                           kind='User')
+
+    return Response({
+        'status': 'success',
+        'data': {'username': user.username, **result},
+        'message': ('Premium is on for this account.' if user.is_premium
+                    else 'Premium is off for this account.'),
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['PATCH'])
+@admin_role_required(ROLE_PERMISSIONS['set_user_roles'])
 def admin_set_user_role(request, user_id):
     """PATCH /auth/admin/users/{id}/role/ - assign role + admin sub-role."""
     admin = request.admin_user
 
-    user = get_object_or_404(Users, user_id=user_id)
+    user = _admin_user(user_id)
     role = request.data.get('role')
     # shared-spec uses `admin_subrole`; accept `admin_role` as an alias too.
     admin_subrole = request.data.get('admin_subrole') or request.data.get('admin_role')
@@ -446,7 +678,7 @@ def admin_set_user_role(request, user_id):
             user.is_staff = False
     user.save(update_fields=['role', 'is_staff', 'admin_role'])
 
-    _log_action(admin, 'set_role', 'User', user_id, metadata={
+    _log_action(admin, 'set_role', 'User', user.user_id, metadata={
         'old_role': old_role, 'new_role': role,
         'old_admin_role': old_admin_role, 'new_admin_role': user.admin_role,
     })
@@ -459,12 +691,12 @@ def admin_set_user_role(request, user_id):
 
 
 @api_view(['DELETE'])
-@admin_role_required(['super_admin'])
+@admin_role_required(ROLE_PERMISSIONS['delete_users'])
 def admin_delete_user(request, user_id):
     """DELETE /auth/admin/users/{id}/ - permanently delete account."""
     admin = request.admin_user
 
-    user = get_object_or_404(Users, user_id=user_id)
+    user = _admin_user(user_id)
     reason = request.data.get('reason', '')
     confirm = request.data.get('confirm')
 
@@ -480,7 +712,7 @@ def admin_delete_user(request, user_id):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    _log_action(admin, 'delete_user', 'User', user_id, reason=reason,
+    _log_action(admin, 'delete_user', 'User', user.user_id, reason=reason,
                 metadata={'username': user.username, 'email': user.email})
     user.delete()
 
@@ -492,8 +724,21 @@ def admin_delete_user(request, user_id):
 # ---------------------------------------------------------------------------
 
 def _tournament_status(t, now):
-    """Derive TROW status. 'cancelled' is not tracked in the schema, so it is
-    never emitted (contract §11)."""
+    """Derive the status the console shows.
+
+    `status` on the model is read FIRST for the one value that cannot be
+    derived from dates. A cancelled tournament whose end date has passed is
+    not "completed", and calling it that is how three cancelled tournaments
+    were listed as finished with nothing saying otherwise. The rest stays
+    derived, because the dates are the truth about a tournament that is
+    running.
+    """
+    # Deleted is read before anything else, because a deleted tournament shown
+    # as "completed" in the bin is a row nobody can interpret.
+    if getattr(t, 'deleted_at', None) is not None:
+        return 'deleted'
+    if getattr(t, 'status', None) == 'cancelled':
+        return 'cancelled'
     if t.is_draft:
         return 'draft'
     if t.start_date_and_time and now < t.start_date_and_time:
@@ -504,7 +749,7 @@ def _tournament_status(t, now):
 
 
 @api_view(['GET'])
-@admin_role_required(ADMIN_ROLES)
+@admin_role_required(ROLE_PERMISSIONS['manage_tournaments'])
 def admin_list_tournaments(request):
     """GET /auth/admin/tournaments/ - paginated (contract §11).
 
@@ -516,8 +761,15 @@ def admin_list_tournaments(request):
 
     now = timezone.now()
 
+    # A deleted tournament is invisible to `Tournament.objects` by design, so
+    # the admin bin has to ask the unfiltered manager. Without this the deleted
+    # ones would not merely be filtered out of a tab, they would be unreachable
+    # from the console entirely, which is the same shape as the fault where
+    # three cancelled tournaments belonged to no tab and vanished.
+    deleted_only = request.GET.get('status') == 'deleted'
+    base = Tournament.deleted_objects if deleted_only else Tournament.objects
     qs = (
-        Tournament.objects
+        base
         .select_related('tournament_creator', 'tournament_game')
         .annotate(_participants=Count('registrations', distinct=True),
                   _prize=Sum('prize_distributions__prize'))
@@ -537,7 +789,15 @@ def admin_list_tournaments(request):
     elif status_filter == 'completed':
         qs = qs.filter(is_draft=False, end_date_and_time__lt=now)
     elif status_filter == 'cancelled':
-        qs = qs.none()  # cancelled is not tracked → no rows
+        # Was `qs.none()`, with a comment saying cancelled is not tracked. The
+        # column has existed since the lifecycle work; nothing here read it, so
+        # a cancelled tournament could only be found by looking in the tab it
+        # did not belong to.
+        qs = qs.filter(status='cancelled')
+    elif status_filter == 'deleted':
+        # Already narrowed by the manager above; the branch is here so the
+        # filter is not read as an unknown value and silently ignored.
+        pass
 
     ordering_map = {
         '-created_at': '-start_date_and_time',
@@ -556,6 +816,9 @@ def admin_list_tournaments(request):
     results = [
         {
             'id': t.tournament_id,
+            # The address, so a console row can link and can call the
+            # analytics and announcement endpoints without a second lookup.
+            'slug': t.slug,
             'name': t.tournament_title,
             'game': t.tournament_game.game_title if t.tournament_game else None,
             'organizer_username': t.tournament_creator.username if t.tournament_creator else None,
@@ -563,6 +826,7 @@ def admin_list_tournaments(request):
             'participants_count': t._participants or 0,
             'prize_pool': float(t._prize) if t._prize is not None else 0,
             'created_at': t.start_date_and_time,
+            **softdelete.deletion_row(t),
         }
         for t in rows
     ]
@@ -574,7 +838,7 @@ def admin_list_tournaments(request):
 
 
 @api_view(['GET'])
-@admin_role_required(ADMIN_ROLES)
+@admin_role_required(ROLE_PERMISSIONS['manage_tournaments'])
 def admin_get_tournament(request, tournament_id):
     """GET /auth/admin/tournaments/{id}/ - tournament detail with disputes."""
     admin = request.admin_user
@@ -621,7 +885,7 @@ def admin_get_tournament(request, tournament_id):
 
 
 @api_view(['POST'])
-@admin_role_required(['super_admin', 'mod_admin'])
+@admin_role_required(ROLE_PERMISSIONS['resolve_dispute'])
 def admin_resolve_dispute(request, tournament_id):
     """POST /auth/admin/tournaments/{id}/dispute/resolve/ - resolve a dispute."""
     admin = request.admin_user
@@ -651,7 +915,7 @@ def admin_resolve_dispute(request, tournament_id):
 
 
 @api_view(['PATCH'])
-@admin_role_required(['super_admin', 'mod_admin'])
+@admin_role_required(ROLE_PERMISSIONS['override_match_score'])
 def admin_override_match_score(request, match_id):
     """PATCH /auth/admin/matches/{id}/score/ - override bracket match score."""
     admin = request.admin_user
@@ -686,7 +950,7 @@ def admin_override_match_score(request, match_id):
 
 
 @api_view(['POST'])
-@admin_role_required(['super_admin', 'mod_admin'])
+@admin_role_required(ROLE_PERMISSIONS['cancel_tournament'])
 def admin_cancel_tournament(request, tournament_id):
     """POST /auth/admin/tournaments/{id}/cancel/ - cancel tournament + refund fees."""
     admin = request.admin_user
@@ -735,6 +999,16 @@ def admin_cancel_tournament(request, tournament_id):
 
             tournament.registrations.update(status='withdrawn')
 
+        # The tournament itself is marked, not only its entries. Without this
+        # the console refunded everybody and then went on listing the
+        # tournament as ongoing, and `_tournament_status` had no value it could
+        # return that said what had happened.
+        tournament.status = 'cancelled'
+        tournament.cancelled_at = timezone.now()
+        tournament.cancelled_reason = str(reason or '')[:2000]
+        tournament.save(update_fields=['status', 'cancelled_at',
+                                       'cancelled_reason'])
+
     _log_action(admin, 'cancel_tournament', 'Tournament', tournament_id,
                 reason=reason, metadata={'refunded_count': refunded})
 
@@ -749,7 +1023,7 @@ def admin_cancel_tournament(request, tournament_id):
 # ---------------------------------------------------------------------------
 
 @api_view(['GET'])
-@admin_role_required(['super_admin', 'finance_admin'])
+@admin_role_required(ROLE_PERMISSIONS['list_payouts'])
 def admin_pending_payouts(request):
     """GET /auth/admin/payouts/pending/ - pending withdrawal requests."""
     admin = request.admin_user
@@ -766,11 +1040,11 @@ def admin_pending_payouts(request):
     data = [
         {
             'id': w.id,
-            'user': {
-                'user_id': w.wallet.user.user_id,
-                'username': w.wallet.user.username,
-                'kyc_verified': w.wallet.kyc_verified,
-            },
+            # Whoever is being paid, as a person. It was a name and a KYC
+            # flag, so a reviewer approving a withdrawal had no face to check
+            # against the identity document they are looking at.
+            'user': dict(_person_for_admin(request, w.wallet.user),
+                         kyc_verified=w.wallet.kyc_verified),
             'amount_vent_coins': w.amount,
             'amount_ngn': coins_to_ngn(w.amount),
             'bank_name': w.bank_name,
@@ -790,7 +1064,7 @@ def _mask_account(number):
 
 
 @api_view(['GET'])
-@admin_role_required(['super_admin', 'finance_admin'])
+@admin_role_required(ROLE_PERMISSIONS['list_payouts'])
 def admin_payouts_list(request):
     """GET /auth/admin/payouts/ - status-filterable payout list (contract §15).
 
@@ -799,7 +1073,8 @@ def admin_payouts_list(request):
     """
     from vent_auth.views_wallet import coins_to_ngn
 
-    qs = WithdrawalRequest.objects.select_related('wallet__user')
+    qs = WithdrawalRequest.objects.select_related('wallet__user',
+                                                  'payout_address')
 
     status_filter = request.GET.get('status', 'pending')
     if status_filter:
@@ -826,10 +1101,17 @@ def admin_payouts_list(request):
         {
             'id': w.id,
             'username': w.wallet.user.username if w.wallet and w.wallet.user else None,
+            'avatar': _face(request, w.wallet.user if w.wallet else None),
             'amount_vc': w.amount,
             'amount_ngn': coins_to_ngn(w.amount),
+            # How it leaves, and where to. A payout queue that shows a bank
+            # column and nothing else cannot be worked once USDT exists: an
+            # admin would be approving a row without knowing the destination.
+            'method': w.method,
+            'destination': payouts.describe_destination(w),
             'bank_name': w.bank_name,
             'account_number': _mask_account(w.account_number),
+            'reference': w.payout_reference,
             'submitted_at': w.requested_at,
             'status': w.status,
         }
@@ -842,7 +1124,7 @@ def admin_payouts_list(request):
     }, status=status.HTTP_200_OK)
 
 
-def _approve_payout_core(admin, withdrawal_id, note=''):
+def _approve_payout_core(admin, withdrawal_id, note='', reference=''):
     """Approve a single pending payout atomically (KYC + balance gated).
 
     Returns (True, None) on success or (False, reason) when it can't be
@@ -871,38 +1153,44 @@ def _approve_payout_core(admin, withdrawal_id, note=''):
         if REQUIRE_KYC_FOR_PAYOUT and not wallet.kyc_verified:
             return False, 'Cannot approve - user is not KYC verified'
 
-        if wallet.wallet_balance < w.amount:
-            return False, 'Insufficient wallet balance'
-
-        wallet.wallet_balance -= w.amount
-        wallet.save(update_fields=['wallet_balance'])
-
-        Transaction.objects.create(
-            wallet=wallet,
-            type='withdrawal',
-            amount=-w.amount,
-            description=f'Withdrawal to {w.bank_name} {w.account_number[-4:]}',
-            status='completed',
-        )
+        # The money left the balance when the payout was ASKED for, so this
+        # settles the line that is already there rather than writing a second
+        # one. Before 8 September the debit happened here, which meant a
+        # request held nothing and a single payout appeared on the statement
+        # twice. `settle_payout` still debits a request made under the old
+        # shape, which is why it can refuse. See `wallets.settle_payout`.
+        ok, why = wallets.settle_payout(w)
+        if not ok:
+            return False, why
 
         w.status = 'approved'
         w.admin_note = note
+        # What the sending rail called it: a bank reference, or a chain
+        # transaction hash. Optional, because the bank half has never carried
+        # one; for a USDT payout it is the only proof the money left, and
+        # "did this get paid" should be a lookup rather than somebody's memory.
+        if reference:
+            w.payout_reference = str(reference)[:120]
         w.processed_at = timezone.now()
-        w.save(update_fields=['status', 'admin_note', 'processed_at'])
+        w.save(update_fields=['status', 'admin_note', 'payout_reference',
+                              'processed_at'])
 
     _log_action(admin, 'approve_payout', 'WithdrawalRequest', withdrawal_id,
-                note, metadata={'amount': w.amount})
+                note, metadata={'amount': w.amount, 'method': w.method,
+                                'destination': payouts.describe_destination(w),
+                                'reference': w.payout_reference})
     return True, None
 
 
 @api_view(['POST'])
-@admin_role_required(['super_admin', 'finance_admin'])
+@admin_role_required(ROLE_PERMISSIONS['approve_payouts'])
 def admin_approve_payout(request, withdrawal_id):
     """POST /auth/admin/payouts/{id}/approve/ - approve withdrawal."""
     admin = request.admin_user
     note = request.data.get('note', '')
 
-    ok, reason = _approve_payout_core(admin, withdrawal_id, note)
+    ok, reason = _approve_payout_core(
+        admin, withdrawal_id, note, request.data.get('reference', ''))
     if not ok:
         code = (status.HTTP_404_NOT_FOUND if reason == 'Withdrawal not found'
                 else status.HTTP_400_BAD_REQUEST)
@@ -913,7 +1201,9 @@ def admin_approve_payout(request, withdrawal_id):
         w = WithdrawalRequest.objects.select_related('wallet__user').get(id=withdrawal_id)
         create_notification(
             w.wallet.user, 'payout', f'Your payout of {w.amount} VC was approved',
-            link='/wallets', metadata={'withdrawal_id': w.id, 'amount': w.amount},
+            body=payouts.describe_destination(w),
+            link='/wallets', metadata={'withdrawal_id': w.id, 'amount': w.amount,
+                                       'method': w.method},
         )
         emails.send_payout_approved(w, amount_ngn=coins_to_ngn(w.amount))
     except Exception:
@@ -923,7 +1213,7 @@ def admin_approve_payout(request, withdrawal_id):
 
 
 @api_view(['POST'])
-@admin_role_required(['super_admin', 'finance_admin'])
+@admin_role_required(ROLE_PERMISSIONS['reject_payouts'])
 def admin_reject_payout(request, withdrawal_id):
     """POST /auth/admin/payouts/{id}/reject/ - reject withdrawal."""
     admin = request.admin_user
@@ -936,6 +1226,11 @@ def admin_reject_payout(request, withdrawal_id):
             {'status': 'error', 'message': f'Withdrawal is already {w.status}'},
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+    # The held amount goes back to the person before the request is marked
+    # rejected, so there is no window where their money is neither in their
+    # balance nor on its way to them.
+    wallets.return_payout(w, reason)
 
     w.status = 'rejected'
     w.admin_note = reason
@@ -964,7 +1259,7 @@ def admin_reject_payout(request, withdrawal_id):
 # ---------------------------------------------------------------------------
 
 @api_view(['GET'])
-@admin_role_required(ADMIN_ROLES)
+@admin_role_required(ROLE_PERMISSIONS['list_kyc'])
 def admin_pending_kyc(request):
     """GET /auth/admin/kyc/pending/ - pending KYC submissions (all admin roles can view)."""
     admin = request.admin_user
@@ -981,6 +1276,8 @@ def admin_pending_kyc(request):
             'id': d.id,
             'user_id': d.user.user_id,
             'username': d.user.username,
+            # The account's own picture, beside the document being reviewed.
+            'user': _person_for_admin(request, d.user),
             'document_type': d.document_type,
             # Identity documents are not public files - this is the authenticated
             # read endpoint, not a /media/ URL (see vent_auth/views_kyc_files.py).
@@ -994,7 +1291,7 @@ def admin_pending_kyc(request):
 
 
 @api_view(['GET'])
-@admin_role_required(ADMIN_ROLES)
+@admin_role_required(ROLE_PERMISSIONS['list_kyc'])
 def admin_kyc_list(request):
     """GET /auth/admin/kyc/ - status-filterable KYC list (contract §18).
 
@@ -1023,6 +1320,7 @@ def admin_kyc_list(request):
         {
             'id': d.id,
             'username': d.user.username if d.user else None,
+            'avatar': _face(request, d.user),
             'email': d.user.email if d.user else None,
             'submitted_at': d.submitted_at,
             'doc_type': d.document_type,
@@ -1042,7 +1340,7 @@ def admin_kyc_list(request):
 
 
 @api_view(['POST'])
-@admin_role_required(['super_admin', 'finance_admin', 'mod_admin'])
+@admin_role_required(ROLE_PERMISSIONS['approve_kyc'])
 def admin_approve_kyc(request, kyc_id):
     """POST /auth/admin/kyc/{id}/approve/ - mark user KYC verified."""
     admin = request.admin_user
@@ -1055,16 +1353,11 @@ def admin_approve_kyc(request, kyc_id):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    doc.status = 'approved'
-    doc.reviewed_at = timezone.now()
-    doc.save(update_fields=['status', 'reviewed_at'])
-
-    # Mark wallet as KYC verified
-    try:
-        doc.user.wallet.kyc_verified = True
-        doc.user.wallet.save(update_fields=['kyc_verified'])
-    except UserWallet.DoesNotExist:
-        pass
+    # One door to `kyc_verified = True`, and it records WHO decided as well as
+    # when. A verified wallet that cannot answer who verified it is a
+    # compliance record with nothing behind it, and that is the question asked
+    # first when anybody asks at all. See `vent_auth/kyc.py`.
+    kyc_service.verify(doc, reviewer=admin)
 
     _log_action(admin, 'approve_kyc', 'KYCDocument', kyc_id,
                 metadata={'user_id': doc.user.user_id})
@@ -1083,7 +1376,7 @@ def admin_approve_kyc(request, kyc_id):
 
 
 @api_view(['POST'])
-@admin_role_required(['super_admin', 'finance_admin', 'mod_admin'])
+@admin_role_required(ROLE_PERMISSIONS['reject_kyc'])
 def admin_reject_kyc(request, kyc_id):
     """POST /auth/admin/kyc/{id}/reject/ - reject KYC with reason."""
     admin = request.admin_user
@@ -1097,10 +1390,7 @@ def admin_reject_kyc(request, kyc_id):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    doc.status = 'rejected'
-    doc.rejection_reason = reason
-    doc.reviewed_at = timezone.now()
-    doc.save(update_fields=['status', 'rejection_reason', 'reviewed_at'])
+    kyc_service.refuse(doc, reviewer=admin, reason=reason)
 
     _log_action(admin, 'reject_kyc', 'KYCDocument', kyc_id, reason,
                 metadata={'user_id': doc.user.user_id})
@@ -1300,7 +1590,7 @@ def admin_audit_log_export(request):
 # ---------------------------------------------------------------------------
 
 @api_view(["GET"])
-@admin_role_required(['super_admin', 'support_admin'])
+@admin_role_required(ROLE_PERMISSIONS['list_usernames_emails'])
 def get_all_username_and_email(request):
     # SECURITY (F1): tightened from fully-public → admin RBAC
     # (super_admin / support_admin per m1-spec §9).
@@ -1310,7 +1600,7 @@ def get_all_username_and_email(request):
 
 
 @api_view(["GET"])
-@admin_role_required(ADMIN_ROLES)
+@admin_role_required(ROLE_PERMISSIONS['view_dashboard'])
 def get_number_of_all_users(request):
     # Gated to any admin role (no unauthenticated FE caller - grep confirmed).
     user_count = Users.objects.count()
@@ -1375,6 +1665,8 @@ def add_email_to_waitlist(request):
 
 def _event_status(e, now):
     """What an event is doing right now, in the console's vocabulary."""
+    if getattr(e, 'deleted_at', None) is not None:
+        return 'deleted'
     if not e.is_active:
         return 'cancelled'
     if e.start_date and now < e.start_date:
@@ -1387,7 +1679,7 @@ def _event_status(e, now):
 
 
 @api_view(['GET'])
-@admin_role_required(ADMIN_ROLES)
+@admin_role_required(ROLE_PERMISSIONS['manage_events'])
 def admin_list_events(request):
     """GET /auth/admin/events/ - paginated, same contract as the tournament list.
 
@@ -1399,8 +1691,10 @@ def admin_list_events(request):
 
     now = timezone.now()
 
+    deleted_only = request.GET.get('status') == 'deleted'
+    base = Event.deleted_objects if deleted_only else Event.objects
     qs = (
-        Event.objects
+        base
         .select_related('creator', 'game')
         .annotate(_tickets=Count('tickets', distinct=True))
     )
@@ -1418,6 +1712,8 @@ def admin_list_events(request):
         qs = qs.filter(is_active=True, end_date__lt=now)
     elif status_filter == 'cancelled':
         qs = qs.filter(is_active=False)
+    elif status_filter == 'deleted':
+        pass
 
     ordering_map = {
         '-created_at': '-created_at',
@@ -1447,6 +1743,9 @@ def admin_list_events(request):
             'capacity': e.capacity,
             'start_date': e.start_date,
             'created_at': e.created_at,
+            # Present on every row, not only in the deleted tab, so a row that
+            # should not be here is visible wherever it turns up.
+            **softdelete.deletion_row(e),
         }
         for e in rows
     ]

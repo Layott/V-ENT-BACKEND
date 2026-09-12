@@ -1,6 +1,7 @@
 from django.db import models
 from django.utils import timezone
 from vent_auth.models import Users, Games, Teams, Organization
+from vent_auth.softdelete import DeletedManager, LiveManager
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 
@@ -185,6 +186,25 @@ class Tournament(models.Model):
     # no-shows were forfeited would change a roster the organiser had already
     # signed off.
     check_in_closed_at = models.DateTimeField(null=True, blank=True)
+
+    # ------------------------------------------------------- soft delete
+    #
+    # The same three columns and the same managers as Event, because an
+    # organiser deleting a tournament and an organiser deleting an event is one
+    # job wearing two names, and building it on one side is the fault this repo
+    # repeats most often. See `vent_auth/softdelete.py`.
+    deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    deleted_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='+')
+    deleted_reason = models.CharField(max_length=200, blank=True, default='')
+
+    objects = LiveManager()
+    all_objects = models.Manager()
+    deleted_objects = DeletedManager()
+
+    class Meta:
+        base_manager_name = 'all_objects'
 
     def __str__(self):
         return self.tournament_title
@@ -902,6 +922,55 @@ class BracketGeneration(models.Model):
         return f"Bracket gen #{self.id} for {self.tournament.tournament_title}"
 
 
+class PrizeSchedule(models.Model):
+    """When a tournament pays its winners without being asked.
+
+    The spec: "automated prize distribution", with "a warning before coins
+    leave". Both halves are here, and the warning is the reason this is a row
+    rather than one column on `Tournament`: something has to remember that the
+    organiser was told, and when, so a payout can never be the first they hear
+    of it.
+
+    Nothing here decides WHO gets what. That is `services/prizes.plan`, the same
+    resolution the manual path uses, so an automatic payout cannot pay a
+    different list from the one the organiser approved.
+    """
+
+    STATES = (
+        ('scheduled', 'Waiting for its time'),
+        ('warned', 'The organiser has been told it is coming'),
+        ('paid', 'Paid'),
+        ('cancelled', 'Called off before it ran'),
+        ('failed', 'Tried and could not'),
+    )
+
+    tournament = models.OneToOneField(
+        Tournament, on_delete=models.CASCADE, related_name='prize_schedule')
+    run_at = models.DateTimeField()
+
+    # How long before `run_at` the organiser is told. Their own number, because
+    # an organiser who wants a day to check the standings and one who wants an
+    # hour are both right.
+    warn_hours = models.PositiveIntegerField(default=24)
+
+    state = models.CharField(max_length=20, choices=STATES, default='scheduled')
+    warned_at = models.DateTimeField(null=True, blank=True)
+    ran_at = models.DateTimeField(null=True, blank=True)
+    problem = models.CharField(max_length=80, blank=True, default='')
+
+    created_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='prize_schedules')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def warn_at(self):
+        from datetime import timedelta
+        return self.run_at - timedelta(hours=self.warn_hours or 0)
+
+    def __str__(self):
+        return '%s pays at %s (%s)' % (self.tournament_id, self.run_at, self.state)
+
+
 class PrizePayout(models.Model):
     """Audit + idempotency record for a single prize-position payout."""
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='prize_payouts')
@@ -967,6 +1036,47 @@ class TournamentStage(models.Model):
     # would silently change who was already sent through.
     advanced = models.JSONField(default=list, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+
+    # When and where this stage is played, which is not always when and where
+    # the tournament is. The spec asks for "bracket dates, times and location"
+    # separately from the tournament's own, and it asks because that is how
+    # events run: groups online on the Saturday, the playoff at a venue on the
+    # Sunday. A tournament had exactly one start, one end and one address.
+    #
+    # NULL and empty mean "the same as the tournament", which is what almost
+    # every stage wants and is why these are not required. `effective_when` and
+    # `effective_where` below are the one place that decision is made, so no
+    # screen can answer it differently.
+    starts_at = models.DateTimeField(null=True, blank=True)
+    ends_at = models.DateTimeField(null=True, blank=True)
+
+    PLACES = (
+        ('', 'Same as the tournament'),
+        ('online', 'Online'),
+        ('physical', 'At a venue'),
+        ('hybrid', 'Both'),
+    )
+    place_type = models.CharField(max_length=10, choices=PLACES, blank=True,
+                                  default='')
+    location = models.CharField(max_length=255, blank=True, default='')
+    virtual_link = models.URLField(max_length=400, blank=True, default='')
+
+    def effective_when(self):
+        """(starts_at, ends_at, is_its_own), falling back to the tournament."""
+        if self.starts_at or self.ends_at:
+            return (self.starts_at or self.tournament.start_date_and_time,
+                    self.ends_at or self.tournament.end_date_and_time,
+                    True)
+        return (self.tournament.start_date_and_time,
+                self.tournament.end_date_and_time, False)
+
+    def effective_where(self):
+        """(place_type, location, virtual_link, is_its_own)."""
+        if self.place_type:
+            return (self.place_type, self.location, self.virtual_link, True)
+        return (self.tournament.tournament_type or '',
+                self.tournament.tournament_location or '',
+                self.tournament.virtual_link or '', False)
 
     class Meta:
         ordering = ['order']
@@ -1389,6 +1499,20 @@ class TournamentOverlay(models.Model):
     binding = models.CharField(max_length=20, default='none')
     bound_fields = models.JSONField(default=list, blank=True)
 
+    # Where it sits on the frame, in the SAME nine places and the same pixel
+    # nudge a V-ENT graphic uses. See `presentation.py`, which is the one list.
+    #
+    # CEO, 4 September 2026: "should be able to change position even for the
+    # overlays you upload". I had said an uploaded file is moved by editing its
+    # own CSS, which is true and is not an answer: the person holding the file
+    # at a venue is an operator, not its designer.
+    #
+    # `as_designed` is the default and it means the file is served byte for
+    # byte as it was uploaded, with nothing injected to move it. That is not a
+    # convenience: an overlay already pasted into a machine must not move
+    # because this column appeared.
+    options = models.JSONField(default=dict, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(
@@ -1472,6 +1596,20 @@ class BroadcastSession(models.Model):
     # `presentation.resolve`.
     defaults = models.JSONField(default=dict, blank=True)
 
+    # Which LOOK the graphics are drawn in.
+    #
+    # V-ENT's own is the default and is what an organiser with no design of
+    # their own gets. `rivalry` is the CADE Rivalry Series pack: a finished
+    # broadcast design that already existed, approved before the event, with
+    # its own typefaces and its own artwork behind two of the cards.
+    #
+    # A look, not a fork. Every graphic is the same component reading the same
+    # feed, and only the drawing changes, so a fix to what a card SAYS reaches
+    # both looks and cannot drift apart. CEO, 4 September 2026: "the design you
+    # were doing did not match the original design."
+    THEMES = [('vent', 'V-ENT'), ('rivalry', 'CADE Rivalry Series')]
+    theme = models.CharField(max_length=16, choices=THEMES, default='vent')
+
     started_by = models.ForeignKey(
         Users, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='broadcast_sessions')
@@ -1545,6 +1683,33 @@ class BroadcastElement(models.Model):
         ('ticker', 'Ticker'),
         ('intro', 'Intro'),
         ('outro', 'Outro'),
+        # The Rivalry Series set, from the STREAM ELEMENTS tab of the CEO's own
+        # event flow. Every one of them is about a FIXTURE rather than a match,
+        # which is the thing this platform could not draw before: an aggregate
+        # tie is two matches and one result, and a graphic that knows only about
+        # matches tells the audience the wrong story on the second whistle.
+        ('fixture_card', 'Fixture card'),
+        ('fixture_result', 'Fixture result'),
+        ('match_result', 'Match result'),
+        ('head_to_head', 'Head to head'),
+        ('break_screen', 'Break screen'),
+        # Already an event kind below, and the same graphic reading the same
+        # document. A run of show hangs off a tournament or an event, so the
+        # element does too. It is listed in both places and appears once in
+        # KINDS, because the column's choices are a set of values rather than a
+        # union of two menus.
+        ('now_next', 'Now and next'),
+        ('award', 'Award'),
+        ('explainer', 'Explainer'),
+        # The rest of the STREAM ELEMENTS sheet, added 4 September after the
+        # CEO named the seven that matter for this broadcast. Two of them are
+        # frames rather than cards: the camera or the game sits inside, so the
+        # hole in the middle stays transparent and its position is the whole
+        # measurement.
+        ('desk_lower_third', 'Desk lower third'),
+        ('matchday', 'Matchday card'),
+        ('analyst_desk', 'Analyst desk frame'),
+        ('play_area', 'Play area frame'),
     ]
     EVENT_KINDS = [
         ('now_next', 'Now and next'),
@@ -1556,12 +1721,23 @@ class BroadcastElement(models.Model):
         ('ticker', 'Ticker'),
         ('intro', 'Intro'),
         ('outro', 'Outro'),
+        # A desk and a camera frame belong to whoever is broadcasting, and an
+        # event has both as often as a tournament does. Built for one side and
+        # forgotten on the other is the fault the parity checker exists for.
+        # `matchday` is not here: it draws a day of aggregate fixtures, which
+        # only a tournament has.
+        ('desk_lower_third', 'Desk lower third'),
+        ('analyst_desk', 'Analyst desk frame'),
+        ('play_area', 'Play area frame'),
     ]
     # The column's choices: every kind either side may use. Written out rather
     # than computed, because a class body cannot see its own names from inside
     # a comprehension.
+    #
+    # `now_next` is NOT repeated here any more: it moved into TOURNAMENT_KINDS
+    # above, and a value listed twice would offer the same choice twice in the
+    # admin and read as two different graphics to anybody scanning the list.
     KINDS = TOURNAMENT_KINDS + [
-        ('now_next', 'Now and next'),
         ('programme', 'Programme'),
         ('doors', 'Doors'),
     ]
@@ -1727,3 +1903,501 @@ class StudioAsset(models.Model):
         if self.player_id and needle == (self.player.username or '').lower():
             return True
         return any(needle == str(t).strip().lower() for t in (self.tags or []))
+
+
+# ---------------------------------------------------------------------------
+# The run of show
+# ---------------------------------------------------------------------------
+#
+# CEO, 4 September 2026, the morning of the Rivalry Series Season 2 production:
+# "for the programe flow for an event, i want to be able to create something
+# that will appear with really good ui for mobile, that will show the necessary
+# info to someone looking at it on the website, this is the current event flow,
+# i also wnat to be able to share the event flow to people, can decide to make
+# it public or not."
+#
+# This is NOT `EventSession`, which is already called the Programme. That one
+# answers "what is on, where in the venue, and does the room hold me", for
+# somebody deciding whether to come. It carries a capacity because a panel room
+# holds eighty when the venue holds nine hundred.
+#
+# A run of show answers a different question and for different people: at 13:39
+# what is on screen, who is driving it, and what comes next. It is minute by
+# minute, it names the person or desk responsible for each cue, and on the day
+# it is the only document anybody reads. The CEO's own sheet has seventy nine
+# rows across two days and a column called OWNS IT.
+#
+# Kept apart from EventSession deliberately. Merging them would put a capacity
+# on "RESULT CARD, GFX, three minutes" and an owner on "Cosplay parade", and
+# then neither list would be usable for its own job.
+#
+# It hangs off a tournament OR an event, exactly like TournamentOverlay and
+# BroadcastSession above, and for the same reason: V-ENT runs two kinds of
+# thing and a document built for one of them is a feature half the platform
+# does not have.
+
+class RunSheet(models.Model):
+    """One run of show, belonging to a tournament or an event.
+
+    **Private by default, and that is not a detail.** A run sheet carries staff
+    names, when the money is counted, when a celebrity arrives and which
+    segments are not confirmed. Publishing it by accident is worse than not
+    having it. Three states rather than a boolean, because the middle one is
+    what an organiser actually wants most days:
+
+    | | |
+    |---|---|
+    | `private` | the organiser and whoever may run production. Nobody else |
+    | `link` | anybody holding the address. Not listed, not indexed |
+    | `public` | on the event's page and in the sitemap |
+
+    **The address is a token, never the id.** Same reason as everywhere else on
+    this platform: sequential ids in a URL let anybody walk the table by
+    counting, and a run sheet is exactly the kind of document somebody would
+    walk for.
+    """
+
+    PRIVATE = 'private'
+    LINK = 'link'
+    PUBLIC = 'public'
+    VISIBILITY = (
+        (PRIVATE, 'Only me and my team'),
+        (LINK, 'Anybody with the link'),
+        (PUBLIC, 'On the event page, and findable'),
+    )
+
+    id = models.AutoField(primary_key=True)
+    # Exactly one of the two.
+    tournament = models.ForeignKey(
+        Tournament, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='run_sheets')
+    event = models.ForeignKey(
+        'vent_event.Event', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='run_sheets')
+
+    name = models.CharField(max_length=140, blank=True, default='')
+    # A sentence under the title, for whatever the sheet's own header said.
+    subtitle = models.CharField(max_length=240, blank=True, default='')
+
+    token = models.CharField(max_length=48, unique=True, db_index=True)
+    visibility = models.CharField(max_length=8, choices=VISIBILITY,
+                                  default=PRIVATE)
+
+    # Which clock the sheet is written on. The platform stores everything in
+    # UTC and every other screen converts to the reader's own zone, which is
+    # right for a ticket and wrong for this: a run sheet says 13:39 because
+    # that is what the clock on the wall of the venue will say, and a caster in
+    # London reading 12:39 has been told the wrong thing. So the times are the
+    # venue's, the zone is named here, and NOW is worked out against it.
+    time_zone = models.CharField(max_length=64, default='Africa/Lagos')
+
+    # Whether a reader who is not staff sees the OWNS IT column. An organiser
+    # may want the timings public and the crew private, which is the common
+    # case for anything with named talent on it.
+    show_owners = models.BooleanField(default=True)
+    # Same question for the NOTE column, which is where "six legal names are
+    # still not held" ends up.
+    show_notes = models.BooleanField(default=False)
+
+    created_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='run_sheets')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def owner(self):
+        return self.tournament or self.event
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.name or ('Run of show %s' % self.id)
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            import secrets
+            self.token = secrets.token_urlsafe(18)[:48]
+            if kwargs.get('update_fields') is not None:
+                kwargs['update_fields'] = list(
+                    set(kwargs['update_fields']) | {'token'})
+        super().save(*args, **kwargs)
+
+
+class RunSheetDay(models.Model):
+    """One day of the run of show. A tab in the organiser's spreadsheet.
+
+    The date is optional on purpose. A sheet gets written before the dates are
+    fixed, and refusing to hold "Day 1" until somebody commits to a Friday is
+    refusing to hold the thing people actually have.
+
+    Without a date the times are still times, they are just not moments. That
+    is enough to read a running order and not enough to say what is on NOW,
+    and the screen says which of those it is doing rather than guessing.
+    """
+
+    id = models.AutoField(primary_key=True)
+    sheet = models.ForeignKey(RunSheet, on_delete=models.CASCADE,
+                              related_name='days')
+    label = models.CharField(max_length=80)
+    date = models.DateField(null=True, blank=True)
+    # "doors 10:00 to 18:00", or whatever the sheet's own header row said.
+    note = models.CharField(max_length=240, blank=True, default='')
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['position', 'id']
+
+    def __str__(self):
+        return '%s (%s)' % (self.label, self.sheet_id)
+
+
+class RunSheetItem(models.Model):
+    """One cue.
+
+    The columns are the CEO's own: PHASE, ACTIVITY, OWNS IT, MATCH, STARTS,
+    ENDS, MINS. Nothing here invents a vocabulary that the people who wrote the
+    sheet would then have to translate into.
+
+    **Times are times, not datetimes.** A run sheet is written as 13:39, and the
+    day it belongs to is the day it is written under. Storing a datetime would
+    force a timezone decision at write time on a document whose author is
+    standing in the venue, and a sheet shifted by an hour is worse than useless.
+    The moment is built at read time from the day's date plus the time, in the
+    event's own zone.
+
+    **`minutes` is stored, not derived.** Every row in the CEO's sheet carries
+    it, some rows have a duration and no clock time yet, and a derived value
+    disagrees with the printed sheet the moment somebody nudges a start time.
+    What is on the sheet is what is on the screen.
+    """
+
+    id = models.AutoField(primary_key=True)
+    day = models.ForeignKey(RunSheetDay, on_delete=models.CASCADE,
+                            related_name='items')
+
+    # The band a run of show is read in: STREAM STARTS, MATCHES ONGOING, BREAK,
+    # DAY CLOSE. Blank means it continues the band above, which is how a
+    # spreadsheet with merged cells actually reads.
+    phase = models.CharField(max_length=80, blank=True, default='')
+    activity = models.CharField(max_length=400)
+    # "GFX", "Casters / GFX", "Analyst desk". Free text because it is a desk or
+    # a person, and a fixed list would be wrong at the first production.
+    owner = models.CharField(max_length=120, blank=True, default='')
+    # "NGA1 v GHA1". Only some cues belong to a match.
+    match = models.CharField(max_length=120, blank=True, default='')
+
+    starts_at = models.TimeField(null=True, blank=True)
+    ends_at = models.TimeField(null=True, blank=True)
+    minutes = models.DecimalField(max_digits=6, decimal_places=1,
+                                  null=True, blank=True)
+
+    note = models.TextField(blank=True, default='')
+    # The sheet's own convention: red bold means scheduled and costed, not
+    # booked. Something that is not confirmed is the single most useful thing
+    # to see on a run sheet, so it is a column rather than a colour.
+    is_confirmed = models.BooleanField(default=True)
+
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['position', 'id']
+
+    def __str__(self):
+        return '%s %s' % (self.starts_at or '', self.activity[:40])
+
+
+# ---------------------------------------------------------------------------
+# Text on top of an overlay
+# ---------------------------------------------------------------------------
+
+from . import text_layers as _layer_rules
+
+
+class OverlayLayer(models.Model):
+    """Something an operator put on top of one overlay, and how it arrives.
+
+    Two asks, one model, because they are one thing:
+
+    CEO, 4 September 2026, inbox row 52: "also should be able to add text,
+    change the font size, color, position, animation of that text also on any
+    overlay".
+
+    And row 51: "there should be elements you can add or ways to add certan
+    uploaded things like images, sponsor logos, player images or videos as like
+    elements that will then be movable inside an element once they are loaded".
+
+    A caption and a sponsor logo differ in what is drawn and in nothing else:
+    both sit somewhere on the frame, both arrive and leave, both are ordered
+    against each other, both are switched off without being deleted. So `kind`
+    decides what is painted and every other column is shared. A second table
+    would have been the same feature built twice, and the second one would have
+    been the one missing the delay the first grew a week later.
+
+    It was called `OverlayLayer` for the few hours between the two asks.
+
+    **It hangs off either kind, which is the point.** V-ENT has a graphic the
+    platform draws (`BroadcastElement`) and an HTML file an organiser designed
+    themselves (`TournamentOverlay`), and "any overlay" means both. One model
+    with two nullable owners rather than two tables, for the reason the one
+    model per thing rule gives: a second table is a feature that gets built for
+    half the product and nobody notices which half until somebody asks why
+    their overlay is different.
+
+    **Exactly one owner.** A row with both would be drawn twice and a row with
+    neither is a row nothing can reach. Held in `save()` as well as at the API,
+    because no route can express either: the address names the owner.
+
+    Every measurement is in pixels at 1920x1080, the raster the rest of the
+    studio uses. What the layer may say, what a colour is and what the ranges
+    are all live in `text_layers.py`, so the API and the model cannot disagree.
+    """
+
+    id = models.AutoField(primary_key=True)
+
+    # What this layer paints. Words, or something out of the studio's own media
+    # library: an image, a sponsor's logo, a player's photograph, a clip.
+    #
+    # The library is the only source on purpose. An operator pointing a layer
+    # at a URL somewhere else is an overlay that breaks when that host does,
+    # six hours into a broadcast, with nobody able to see why.
+    kind = models.CharField(max_length=8, choices=_layer_rules.KINDS,
+                            default=_layer_rules.DEFAULTS['kind'])
+
+    # Which piece of media, for an asset layer. Nulled rather than kept when the
+    # asset is deleted, so a layer never points at something that is gone: the
+    # runtime then draws nothing rather than a broken image on air.
+    asset = models.ForeignKey(
+        'StudioAsset', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='layers')
+
+    # How wide it is drawn, in pixels at 1920x1080. Height follows the media's
+    # own proportions, because an operator stretching a sponsor's logo is a
+    # conversation nobody wants to have. 0 means the media's natural size.
+    #
+    # Nothing here ever draws an asset ABOVE its natural size: the runtime caps
+    # it, for the reason the whole platform caps it, which is that no filter
+    # adds detail a file never had.
+    width_px = models.SmallIntegerField(
+        default=_layer_rules.DEFAULTS['width_px'])
+
+    # A layer on a studio graphic V-ENT draws.
+    element = models.ForeignKey(
+        BroadcastElement, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='text_layers')
+    # A layer on an HTML file the organiser uploaded.
+    overlay = models.ForeignKey(
+        TournamentOverlay, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='text_layers')
+
+    # The words. Blank when `field` is doing the talking.
+    text = models.CharField(max_length=_layer_rules.TEXT_MAX, blank=True,
+                            default=_layer_rules.DEFAULTS['text'])
+    # A path into the feed, e.g. `tournament.title`. When it is set it wins, and
+    # `text` is what is drawn if the path resolves to nothing. That fallback is
+    # the whole reason both columns exist: a caption bound to a fixture that has
+    # not been picked yet must say something rather than leave a hole.
+    field = models.CharField(max_length=_layer_rules.FIELD_MAX, blank=True,
+                             default=_layer_rules.DEFAULTS['field'])
+
+    font_size = models.SmallIntegerField(
+        default=_layer_rules.DEFAULTS['font_size'])
+    # `#RRGGBB` or `#RRGGBBAA`, validated and never defaulted. A broadcast
+    # graphic carries the client's brand over live video and the operator is the
+    # person who knows what the sponsor's red is; see text_layers.py.
+    colour = models.CharField(max_length=9,
+                              default=_layer_rules.DEFAULTS['colour'])
+    family = models.CharField(max_length=12, choices=_layer_rules.FAMILIES,
+                              default=_layer_rules.DEFAULTS['family'])
+    # The slot of a font the organiser uploaded to the studio, which wins over
+    # `family` when it is set. The runtime already writes an `@font-face` block
+    # naming each slot, so a designer writes `font-family: 'hero'` and the
+    # organiser decides later what hero is.
+    font_slot = models.CharField(max_length=40, blank=True, db_index=False,
+                                 default=_layer_rules.DEFAULTS['font_slot'])
+    weight = models.SmallIntegerField(choices=_layer_rules.WEIGHTS,
+                                      default=_layer_rules.DEFAULTS['weight'])
+    align = models.CharField(max_length=8, choices=_layer_rules.ALIGNMENTS,
+                             default=_layer_rules.DEFAULTS['align'])
+
+    # Where it sits, out of `presentation.POSITIONS`, and a nudge off that
+    # anchor within `presentation.OFFSET_LIMIT`.
+    #
+    # No `choices` on these three on purpose. The list lives in presentation.py
+    # and is shared with every graphic; copying it here would put a second copy
+    # in a migration, and adding a position would then need a migration to a
+    # column that stores a string either way.
+    position = models.CharField(max_length=16,
+                                default=_layer_rules.DEFAULTS['position'])
+    offset_x = models.IntegerField(default=_layer_rules.DEFAULTS['offset_x'])
+    offset_y = models.IntegerField(default=_layer_rules.DEFAULTS['offset_y'])
+
+    entry = models.CharField(max_length=12,
+                             default=_layer_rules.DEFAULTS['entry'])
+    exit = models.CharField(max_length=12,
+                            default=_layer_rules.DEFAULTS['exit'])
+
+    # So two layers can arrive one after the other. `duration_ms` of 0 means it
+    # stays until the graphic goes, the same word `presentation.DEFAULTS` uses.
+    delay_ms = models.IntegerField(default=_layer_rules.DEFAULTS['delay_ms'])
+    duration_ms = models.IntegerField(
+        default=_layer_rules.DEFAULTS['duration_ms'])
+
+    # Paint order and z, low first.
+    order = models.SmallIntegerField(default=_layer_rules.DEFAULTS['order'])
+    # Switched off without being deleted, which is what an operator does mid
+    # show. A deleted layer has to be retyped at the worst possible moment.
+    is_active = models.BooleanField(
+        default=_layer_rules.DEFAULTS['is_active'])
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return '%s on %s' % (self.text[:24] or self.field or 'text',
+                             'element %s' % self.element_id if self.element_id
+                             else 'overlay %s' % self.overlay_id)
+
+    @property
+    def owner(self):
+        """Whichever overlay this layer is on."""
+        return self.element or self.overlay
+
+    def save(self, *args, **kwargs):
+        if bool(self.element_id) == bool(self.overlay_id):
+            raise ValueError(
+                'A text layer belongs to exactly one overlay: '
+                'an element or an uploaded file, never both and never neither.')
+        super().save(*args, **kwargs)
+
+
+class BroadcastSlot(models.Model):
+    """A fixed place on the frame, and whatever is currently in it.
+
+    CEO, 6 September 2026, sending the RIVALRY control room and saying V-ENT
+    should do "this kind of setup for production, except that this one will be
+    online and people can upload anything they want and use to run overlays
+    that will be updating in realtime based off the tournament data", then on
+    7 September: "BUILD IT PROPERLY."
+
+    ## The gap this closes
+
+    Almost all of it already existed: uploaded HTML with an OBS token URL,
+    position and nudge, media and text layers, an asset library, fonts, and a
+    feed already carrying standings, teams, players, live scores, the aggregate
+    and the run of show.
+
+    What was missing is the SLOT. V-ENT gave one URL per graphic, so a
+    broadcast using twenty kinds meant twenty browser sources, each added and
+    removed by hand. The RIVALRY control room gives its crew FOUR fixed sources
+    - `/s/full`, `/s/lower`, `/s/bug`, `/s/bg` - and a panel decides what
+    occupies each. Nobody adds a browser source during a show, so the second
+    design is the one that survives contact with a live gallery.
+
+    ## Why four, and why these four
+
+    Taken from the reference the CEO sent rather than invented, and they are
+    four because they are the four LAYERS a broadcast composites, in order:
+
+        bg      behind everything. A scene, a holding card, a break loop.
+        full    a full-frame graphic: standings, bracket, head to head.
+        lower   the band across the bottom: a name, a caption, a now-and-next.
+        bug     the small persistent corner: the score bar, a ticker.
+
+    An operator stacks them once in OBS, bottom to top, and never touches the
+    sources again. Adding a fifth role later is a row in ROLES and a new URL;
+    it does not disturb the four already pasted into somebody's scene.
+
+    ## What may occupy one
+
+    Either of the two things this studio can draw, which is the other half of
+    what was asked:
+
+      - one of V-ENT's own graphics, by `item_kind` (any BroadcastElement kind)
+      - an overlay somebody UPLOADED, by `overlay`
+
+    So "people can upload anything they want and use to run overlays" and the
+    house graphics share one mechanism, one URL per role, and one feed. A slot
+    holding an uploaded file still updates in real time, because the file is
+    bound to the same feed every V-ENT graphic reads.
+
+    ## The address never changes
+
+    That is the entire point. `active` and what occupies the slot move as often
+    as the operator likes; the URL pasted into OBS is written once per session
+    and is stable until the session ends. State lives here rather than in the
+    browser source, so OBS can be restarted mid-show and the frame comes back
+    exactly as it was, which is the rule every element page already follows.
+    """
+
+    ROLES = [
+        ('bg', 'Background'),
+        ('full', 'Full frame'),
+        ('lower', 'Lower third'),
+        ('bug', 'Corner bug'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    session = models.ForeignKey(BroadcastSession, on_delete=models.CASCADE,
+                                related_name='slots')
+    role = models.CharField(max_length=10, choices=ROLES)
+
+    # One of V-ENT's own graphics. Not a FK to BroadcastElement: the element row
+    # holds the PAYLOAD for a kind in this session, and a slot points at the
+    # kind. That keeps "what is in the lower third" and "what does the lower
+    # third say" as separate decisions, which is how an operator actually works:
+    # they cue a graphic, then correct its text, and neither should disturb the
+    # other.
+    item_kind = models.CharField(max_length=32, blank=True, default='')
+
+    # Or a file somebody uploaded. Exactly one of the two is set; both empty
+    # means the slot is holding nothing, which is a normal resting state and
+    # not an error.
+    overlay = models.ForeignKey('TournamentOverlay', on_delete=models.SET_NULL,
+                                null=True, blank=True, related_name='slots')
+
+    # Whether this layer is on air. Separate from what occupies it, so an
+    # operator can load the next graphic into a slot while it is dark and take
+    # it up when the moment comes, which is the whole job in a gallery.
+    active = models.BooleanField(default=False)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['session_id', 'role']
+        constraints = [
+            models.UniqueConstraint(fields=['session', 'role'],
+                                    name='one_slot_per_role_per_session'),
+        ]
+
+    def save(self, *args, **kwargs):
+        """Keep `updated_at` honest when only some fields are written.
+
+        Same trap as `vent_event.Ticket`: `auto_now` is applied in `pre_save`,
+        but a save carrying `update_fields` writes ONLY the named columns, so
+        the new stamp is computed and dropped. The feed's version stamp is
+        built from these, so losing it means a slot changes and no browser
+        source ever notices.
+        """
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None:
+            fields = set(update_fields)
+            fields.add('updated_at')
+            kwargs['update_fields'] = tuple(fields)
+        return super().save(*args, **kwargs)
+
+    @property
+    def holds(self):
+        """What is in it: 'element', 'overlay' or '' for nothing."""
+        if self.overlay_id:
+            return 'overlay'
+        if self.item_kind:
+            return 'element'
+        return ''
+
+    def __str__(self):
+        return '%s/%s -> %s' % (self.session_id, self.role, self.holds or 'empty')

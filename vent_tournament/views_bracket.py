@@ -37,8 +37,8 @@ def _ok(data=None, message='', code=None, http_status=http.HTTP_200_OK):
     return Response(body, status=http_status)
 
 
-def _err(message, code, http_status, field_errors=None):
-    data = {}
+def _err(message, code, http_status, field_errors=None, data=None):
+    data = dict(data or {})
     if field_errors:
         data['field_errors'] = field_errors
     return Response(
@@ -484,6 +484,16 @@ def distribute_prizes(request, tournament_id):
         return _err('Only the organizer or an admin can distribute prizes', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
 
     force_recompute = bool(request.data.get('force_recompute')) and user.is_staff
+
+    # The warning the spec asks for, made structural rather than left to the
+    # screen. Without `confirm` this answers with the list of who gets what and
+    # changes nothing, so a payout cannot happen on one press with nothing seen
+    # first. Same shape as the soft-delete guard: CONFIRM_REQUIRED plus the
+    # facts needed to decide.
+    if not request.data.get('confirm'):
+        plan = prize_service.plan(tournament)
+        return _err('Check who is being paid what, then confirm.',
+                    'CONFIRM_REQUIRED', http.HTTP_409_CONFLICT, data=plan)
 
     try:
         distributions = prize_service.distribute(

@@ -1,7 +1,7 @@
-# 06 — Wallet System (VENT COINS)
+# 06 - Wallet System (VENT COINS)
 
-**Phase:** 1 MVP — required for tournament registration fees and prize payouts
-**Status:** ❌ Not built — page is a stub, no design exists
+**Phase:** 1 MVP - required for tournament registration fees and prize payouts
+**Status:** ❌ Not built - page is a stub, no design exists
 **Design track:** Track B (self-design required, CEO approval before build)
 **Dependencies:** User System (05-USER-SYSTEM.md), Tournament Registration (01-TOURNAMENTS.md)
 
@@ -16,7 +16,7 @@ The VENT Wallet is a platform-internal token economy. Users hold **VENT COINS** 
 - Purchase from the Vendor Shop (Phase 2)
 - Place wagers (Phase 6)
 
-VENT COINS are bought with real money (fiat: NGN, GHS, KES, ZAR, etc.) via Paystack. They are not a crypto token — they are a fiat-backed in-app currency. Withdrawals (VENT COINS → fiat) require admin approval and KYC.
+VENT COINS are bought with real money (fiat: NGN, GHS, KES, ZAR, etc.) via Paystack. They are not a crypto token - they are a fiat-backed in-app currency. Withdrawals (VENT COINS → fiat) require admin approval and KYC.
 
 **Current state of payment in the codebase:** The tournament registration payment step (`Payment.js`) uses a hardcoded wallet balance of `526` and simulates Paystack with a `setTimeout`. This is a placeholder and must be replaced.
 
@@ -28,11 +28,11 @@ VENT COINS are bought with real money (fiat: NGN, GHS, KES, ZAR, etc.) via Payst
 |--------|--------|-------|
 | User Wallet | ❌ Not designed | BIN version exists but outdated |
 | Organization Wallet | ❌ Not designed | |
-| Team Wallet | 🗑️ BIN | Deprecated — needs redesign |
+| Team Wallet | 🗑️ BIN | Deprecated - needs redesign |
 | Buy VENT COINS | ❌ Not designed | |
 | Send VENT COINS | ❌ Not designed | |
 | Payout/Withdrawal | ❌ Not designed | |
-| Transaction History | 🗑️ BIN | Table component in BIN — may be recoverable |
+| Transaction History | 🗑️ BIN | Table component in BIN - may be recoverable |
 
 > **All wallet screens require Track B: Create HTML mockup → CEO approval → build.**
 
@@ -43,7 +43,7 @@ VENT COINS are bought with real money (fiat: NGN, GHS, KES, ZAR, etc.) via Payst
 ```
 src/app/
 └── wallets/
-    └── page.js                              # ❌ Stub only — renders "Wallets" heading + "Filter and Search" text
+    └── page.js                              # ❌ Stub only - renders "Wallets" heading + "Filter and Search" text
 
 src/components/
 └── view-tournament/
@@ -60,7 +60,7 @@ Planned structure once built:
 ```
 src/app/
 └── wallets/
-    └── page.js                              # ⬜ Wallet overview — balance, send, top-up, history
+    └── page.js                              # ⬜ Wallet overview - balance, send, top-up, history
 
 src/components/
 └── wallet/
@@ -148,7 +148,7 @@ No wallet API calls exist in the frontend.
         "id": "txn003",
         "type": "prize",
         "amount": 2000,
-        "description": "1st place prize — FIFA Pro League",
+        "description": "1st place prize - FIFA Pro League",
         "status": "completed",
         "tournament_id": "t456",
         "created_at": "2026-03-19T18:00:00Z"
@@ -212,7 +212,7 @@ No wallet API calls exist in the frontend.
 ### Tournament Registration Deduction (POST /wallet/deduct/)
 
 ```json
-// Called by backend during tournament registration — not called directly by frontend
+// Called by backend during tournament registration - not called directly by frontend
 // Frontend only calls tournament/register/ which triggers the deduction internally
 {
   "user_id": "u123",
@@ -282,7 +282,7 @@ class KYCDocument(models.Model):
 
 ## Acceptance Criteria
 
-### Wallet Overview Page (`/wallets`) — Track B
+### Wallet Overview Page (`/wallets`) - Track B
 
 - [ ] Displays current VENT COIN balance from `GET /wallet/balance/`
 - [ ] Loading state while balance fetches
@@ -292,16 +292,16 @@ class KYCDocument(models.Model):
 - [ ] Pagination on transaction history (20 per page)
 - [ ] Transaction types styled differently: green for credits (top_up, prize, receive), red for debits (deduction, send, withdrawal)
 
-### Top Up Flow — Track B
+### Top Up Flow - Track B
 
 - [ ] Modal opens with NGN input field
-- [ ] As user types NGN amount, shows equivalent VENT COINS (from backend conversion rate — not hardcoded)
+- [ ] As user types NGN amount, shows equivalent VENT COINS (from backend conversion rate - not hardcoded)
 - [ ] On confirm: calls `POST /wallet/topup/initiate/` → receives Paystack `authorization_url`
-- [ ] Opens Paystack checkout (popup or redirect — use Paystack inline SDK if available)
+- [ ] Opens Paystack checkout (popup or redirect - use Paystack inline SDK if available)
 - [ ] On Paystack callback/return: calls `POST /wallet/topup/verify/?reference=` → balance updates
 - [ ] Success message shows new balance
 
-### Send VENT COINS — Track B
+### Send VENT COINS - Track B
 
 - [ ] Modal with: recipient username field, amount field, optional note, PIN input
 - [ ] Username field validates against real users (autocomplete or validate on blur)
@@ -310,9 +310,9 @@ class KYCDocument(models.Model):
 - [ ] Confirmation step before sending (shows recipient, amount, note)
 - [ ] Calls `POST /wallet/send/`; shows new balance on success
 
-### Withdraw (Fiat Payout) — Track B
+### Withdraw (Fiat Payout) - Track B
 
-- [ ] Requires `kyc_verified: true` — show KYC prompt if not verified
+- [ ] Requires `kyc_verified: true` - show KYC prompt if not verified
 - [ ] Form: amount in VENT COINS, bank name, account number, account name
 - [ ] Shows equivalent fiat amount
 - [ ] PIN confirmation required
@@ -324,22 +324,22 @@ class KYCDocument(models.Model):
 - [ ] Replace hardcoded balance `526` in `Payment.js` with real API call to `GET /wallet/balance/`
 - [ ] Check if user has sufficient balance before showing payment confirmation
 - [ ] On payment confirm: call `POST /wallet/deduct/` (or have tournament registration API do it internally)
-- [ ] Remove `setTimeout` simulation — use real Paystack or wallet deduction API
+- [ ] Remove `setTimeout` simulation - use real Paystack or wallet deduction API
 
 ---
 
 ## Task Checklist
 
-### 🔴 Critical — Must Ship with MVP
+### 🔴 Critical - Must Ship with MVP
 
-- [ ] Design HTML mockup for Wallet Overview — get CEO approval (Track B)
-- [ ] Design HTML mockup for Top Up flow — get CEO approval
-- [ ] Design HTML mockup for Send flow — get CEO approval
-- [ ] Build `Wallet` and `Transaction` Django models — backend ticket required
+- [ ] Design HTML mockup for Wallet Overview - get CEO approval (Track B)
+- [ ] Design HTML mockup for Top Up flow - get CEO approval
+- [ ] Design HTML mockup for Send flow - get CEO approval
+- [ ] Build `Wallet` and `Transaction` Django models - backend ticket required
 - [ ] Build `GET /wallet/balance/` endpoint
 - [ ] Build `GET /wallet/transactions/` endpoint
-- [ ] Build wallet overview page (`/wallets`) — replaces stub
-- [ ] Fix `Payment.js` — replace hardcoded balance with real API
+- [ ] Build wallet overview page (`/wallets`) - replaces stub
+- [ ] Fix `Payment.js` - replace hardcoded balance with real API
 - [ ] Integrate real Paystack top-up flow (backend webhook + frontend SDK)
 
 ### 🟡 Important (Phase 1, slightly deferred)

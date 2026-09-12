@@ -48,7 +48,9 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from . import presentation
-from .models import BroadcastElement, BroadcastSession
+from . import text_layers
+from .models import (
+    BroadcastElement, BroadcastSession, BroadcastSlot, TournamentOverlay)
 from .production_access import (
     REFUSAL_CODE, find_owner, kind_of, may_run_production, viewer as _viewer)
 from .views_assets import library_for, resolve_asset, serialize as serialize_asset
@@ -81,7 +83,10 @@ def _kinds(session):
 
 
 def _element_state(session):
-    rows = {e.kind: e for e in session.elements.all()}
+    # The layers come with the elements in one query. An element page is a
+    # browser source with one request, and a second round trip per graphic is a
+    # second chance to fail with a caption half on screen.
+    rows = {e.kind: e for e in session.elements.prefetch_related('text_layers')}
     out = {}
     for kind in _kinds(session):
         row = rows.get(kind)
@@ -95,7 +100,43 @@ def _element_state(session):
             # level a value came from. See presentation.py.
             'presentation': presentation.resolve(session.defaults,
                                                  payload.get('options')),
+            # The words an operator put on top of this graphic. Active only,
+            # and in paint order, so the page draws the list it is given rather
+            # than deciding anything. Filtered in Python off the prefetch,
+            # because a filtered query per element is a query per element.
+            'layers': text_layers.serialize_many(
+                text_layers.active_of(list(row.text_layers.all()))
+            ) if row else [],
             'updated_at': row.updated_at.isoformat() if row else None,
+        }
+    return out
+
+
+def _slot_state(session):
+    """The four layers, always all four, whether or not a row exists yet.
+
+    Always all four because the console draws four controls and OBS holds four
+    browser sources: a role with no row is an EMPTY layer, not a missing one,
+    and making the reader distinguish those two would put a hole in the panel
+    on the first broadcast of every session.
+    """
+    rows = {row.role: row for row in session.slots.select_related('overlay')}
+    out = {}
+    for role, label in BroadcastSlot.ROLES:
+        row = rows.get(role)
+        out[role] = {
+            'role': role,
+            'label': label,
+            'holds': row.holds if row else '',
+            'item_kind': row.item_kind if row else '',
+            'overlay_id': row.overlay_id if row else None,
+            'overlay_name': (row.overlay.name if row and row.overlay_id else ''),
+            # The token the slot page loads the uploaded file by. The page
+            # builds `<API>/overlay/<token>/` from it, the same address the
+            # organiser would paste into OBS directly, so a file in a slot and
+            # a file on its own URL are byte for byte the same thing.
+            'overlay_token': (row.overlay.token if row and row.overlay_id else ''),
+            'active': bool(row.active) if row else False,
         }
     return out
 
@@ -108,10 +149,33 @@ def _version(session, elements):
     """
     stamp = max(
         [e['updated_at'] or '' for e in elements.values()] or [''])
-    return '%s-%s-%s' % (
+    # The look is in here on purpose. An element page skips its redraw when the
+    # version has not moved, so a broadcast switched from the house look to the
+    # Rivalry pack would keep drawing the old one until something else changed.
+    #
+    # The text layers are in here for exactly the same reason, and they need
+    # their own stamp rather than riding on `updated_at`: `updated_at` belongs
+    # to the ELEMENT, and adding, editing, reordering or removing a layer does
+    # not touch it. A layer edited under a stale version is a change nobody on
+    # air ever sees, which has already happened twice here.
+    # The slots are in here for the same reason the look and the text layers
+    # are: a slot page skips its redraw when the version has not moved, so an
+    # operator cueing a different graphic into `full` would change nothing on
+    # air until something else happened to move the stamp.
+    slots = session.slots.all()
+    slot_stamp = '.'.join(
+        '%s:%s:%s:%s' % (row.role, row.item_kind or row.overlay_id or '',
+                         int(row.active),
+                         row.updated_at.isoformat() if row.updated_at else '')
+        for row in sorted(slots, key=lambda r: r.role))
+
+    return '%s-%s-%s-%s-%s-%s' % (
         session.id,
+        session.theme,
         sum(1 for e in elements.values() if e['active']),
-        stamp)
+        stamp,
+        text_layers.stamp(elements),
+        slot_stamp)
 
 
 def _owner_summary(session):
@@ -174,9 +238,35 @@ def _session_payload(session, request):
         'legacy_urls': {kind: '%s/%s' % (page_base, kind) for kind in kinds},
         'feed': '%s/feed/' % feed_base,
         'elements': elements,
+        # THE FOUR LAYERS, and the four addresses an operator pastes once.
+        #
+        # This is what makes the studio usable in a gallery. Before it, going
+        # on air with twenty graphics meant twenty browser sources added and
+        # removed by hand during a show, which nobody does. Now: four sources,
+        # stacked once bottom to top, and everything after that is a press in
+        # the console. Modelled on the RIVALRY control room the CEO sent.
+        'slots': _slot_state(session),
+        # The files THIS organiser uploaded, so the layer picker can offer
+        # them beside V-ENT's own graphics. To an operator they are the same
+        # decision - what goes in this layer - so they belong in one control.
+        'overlays': [
+            {'id': o.id, 'name': o.name, 'token': o.token}
+            for o in (session.tournament.overlays.all() if session.tournament_id
+                      else session.event.overlays.all())
+        ],
+        'slot_urls': {role: '%s/slot-%s/%s' % (named_base, role, session.token)
+                      for role, _label in BroadcastSlot.ROLES},
+        'legacy_slot_urls': {role: '%s/slot-%s' % (page_base, role)
+                             for role, _label in BroadcastSlot.ROLES},
         # The house style, and what a console may offer for it.
         'defaults': presentation.resolve(session.defaults, None),
         'presentation_options': presentation.catalogue(),
+        # Which look the graphics are drawn in, and the looks that exist. A
+        # list rather than a hardcoded pair in the console, so a look added
+        # here appears there without a second change.
+        'theme': session.theme,
+        'themes': [{'value': v, 'label': label}
+                   for v, label in BroadcastSession.THEMES],
         'version': _version(session, elements),
     }
     # Named by what it is of, and `tournament` kept as the key the console
@@ -242,6 +332,17 @@ def _session_detail(request, owner, kind, session_id):
             return _err(str(err), 'INVALID_PRESENTATION', field=err.field)
         session.save(update_fields=['defaults'])
 
+    if request.method == 'POST' and 'theme' in request.data:
+        # Which look this broadcast is drawn in. Refused rather than ignored
+        # when it is not one that exists: an operator who set a look and saw
+        # nothing change would set it again rather than read a name back.
+        wanted = str(request.data.get('theme') or '').strip()
+        if wanted not in dict(BroadcastSession.THEMES):
+            return _err('There is no broadcast look called %s.' % wanted,
+                        'INVALID_THEME', field='theme')
+        session.theme = wanted
+        session.save(update_fields=['theme'])
+
     if request.method == 'POST' and request.data.get('end'):
         # Ending clears every element, because the alternative is a graphic
         # left on screen after the show with nobody watching the console.
@@ -301,6 +402,78 @@ def _element(request, owner, kind, session_id, element_kind):
                'Element updated.')
 
 
+def _slot(request, owner, kind, session_id, role):
+    """Putting a graphic, or an uploaded file, into one of the four layers.
+
+    CEO, 7 September 2026, on the online control room: "BUILD IT PROPERLY."
+
+    An operator pastes four browser sources into OBS once - bg, full, lower,
+    bug - and from then on this is the only thing they touch. What occupies a
+    slot and whether that slot is on air are separate presses, because that is
+    how a gallery actually works: load the next graphic while the layer is
+    dark, take it up on the cue.
+    """
+    if owner is None:
+        return _err('%s not found.' % ('Event' if kind == 'event' else 'Tournament'),
+                    'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    user = _viewer(request)
+    if not may_run_production(user, owner):
+        return _refuse(kind)
+
+    session = owner.broadcast_sessions.filter(pk=session_id).first()
+    if session is None:
+        return _err('No such broadcast.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+
+    roles = [r for r, _label in BroadcastSlot.ROLES]
+    if role not in roles:
+        return _err('There is no %s layer.' % role, 'UNKNOWN_SLOT',
+                    status.HTTP_404_NOT_FOUND, field='role')
+    if not session.is_live:
+        return _err('This broadcast has ended. Start a new one.',
+                    'BROADCAST_ENDED', status.HTTP_409_CONFLICT)
+
+    row, _made = BroadcastSlot.objects.get_or_create(session=session, role=role)
+
+    # What goes in it. Exactly one of the two, and sending either clears the
+    # other, because a slot showing two things is not a thing anybody wants and
+    # letting it happen is how a stale graphic ends up under a new one.
+    if 'item_kind' in request.data:
+        wanted = str(request.data.get('item_kind') or '').strip()
+        if wanted and wanted not in _kinds(session):
+            return _err('There is no %s graphic for %s.' % (
+                wanted.replace('_', ' '),
+                'an event' if kind == 'event' else 'a tournament'),
+                'UNKNOWN_ELEMENT', status.HTTP_404_NOT_FOUND, field='item_kind')
+        row.item_kind = wanted
+        if wanted:
+            row.overlay = None
+
+    if 'overlay_id' in request.data:
+        raw = request.data.get('overlay_id')
+        if raw in (None, '', 0, '0'):
+            row.overlay = None
+        else:
+            # Only an overlay belonging to THIS broadcast's own tournament or
+            # event. Without this check a token for one broadcast could put
+            # somebody else's uploaded file on air.
+            overlay = TournamentOverlay.objects.filter(
+                pk=raw, tournament=session.tournament_id and session.tournament,
+            ).first() if session.tournament_id else TournamentOverlay.objects.filter(
+                pk=raw, event=session.event).first()
+            if overlay is None:
+                return _err('That overlay does not belong to this broadcast.',
+                            'UNKNOWN_OVERLAY', status.HTTP_404_NOT_FOUND,
+                            field='overlay_id')
+            row.overlay = overlay
+            row.item_kind = ''
+
+    if 'active' in request.data:
+        row.active = bool(request.data.get('active'))
+
+    row.save()
+    return _ok({'session': _session_payload(session, request)}, 'Slot updated.')
+
+
 # The routes. Tournament-scoped and event-scoped, the same three each.
 
 @api_view(['GET', 'POST'])
@@ -314,6 +487,20 @@ def session_detail(request, tournament_id, session_id):
     """GET the operator state. POST `{"end": true}` to finish the broadcast."""
     return _session_detail(request, find_owner('tournament', tournament_id),
                            'tournament', session_id)
+
+
+@api_view(['POST'])
+def slot(request, tournament_id, session_id, role):
+    """POST /tournament/<ref>/studio/sessions/<sid>/slot/<role>/"""
+    return _slot(request, find_owner('tournament', tournament_id),
+                 'tournament', session_id, role)
+
+
+@api_view(['POST'])
+def event_slot(request, event_id, session_id, role):
+    """POST /event/<ref>/studio/sessions/<sid>/slot/<role>/"""
+    return _slot(request, find_owner('event', event_id),
+                 'event', session_id, role)
 
 
 @api_view(['POST'])
@@ -354,6 +541,8 @@ def _retired(session):
     Answering with `retired` clears the screen and tells the page to stop
     asking, which is what "stops working" has to mean for a browser source.
     """
+    from .views_overlay_feed import BLANK_RIVALRY, BLANK_RUN_OF_SHOW
+
     return _ok({
         'session': {
             'id': session.id,
@@ -365,6 +554,10 @@ def _retired(session):
         'retired': True,
         'elements': {kind: {'kind': kind, 'active': False, 'payload': {},
                             'presentation': presentation.resolve(None, None),
+                            # Present and empty for the same reason as the
+                            # blocks below: a page reading a name that is not
+                            # there throws on the way to drawing nothing.
+                            'layers': [],
                             'asset': None, 'updated_at': None}
                      for kind in _kinds(session)},
         'assets': [],
@@ -374,6 +567,11 @@ def _retired(session):
         'live': [],
         'sponsors': [],
         'programme': [],
+        # Present and empty rather than absent, exactly as above: a retired
+        # link clears the screen, and an element reading a name that is not
+        # there would throw on the way to drawing nothing.
+        'rivalry': dict(BLANK_RIVALRY),
+        'run_of_show': dict(BLANK_RUN_OF_SHOW),
         'version': 'retired-%s' % session.id,
     }, 'This broadcast has ended.')
 
@@ -462,33 +660,95 @@ def feed(request, token):
     # implementation here would eventually disagree with the page the players
     # or the attendees are reading.
     if session.kind == 'event':
-        from .views_overlay_feed import event_overlay_feed
+        from .views_overlay_feed import (event_overlay_feed,
+                                         run_of_show_for_event)
         inner = event_overlay_feed(raw, session.event.slug or session.event.event_id)
         data = (getattr(inner, 'data', {}) or {}).get('data') or {}
+
+        # The run of show, asked for again with the organiser's own access,
+        # exactly as the tournament branch below does it. The public feed
+        # withholds a sheet that is not published, and a private sheet is the
+        # one an organiser runs their show from. Without this an event's now
+        # and next graphic drew nothing while the sheet sat there with 161 cues
+        # in it, which is what a walk on 8 September found.
+        run_of_show, run_stamp = run_of_show_for_event(session.event,
+                                                       include_private=True)
+        event_block = dict(data.get('event', {}) or {})
+        programme = data.get('programme', []) or []
+        if run_of_show.get('items'):
+            if not programme:
+                programme = [
+                    {
+                        'title': cue.get('activity') or '',
+                        'room': cue.get('owner') or '',
+                        'speaker': cue.get('match') or '',
+                        'starts_at': cue.get('starts_at'),
+                        'ends_at': cue.get('ends_at'),
+                    }
+                    for cue in run_of_show['items']
+                ]
+            # A published session still wins for what is ON, because that is
+            # the schedule the audience is holding.
+            if not event_block.get('now_on'):
+                event_block['now_on'] = (run_of_show.get('now') or {}).get('activity') or ''
+                event_block['room'] = (run_of_show.get('now') or {}).get('owner') or ''
+            if not event_block.get('next_on'):
+                event_block['next_on'] = (run_of_show.get('next') or {}).get('activity') or ''
+                event_block['next_room'] = (run_of_show.get('next') or {}).get('owner') or ''
+
         return _ok({
-            'session': {'id': session.id, 'name': session.name, 'is_live': True},
+            'session': {'id': session.id, 'name': session.name,
+                        'is_live': True, 'theme': session.theme},
             'kind': 'event',
             'elements': elements,
-            'event': data.get('event', {}),
-            'programme': data.get('programme', []),
+            # What each of the four layers is holding right now. A slot page
+            # reads its own role out of this and renders whatever it names.
+            'slots': _slot_state(session),
+            'event': event_block,
+            'programme': programme,
+            'run_of_show': run_of_show,
             'sponsors': data.get('sponsors', []),
             'assets': assets,
-            'version': '%s|%s|%s' % (_version(session, elements),
-                                     data.get('version', ''), len(assets)),
+            # The run stamp joins the version for the same reason it does on a
+            # tournament: the cue on screen changes when the clock passes 14:00
+            # and no row in any table moves when it does.
+            'version': '%s|%s|%s|%s' % (_version(session, elements),
+                                        data.get('version', ''), len(assets),
+                                        run_stamp),
         }, 'Studio feed')
 
-    from .views_overlay_feed import overlay_feed
+    from .views_overlay_feed import (BLANK_RIVALRY, overlay_feed,
+                                     run_of_show_for)
     inner = overlay_feed(raw, session.tournament.slug or session.tournament.tournament_id)
     data = (getattr(inner, 'data', {}) or {}).get('data') or {}
+
+    # The run of show, asked for again with the organiser's own access. The
+    # public feed above withholds a sheet that is not published, and a private
+    # sheet is exactly the one an organiser runs their show from: this surface
+    # is reached only through a session token they hold, so it sees the whole
+    # thing. Its stamp joins the version, because the cue on screen changes
+    # when the clock passes 14:00 and no row in any table moves when it does.
+    run_of_show, run_stamp = run_of_show_for(session.tournament,
+                                             include_private=True)
     return _ok({
-        'session': {'id': session.id, 'name': session.name, 'is_live': True},
+        'session': {'id': session.id, 'name': session.name,
+                    'is_live': True, 'theme': session.theme},
         'kind': 'tournament',
         'elements': elements,
+        # What each of the four layers is holding right now.
+        'slots': _slot_state(session),
         'tournament': data.get('tournament', {}),
         'teams': data.get('teams', []),
         'live': data.get('live', []),
         'sponsors': data.get('sponsors', []),
+        # The aggregate league, forwarded whole. The fixture card, the result
+        # cards, the head to head and both standings tables draw from this one
+        # block, and it is empty with `enabled` false for a tournament that is
+        # not an aggregate one.
+        'rivalry': data.get('rivalry') or dict(BLANK_RIVALRY),
+        'run_of_show': run_of_show,
         'assets': assets,
-        'version': '%s|%s|%s' % (_version(session, elements),
-                                 data.get('version', ''), len(assets)),
+        'version': '%s|%s|%s|%s' % (_version(session, elements),
+                                    data.get('version', ''), len(assets),
+                                    run_stamp),
     }, 'Studio feed')

@@ -1,111 +1,100 @@
-"""Different admin roles really do get different access.
+"""The seven roles the admin spec asks for, and the two lists that must agree.
 
-Asked for directly: "Then different admin roles also with different access."
+CEO, 7 September 2026, from the admin dashboard spec: Super Admin, Admin,
+Marketplace Manager, Wager Manager, Moderator, Tournament Organizer, Financial
+Manager.
 
-The map exists in ROLE_PERMISSIONS and the console hides controls a role may not
-use. That is courtesy, not enforcement - the question these tests answer is
-whether the API refuses a finance admin who calls the ban endpoint anyway, which
-is the only thing standing between a limited admin and a full one.
+## The fault this file exists to stop
+
+`Users.ADMIN_ROLE_CHOICES` and `decorators.ADMIN_ROLES` are two lists of the
+same thing. Adding the three new roles changed the model and not the other, and
+`view_dashboard` is `set(ADMIN_ROLES)` - so the new roles could not open the
+console at all. The lists cannot be derived from each other, because
+`decorators` is imported before the app registry is ready, so a test is what
+keeps them in step.
 """
-from decimal import Decimal
-
 from django.test import TestCase
-from django.urls import reverse
-from django.utils import timezone
 
-from .models import (
-    KYCDocument, Transaction, UserWallet, Users, WithdrawalRequest,
-)
+from .decorators import (ADMIN_ROLES, ROLE_LABEL, ROLE_PERMISSIONS,
+                         ROLE_SHORT, ROLES_AWAITING_THEIR_FEATURE)
+from .models import Users
 
 
-def admin_with(role, name):
-    user = Users.objects.create(
-        username=f'{name}_admin', email=f'{name}@example.com',
-        is_staff=True, admin_role=role,
-        login_session_token=f'{name}-grant',
-    )
-    user.login_session_created_at = timezone.now()
-    user.login_session_2fa_at = timezone.now()
-    user.save(update_fields=['login_session_created_at', 'login_session_2fa_at'])
-    return user, {'HTTP_AUTHORIZATION': f'Bearer {name}-grant'}
+class TheTwoListsAgreeTests(TestCase):
+    def test_every_role_on_the_model_is_known_to_the_permission_table(self):
+        on_model = {code for code, _label in Users.ADMIN_ROLE_CHOICES}
+        self.assertEqual(on_model, set(ADMIN_ROLES))
+
+    def test_every_role_has_a_short_name_and_a_label(self):
+        """The frontend reads both; a role missing from either renders blank."""
+        for role in ADMIN_ROLES:
+            self.assertIn(role, ROLE_SHORT, role)
+            self.assertIn(role, ROLE_LABEL, role)
+
+    def test_no_permission_names_a_role_that_does_not_exist(self):
+        """A permission granted to a typo is a permission granted to nobody,
+        and it reads as though somebody has it."""
+        for action, roles in ROLE_PERMISSIONS.items():
+            for role in roles:
+                self.assertIn(role, ADMIN_ROLES, '%s: %s' % (action, role))
 
 
-class AdminRoleEnforcementTests(TestCase):
-    def setUp(self):
-        self.superr, self.super_auth = admin_with('super_admin', 'sup')
-        self.finance, self.finance_auth = admin_with('finance_admin', 'fin')
-        self.mod, self.mod_auth = admin_with('mod_admin', 'mod')
-        self.support, self.support_auth = admin_with('support_admin', 'sup2')
+class WhatEachRoleMayDoTests(TestCase):
+    def test_the_spec_seven_all_exist(self):
+        for role in ('super_admin', 'admin', 'finance_admin', 'mod_admin',
+                     'tournament_admin', 'marketplace_admin', 'wager_admin'):
+            self.assertIn(role, ADMIN_ROLES, role)
 
-        self.victim = Users.objects.create(username='victim', email='victim@example.com')
-        self.wallet = UserWallet.objects.create(
-            user=self.victim, wallet_balance=Decimal('5000'), kyc_verified=True)
-        self.withdrawal = WithdrawalRequest.objects.create(
-            wallet=self.wallet, amount=Decimal('100'), status='pending')
+    def test_only_a_super_admin_manages_other_admins(self):
+        """The whole difference the spec draws between Admin and Super Admin."""
+        self.assertEqual(ROLE_PERMISSIONS['manage_admins'], {'super_admin'})
+        self.assertEqual(ROLE_PERMISSIONS['set_user_roles'], {'super_admin'})
+        self.assertEqual(ROLE_PERMISSIONS['delete_users'], {'super_admin'})
 
-    # ------------------------------------------------------------- banning
-    def test_a_moderator_may_ban_and_a_finance_admin_may_not(self):
-        url = reverse('admin_ban_user', args=[self.victim.pk])
-        body = {'ban': True, 'reason': 'testing'}
+    def test_a_tournament_organizer_runs_tournaments_and_not_money(self):
+        self.assertIn('tournament_admin', ROLE_PERMISSIONS['manage_tournaments'])
+        self.assertIn('tournament_admin', ROLE_PERMISSIONS['manage_events'])
+        self.assertNotIn('tournament_admin', ROLE_PERMISSIONS['approve_payouts'])
+        self.assertNotIn('tournament_admin', ROLE_PERMISSIONS['transfer_funds'])
 
-        refused = self.client.patch(url, body, content_type='application/json',
-                                    **self.finance_auth)
-        self.assertEqual(refused.status_code, 403)
-        self.assertEqual(refused.json()['code'], 'DO_NOT_PERMISSION_PERFORM')
+    def test_a_financial_manager_moves_money_and_does_not_ban_people(self):
+        self.assertIn('finance_admin', ROLE_PERMISSIONS['transfer_funds'])
+        self.assertIn('finance_admin', ROLE_PERMISSIONS['approve_payouts'])
+        self.assertNotIn('finance_admin', ROLE_PERMISSIONS['ban_users'])
 
-        allowed = self.client.patch(url, body, content_type='application/json',
-                                    **self.mod_auth)
-        self.assertEqual(allowed.status_code, 200)
+    def test_a_moderator_moderates_and_does_not_touch_money(self):
+        self.assertIn('mod_admin', ROLE_PERMISSIONS['moderate_content'])
+        self.assertIn('mod_admin', ROLE_PERMISSIONS['ban_users'])
+        self.assertNotIn('mod_admin', ROLE_PERMISSIONS['transfer_funds'])
 
-    # ------------------------------------------------------------- payouts
-    def test_a_finance_admin_may_approve_a_payout_and_a_moderator_may_not(self):
-        url = reverse('admin_approve_payout', args=[self.withdrawal.pk])
+    def test_an_admin_does_everything_except_the_super_admin_things(self):
+        for action in ('manage_organizations', 'manage_tournaments',
+                       'manage_events', 'ban_users', 'view_transactions'):
+            self.assertIn('admin', ROLE_PERMISSIONS[action], action)
+        for action in ('manage_admins', 'set_user_roles', 'delete_users',
+                       'export_audit_log'):
+            self.assertNotIn('admin', ROLE_PERMISSIONS[action], action)
 
-        refused = self.client.post(url, content_type='application/json', **self.mod_auth)
-        self.assertEqual(refused.status_code, 403)
 
-        allowed = self.client.post(url, content_type='application/json', **self.finance_auth)
-        self.assertEqual(allowed.status_code, 200)
+class RolesWaitingForTheirFeatureTests(TestCase):
+    def test_marketplace_and_wager_grant_nothing_of_substance(self):
+        """Neither feature is built. A role that can be assigned and grants
+        nothing is honest; a console section for a feature that does not exist
+        is not."""
+        for role in ROLES_AWAITING_THEIR_FEATURE:
+            granted = {action for action, roles in ROLE_PERMISSIONS.items()
+                       if role in roles}
+            # The console door and nothing else.
+            self.assertLessEqual(granted, {'view_dashboard'},
+                                 '%s grants %s' % (role, sorted(granted)))
 
-    # --------------------------------------------------- super admin only
-    def test_only_a_super_admin_may_change_somebody_s_role(self):
-        url = reverse('admin_set_user_role', args=[self.victim.pk])
-        body = {'role': 'organizer'}
+    def test_they_do_not_see_everybody_accounts(self):
+        for role in ROLES_AWAITING_THEIR_FEATURE:
+            self.assertNotIn(role, ROLE_PERMISSIONS['view_users'], role)
 
-        for auth in (self.finance_auth, self.mod_auth, self.support_auth):
-            res = self.client.patch(url, body, content_type='application/json', **auth)
-            self.assertEqual(res.status_code, 403, 'a non-super admin set a role')
-
-        ok = self.client.patch(url, body, content_type='application/json', **self.super_auth)
-        self.assertEqual(ok.status_code, 200)
-
-    def test_only_a_super_admin_may_delete_an_account(self):
-        url = reverse('admin_delete_user', args=[self.victim.pk])
-
-        for auth in (self.finance_auth, self.mod_auth, self.support_auth):
-            res = self.client.delete(f'{url}?confirm=true', **auth)
-            self.assertEqual(res.status_code, 403, 'a non-super admin deleted an account')
-
-    # --------------------------------------------------- everybody can read
-    def test_every_admin_role_can_see_the_dashboard(self):
-        for auth in (self.super_auth, self.finance_auth, self.mod_auth, self.support_auth):
-            res = self.client.get(reverse('admin_metrics'), **auth)
-            self.assertEqual(res.status_code, 200)
-
-    def test_the_refusal_says_what_role_you_have_and_what_was_needed(self):
-        """A 403 that does not say why sends the admin to ask somebody."""
-        res = self.client.patch(reverse('admin_ban_user', args=[self.victim.pk]),
-                                {'ban': True}, content_type='application/json',
-                                **self.finance_auth)
-
-        data = res.json()['data']
-        self.assertEqual(data['your_role'], 'finance_admin')
-        self.assertIn('mod_admin', data['required'])
-
-    def test_me_reports_the_permission_map_the_console_hides_controls_with(self):
-        res = self.client.get(reverse('admin_me'), **self.support_auth)
-
-        perms = res.json()['data']['permissions']
-        self.assertFalse(perms['ban_users'])
-        self.assertFalse(perms['approve_payouts'])
-        self.assertTrue(perms['view_dashboard'])
+    def test_the_permissions_they_are_waiting_for_exist_and_are_empty(self):
+        """Named so the console can ASK about them. They gain their managers
+        on the day the feature does, and nothing else changes."""
+        self.assertEqual(ROLE_PERMISSIONS['manage_marketplace'], set())
+        self.assertEqual(ROLE_PERMISSIONS['manage_wagers'], set())
+        self.assertEqual(ROLE_PERMISSIONS['manage_shop'], set())

@@ -14,9 +14,10 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from vent_auth.actors import actor_from_request, may_override
-from vent_auth.models import Users
+from vent_auth.models import Organization, OrgMember, Users
 
 from .models import Event, EventManager, EventPromo, EventReferral, TicketTier
+from .permissions import may_run_event
 
 
 def event_by_ref(ref):
@@ -49,20 +50,71 @@ def _err(message, code, http_status=status.HTTP_400_BAD_REQUEST):
 
 
 def _actor_for_event(request, event):
-    """(user, error). The organiser, a manager, or an admin who may override."""
+    """(user, error). The organiser, anybody who runs it, or an admin override.
+
+    "Anybody who runs it" is `permissions.may_run_event`, which now includes
+    the organisation's own people: an owner, an admin, or a manager whose
+    scopes include events reaches every event that organisation holds, with no
+    per event row. See `vent_event/permissions.py`.
+    """
     user, auth_error = actor_from_request(request)
     if auth_error is not None:
         return None, auth_error
 
-    if event.creator_id == user.user_id:
-        return user, None
-    if EventManager.objects.filter(event=event, user=user, role='manager').exists():
+    if may_run_event(user, event):
         return user, None
     if may_override(user, 'manage_events'):
         return user, None
 
     return None, _err('Only the event organizer can do this.',
                       'ONLY_EVENT_ORGANIZER_CAN', status.HTTP_403_FORBIDDEN)
+
+
+def _commission_or_error(raw):
+    """(pct, None) or (None, error). Capped at 100 for a reason.
+
+    Paying an affiliate more than the ticket cost means the organiser loses
+    money on every sale that link makes, and it would surface at settlement
+    rather than at the moment somebody typed 1000 by mistake.
+    """
+    try:
+        pct = float(raw or 0)
+    except (TypeError, ValueError):
+        return None, _err('The commission must be a number.', 'VALIDATION_FAILED')
+    if pct < 0:
+        return None, _err('The commission cannot be negative.', 'VALIDATION_FAILED')
+    if pct > 100:
+        return None, _err('A commission cannot be more than the whole ticket '
+                          'price.', 'VALIDATION_FAILED')
+    return pct, None
+
+
+def _payee_or_error(raw):
+    """((user or None, email), None) or (None, error).
+
+    Three answers, and only the last is a refusal:
+
+        (person, email)   they are on V-ENT, pay them
+        (None, email)     a real address, nobody here yet - the commission
+                          accrues against the link and is paid the day they
+                          make an account
+        refusal           not usable as either
+
+    The middle case used to be refused with NO_ACCOUNT, which made the
+    earnings screen's "it is paid the day they make an account" a promise with
+    nothing behind it: a payee could only ever be somebody who already had an
+    account, so nobody could arrive later to claim. Same rule as every other
+    invite on the platform - an organiser knows the streamer's email, not
+    their username.
+    """
+    text = str(raw or '').strip()
+    if not text:
+        return (None, ''), None
+    from vent_auth.invites import invitee_for
+    user, email, problem = invitee_for(text)
+    if problem:
+        return None, _err(problem, 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    return (user, email), None
 
 
 def _referral_row(r):
@@ -76,6 +128,14 @@ def _referral_row(r):
         'sold': r.sold,
         'remaining': r.remaining,
         'is_active': r.is_active,
+        # What the link EARNS per sale. 0 is the ordinary case and means the
+        # link only tracks, which is what every link did before this.
+        'commission_pct': r.commission_pct,
+        'payee': r.payee.username if r.payee_id else r.payee_email,
+        # Whether there is anybody to pay. A commission with no payee accrues
+        # and is settled the day somebody claims it, and saying so beats an
+        # organiser wondering why a settlement paid less than the balance.
+        'has_payee': bool(r.payee_id),
     }
 
 
@@ -97,13 +157,41 @@ def _promo_row(p):
     }
 
 
-def _manager_row(m):
-    return {
-        'id': m.id,
-        'user_id': m.user_id,
-        'username': m.user.username,
-        'role': m.role,
-    }
+def _invite_to_vent(event, email, *, role, inviter):
+    """Ask somebody with no account to join, so they can be added afterwards.
+
+    Never raises. An organiser has done their part by sending it, and a mail
+    server having a bad minute must not read as the invitation having failed.
+    """
+    from vent.settings import FRONTEND_URL
+    from vent_auth import emails
+
+    try:
+        emails.send_invitation(
+            email,
+            what=event.name,
+            who=inviter.username if inviter else 'V-ENT',
+            role='door staff' if role == 'door' else 'manager',
+            join_url='%s/signup?email=%s' % (FRONTEND_URL, email),
+        )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception(
+            'could not email an event invitation to %s', email)
+
+
+def _manager_row(request, m):
+    """One person helping run this event.
+
+    Was a username and a role. A screen listing people needs their face and
+    their founder mark, and the one person builder is where those come from -
+    a hand-made dict here is how the same fault reached four screens.
+    """
+    from vent_auth.views_community import _person
+
+    row = {'id': m.id, 'role': m.role}
+    row.update(_person(request, m.user))
+    return row
 
 
 # --------------------------------------------------------------------- referrals
@@ -148,11 +236,22 @@ def event_referrals(request, event_id):
     if allocation < 0:
         return _err('The allocation cannot be negative.', 'VALIDATION_FAILED')
 
+    commission, err = _commission_or_error(request.data.get('commission_pct'))
+    if err:
+        return err
+    payee, err = _payee_or_error(request.data.get('payee'))
+    if err:
+        return err
+    payee_user, payee_email = payee
+
     referral = EventReferral.objects.create(
         event=event, name=name, code=code,
         url=(request.data.get('url') or '').strip(),
         sponsor_id=request.data.get('sponsor_id') or None,
         allocation=allocation,
+        commission_pct=commission,
+        payee=payee_user,
+        payee_email=payee_email,
     )
     from . import referrals as _refs
     row = _referral_row(referral)
@@ -209,6 +308,23 @@ def event_referral_detail(request, event_id, referral_id):
                         'ALLOCATION_BELOW_SOLD')
         referral.allocation = allocation
         updated.append('allocation')
+
+    if 'commission_pct' in request.data:
+        commission, err = _commission_or_error(request.data.get('commission_pct'))
+        if err:
+            return err
+        # Changing this affects sales from now on and nothing already sold: the
+        # rate is stamped on each ledger line when the ticket is bought, so
+        # last week's commission is not rewritten by this week's decision.
+        referral.commission_pct = commission
+        updated.append('commission_pct')
+
+    if 'payee' in request.data:
+        payee, err = _payee_or_error(request.data.get('payee'))
+        if err:
+            return err
+        referral.payee, referral.payee_email = payee
+        updated.extend(['payee', 'payee_email'])
 
     if 'is_active' in request.data:
         referral.is_active = str(request.data.get('is_active')).lower() in ('1', 'true', 'yes')
@@ -384,16 +500,48 @@ def event_managers(request, event_id):
     if request.method == 'GET':
         rows = event.managers.select_related('user')
         return _ok({
-            'results': [_manager_row(m) for m in rows],
+            'results': [_manager_row(request, m) for m in rows],
             'count': rows.count(),
             # The screen needs to know whether to offer the control at all,
             # rather than offering it and having the save refused.
             'can_add': bool(event.organization_id),
+            # And which organisation it is in, so the control that moves it
+            # there can show what it is set to. Sent from here rather than
+            # fetched separately: the screen is already asking this endpoint
+            # the question "who runs this", and the answer starts with the
+            # organisation.
+            'organization': ({
+                'id': event.organization_id,
+                'name': event.organization.org_name,
+                'slug': event.organization.slug or '',
+            } if event.organization_id else None),
         })
 
-    if not event.organization_id:
-        return _err('Only an event that belongs to an organisation can be shared with other people.',
-                    'EVENT_NOT_IN_ORGANISATION', status.HTTP_409_CONFLICT)
+    # An event has to belong to an organisation before anybody else can help
+    # run it: the door list, the attendee data and the promo codes go with
+    # management, and that is not something to hand over by accident on a
+    # personal event.
+    #
+    # This was a trap until 4 September, because there was no way to move an
+    # event into an organisation either, so an owner who needed help had no
+    # route at all. The route exists now. CEO: "dont ulock it, instead do a way
+    # to add events to an oganizatio and the whe ou add people to your
+    # organization you can then have them manage events ad they will see
+    # everyrthing".
+    # The organisation requirement is GONE, by a later instruction that
+    # supersedes the one above.
+    #
+    # CEO, 7 September 2026: "Users should now be able to invite people to
+    # manage their events and tournaments, withouth creating an organizatioon,
+    # it'll just mean that uner an organization those people you have added
+    # will always have acces to all your events/tournaments, without you having
+    # to always add them."
+    #
+    # So the two routes now differ in REACH rather than in permission: a person
+    # added here runs THIS event, and a person in an organisation runs
+    # everything that organisation holds without being added to each one. That
+    # difference is the whole reason to have an organisation, and it is a
+    # better reason than "otherwise you cannot share at all".
 
     # Only the creator hands out management. A manager adding more managers is
     # how an event quietly acquires people nobody chose.
@@ -401,10 +549,23 @@ def event_managers(request, event_id):
         return _err('Only the event organizer can add managers.',
                     'ONLY_EVENT_ORGANIZER_CAN', status.HTTP_403_FORBIDDEN)
 
-    username = (request.data.get('username') or '').strip()
-    target = Users.objects.filter(username__iexact=username).first()
+    # An email address or a username, and the address may belong to nobody yet.
+    from vent_auth.invites import invitee_for
+
+    raw = (request.data.get('username') or request.data.get('email') or '').strip()
+    target, email, problem = invitee_for(raw)
+    if problem:
+        return _err(problem, 'USER_NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if target is None:
-        return _err('No member with that username.', 'USER_NOT_FOUND', status.HTTP_404_NOT_FOUND)
+        # Somebody with no account cannot be given a role on an event yet:
+        # `EventManager.user` is what every permission check reads. They are
+        # invited to V-ENT first, and the organiser adds them once they arrive.
+        # Saying that plainly beats a row that grants nothing.
+        _invite_to_vent(event, email, role=request.data.get('role') or 'manager',
+                        inviter=user)
+        return _ok({'invited': email, 'awaiting_signup': True},
+                   'We have emailed %s an invitation to V-ENT. Add them here '
+                   'once they have an account.' % email)
     if target.user_id == event.creator_id:
         return _err('They already own this event.', 'ALREADY_THE_ORGANIZER')
 
@@ -418,7 +579,7 @@ def event_managers(request, event_id):
         manager.role = role
         manager.save(update_fields=['role'])
 
-    return _ok(_manager_row(manager), 'Added.',
+    return _ok(_manager_row(request, manager), 'Added.',
                status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 
@@ -455,8 +616,25 @@ def my_events(request):
     managed_ids = list(
         EventManager.objects.filter(user=user).values_list('event_id', flat=True))
 
+    # And every event held by an organisation this person runs events for.
+    # CEO, 4 September 2026: "when you add people to your organization you can
+    # then have them manage events and they will see everything". Seeing them
+    # listed here is the first half of "everything": an event somebody may run
+    # and cannot find is an event they cannot run.
+    org_ids = []
+    for row in OrgMember.objects.filter(user=user).only('org_id', 'role', 'scopes'):
+        if row.role in (OrgMember.ROLE_OWNER, OrgMember.ROLE_ADMIN):
+            org_ids.append(row.org_id)
+        elif (row.role == OrgMember.ROLE_MANAGER
+              and OrgMember.SCOPE_EVENTS in (row.scopes or [])):
+            org_ids.append(row.org_id)
+    org_ids += list(Organization.objects.filter(org_owner=user)
+                    .values_list('org_id', flat=True))
+
     events = (Event.objects
-              .filter(Q(creator=user) | Q(event_id__in=managed_ids))
+              .filter(Q(creator=user)
+                      | Q(event_id__in=managed_ids)
+                      | Q(organization_id__in=org_ids))
               .select_related('game', 'series', 'organization')
               .annotate(tickets_sold=Count('tickets', distinct=True))
               .order_by('-start_date', '-event_id')

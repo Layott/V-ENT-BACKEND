@@ -26,9 +26,9 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from .decorators import admin_role_required
+from .decorators import ROLE_PERMISSIONS, admin_role_required
 
-OVERRIDE_ROLES = ['super_admin', 'mod_admin']
+OVERRIDE_ROLES = ROLE_PERMISSIONS['override_match_score']
 
 
 def _side(reg):

@@ -1,14 +1,14 @@
 # Module 01: Tournaments
-**Phase:** 1 (MVP — highest priority)
+**Phase:** 1 (MVP - highest priority)
 **Last Updated:** March 2026
-**Figma File:** [VENT-Main](https://www.figma.com/design/Ne1xquUxx1yZc0NhkN8kUE/VENT-Main) — fileKey: `Ne1xquUxx1yZc0NhkN8kUE`
+**Figma File:** [VENT-Main](https://www.figma.com/design/Ne1xquUxx1yZc0NhkN8kUE/VENT-Main) - fileKey: `Ne1xquUxx1yZc0NhkN8kUE`
 
 ---
 
 ## Table of Contents
 1. [Module Overview](#1-module-overview)
 2. [Figma Node IDs](#2-figma-node-ids)
-3. [Pages & Components — Status](#3-pages--components--status)
+3. [Pages & Components - Status](#3-pages--components--status)
 4. [API Endpoints](#4-api-endpoints)
 5. [Data Shape Reference](#5-data-shape-reference)
 6. [Django Models](#6-django-models)
@@ -20,7 +20,7 @@
 ## 1. Module Overview
 
 The tournament module is the core of V-ENT's Phase 1 MVP. It covers:
-- Browsing and discovering tournaments (public, no login required — **currently unprotected by middleware**)
+- Browsing and discovering tournaments (public, no login required - **currently unprotected by middleware**)
 - Viewing full tournament details across five tabs
 - Creating a tournament via a 5-step wizard (with draft support)
 - Registering for a tournament as an individual or team (modal flow)
@@ -29,7 +29,7 @@ The tournament module is the core of V-ENT's Phase 1 MVP. It covers:
 
 **What's live and wired to the real backend:** Tournament homepage (listing), tournament detail view (all tabs except bracket), tournament creation (full submit + draft), draft listing.
 
-**What's UI only / partially wired:** Registration modal (payment step uses hardcoded wallet balance of 526 and simulated Paystack — not connected to real wallet or Paystack).
+**What's UI only / partially wired:** Registration modal (payment step uses hardcoded wallet balance of 526 and simulated Paystack - not connected to real wallet or Paystack).
 
 **What's a stub:** Bracket tab (`TournamentDetailsBracket.js` renders only the text "TournamentDetailsBracket").
 
@@ -41,19 +41,19 @@ The tournament module is the core of V-ENT's Phase 1 MVP. It covers:
 
 | Screen | Node ID | Status |
 |--------|---------|--------|
-| Explore Tournaments (homepage) | `458:3639` | ✅ Built — needs visual comparison |
-| Tournament Details | `2338:20196` | ✅ Built — needs visual comparison |
-| Tournament Creation Wizard | `4052:20591` | ✅ Built — needs visual comparison |
+| Explore Tournaments (homepage) | `458:3639` | ✅ Built - needs visual comparison |
+| Tournament Details | `2338:20196` | ✅ Built - needs visual comparison |
+| Tournament Creation Wizard | `4052:20591` | ✅ Built - needs visual comparison |
 | Tournament Management (organizer) | *(within `4052:20591` section)* | ❌ Not built |
 | Tournament Brackets | *(within `2338:20196`)* | 🟡 Stub only |
-| Join/Register flow | *(within `2338:20196`)* | ✅ Built (modal) — needs visual comparison |
+| Join/Register flow | *(within `2338:20196`)* | ✅ Built (modal) - needs visual comparison |
 
 **How to pull a screenshot:**
 Use `get_design_context` with `fileKey: "Ne1xquUxx1yZc0NhkN8kUE"` and the nodeId above. Always compare the screenshot against the built page before marking VERIFIED.
 
 ---
 
-## 3. Pages & Components — Status
+## 3. Pages & Components - Status
 
 ### Pages (`src/app/tournaments/`)
 
@@ -63,7 +63,7 @@ Use `get_design_context` with `fileKey: "Ne1xquUxx1yZc0NhkN8kUE"` and the nodeId
 | `/tournaments/view-tournament?id={id}` | `view-tournament/page.js` | ❌ No | ✅ Built |
 | `/tournaments/create-tournament` | `create-tournament/page.js` | ❌ No (should be protected) | ✅ Built |
 | `/tournaments/drafts` | `drafts/page.js` | ❌ No (should be protected) | ✅ Built |
-| `/tournaments/register-tournament` | `register-tournament/page.js` | ❌ No | ⚠️ Stub (`<div>page</div>`) — real flow is modal |
+| `/tournaments/register-tournament` | `register-tournament/page.js` | ❌ No | ⚠️ Stub (`<div>page</div>`) - real flow is modal |
 
 > ⚠️ **Security gap:** `/tournaments`, `/tournaments/create-tournament`, and `/tournaments/drafts` are all accessible without authentication. Tournament creation and draft management should require login. Add these to `protectedRoutes` in `src/middleware.js`.
 
@@ -82,14 +82,14 @@ src/components/tournaments/
     │   └── TournamentByGame.js      ✅ Per-game tab content
     ├── fifa-tournaments/
     │   ├── FIFATournaments.js       ⚠️ Check: may use hardcoded fifaTournamentsList.js
-    │   └── fifaTournamentsList.js   ⚠️ Hardcoded mock data — needs removal once API returns by_game data
-    ├── fortnite-tournaments/        ⚠️ Same — check for hardcoded data
+    │   └── fifaTournamentsList.js   ⚠️ Hardcoded mock data - needs removal once API returns by_game data
+    ├── fortnite-tournaments/        ⚠️ Same - check for hardcoded data
     ├── minecraft-tournaments/       ⚠️ Same
     └── pubg-tournaments/            ⚠️ Same
 
 src/components/view-tournament/
 ├── tournament-details-banner/
-│   └── TournamentDetailsBanner.js   ✅ Banner, countdown timer, status, Join button — triggers registration modal
+│   └── TournamentDetailsBanner.js   ✅ Banner, countdown timer, status, Join button - triggers registration modal
 ├── tournament-details-overview/
 │   ├── TournamentDetailsOverview.js ✅ Two-column layout (left + right)
 │   ├── tournament-details-overview-left/
@@ -101,7 +101,7 @@ src/components/view-tournament/
 │   └── tournament-details-rules-left/
 │       └── TournamentDetailsRulesLeft.js     ✅
 ├── tournament-details-bracket/
-│   └── TournamentDetailsBracket.js  ❌ STUB — renders text only, no visualization
+│   └── TournamentDetailsBracket.js  ❌ STUB - renders text only, no visualization
 ├── tournament-details-participants/
 │   ├── TournamentDetailsParticipants.js ✅
 │   └── participantsList.js          ⚠️ Check if hardcoded or API-driven
@@ -109,15 +109,15 @@ src/components/view-tournament/
 │   ├── TournamentDetailsPrize.js    ✅
 │   └── tournamentResults.js         ⚠️ Check if hardcoded
 └── tournament-register/             ✅ Full multi-step registration modal
-    ├── TournamentRegister.js        ✅ Root modal — manages all sub-modal state
+    ├── TournamentRegister.js        ✅ Root modal - manages all sub-modal state
     ├── team/Team.js                 ✅ Choose team step
     ├── edit-team/EditTeam.js        ✅ Edit roster step
     ├── review-team/Review.js        ✅ Review step
-    ├── payment/Payment.js           ⚠️ UI complete — wallet balance hardcoded (526), Paystack simulated
+    ├── payment/Payment.js           ⚠️ UI complete - wallet balance hardcoded (526), Paystack simulated
     └── success/Success.js           ✅ Success screen
 
 src/components/create-tournament-component/   ✅ Full 5-step wizard
-├── CreateTournamentComponent.js     ✅ Parent — manages state, localStorage persistence, submit/draft
+├── CreateTournamentComponent.js     ✅ Parent - manages state, localStorage persistence, submit/draft
 ├── progress-menu/ProgressMenu.js    ✅ Step indicator
 ├── basic-info/                      ✅ Step 1: title, game, mode, description, type, dates, location, visibility
 │   ├── create-tournament-logo/      ✅ Logo + banner upload
@@ -127,7 +127,7 @@ src/components/create-tournament-component/   ✅ Full 5-step wizard
 │   └── create-tournament-visibility/✅ Public/private/invite-only
 ├── format-participants/             ✅ Step 2: bracket type, team size, min/max participants, entry fee
 │   ├── tournament-format/           ✅ Bracket type selector
-│   ├── tournament-rules/            ✅ Rich text rules editor (react-quill — needs dynamic import)
+│   ├── tournament-rules/            ✅ Rich text rules editor (react-quill - needs dynamic import)
 │   └── participants/                ✅ Team size + capacity settings
 ├── prize-distribution/              ✅ Step 3: prize type, prize per position or winner-takes-all
 │   └── prize-distribution-inside/   ✅
@@ -153,19 +153,19 @@ All endpoints hit `process.env.NEXT_PUBLIC_API_URL` (backend: `https://vermillio
 
 | Method | Endpoint | Auth | Used By | Status |
 |--------|----------|------|---------|--------|
-| `GET` | `/tournament/get-all-tournaments/` | No | Tournament homepage listing | ✅ Wired — returns `{ featured, new, by_game }` |
-| `GET` | `/tournament/view-tournament/{id}` | No | View tournament detail page | ✅ Wired — id via `?id=` URL param |
-| `POST` | `/tournament/create-tournament/` | Bearer token | Create wizard submit + draft | ✅ Wired — multipart/form-data |
+| `GET` | `/tournament/get-all-tournaments/` | No | Tournament homepage listing | ✅ Wired - returns `{ featured, new, by_game }` |
+| `GET` | `/tournament/view-tournament/{id}` | No | View tournament detail page | ✅ Wired - id via `?id=` URL param |
+| `POST` | `/tournament/create-tournament/` | Bearer token | Create wizard submit + draft | ✅ Wired - multipart/form-data |
 | `GET` | `/tournament/view-user-drafted-tournaments/` | Bearer token | Drafts page | ✅ Wired |
-| `GET` | `/get-all-tournaments/` | Bearer token | Create wizard (game name validation) | ⚠️ Different URL — verify this is correct or consolidate with above |
+| `GET` | `/get-all-tournaments/` | Bearer token | Create wizard (game name validation) | ⚠️ Different URL - verify this is correct or consolidate with above |
 
 ### Endpoints Still Needed (not yet called anywhere in frontend)
 
 | Method | Endpoint (suggested) | Purpose |
 |--------|---------------------|---------|
 | `POST` | `/tournament/register-tournament/` | Submit tournament registration (individual or team) |
-| `GET` | `/tournament/get-tournament-participants/{id}/` | Participants tab — list registered participants |
-| `GET` | `/tournament/get-tournament-brackets/{id}/` | Bracket tab — bracket data |
+| `GET` | `/tournament/get-tournament-participants/{id}/` | Participants tab - list registered participants |
+| `GET` | `/tournament/get-tournament-brackets/{id}/` | Bracket tab - bracket data |
 | `POST` | `/tournament/update-bracket/{id}/` | Organizer: update match scores / advance bracket |
 | `GET` | `/tournament/get-organizer-tournaments/` | My Tournaments list (organizer management) |
 | `GET` | `/tournament/get-tournament-leaderboard/{id}/` | Leaderboard tab |
@@ -242,7 +242,7 @@ All text values sent as FormData string entries. Key notes:
 - `sponsor_names`, `sponsor_types`, `sponsor_usernames`: JSON stringified arrays
 - `hide_location`: `"true"` or `"false"` string
 - Logo and banner: raw `File` objects appended directly to FormData
-- Do NOT set `Content-Type` header — let the browser set it with the multipart boundary
+- Do NOT set `Content-Type` header - let the browser set it with the multipart boundary
 
 ### Image URL resolution (from TournamentDetailsBanner.js)
 ```js
@@ -344,7 +344,7 @@ Each page is accepted when all criteria pass AND the verification track is compl
 ---
 
 ### Page 1: Tournament Homepage (`/tournaments`)
-**Track A** — Figma node `458:3639`
+**Track A** - Figma node `458:3639`
 
 **Functional:**
 - [ ] Page loads and fetches real tournaments from `GET /tournament/get-all-tournaments/`
@@ -367,14 +367,14 @@ Each page is accepted when all criteria pass AND the verification track is compl
 ---
 
 ### Page 2: Tournament Detail View (`/tournaments/view-tournament?id={id}`)
-**Track A** — Figma node `2338:20196`
+**Track A** - Figma node `2338:20196`
 
 **Functional:**
 - [ ] Fetches tournament data from `GET /tournament/view-tournament/{id}` where id is the `?id=` search param
 - [ ] Banner shows: tournament name, game, banner image, countdown timer, entry fee, organizer, status badge
 - [ ] Status badge correctly shows "Upcoming" / "Live" / "Ended" based on start/end dates
 - [ ] Countdown timer displays correct days/hours/mins remaining
-- [ ] Five tabs work: Overview, Rules, Bracket, Participants, Prize — tab switches without page reload
+- [ ] Five tabs work: Overview, Rules, Bracket, Participants, Prize - tab switches without page reload
 - [ ] **Overview tab:** Shows description, game mode, type, dates, location/virtual link, organizer info
 - [ ] **Rules tab:** Renders the Quill HTML rules content correctly (not raw HTML string)
 - [ ] **Bracket tab:** Shows "coming soon" or a placeholder message (not raw component name text)
@@ -394,45 +394,45 @@ Each page is accepted when all criteria pass AND the verification track is compl
 ---
 
 ### Page 3: Tournament Creation Wizard (`/tournaments/create-tournament`)
-**Track A** — Figma node `4052:20591`
+**Track A** - Figma node `4052:20591`
 
-**Functional — Step 1 (Basic Info):**
+**Functional - Step 1 (Basic Info):**
 - [ ] Tournament title field validates: required, max 255 chars
 - [ ] Game selector shows all available games (from API or predefined list)
 - [ ] Game mode field populates based on selected game
-- [ ] Start date must be before end date — shows inline error if violated
+- [ ] Start date must be before end date - shows inline error if violated
 - [ ] Tournament type (Online/Offline/Hybrid) updates location/virtual link visibility
 - [ ] Visibility selector: Public, Private, Invite Only
 - [ ] Logo upload: image preview shown after selection; file stored as File object
 - [ ] Banner upload: same as logo
 - [ ] Form data persists in localStorage between steps and on page refresh
 
-**Functional — Step 2 (Format & Participants):**
+**Functional - Step 2 (Format & Participants):**
 - [ ] Bracket type: 6 options (Single Elimination, Double Elimination, Round Robin, Swiss, King of the Hill, Battle Royale)
 - [ ] Team size, min/max participants: numeric inputs with validation (min ≤ max)
 - [ ] Entry type toggle (Free / Paid) shows/hides entry fee field
-- [ ] Tournament rules: Quill rich text editor — **must be loaded with `dynamic(() => import('react-quill'), { ssr: false })`**
+- [ ] Tournament rules: Quill rich text editor - **must be loaded with `dynamic(() => import('react-quill'), { ssr: false })`**
 
-**Functional — Step 3 (Prize Distribution):**
+**Functional - Step 3 (Prize Distribution):**
 - [ ] Prize type: Distributed (per position) or Winner Takes All
 - [ ] Distributed: allows adding prize amounts per position (1st, 2nd, 3rd, etc.)
 - [ ] Winner Takes All: single prize amount field
 - [ ] Total prize amount displayed and updated in real time
 
-**Functional — Step 4 (Sponsors & Links):**
+**Functional - Step 4 (Sponsors & Links):**
 - [ ] Add sponsor: name, type (individual/organization), username fields; multiple sponsors supported
 - [ ] Remove sponsor entries
 - [ ] Social links: Facebook, Twitter, Instagram, YouTube, Twitch, Kick, TikTok, BIGOLive
 - [ ] Web link field
 
-**Functional — Step 5 (Review):**
+**Functional - Step 5 (Review):**
 - [ ] All entered data displayed clearly across sections
 - [ ] "Save Draft" button: submits with `is_draft: "1"`, shows success message, clears localStorage
 - [ ] "Publish" button: submits with `is_draft: "0"`, shows success message, clears localStorage
 - [ ] Both buttons show loading state during submission
 - [ ] Both buttons disabled while submission is in progress
 - [ ] Validation errors navigate back to the relevant step with an alert
-- [ ] On success, redirect to tournament homepage or draft page (currently uses `alert()` — replace with proper navigation)
+- [ ] On success, redirect to tournament homepage or draft page (currently uses `alert()` - replace with proper navigation)
 
 **General:**
 - [ ] Progress menu (step indicator) at top shows current step; clicking a previous step navigates to it
@@ -449,7 +449,7 @@ Each page is accepted when all criteria pass AND the verification track is compl
 ---
 
 ### Page 4: Tournament Drafts (`/tournaments/drafts`)
-**Track B** — No Figma design exists
+**Track B** - No Figma design exists
 
 **Functional:**
 - [ ] Fetches user's draft tournaments from `GET /tournament/view-user-drafted-tournaments/` (requires auth)
@@ -469,20 +469,20 @@ Each page is accepted when all criteria pass AND the verification track is compl
 ---
 
 ### Page 5: Tournament Registration Modal
-**Track A** — Within Figma node `2338:20196`
+**Track A** - Within Figma node `2338:20196`
 
-**Functional — Individual flow:**
+**Functional - Individual flow:**
 - [ ] Select "As an individual" → Next → Payment modal opens
-- [ ] Payment: shows entry fee amount, VENT COINS balance (from real wallet API — not hardcoded 526)
+- [ ] Payment: shows entry fee amount, VENT COINS balance (from real wallet API - not hardcoded 526)
 - [ ] Payment method options: VENT COINS Wallet and Paystack
 - [ ] VENT COINS: deduct from wallet via API call; show insufficient funds error if balance is too low
 - [ ] Paystack: initiate real Paystack payment (replace setTimeout simulation)
 - [ ] On payment success → Success modal with tournament name and confirmation details
 - [ ] Success modal: "View Tournament" link returns to tournament detail page
 
-**Functional — Team flow:**
+**Functional - Team flow:**
 - [ ] Select "As a team" → Next → Choose Team modal
-- [ ] Choose Team: lists user's teams from API (currently uses hardcoded/mock data — wire to real API)
+- [ ] Choose Team: lists user's teams from API (currently uses hardcoded/mock data - wire to real API)
 - [ ] Only teams where user is owner/admin are listed (organizer registers the team)
 - [ ] Proceed → Edit Roster: select which team members to include (up to team_size limit)
 - [ ] Review: shows selected team, members, tournament name, entry fee
@@ -502,7 +502,7 @@ Each page is accepted when all criteria pass AND the verification track is compl
 ---
 
 ### Page 6: Bracket Visualization (NOT YET BUILT)
-**Track A** — Within Figma node `2338:20196`
+**Track A** - Within Figma node `2338:20196`
 
 **Functional:**
 - [ ] Fetches bracket data from `GET /tournament/get-tournament-brackets/{id}/`
@@ -519,8 +519,8 @@ Each page is accepted when all criteria pass AND the verification track is compl
 
 ---
 
-### Pages 7–X: Tournament Management (NOT YET BUILT)
-**Track A** — Within Figma node `4052:20591`
+### Pages 7 - X: Tournament Management (NOT YET BUILT)
+**Track A** - Within Figma node `4052:20591`
 
 These screens are for tournament organizers to manage a tournament after creation.
 
@@ -530,13 +530,13 @@ These screens are for tournament organizers to manage a tournament after creatio
 - Participant management (view registered participants, check payment status, remove/ban)
 - Invite Players/Teams (search and invite specific users or teams)
 - Leaderboard view
-- Tournament Production screen (Phase 1 MVP — basic version; OBS/VMIX/Streamlabs integration is Phase 1 as well)
+- Tournament Production screen (Phase 1 MVP - basic version; OBS/VMIX/Streamlabs integration is Phase 1 as well)
 
 ---
 
 ## 8. Task Checklist
 
-### 🔴 Critical — Blocking MVP Launch
+### 🔴 Critical - Blocking MVP Launch
 
 - [ ] **Fix `/tournaments` auth:** Add `/tournaments/create-tournament` and `/tournaments/drafts` to `protectedRoutes` in `src/middleware.js`
 - [ ] **Fix react-quill hydration:** Wrap react-quill import in `FormatParticipants/tournament-rules/TournamentRules.js` with `dynamic(() => import('react-quill'), { ssr: false })`
@@ -547,7 +547,7 @@ These screens are for tournament organizers to manage a tournament after creatio
 - [ ] **Build bracket visualization:** Replace `TournamentDetailsBracket.js` stub with real bracket component
 - [ ] **Remove all `console.log` statements** from tournament components before production
 
-### 🟡 Important — Should be done before launch
+### 🟡 Important - Should be done before launch
 
 - [ ] **Verify game-by-game listing:** Confirm whether `FIFATournaments.js`, `PUBGTournaments.js` etc. use hardcoded data or the `by_game` API response. Remove hardcoded lists if API data is available
 - [ ] **Replace `alert()` in CreateTournamentComponent:** After successful publish/draft, navigate programmatically (e.g., `router.push('/tournaments')` or `/tournaments/drafts`) instead of `alert()`
@@ -558,7 +558,7 @@ These screens are for tournament organizers to manage a tournament after creatio
 - [ ] **Add "Edit Draft" to DraftCard:** Pre-populate creation wizard from draft data
 - [ ] **Bracket tab placeholder:** Replace "TournamentDetailsBracket" text with a proper "Coming Soon" or skeleton UI until the bracket is built
 
-### 🟢 Verification — Do for each built page
+### 🟢 Verification - Do for each built page
 
 - [ ] Pull Figma screenshot for Tournament Homepage (`458:3639`) and compare to built `/tournaments`
 - [ ] Pull Figma screenshot for Tournament Details (`2338:20196`) and compare to built `/tournaments/view-tournament`
@@ -567,16 +567,16 @@ These screens are for tournament organizers to manage a tournament after creatio
 - [ ] Create HTML mockup for Drafts page, get CEO approval, then verify built page matches
 - [ ] Mark each page as VERIFIED in this document once complete
 
-### ⬜ Not yet started — Phase 1 remaining tournament work
+### ⬜ Not yet started - Phase 1 remaining tournament work
 
-- [ ] Tournament management — My Tournaments list
-- [ ] Tournament management — Match scoring and bracket advancement
-- [ ] Tournament management — Participant management
-- [ ] Tournament management — Invite system
-- [ ] Tournament management — Leaderboard
+- [ ] Tournament management - My Tournaments list
+- [ ] Tournament management - Match scoring and bracket advancement
+- [ ] Tournament management - Participant management
+- [ ] Tournament management - Invite system
+- [ ] Tournament management - Leaderboard
 - [ ] Tournament search (frontend UI + backend endpoint)
-- [ ] Tournament filter by game/type/status (partially built in UI — needs backend query param support)
-- [ ] Tournament Production screen (basic version — OBS/VMIX/Streamlabs integration planned for Phase 1)
+- [ ] Tournament filter by game/type/status (partially built in UI - needs backend query param support)
+- [ ] Tournament Production screen (basic version - OBS/VMIX/Streamlabs integration planned for Phase 1)
 
 ---
 

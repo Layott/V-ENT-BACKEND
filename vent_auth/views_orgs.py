@@ -108,8 +108,25 @@ def serialize_org(request, org, viewer=None, detail=False):
         'prize_pool_awarded_vc': prize_total,
         'total_prize_pool': prize_total,
         'events_hosted': org.events.filter(is_active=True).count(),
-        'owner': org.org_owner.username if org.org_owner else None,
+        # The owner as a PERSON, not a username. Two reasons, and the second
+        # is the one that bit.
+        #
+        # A bare string cannot carry a face or a founder mark, which is how the
+        # founders panel ended up drawing a letter in a circle. And a bare
+        # string is what made `org.owner.username` read `undefined` on every
+        # card for a signed-out visitor, so every organisation offered them a
+        # Manage button. `usernameOf()` on the front end accepts either shape,
+        # so this is safe to widen; `owner_username` stays for anything that
+        # wants the plain string without unwrapping.
+        'owner': _person_row(request, org.org_owner) if org.org_owner else None,
+        'owner_username': org.org_owner.username if org.org_owner else None,
         'follower_count': org.followers.count(),
+        # What KIND of organisation this is, and what that means it does.
+        # A club that only fields a squad should not be asked about ticketing.
+        # `capabilities` is computed on the model so the console and the
+        # frontend read one table rather than each keeping a copy.
+        'org_type': org.org_type,
+        'capabilities': org.capabilities(),
         # The listing cards need these too: without them a member sees "Join".
         'my_role': _role_of(org, viewer),
         'has_pending_request': bool(
@@ -123,7 +140,19 @@ def serialize_org(request, org, viewer=None, detail=False):
             'founded': org.founded,
             'social_links': org.social_links or {},
             'verification_requested': org.verification_requested,
-            'founders': [org.org_creator.username] if org.org_creator else [],
+            # Founders are PEOPLE. This was a list of usernames, so the panel
+            # had a name and nothing else and drew initials in a grey circle
+            # with no badge beside them. The CEO reported it against their own
+            # organisation: "under an irganization oge my profilr pic and badge
+            # dudnt show".
+            #
+            # Same cause as the team owner card and the org member table before
+            # it, which is why there is one builder and nothing describes a
+            # person by hand any more.
+            #
+            # The creator first, then the owner when ownership has moved, so a
+            # transferred organisation still credits who started it.
+            'founders': _founders(request, org),
             'is_following': bool(viewer and OrgFollower.objects.filter(org=org, user=viewer).exists()),
             'pending_request_count': OrgJoinRequest.objects.filter(org=org, status='pending').count(),
         })
@@ -166,6 +195,22 @@ def _person_row(request, user, avatar=None):
     if avatar is not None:
         row['avatar'] = avatar
     return row
+
+
+def _founders(request, org):
+    """Who started this organisation, as people.
+
+    The creator always. The owner as well when ownership has moved on, because
+    an organisation that changed hands still has the person who started it and
+    the person who runs it, and dropping either is a fact lost off the page.
+    """
+    people = []
+    seen = set()
+    for user in (org.org_creator, org.org_owner):
+        if user and user.pk not in seen:
+            seen.add(user.pk)
+            people.append(_person_row(request, user))
+    return people
 
 
 # ---------------------------------------------------------------------------
@@ -697,18 +742,39 @@ def org_activity(request, org_id):
     if org is None:
         return _error('Organization not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
+    # Three things were wrong with these rows and the panel looked fine:
+    #
+    #   no `id`      every row keyed on `undefined`, so React warned on every
+    #                render of this page
+    #   `text`       the page reads `a.title`, so the sentence rendered as
+    #                nothing at all and the panel was a column of timestamps
+    #   an English   built in Python with an f-string, so it could never be
+    #   sentence     French or Portuguese
+    #
+    # So each row now carries a stable id, both key names, and a code plus its
+    # parameters, which is the only shape a server-side sentence can take here.
     items = []
     for m in OrgMember.objects.filter(org=org).select_related('user').order_by('-joined_at')[:10]:
+        sentence = f'@{m.user.username} joined as {m.role}'
         items.append({
+            'id': f'member-{m.id}',
             'type': 'member_joined',
-            'text': f'@{m.user.username} joined as {m.role}',
+            'code': 'org.activity.memberJoined',
+            'params': {'username': m.user.username, 'role': m.role},
+            'title': sentence,
+            'text': sentence,
             'at': m.joined_at,
         })
     from vent_tournament.models import Tournament
     for t in Tournament.objects.filter(tournament_organization=org, is_draft=False)[:10]:
+        sentence = f'Hosted {t.tournament_title}'
         items.append({
+            'id': f'tournament-{t.tournament_id}',
             'type': 'tournament',
-            'text': f'Hosted {t.tournament_title}',
+            'code': 'org.activity.hosted',
+            'params': {'title': t.tournament_title},
+            'title': sentence,
+            'text': sentence,
             'at': t.start_date_and_time,
         })
     items.sort(key=lambda i: i['at'] or timezone.now(), reverse=True)

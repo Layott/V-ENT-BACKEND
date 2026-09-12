@@ -1,15 +1,15 @@
-# 15 — Security
+# 15 - Security
 
-**Phase:** Ongoing — applies to every phase
-**Status:** 🟡 Partial — some measures in place, several critical gaps
-**Design track:** Track C (no visual component — backend/logic only)
+**Phase:** Ongoing - applies to every phase
+**Status:** 🟡 Partial - some measures in place, several critical gaps
+**Design track:** Track C (no visual component - backend/logic only)
 **Dependencies:** All modules
 
 ---
 
 ## Module Overview
 
-This document covers the security posture of the V-ENT platform: what is currently in place, what is broken, and what must be fixed before public launch. Security is not a Phase 6 concern — it is a continuous requirement.
+This document covers the security posture of the V-ENT platform: what is currently in place, what is broken, and what must be fixed before public launch. Security is not a Phase 6 concern - it is a continuous requirement.
 
 Sections:
 1. Authentication & Session Security
@@ -40,24 +40,24 @@ Sections:
 |-------|----------|----------|
 | `console.log` statements logging session tokens | 🔴 Critical | `lib/authOptions.js` (lines with `session_token` in logs) |
 | `console.log` in every middleware request | 🟡 High | `src/middleware.js` |
-| Facebook OAuth likely misconfigured | 🟡 High | `lib/authOptions.js` — verify real app ID/secret in env |
-| `/tournaments` routes not protected | 🟡 Medium | `src/middleware.js` — confirm if intentional |
-| NextAuth secret must be a strong random value in prod | 🔴 Critical | `.env` — `NEXTAUTH_SECRET` must be 32+ char random string |
-| JWT 30-day maxAge is long — consider shorter + refresh | 🟡 Medium | `lib/authOptions.js` |
+| Facebook OAuth likely misconfigured | 🟡 High | `lib/authOptions.js` - verify real app ID/secret in env |
+| `/tournaments` routes not protected | 🟡 Medium | `src/middleware.js` - confirm if intentional |
+| NextAuth secret must be a strong random value in prod | 🔴 Critical | `.env` - `NEXTAUTH_SECRET` must be 32+ char random string |
+| JWT 30-day maxAge is long - consider shorter + refresh | 🟡 Medium | `lib/authOptions.js` |
 | Admin routes not protected at all (no admin auth exists yet) | 🔴 Critical | Must be built with 13-ADMIN-DASHBOARD.md |
 
 ### Required before launch
 
 ```js
-// lib/authOptions.js — remove ALL console.log statements
+// lib/authOptions.js - remove ALL console.log statements
 // Never log token data:
 // console.log("token", token)  ← REMOVE
 // console.log("session", session) ← REMOVE
 ```
 
 ```bash
-# .env — ensure these are set with strong values in production:
-NEXTAUTH_SECRET=<32+ random chars — use: openssl rand -base64 32>
+# .env - ensure these are set with strong values in production:
+NEXTAUTH_SECRET=<32+ random chars - use: openssl rand -base64 32>
 NEXTAUTH_URL=https://yourdomain.com
 NEXT_PUBLIC_API_URL=https://vermillionent.pythonanywhere.com
 ```
@@ -71,18 +71,18 @@ NEXT_PUBLIC_API_URL=https://vermillionent.pythonanywhere.com
 All authenticated API calls must pass `Authorization: Bearer {session.user.sessionToken}`. The current codebase inconsistently uses:
 - `Authorization: Bearer ${sessionToken}` ✅ (correct)
 - `Authorization: Token ${sessionToken}` (some pages try this as fallback)
-- Bare `session_token` as a form field body param (event creation wizard — incorrect)
+- Bare `session_token` as a form field body param (event creation wizard - incorrect)
 
-**Standardize on `Authorization: Bearer`** across all components. Remove the `Token` prefix fallback — it suggests the backend was inconsistent at some point; resolve with backend team.
+**Standardize on `Authorization: Bearer`** across all components. Remove the `Token` prefix fallback - it suggests the backend was inconsistent at some point; resolve with backend team.
 
-### Backend API Security (Django side — coordinate with backend team)
+### Backend API Security (Django side - coordinate with backend team)
 
 - [ ] All admin endpoints (`/admin/*`) must check `request.user.is_staff`
 - [ ] Wallet deduction endpoints must verify ownership (user can only deduct from their own wallet)
 - [ ] Tournament creation must verify the submitting user becomes the organizer
 - [ ] Score update endpoints must verify the user is the tournament organizer
 - [ ] File upload endpoints must validate file type and size (prevent arbitrary file upload)
-- [ ] CORS: `ALLOWED_ORIGINS` must list only known frontend domains — no wildcard `*` in production
+- [ ] CORS: `ALLOWED_ORIGINS` must list only known frontend domains - no wildcard `*` in production
 
 ### HTTPS
 
@@ -95,7 +95,7 @@ All authenticated API calls must pass `Authorization: Bearer {session.user.sessi
 
 ### Current State
 
-Validation is minimal — most form fields are submitted as-is to the backend. The backend is the primary validation layer (Django serializers).
+Validation is minimal - most form fields are submitted as-is to the backend. The backend is the primary validation layer (Django serializers).
 
 ### Frontend Validation Rules (to implement)
 
@@ -113,8 +113,8 @@ All forms must validate before submitting:
 
 ### XSS Prevention
 
-- Next.js JSX escapes values by default — do not use `dangerouslySetInnerHTML` unless sanitizing first
-- Rich text from `react-quill` (tournament/event rules) renders HTML — must use DOMPurify before rendering stored HTML:
+- Next.js JSX escapes values by default - do not use `dangerouslySetInnerHTML` unless sanitizing first
+- Rich text from `react-quill` (tournament/event rules) renders HTML - must use DOMPurify before rendering stored HTML:
 
 ```js
 // Bad (current likely approach):
@@ -125,11 +125,11 @@ import DOMPurify from 'dompurify';
 <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(tournament.rules) }} />
 ```
 
-Install DOMPurify: `npm install dompurify`
+Install DOMPurify: `pnpm add dompurify`
 
 ### SQL Injection
 
-Handled by Django ORM — do not use raw SQL queries. If any raw queries are used in the backend, they must use parameterized queries.
+Handled by Django ORM - do not use raw SQL queries. If any raw queries are used in the backend, they must use parameterized queries.
 
 ---
 
@@ -138,21 +138,21 @@ Handled by Django ORM — do not use raw SQL queries. If any raw queries are use
 ### Current `.env` variables (should be present)
 
 ```bash
-NEXT_PUBLIC_API_URL=           # Django backend URL — public (safe to expose)
-NEXTAUTH_SECRET=               # Must be strong random string — NEVER commit to git
+NEXT_PUBLIC_API_URL=           # Django backend URL - public (safe to expose)
+NEXTAUTH_SECRET=               # Must be strong random string - NEVER commit to git
 NEXTAUTH_URL=                  # Full URL of the Next.js app
 GOOGLE_CLIENT_ID=              # Google OAuth app ID
-GOOGLE_CLIENT_SECRET=          # Google OAuth secret — NEVER commit to git
+GOOGLE_CLIENT_SECRET=          # Google OAuth secret - NEVER commit to git
 FACEBOOK_CLIENT_ID=            # Facebook OAuth app ID
-FACEBOOK_CLIENT_SECRET=        # Facebook OAuth secret — NEVER commit to git
+FACEBOOK_CLIENT_SECRET=        # Facebook OAuth secret - NEVER commit to git
 ```
 
 ### Rules
 
-- `.env.local` is in `.gitignore` — verify this
+- `.env.local` is in `.gitignore` - verify this
 - Never commit secrets to the repository
-- In production, set environment variables via hosting provider (Vercel, Railway, etc.) — not via `.env` files
-- `NEXT_PUBLIC_*` prefix exposes vars to the browser — only use this prefix for truly public values (API URL, public app IDs)
+- In production, set environment variables via hosting provider (Vercel, Railway, etc.) - not via `.env` files
+- `NEXT_PUBLIC_*` prefix exposes vars to the browser - only use this prefix for truly public values (API URL, public app IDs)
 - `NEXTAUTH_SECRET` and all OAuth secrets must NOT have `NEXT_PUBLIC_` prefix
 
 ### Hardcoded URL (Tech Debt)
@@ -170,11 +170,11 @@ Fix: replace with `process.env.NEXT_PUBLIC_API_URL`.
 
 ### Current State
 
-No rate limiting exists in the frontend. The Django backend may have rate limiting — confirm with backend team.
+No rate limiting exists in the frontend. The Django backend may have rate limiting - confirm with backend team.
 
 ### Required Before Launch
 
-**Backend (Django) — rate limiting targets:**
+**Backend (Django) - rate limiting targets:**
 
 | Endpoint | Limit | Reason |
 |----------|-------|--------|
@@ -189,10 +189,10 @@ No rate limiting exists in the frontend. The Django backend may have rate limiti
 
 Use `django-ratelimit` or `djangorestframework-throttling`.
 
-**Frontend — debounce UX:**
+**Frontend - debounce UX:**
 - Search inputs: debounce 300ms before firing API call
 - All form submit buttons: disable after click until response received (prevent double-submit)
-- All currently exist without debounce or submit protection — add during API integration
+- All currently exist without debounce or submit protection - add during API integration
 
 ---
 
@@ -204,11 +204,11 @@ The backend should log IP addresses for:
 - All login attempts (failed and successful)
 - Wallet transactions (top-up, send, withdraw)
 - Tournament registration
-- Wager placement (Phase 6 — required by regulators)
+- Wager placement (Phase 6 - required by regulators)
 
 ### Frontend Role
 
-The frontend does not log IPs (cannot do so reliably — client IP is set server-side). However:
+The frontend does not log IPs (cannot do so reliably - client IP is set server-side). However:
 - Do not strip client IP headers in middleware
 - If Next.js API routes are used for any sensitive actions, log `request.headers.get('x-forwarded-for')` or `request.ip`
 
@@ -225,8 +225,8 @@ The frontend does not log IPs (cannot do so reliably — client IP is set server
 ### Transaction PIN
 
 All wallet send, withdrawal, and wager stake operations require a 4-digit PIN. Implementation rules:
-- PIN is hashed server-side (bcrypt or Django's `make_password`)  — never stored as plain text
-- PIN is submitted to a dedicated `POST /wallet/pin/verify/` endpoint before proceeding — not embedded in every transaction endpoint
+- PIN is hashed server-side (bcrypt or Django's `make_password`) - never stored as plain text
+- PIN is submitted to a dedicated `POST /wallet/pin/verify/` endpoint before proceeding - not embedded in every transaction endpoint
 - PIN input in frontend: masked input (type="password"), 4 digits only, numeric keyboard on mobile
 
 ### Double-Submit Prevention
@@ -234,14 +234,14 @@ All wallet send, withdrawal, and wager stake operations require a 4-digit PIN. I
 Financial transactions must be idempotent. The backend must:
 - Accept an `idempotency_key` (UUID generated client-side per action) on all write endpoints
 - Reject duplicate requests with the same key
-- Frontend generates a new UUID per form open — not per submit click
+- Frontend generates a new UUID per form open - not per submit click
 
 ### Paystack Webhook Security
 
 When Paystack calls the Django backend webhook:
 - Verify the `x-paystack-signature` header using HMAC-SHA512 with your Paystack secret key
 - Reject any webhook that fails signature verification
-- Do not credit VENT COINS based on frontend callback alone — always verify via backend webhook
+- Do not credit VENT COINS based on frontend callback alone - always verify via backend webhook
 
 ---
 
@@ -280,18 +280,18 @@ const securityHeaders = [
 - [ ] Remove all `console.log` from `lib/authOptions.js` (session tokens in logs)
 - [ ] Remove all `console.log` from `src/middleware.js`
 - [ ] Set `NEXTAUTH_SECRET` to a 32+ char random value in production env
-- [ ] Verify `.env.local` is in `.gitignore` — check git history for accidental secret commits
+- [ ] Verify `.env.local` is in `.gitignore` - check git history for accidental secret commits
 - [ ] Fix hardcoded backend URLs → use `process.env.NEXT_PUBLIC_API_URL`
 - [ ] Verify Google OAuth app is properly configured (correct redirect URIs for production domain)
 - [ ] Verify Facebook OAuth app is configured (or disable Facebook login until it is)
-- [ ] Wrap `react-quill` with `dynamic(() => import('react-quill'), { ssr: false })` — prevent SSR hydration crash
+- [ ] Wrap `react-quill` with `dynamic(() => import('react-quill'), { ssr: false })` - prevent SSR hydration crash
 - [ ] Add DOMPurify for any HTML rendered from rich text fields
 - [ ] Disable `NEXT_PUBLIC_` prefix on any variable that is not truly public
 
 ### 🔴 Must Fix Before Wallet Launch
 
 - [ ] Backend rate limiting on auth and wallet endpoints
-- [ ] PIN hashing — never store plain text PIN
+- [ ] PIN hashing - never store plain text PIN
 - [ ] Paystack webhook signature verification
 - [ ] Idempotency keys on wallet transaction endpoints
 - [ ] IP logging for wallet transactions on backend
@@ -300,7 +300,7 @@ const securityHeaders = [
 
 - [ ] Admin route protection in middleware (`/admin/*` → admin session only)
 - [ ] All Django admin endpoints check `is_staff: true`
-- [ ] `AdminAction` audit log — every admin action logged
+- [ ] `AdminAction` audit log - every admin action logged
 
 ### 🟡 Should Fix Before Scale
 

@@ -1,7 +1,7 @@
-# 13 — Admin Dashboard
+# 13 - Admin Dashboard
 
-**Phase:** 1 MVP — lightweight version required before public launch
-**Status:** ❌ Not built — no design, no code
+**Phase:** 1 MVP - lightweight version required before public launch
+**Status:** ❌ Not built - no design, no code
 **Design track:** Track B (self-design required, CEO approval before build)
 **Dependencies:** User System (05), Tournaments (01), Wallet (06)
 
@@ -9,21 +9,21 @@
 
 ## Module Overview
 
-The Admin Dashboard is a separate secured interface for V-ENT platform operators. It is NOT part of the main app — it should be a distinct Next.js route group (or separate app) with its own layout that has no Sidebar, Header, or BottomMenu from the main app.
+The Admin Dashboard is a separate secured interface for V-ENT platform operators. It is NOT part of the main app - it should be a distinct Next.js route group (or separate app) with its own layout that has no Sidebar, Header, or BottomMenu from the main app.
 
 **Phase 1 MVP scope (must ship before public launch):**
-1. **User Management** — view, search, edit, ban/unban users; assign roles (user, organizer, admin)
-2. **Tournament Oversight** — view all tournaments, approve/reject disputes, correct scores
-3. **Payout Approval** — review and approve/reject VENT COIN withdrawal requests
-4. **Basic Platform Metrics** — total users, active tournaments, total VENT COINS in circulation
+1. **User Management** - view, search, edit, ban/unban users; assign roles (user, organizer, admin)
+2. **Tournament Oversight** - view all tournaments, approve/reject disputes, correct scores
+3. **Payout Approval** - review and approve/reject VENT COIN withdrawal requests
+4. **Basic Platform Metrics** - total users, active tournaments, total VENT COINS in circulation
 
 **Phase 2+ additions:**
-5. **Event Management** — oversee events, manage ticketing disputes
-6. **Financial Reports** — transaction volume, revenue (platform fees), withdrawal totals
-7. **KYC Review** — approve/reject identity documents for withdrawal eligibility
-8. **Content Moderation** — review AI-flagged content from Community and Marketplace
-9. **Marketplace Dispute Resolution** — mediate buyer/seller disputes in Vermillion City
-10. **Wager Management** — wager pool oversight, suspicious activity flags (Phase 6)
+5. **Event Management** - oversee events, manage ticketing disputes
+6. **Financial Reports** - transaction volume, revenue (platform fees), withdrawal totals
+7. **KYC Review** - approve/reject identity documents for withdrawal eligibility
+8. **Content Moderation** - review AI-flagged content from Community and Marketplace
+9. **Marketplace Dispute Resolution** - mediate buyer/seller disputes in Vermillion City
+10. **Wager Management** - wager pool oversight, suspicious activity flags (Phase 6)
 
 ---
 
@@ -45,22 +45,22 @@ The Admin Dashboard is a separate secured interface for V-ENT platform operators
 
 Nothing is built. No admin routes exist.
 
-Planned structure — **admin routes must be in a separate route group**:
+Planned structure - **admin routes must be in a separate route group**:
 
 ```
 src/app/
 └── (admin)/
-    ├── layout.js                            # ⬜ Admin layout — no main-app chrome, admin nav only
+    ├── layout.js                            # ⬜ Admin layout - no main-app chrome, admin nav only
     ├── admin/
-    │   ├── page.js                          # ⬜ Admin dashboard home — key metrics overview
+    │   ├── page.js                          # ⬜ Admin dashboard home - key metrics overview
     │   ├── users/
     │   │   ├── page.js                      # ⬜ User list with search, filter, bulk actions
     │   │   └── [id]/
-    │   │       └── page.js                  # ⬜ User detail — profile, activity, ban history
+    │   │       └── page.js                  # ⬜ User detail - profile, activity, ban history
     │   ├── tournaments/
-    │   │   ├── page.js                      # ⬜ All tournaments list — status, organizer, flag
+    │   │   ├── page.js                      # ⬜ All tournaments list - status, organizer, flag
     │   │   └── [id]/
-    │   │       └── page.js                  # ⬜ Tournament detail — scores, disputes, override
+    │   │       └── page.js                  # ⬜ Tournament detail - scores, disputes, override
     │   ├── payouts/
     │   │   └── page.js                      # ⬜ Pending withdrawal requests queue
     │   ├── kyc/
@@ -93,13 +93,13 @@ src/components/
 The admin dashboard must use a **separate authentication check** from the main app's NextAuth session.
 
 Options:
-1. **Separate admin login** — admin users log in at `/admin/login` with a username+password that checks against a Django admin user flag (`is_staff: true`). Main app session is not accepted.
-2. **Role-based check on main session** — if main NextAuth session has `role: "admin"`, allow admin access. Simpler but less secure.
+1. **Separate admin login** - admin users log in at `/admin/login` with a username+password that checks against a Django admin user flag (`is_staff: true`). Main app session is not accepted.
+2. **Role-based check on main session** - if main NextAuth session has `role: "admin"`, allow admin access. Simpler but less secure.
 
-**Recommendation:** Option 1 — separate admin login is more secure. Admin credentials should be managed independently.
+**Recommendation:** Option 1 - separate admin login is more secure. Admin credentials should be managed independently.
 
 ```js
-// Admin middleware (src/middleware.js) — extend to protect /admin/* routes
+// Admin middleware (src/middleware.js) - extend to protect /admin/* routes
 // Check for admin-specific session token, not the main user session
 ```
 
@@ -120,10 +120,10 @@ Options:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/admin/users/` | Paginated user list (search by username/email, filter by role/status) |
-| `GET` | `/admin/users/{id}/` | User detail — profile, activity, wallet, ban history |
+| `GET` | `/admin/users/{id}/` | User detail - profile, activity, wallet, ban history |
 | `PATCH` | `/admin/users/{id}/ban/` | Ban or unban user (with reason) |
 | `PATCH` | `/admin/users/{id}/role/` | Assign role (user, organizer, admin) |
-| `DELETE` | `/admin/users/{id}/` | Delete account (irreversible — requires double confirmation) |
+| `DELETE` | `/admin/users/{id}/` | Delete account (irreversible - requires double confirmation) |
 
 ### Tournament Oversight
 
@@ -259,32 +259,32 @@ class TournamentDispute(models.Model):
 
 ## Acceptance Criteria
 
-### Admin Dashboard Home (`/admin`) — Track B
+### Admin Dashboard Home (`/admin`) - Track B
 
-- [ ] Secure login required — separate from main app session
+- [ ] Secure login required - separate from main app session
 - [ ] Metrics cards: total users, active tournaments, pending payouts, open disputes, VENT COINS in circulation
 - [ ] Quick links to: pending payouts, open disputes, pending KYC
 - [ ] No Sidebar, Header, BottomMenu from main app
 
-### User Management (`/admin/users`) — Track B
+### User Management (`/admin/users`) - Track B
 
 - [ ] Paginated table: username, email, role, joined date, ban status, wallet balance
 - [ ] Search by username or email
 - [ ] Filter by: role, ban status, KYC status
 - [ ] Click user → `/admin/users/{id}` for full detail
-- [ ] Ban/unban with reason — confirmation modal
+- [ ] Ban/unban with reason - confirmation modal
 - [ ] Role assignment (user → organizer → admin)
 - [ ] All actions logged to `AdminAction` audit log
 
-### Tournament Oversight (`/admin/tournaments`) — Track B
+### Tournament Oversight (`/admin/tournaments`) - Track B
 
 - [ ] List all tournaments with: name, organizer, game, status, dispute flag
 - [ ] Filter by status (active, completed, cancelled, disputed)
 - [ ] Open dispute → dispute detail card with raise reason, evidence, and resolve/reject buttons
-- [ ] Score override modal — admin selects winner with reason
+- [ ] Score override modal - admin selects winner with reason
 - [ ] Cancel tournament → confirms refund of all registration fees to participants' wallets
 
-### Payout Approval (`/admin/payouts`) — Track B
+### Payout Approval (`/admin/payouts`) - Track B
 
 - [ ] Queue of pending withdrawal requests sorted by oldest first
 - [ ] Each row: username, KYC status, amount, bank details
@@ -293,7 +293,7 @@ class TournamentDispute(models.Model):
 - [ ] Reject → sends reason to user (notification or email)
 - [ ] Processed requests stay visible with "Approved/Rejected" status
 
-### KYC Review (`/admin/kyc`) — Track B
+### KYC Review (`/admin/kyc`) - Track B
 
 - [ ] Queue of pending KYC submissions
 - [ ] View document image(s) in review panel
@@ -304,12 +304,12 @@ class TournamentDispute(models.Model):
 
 ## Task Checklist
 
-### 🔴 Critical — Must Ship in Phase 1 MVP
+### 🔴 Critical - Must Ship in Phase 1 MVP
 
-- [ ] Design HTML mockup for Admin Dashboard home — CEO approval (Track B)
-- [ ] Design HTML mockup for User Management — CEO approval
-- [ ] Design HTML mockup for Payout Approval — CEO approval
-- [ ] Design HTML mockup for Tournament Oversight — CEO approval
+- [ ] Design HTML mockup for Admin Dashboard home - CEO approval (Track B)
+- [ ] Design HTML mockup for User Management - CEO approval
+- [ ] Design HTML mockup for Payout Approval - CEO approval
+- [ ] Design HTML mockup for Tournament Oversight - CEO approval
 - [ ] Separate admin authentication (admin-only login route)
 - [ ] Admin middleware: protect all `/admin/*` routes
 - [ ] `AdminAction` audit log model

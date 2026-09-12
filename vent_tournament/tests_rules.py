@@ -16,7 +16,8 @@ from vent_auth.models import Games, Users
 
 from . import rules as rules_mod
 from . import tiebreak
-from .models import BracketMatch, Tournament, TournamentRegistration, TournamentRuleset
+from .models import (BracketMatch, LeagueRules, Tournament,
+                     TournamentRegistration, TournamentRuleset)
 
 
 def a_user(name, **extra):
@@ -259,3 +260,87 @@ class RulesEndpointTests(TestCase):
         self.assertIn('battle_royale', presets)
         self.assertIn('aggregate_2v2', presets)
         self.assertTrue(res.json()['data']['placement_presets'])
+
+    def test_the_presets_endpoint_names_the_formats(self):
+        """A screen offering these as chips must not invent its own labels."""
+        res = self.client.get('/tournament/rule-presets/')
+        formats = res.json()['data']['formats']
+        keys = [f['key'] for f in formats]
+        self.assertIn('round_robin', keys)
+        self.assertEqual(len(formats), len(res.json()['data']['presets']))
+        for row in formats:
+            self.assertTrue(row['label'])
+            self.assertTrue(row['summary'])
+
+
+class RulesReachTheTableTests(TestCase):
+    """There were two models for what a win is worth.
+
+    The editor wrote `TournamentRuleset`; the standings read `LeagueRules`. An
+    organiser could set five points for a win and watch the table keep paying
+    three, with nothing erroring anywhere.
+    """
+
+    def setUp(self):
+        self.owner, self.owner_auth = a_user('table_owner')
+        game = Games.objects.get_or_create(game_title='Table Probe')[0]
+        now = timezone.now()
+        self.tournament = Tournament.objects.create(
+            tournament_title='Table Probe League', tournament_creator=self.owner,
+            tournament_game=game, tournament_type='online',
+            tournament_access='team', tournament_visibility='public',
+            entry_fee='Free', entry_fee_price=0, prize_type='no_prize',
+            bracket_type='round_robin',
+            start_date_and_time=now + timedelta(days=2),
+            end_date_and_time=now + timedelta(days=3),
+            is_draft=False,
+        )
+
+    def url(self, suffix=''):
+        return '/tournament/%s/rules/%s' % (self.tournament.tournament_id, suffix)
+
+    def test_saving_the_rules_moves_the_league_table_with_them(self):
+        res = self.client.put(self.url('set/'), data={'rules': {
+            'format': 'round_robin',
+            'points': {'win': 5, 'draw': 2, 'loss': 1},
+            'tiebreakers': ['goals_for', 'goal_difference'],
+        }}, content_type='application/json', **self.owner_auth)
+        self.assertEqual(res.status_code, 200, res.content)
+
+        row = LeagueRules.objects.get(tournament=self.tournament)
+        self.assertEqual((row.points_win, row.points_draw, row.points_loss),
+                         (5, 2, 1))
+        self.assertEqual(row.ordered_tiebreakers(),
+                         ['goals_for', 'goal_difference'])
+
+    def test_it_updates_a_row_that_already_exists_rather_than_failing(self):
+        LeagueRules.objects.create(tournament=self.tournament, points_win=3,
+                                   players_per_team=2)
+        self.client.put(self.url('set/'), data={'rules': {
+            'format': 'round_robin', 'points': {'win': 7},
+        }}, content_type='application/json', **self.owner_auth)
+        row = LeagueRules.objects.get(tournament=self.tournament)
+        self.assertEqual(row.points_win, 7)
+        # Something the ruleset knows nothing about is left alone.
+        self.assertEqual(row.players_per_team, 2)
+
+    def test_a_tiebreaker_the_table_does_not_know_is_dropped_not_stored_broken(self):
+        """`buchholz` is a swiss idea. The table should fall back rather than
+        become uncomputable."""
+        self.client.put(self.url('set/'), data={'rules': {
+            'format': 'swiss_system',
+            'tiebreakers': ['buchholz'],
+        }}, content_type='application/json', **self.owner_auth)
+        row = LeagueRules.objects.get(tournament=self.tournament)
+        self.assertEqual(row.tiebreakers, ['buchholz'])
+        self.assertEqual(row.ordered_tiebreakers(),
+                         ['goal_difference', 'goals_for', 'wins'])
+
+    def test_reset_puts_the_table_back_too(self):
+        self.client.put(self.url('set/'), data={'rules': {
+            'format': 'round_robin', 'points': {'win': 9},
+        }}, content_type='application/json', **self.owner_auth)
+        self.client.post(self.url('reset/'), data={'format': 'round_robin'},
+                         content_type='application/json', **self.owner_auth)
+        row = LeagueRules.objects.get(tournament=self.tournament)
+        self.assertEqual(row.points_win, 3)

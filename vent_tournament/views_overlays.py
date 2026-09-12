@@ -18,9 +18,11 @@ uploader's markup is otherwise untouched, because the file they debug against
 has to be the file that is served.
 """
 
+import json
 import re
 
 from django.http import HttpResponse
+from django.utils.html import escape
 from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import status
 from rest_framework.decorators import api_view, parser_classes
@@ -31,7 +33,7 @@ from django.core.files.base import ContentFile
 
 from vent_auth.models import Users
 
-from . import overlay_binding, overlay_templates
+from . import overlay_binding, overlay_templates, presentation, text_layers
 from .models import Tournament, TournamentOverlay
 
 #: An overlay is markup. A 5MB one is already unusual; the KON10DR pack reaches
@@ -125,6 +127,10 @@ def serialize(overlay, request):
             getattr(owner, 'name', None)
             or getattr(owner, 'tournament_title', '')) if owner else '',
         'bound_to_slug': getattr(owner, 'slug', '') or '',
+        # Where it sits, already merged with the defaults so the console never
+        # has to know which values were actually stored.
+        'presentation': presentation.resolve(None, overlay.options or {}),
+        'presentation_options': presentation.catalogue(),
         'created_at': overlay.created_at,
         'updated_at': overlay.updated_at,
     }
@@ -167,14 +173,14 @@ def overlays(request, tournament_id):
     return _create_overlay(request, tournament=tournament, user=user)
 
 
-@api_view(['DELETE'])
+@api_view(['DELETE', 'POST'])
 def overlay_detail(request, tournament_id, overlay_id):
     tournament = _tournament(tournament_id)
     if tournament is None:
         return _error('Tournament not found.', 'NOT_FOUND',
                       status.HTTP_404_NOT_FOUND)
     if not _may_manage(_viewer(request), tournament):
-        return _error('Only the organiser can remove an overlay.',
+        return _error('Only the organiser can change an overlay.',
                       'NOT_TOURNAMENT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
     overlay = TournamentOverlay.objects.filter(
@@ -182,6 +188,23 @@ def overlay_detail(request, tournament_id, overlay_id):
     if overlay is None:
         return _error('Overlay not found.', 'NOT_FOUND',
                       status.HTTP_404_NOT_FOUND)
+
+    # Where it sits on the frame. The same nine places and the same nudge a
+    # V-ENT graphic uses, validated by the same module, so the two cannot end
+    # up with different ideas of what `bottom_centre` means.
+    #
+    # CEO, 4 September 2026: "should be able to change position even for the
+    # overlays you upload".
+    if request.method == 'POST':
+        try:
+            overlay.options = presentation.clean(request.data.get('options'))
+        except presentation.PresentationError as err:
+            return _error(str(err), 'INVALID_PRESENTATION',
+                          status.HTTP_400_BAD_REQUEST,
+                          extra={'field': err.field})
+        overlay.save(update_fields=['options'])
+        return _ok({'overlay': serialize(overlay, request)}, 'Saved.')
+
     overlay.delete()
     return _ok({'removed': overlay_id}, 'Overlay removed.')
 
@@ -324,13 +347,52 @@ def serve_overlay(request, token, owner=None, label=None):
     runtime = request.build_absolute_uri(
         '/static/overlay-runtime.js?v=%s' % _runtime_version())
 
+    # Text the operator put on top of this file, handed over with the page.
+    #
+    # **A file with no layers is served exactly as it was.** No attribute, no
+    # container, no stylesheet, no class: the tag below is byte for byte what
+    # it has always been. That is not a nicety. This is somebody else's design,
+    # opened once at a venue and left running for six hours, and the only safe
+    # default when there is nothing to add is to add nothing. The same rule the
+    # Sits control shipped with.
+    #
+    # Carried in the page rather than fetched, because the feed is per
+    # tournament and per event while layers are per overlay, and a second
+    # request would be a second thing that can fail while a caption is on
+    # screen. The cost is that a layer changed mid show needs the browser
+    # source refreshed; the studio graphics take theirs from the feed and do
+    # not.
+    layers = text_layers.for_overlay(overlay)
+    layers_attr = ''
+    if layers:
+        layers_attr = ' data-layers="%s"' % escape(json.dumps(
+            text_layers.serialize_many(layers), separators=(',', ':')))
+
+    # Where the operator moved it to, if they moved it at all.
+    #
+    # Same rule as the layers above and it matters more here: `as_designed` is
+    # the default, and an overlay nobody has moved carries NO attribute, so the
+    # runtime never touches its geometry. An overlay already pasted into a
+    # machine at a venue must not shift because this feature shipped.
+    #
+    # CEO, 4 September 2026: "should be able to change position even for the
+    # overlays you upload".
+    look = presentation.resolve(None, overlay.options or {})
+    sits_attr = ''
+    if look.get('position') and look['position'] != 'as_designed':
+        sits_attr = ' data-sits="%s"' % escape(json.dumps({
+            'position': look['position'],
+            'offset_x': look.get('offset_x', 0),
+            'offset_y': look.get('offset_y', 0),
+        }, separators=(',', ':')))
+
     # The runtime is configured through a data attribute rather than a query
     # string on the OVERLAY, so an overlay's own `?t=AX` reaches it untouched.
     # The `?v=` above is on the RUNTIME's own URL and is a different thing.
     tag = (
         '<script id="vent-overlay-runtime" '
-        'data-feed="%s" data-every="4000" src="%s"></script>'
-        % (feed, runtime))
+        'data-feed="%s" data-every="4000"%s%s src="%s"></script>'
+        % (feed, layers_attr, sits_attr, runtime))
 
     response = HttpResponse(_inject(markup, tag),
                             content_type='text/html; charset=utf-8')
@@ -850,18 +912,33 @@ def event_overlays(request, event_id):
     return _create_overlay(request, event=event, user=user)
 
 
-@api_view(['DELETE'])
+@api_view(['DELETE', 'POST'])
 def event_overlay_detail(request, event_id, overlay_id):
     event = _event(event_id)
     if event is None:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if not _may_manage_event(_viewer(request), event):
-        return _error('Only the organiser can remove an overlay.',
+        return _error('Only the organiser can change an overlay.',
                       'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
     overlay = TournamentOverlay.objects.filter(event=event, pk=overlay_id).first()
     if overlay is None:
         return _error('Overlay not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+
+    # Where it sits, exactly as on the tournament side. An event broadcast has
+    # a lower third that has to clear a bug in the corner as much as a
+    # tournament does, and building this for one of the two is the fault
+    # `tools/check-parity.py` exists for.
+    if request.method == 'POST':
+        try:
+            overlay.options = presentation.clean(request.data.get('options'))
+        except presentation.PresentationError as err:
+            return _error(str(err), 'INVALID_PRESENTATION',
+                          status.HTTP_400_BAD_REQUEST,
+                          extra={'field': err.field})
+        overlay.save(update_fields=['options'])
+        return _ok({'overlay': serialize(overlay, request)}, 'Saved.')
+
     overlay.delete()
     return _ok({'removed': overlay_id}, 'Overlay removed.')
 

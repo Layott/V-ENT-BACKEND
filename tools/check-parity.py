@@ -77,6 +77,41 @@ def present(text, pattern):
 # A probe is (path relative to its repo, regex).
 PAIRS = [
     (
+        'a soft delete endpoint',
+        'The organiser can remove it and an admin can put it back.',
+        'event', (BACKEND, 'vent_event/views_delete.py', r'def delete_event'),
+        'tournament', (BACKEND, 'vent_tournament/views_delete.py',
+                       r'def delete_tournament'),
+    ),
+    (
+        'an admin restore endpoint',
+        'A delete with no restore is a delete, whatever it is called.',
+        'event', (BACKEND, 'vent_event/views_delete.py', r'def restore_event'),
+        'tournament', (BACKEND, 'vent_tournament/views_delete.py',
+                       r'def restore_tournament'),
+    ),
+    (
+        'soft delete is tested',
+        'The refusals are the whole feature: paid seats and a second ask.',
+        'event', (BACKEND, 'vent_event/tests_soft_delete.py', r'PAID_ENTRANTS'),
+        'tournament', (BACKEND, 'vent_tournament/tests_soft_delete.py',
+                       r'PAID_ENTRANTS'),
+    ),
+    (
+        'deleted has a bucket in the admin console',
+        'A row belonging to no tab has vanished, not been filtered.',
+        'event', (FRONTEND, 'src/app/(admin)/admin/events/page.js', r"'deleted'"),
+        'tournament', (FRONTEND, 'src/app/(admin)/admin/tournaments/page.js',
+                       r"'deleted'"),
+    ),
+    (
+        'the organiser can delete from their own list',
+        'An endpoint with no control is the same as no feature.',
+        'event', (FRONTEND, 'src/app/events/my-events/page.js', r'/delete/'),
+        'tournament', (FRONTEND, 'src/app/tournaments/my-tournaments/page.js',
+                       r'/delete/'),
+    ),
+    (
         'short links',
         'A long address is worth shortening whatever it points at.',
         'event', (BACKEND, 'vent_event/urls.py', r'short-links'),
@@ -127,22 +162,86 @@ PAIRS = [
                        r'import _person|_person\(request'),
     ),
     (
-        'the sponsor logo input is attached',
+        'a sponsor logo can be uploaded in the wizard',
         'A hidden input with no ref throws on click and does nothing.',
+        # Aimed at the LIVE wizards. It used to point at
+        # create-event-component/sponsors-links/sponsors/Sponsors.js, which
+        # nothing under src/app imports: the live event wizard is
+        # app/events/create-event/page.js and it uses ImageUpload, so there is
+        # no bare input to attach a ref to and never was. This row reported
+        # MISSING for weeks against a file nobody runs, which is how a checker
+        # stops being read.
         'tournament wizard',
         (FRONTEND,
          'src/components/create-tournament-component/sponsors-links/sponsors/Sponsors.js',
-         r'ref=\{el'),
-        # The event side was pointed at `create-event-component/` for weeks and
-        # reported MISSING every run. That component tree is DEAD: nothing in
-        # `src/app` imports it, and the wizard an organiser actually reaches is
-        # the page below, which uses `ImageUpload` and so has no bare input to
-        # attach a ref to. A checker aimed at a file nobody runs reports a
-        # fault nobody has, which is how a checker stops being read.
+         r'ref=\{el|ImageUpload'),
         'event wizard',
-        (FRONTEND,
-         'src/app/events/create-event/page.js',
-         r'kind="sponsorLogo"'),
+        (FRONTEND, 'src/app/events/create-event/page.js', r'ImageUpload'),
+    ),
+    (
+        'the run of show is offered on both consoles',
+        'A production document built for one of the two is half a feature.',
+        'event', (FRONTEND, 'src/app/events/manage/page.js',
+                  r"tab === 'run-of-show'"),
+        'tournament', (FRONTEND, 'src/app/tournaments/manage/page.js',
+                       r"tab === 'run-of-show'"),
+    ),
+    (
+        'the run of show has a public page on both',
+        'The address people share has to exist for an event and a tournament.',
+        'event', (FRONTEND, 'src/app/events/[slug]/run-of-show/page.js',
+                  r'RunOfShowScreen'),
+        'tournament', (FRONTEND, 'src/app/tournaments/[slug]/run-of-show/page.js',
+                       r'RunOfShowScreen'),
+    ),
+    (
+        'the run of show routes are mounted on both',
+        'Six routes on one side and none on the other is the usual shape.',
+        'event', (BACKEND, 'vent_event/urls.py', r'run-of-show/import/'),
+        'tournament', (BACKEND, 'vent_tournament/urls.py', r'run-of-show/import/'),
+    ),
+    (
+        'text layers on an uploaded overlay are mounted on both',
+        'Text on an overlay for one of the two things V-ENT runs is half a feature.',
+        'event', (BACKEND, 'vent_event/urls.py',
+                  r'overlays/<int:overlay_id>/layers/'),
+        'tournament', (BACKEND, 'vent_tournament/urls.py',
+                       r'overlays/<int:overlay_id>/layers/'),
+    ),
+    (
+        'text layers on a studio graphic are mounted on both',
+        'An event broadcast has captions exactly as a tournament does.',
+        'event', (BACKEND, 'vent_event/urls.py', r'event_element_layers'),
+        'tournament', (BACKEND, 'vent_tournament/urls.py',
+                       r'tournament_element_layers'),
+    ),
+    (
+        'an uploaded overlay can be moved on both sides',
+        'The Sits control reached the studio graphics only until 4 September. '
+        'An event broadcast has a lower third that has to clear a bug in the '
+        'corner exactly as a tournament does.',
+        'event', (BACKEND, 'vent_tournament/views_overlays.py',
+                  r"def event_overlay_detail"),
+        'tournament', (BACKEND, 'vent_tournament/views_overlays.py',
+                       r"def overlay_detail"),
+    ),
+    (
+        'the payload says which organisation runs this',
+        'A column both endpoints accept and no payload reports is a column no '
+        'screen can show, which is how the organisation field sat unused on '
+        'both sides for weeks. CEO, 4 September: "how to add events or '
+        'tournaments to an organization? i dont see that path".',
+        'event', (BACKEND, 'vent_event/views_promos.py', r"'organization': \("),
+        'tournament', (BACKEND, 'vent_tournament/views.py',
+                       r'"organization": organization'),
+    ),
+    (
+        'a screen can set the organisation',
+        'The event console has a picker and the tournament edit screen has one. '
+        'Built on one side only is what this checker exists for.',
+        'event', (FRONTEND, 'src/app/events/manage/page.js', r'saveOrganization'),
+        'tournament', (FRONTEND, 'src/app/tournaments/edit-tournament/page.js',
+                       r"set\('organization'"),
     ),
 ]
 

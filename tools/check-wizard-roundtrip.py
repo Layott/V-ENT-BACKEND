@@ -85,7 +85,7 @@ ALIASES = {
     'max_number_of_participants': ('max_number_of_teams', 'player_size'),
     'min_number_of_participants': ('min_number_of_teams',),
     'entry_fee': ('entry_fee_price', 'entry_fee'),
-    'prize_data': ('prize_distributions',),
+    'prize_data': ('prize_distributions', 'prize_distribution'),
     'sponsor_names': ('sponsors',),
     'sponsor_types': ('sponsors',),
     'sponsor_usernames': ('sponsors',),
@@ -118,6 +118,34 @@ def function_body(source, name):
     return max(bodies, key=len) if bodies else ''
 
 
+def with_helpers(source, name, depth=2):
+    """A view's body PLUS the bodies of the module-level helpers it calls.
+
+    Calibration, 7 September 2026. This reported 19 broken links and TEN of
+    them were `points_win`, `points_draw`, `points_loss`, `players_per_team`
+    and `tiebreakers` against both create and edit. All five are read, by
+    `_league_settings(request.data, team_size)`, which both views call - the
+    checker just could not see through the call.
+
+    Ten false positives out of nineteen is a checker nobody works down, and
+    the three real faults behind them sat for weeks because of it. Two levels
+    deep, because a helper may itself delegate; deeper than that and this
+    starts matching the whole file, which would find everything and mean
+    nothing.
+    """
+    body = function_body(source, name)
+    if depth <= 0:
+        return body
+    text = [body]
+    for called in set(re.findall(r'\b(_[a-z][a-z0-9_]*)\s*\(', body)):
+        if called == name:
+            continue
+        helper = function_body(source, called)
+        if helper:
+            text.append(with_helpers(source, called, depth - 1))
+    return '\n'.join(text)
+
+
 def main():
     wizard = read(WIZARD)
     page = read(PAGE)
@@ -129,8 +157,8 @@ def main():
         print('Could not read the wizard. Has CreateTournamentComponent moved?')
         return 1
 
-    create = function_body(views, 'create_tournament')
-    edit = function_body(views, 'edit_tournament')
+    create = with_helpers(views, 'create_tournament')
+    edit = with_helpers(views, 'edit_tournament')
     view_one = function_body(views, 'view_tournament')
 
     problems = []
@@ -155,7 +183,12 @@ def main():
         if not (seen_in(view_one) or seen_in(views)):
             problems.append((field, 'nothing returns it',
                              're-opening a draft cannot show what was chosen'))
-        if not re.search(r'\b%s\b' % re.escape(field), page):
+        # The mapper is checked against the ALIASES too. It was checked
+        # against the raw field name alone, so `prize_data` and the three
+        # `sponsor_*` fields read as missing while the mapper restores them
+        # under the wizard's own names, `prize_distribution` and `sponsors`.
+        # Four more false positives in the same count of nineteen.
+        if not any(re.search(r'\b%s\b' % re.escape(n), page) for n in names):
             problems.append((field, 'the draft mapper does not restore it',
                              're-opening a draft asks for it again, and an '
                              'empty field submits the default'))
@@ -170,5 +203,62 @@ def main():
     return 1 if problems else 0
 
 
+SELF_TEST_SOURCE = '''
+def _league_settings(data, team_size):
+    return {'points_win': data.get('points_win', 3)}
+
+
+def _unrelated(data):
+    return data.get('nothing_to_do_with_it')
+
+
+@api_view(['POST'])
+def create_tournament(request):
+    title = request.data.get('tournament_title')
+    rules = _league_settings(request.data, 1)
+    return Response({})
+
+
+@api_view(['PUT'])
+def edit_tournament(request, tournament_id):
+    if 'tournament_title' in request.data:
+        pass
+    return Response({})
+'''
+
+
+def self_test():
+    """Proved both ways, on the exact shapes this got wrong.
+
+    `points_win` is read only inside a helper, and reporting it was ten of the
+    nineteen findings on 7 September 2026. `never_read_anywhere` is the fault
+    the checker exists for and must still be caught.
+    """
+    cases = [
+        ('create_tournament', 'tournament_title', True,  'read directly'),
+        ('create_tournament', 'points_win',       True,  'read inside a helper it calls'),
+        ('create_tournament', 'never_read_here',  False, 'genuinely dropped'),
+        ('edit_tournament',   'tournament_title', True,  'read directly'),
+        ('edit_tournament',   'points_win',       False, 'edit does not call the helper'),
+        ('create_tournament', 'nothing_to_do_with_it', False,
+         'a helper it does NOT call must not count as reading it'),
+    ]
+    bad = 0
+    for view, field, expected, why in cases:
+        block = with_helpers(SELF_TEST_SOURCE, view)
+        got = bool(re.search(r'\b%s\b' % re.escape(field), block))
+        if got != expected:
+            bad += 1
+            print('FAIL  %s / %s: expected %s (%s)'
+                  % (view, field, 'seen' if expected else 'not seen', why))
+    if bad:
+        print('%d of %d case(s) wrong' % (bad, len(cases)))
+        return 1
+    print('%d cases, both directions: self-test passed' % len(cases))
+    return 0
+
+
 if __name__ == '__main__':
+    if '--self-test' in sys.argv:
+        sys.exit(self_test())
     sys.exit(main())

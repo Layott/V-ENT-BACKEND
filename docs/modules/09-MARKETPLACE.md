@@ -1,7 +1,7 @@
-# 09 — Marketplace (Vermillion City)
+# 09 - Marketplace (Vermillion City)
 
 **Phase:** 4
-**Status:** ❌ Not built — no design, no code
+**Status:** ❌ Not built - no design, no code
 **Design track:** Track B (self-design required, CEO approval before build)
 **Dependencies:** Wallet (06), User System (05), Organizations (07)
 
@@ -17,7 +17,7 @@ Vermillion City is V-ENT's peer-to-peer marketplace. Unlike the Vent Shop (which
 
 V-ENT takes a platform fee (% of each transaction). Transactions are settled in VENT COINS with buyer-protection escrow.
 
-Distinct from the Vendor Shop system within Events (which is for physical vendors at event venues — see 02-EVENTS.md).
+Distinct from the Vendor Shop system within Events (which is for physical vendors at event venues - see 02-EVENTS.md).
 
 ---
 
@@ -47,7 +47,7 @@ Planned structure:
 ```
 src/app/
 ├── marketplace/
-│   ├── page.js                              # ⬜ Marketplace homepage — categories, featured, search
+│   ├── page.js                              # ⬜ Marketplace homepage - categories, featured, search
 │   ├── listing/
 │   │   └── page.js                          # ⬜ Product detail (?id=...)
 │   ├── seller/
@@ -96,7 +96,7 @@ src/components/
 ```json
 {
   "id": "lst001",
-  "title": "Razer DeathAdder Elite — Like New",
+  "title": "Razer DeathAdder Elite - Like New",
   "description": "Used for 3 months, no scratches...",
   "category": "peripherals",
   "condition": "like_new",
@@ -176,7 +176,7 @@ class SellerRating(models.Model):
 
 ### ⬜ Phase 4 (all)
 
-- [ ] Design HTML mockups for all marketplace screens — CEO approval
+- [ ] Design HTML mockups for all marketplace screens - CEO approval
 - [ ] Django models: `Listing`, `ListingImage`, `Purchase`, `SellerRating`
 - [ ] All marketplace API endpoints
 - [ ] Listing browse page with category filters + search

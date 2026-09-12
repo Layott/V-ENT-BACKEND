@@ -11,6 +11,8 @@ Part A), so these helpers read only from `vent_auth.TeamMembers`.
 """
 
 from vent_auth.models import (
+    Users,
+    follower_count,
     TeamProfile,
     TeamMembers as AuthTeamMembers,
     TeamJoinRequest,
@@ -67,6 +69,10 @@ def serialize_team_card(request, team, profile_map=None):
         'core_game': game_title,
         'logo': logo, 'logo_url': logo, 'team_logo': logo, 'image': logo,
         'banner': banner, 'banner_url': banner, 'team_banner': banner,
+        # How many people follow this team. Teams had no follower table at
+        # all until 7 September 2026, so this was not a missing number - it was
+        # a missing feature, on the page most likely to want it.
+        'follower_count': follower_count('team', team.team_id),
         'member_count': team.number_of_members,
         'members': team.number_of_members,  # registration picker reads `members`
         'is_accepting_members': team.allow_membership_requests,
@@ -119,8 +125,25 @@ def _collect_members(request, team):
     pic_map = {}
     for up in UserProfile.objects.filter(user_id__in=list(members.keys())):
         pic_map[up.user_id] = absolute_media_url(request, up.profile_picture)
+
+    # And the founder mark, in one more query rather than one per member.
+    #
+    # A team member list is a list of PEOPLE, and it carried a name, a role and
+    # a picture with no way to say that one of them is a founder. That is the
+    # fourth screen with this cause, after the direct message, the team owner
+    # card and the organisation founders panel, and every one of them was
+    # reported by the CEO looking at it rather than caught by anything.
+    marked = set(
+        Users.objects.filter(user_id__in=list(members.keys()),
+                             is_founder=True, show_founder_badge=True)
+        .values_list('user_id', flat=True)
+    )
     for uid, block in members.items():
         block['profile_pic'] = pic_map.get(uid)
+        # Both spellings: `avatar` is what UserChip and the one person builder
+        # use everywhere else, and the team screens already read `profile_pic`.
+        block['avatar'] = pic_map.get(uid)
+        block['founder_badge'] = uid in marked
 
     return list(members.values())
 

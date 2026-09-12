@@ -79,6 +79,29 @@ def may_message(viewer, owner):
     return True
 
 
+def message_policy(owner):
+    """What this person says they accept, as a code the screen translates.
+
+    T11 asks that a profile "shows what that person allows publicly". Without
+    it, a viewer who cannot message somebody sees no button and no reason, and
+    cannot tell "they have messages off" from "the page is broken".
+
+    This reports the OWNER'S OWN STATED SETTING and nothing about the viewer.
+    A block must never be visible here: `may_message` returns False for a block
+    too, and if this reported that, the absence of a button would tell somebody
+    they had been blocked. Somebody who has been blocked sees exactly what
+    somebody who simply cannot message sees.
+    """
+    if owner is None:
+        return 'nobody'
+    setting = privacy_of(owner).get('allow_direct_messages', 'anyone')
+    if setting in (False, 'nobody', 'none'):
+        return 'nobody'
+    if setting in ('followers', 'following'):
+        return 'followers'
+    return 'anyone'
+
+
 @api_view(['GET'])
 def user_search(request):
     """GET /user/search/?q=  - people whose handle or name starts with `q`.

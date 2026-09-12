@@ -1,7 +1,7 @@
 """Reconcile the Sponsors table + M2M through table on freshly-built databases.
 
 Migration 0009 created the `Sponsors` model, deleted the old singular `Sponsor`
-model, and re-pointed the `Tournament.sponsors` M2M — all in STATE ONLY
+model, and re-pointed the `Tournament.sponsors` M2M - all in STATE ONLY
 (`database_operations=[]`), assuming the then-deployed DB already matched. On a
 freshly-built database:
 
@@ -15,8 +15,7 @@ Consequences on a fresh build:
   * `tournament.sponsors.all()` (get_all_tournaments / view_tournament /
     view_user_drafted_tournaments) errors "table vent_tournament_sponsors
     doesn't exist"; and
-  * `create_tournament`'s `tournament.sponsors.add(sponsor)` (a live M1 flow —
-    the create wizard has a Sponsors step) raises an FK violation, because the
+  * `create_tournament`'s `tournament.sponsors.add(sponsor)` (a live M1 flow - the create wizard has a Sponsors step) raises an FK violation, because the
     through FK still validates against the legacy singular table.
 
 This migration reconciles the DATABASE to the STATE, idempotently:

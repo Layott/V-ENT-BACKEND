@@ -1,0 +1,30 @@
+{% extends "emails/base.html" %}
+{% block title %}Confirm a payout address{% endblock %}
+{% block kicker %}Wallet{% endblock %}
+{% block preheader %}{{ preheader }}{% endblock %}
+{% block heading %}Confirm a payout address{% endblock %}
+{% block content %}
+<p style="margin:0 0 20px 0;">{{ name }}, somebody added a crypto address to your V-ENT wallet so payouts can be sent to it. Type this code on the payout screen to confirm it.</p>
+
+{% include "emails/_code.html" with code=code note=note %}
+
+<div style="height:24px; line-height:24px;">&nbsp;</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#26262C" style="background-color:#26262C; border-radius:12px;">
+  <tr><td style="padding:18px 20px; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:15px; line-height:23px; color:#C9C9D1;">
+    <strong style="color:#FFFFFF;">The address</strong><br>
+    {{ network_label }}<br>
+    <span style="font-family:'SF Mono',Menlo,Consolas,'Courier New',monospace; font-size:13px; color:#FFFFFF; word-break:break-all;">{{ address }}</span>
+  </td></tr>
+</table>
+
+<div style="height:24px; line-height:24px;">&nbsp;</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#2A1F1F" style="background-color:#2A1F1F; border-radius:12px;">
+  <tr><td style="padding:18px 20px; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:15px; line-height:23px; color:#E4A8AB;">
+    <strong style="color:#FFFFFF;">If this was not you</strong><br>
+    Do not type the code, and change your password. A crypto payment cannot be reversed once it is sent, so an address nobody confirms is an address nothing can be paid to.
+  </td></tr>
+</table>
+{% endblock %}
+{% block footer_note %}You received this because a payout address was added to your V-ENT wallet.{% endblock %}

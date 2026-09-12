@@ -278,7 +278,7 @@ def tournament_lineups(request, tournament_id):
     rows = (Lineup.objects.filter(tournament=tournament)
             .select_related('user').prefetch_related('slots__card'))
     return _ok({
-        'lineups': [serialize_lineup(l) for l in rows],
+        'lineups': [serialize_lineup(l, request) for l in rows],
         'window': windows.window_for(tournament).payload(),
         'submitted': sum(1 for l in rows if l.is_complete),
         'count': len(rows),

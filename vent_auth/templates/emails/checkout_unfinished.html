@@ -1,0 +1,18 @@
+{% extends "emails/base.html" %}
+{% block title %}You did not finish your {{ event }} tickets{% endblock %}
+{% block kicker %}{{ event }}{% endblock %}
+{% block preheader %}Your {{ quantity }} ticket{{ quantity|pluralize }} for {{ event }} were never paid for.{% endblock %}
+{% block heading %}Your tickets are still waiting{% endblock %}
+{% block content %}
+<p style="margin:0 0 20px 0;">You started buying {{ quantity }} ticket{{ quantity|pluralize }} for <strong style="color:#FFFFFF;">{{ event }}</strong> and the payment was never completed, so no ticket was issued and nothing was charged.</p>
+
+<div style="background:#1A1A1F; border-radius:12px; padding:20px;">
+  <p style="margin:0 0 8px 0; color:#DEDEE3;"><strong style="color:#FFFFFF;">{{ tier }}</strong> &nbsp;x{{ quantity }}</p>
+  <p style="margin:0; color:#9A9AA5;">{{ when }}</p>
+</div>
+
+<div style="height:24px; line-height:24px;">&nbsp;</div>
+<p style="margin:0 0 20px 0; color:#9A9AA5;">Tickets are not held for you. If the event sells out before you come back, this one is gone.</p>
+{% include "emails/_button.html" with url=event_url label="Finish buying" %}
+{% endblock %}
+{% block footer_note %}You received this once because you entered this address at the {{ event }} checkout. There is no second reminder and you are not on a list.{% endblock %}

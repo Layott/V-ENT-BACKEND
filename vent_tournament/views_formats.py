@@ -18,18 +18,63 @@ from vent_auth.models import GameMode, Games
 
 from . import formats as fmt
 from . import scoring
+from . import structure as struct
 
 
 def _ok(data, message='OK'):
     return Response({'status': 'success', 'data': data, 'message': message})
 
 
+def _as_int(raw, default=0):
+    try:
+        return int(str(raw).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _with_structure(entries, participants, seats):
+    """Add what each format will actually BUILD to what it is called.
+
+    The catalogue answered "round robin, minimum 3" and left the organiser to
+    work out that twelve teams is sixty-six fixtures. `?participants=` is what
+    turns the catalogue into an answer to the question somebody is actually
+    asking on the wizard's format step.
+
+    Every existing key is left alone: the edit screen reads this endpoint and
+    must keep working unchanged.
+    """
+    out = []
+    for entry in entries:
+        described = struct.describe(entry['key'], participants, seats)
+        merged = dict(entry)
+        if described:
+            merged.update({
+                'advancement': described['advancement'],
+                'seeding': described['seeding'],
+                'plays_all_at_once': described['plays_all_at_once'],
+                'seats_per_side': described['seats_per_side'],
+                'drawn_as': described['drawn_as'],
+                'drawn_as_differs': described['drawn_as_differs'],
+                'shape': described['shape'],
+            })
+        out.append(merged)
+    return out
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def format_catalogue(request):
-    """GET /tournament/formats/ - every format, its rules and its tie-breaks."""
+    """GET /tournament/formats/ - every format, its rules and its tie-breaks.
+
+    `?participants=16&seats=2` adds the shape each format takes for that field:
+    rounds, matches, byes, and how many matches end up on the floor once a
+    fixture is a tie of several. Numbers and codes only, so the screen showing
+    them can be in any of the three languages.
+    """
+    participants = _as_int(request.GET.get('participants'))
+    seats = max(1, _as_int(request.GET.get('seats'), 1))
     return _ok({
-        'formats': fmt.catalogue(),
+        'formats': _with_structure(fmt.catalogue(), participants, seats),
         'tiebreakers': [
             {'key': k, 'label': v} for k, v in fmt.TIEBREAKERS.items()
         ],

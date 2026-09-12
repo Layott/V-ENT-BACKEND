@@ -43,6 +43,17 @@ DEFAULT_SETTINGS = {
     'language': 'en',
     'region': 'NG',
     'timezone': 'Africa/Lagos',
+
+    # How a bare date is ordered: '' for the reader's own language, or one of
+    # 'DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'.
+    #
+    # It has to be listed HERE and not only accepted on the way in, because
+    # `_merged` builds its answer by walking DEFAULT_SETTINGS. A key absent
+    # from this dict is stored perfectly well and then dropped on every read,
+    # which is precisely what happened: the panel saved a date format, the API
+    # never returned it, and nothing on the site could have honoured it even
+    # if something had been looking.
+    'date_format': '',
     # The first-run walkthrough. Kept on the account rather than in
     # localStorage so somebody who signs in on their phone after finishing it on
     # a laptop is not walked through the whole platform a second time.
@@ -89,9 +100,37 @@ def get_settings(request):
     obj = _get_or_create(user)
     return Response({
         'status': 'success',
-        'data': {'settings': _merged(obj.data or {})},
+        'data': {'settings': _with_real_twofactor(_merged(obj.data or {}), user)},
         'message': 'Settings loaded.',
     })
+
+
+def _with_real_twofactor(settings, user):
+    """Report whether two-factor is ACTUALLY on, not a flag nobody writes.
+
+    CEO, 7 September 2026, looking at the Security panel: "but i have auth
+    already on my account."
+
+    They were right, and the panel was wrong for everybody. `two_factor_enabled`
+    existed only as a default in DEFAULT_SETTINGS: grep the whole app and it is
+    written in exactly zero places. Meanwhile real enrolment lives in
+    `UserTOTP.confirmed`, set by `views_account_security.twofactor_confirm`.
+
+    So the row read "Disabled" no matter what, including for an account with a
+    confirmed authenticator since 27 August.
+
+    This is the same shape as the attendance bug on the door screen: two sources
+    of truth for one fact, and the screen reading the one that is not the
+    truth. The stored flag is now ignored entirely rather than kept in step,
+    because a second copy that has to be synchronised is a second copy that
+    eventually is not.
+    """
+    from .models import UserTOTP
+
+    on = UserTOTP.objects.filter(user=user, confirmed=True).exists()
+    security = dict(settings.get('security') or {})
+    security['two_factor_enabled'] = on
+    return {**settings, 'security': security}
 
 
 def _update_section(request, section):

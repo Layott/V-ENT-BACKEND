@@ -37,7 +37,7 @@ from vent_auth.models import Users
 
 from .models import Event, Ticket
 
-SELF_GATE = 'self'
+from .attendance import SELF_GATE   # one definition; see attendance.py
 
 
 def _error(message, code, http=status.HTTP_400_BAD_REQUEST, extra=None):
@@ -67,6 +67,12 @@ def self_check_in(request, code):
     ticket = (Ticket.objects.select_related('event', 'tier', 'user')
               .filter(code=str(code).upper()).first())
     if ticket is None:
+        from .transfers import transferred_away
+        moved = transferred_away(code)
+        if moved is not None:
+            return _error('That code was transferred and no longer works.',
+                          'TICKET_TRANSFERRED', status.HTTP_409_CONFLICT,
+                          extra=moved)
         return _error('No ticket with that code.', 'NOT_FOUND',
                       status.HTTP_404_NOT_FOUND)
 
@@ -169,9 +175,22 @@ def self_check_in(request, code):
     })
 
 
-@api_view(['GET'])
-def self_check_in_settings(_request, event_id):
-    """What the event's own page needs to decide whether to show the control."""
+@api_view(['GET', 'POST'])
+def self_check_in_settings(request, event_id):
+    """Reading whether self check-in is on, and an organiser turning it on.
+
+    GET is what the event's own page needs to decide whether to show the
+    control. POST is the half that was missing, and its absence was not a
+    tidy-up: `Event.self_check_in` defaults to False and there was no write
+    endpoint and no screen, so **no organiser could turn this on by any route**.
+    The whole of `self_check_in` above - the window, the row lock, the second
+    factor built to handle guests - was unreachable code.
+
+    That is inbox row 47, "26 endpoints with no screen able to reach them",
+    turning out to contain a real feature rather than dead ends. It is also why
+    the check now runs in CI: an endpoint nobody can call is a feature nobody
+    has.
+    """
     from vent_auth.slugs import resolve_or_redirect
     try:
         event, _moved = resolve_or_redirect(
@@ -185,6 +204,47 @@ def self_check_in_settings(_request, event_id):
     if event is None:
         return _error('Event not found', 'EVENT_NOT_FOUND',
                       status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'POST':
+        viewer = _viewer(request)
+        if viewer is None:
+            return _error('Sign in to change this.', 'UNAUTHORIZED',
+                          status.HTTP_401_UNAUTHORIZED)
+
+        # Running the event, not merely working its door. A steward admits
+        # people; deciding that people may admit THEMSELVES is the organiser's
+        # call, because it is the one setting that removes the steward.
+        from .permissions import may_run_event
+        if not may_run_event(viewer, event):
+            return _error('Only the event organizer can change this.',
+                          'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
+
+        fields = []
+        if 'enabled' in request.data:
+            event.self_check_in = bool(request.data.get('enabled'))
+            fields.append('self_check_in')
+
+        if 'opens_minutes_before' in request.data:
+            raw = request.data.get('opens_minutes_before')
+            try:
+                minutes = int(raw)
+            except (TypeError, ValueError):
+                return _error('That has to be a number of minutes.',
+                              'INVALID_MINUTES', status.HTTP_400_BAD_REQUEST,
+                              extra={'field': 'opens_minutes_before'})
+            # A day either side. Negative would open the window after the doors
+            # and a year would mean it was never really a window at all.
+            if minutes < 0 or minutes > 60 * 24:
+                return _error('Check-in can open at most a day before.',
+                              'INVALID_MINUTES', status.HTTP_400_BAD_REQUEST,
+                              extra={'field': 'opens_minutes_before',
+                                     'max': 60 * 24})
+            event.self_check_in_opens_minutes = minutes
+            fields.append('self_check_in_opens_minutes')
+
+        if fields:
+            event.save(update_fields=fields)
+
     opens, closes = event.self_check_in_window()
     return Response({'status': 'success', 'data': {
         'enabled': bool(event.self_check_in),

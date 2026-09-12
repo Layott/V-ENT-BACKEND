@@ -12,6 +12,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 from . import views_formats
+from . import views_delete
 from . import views_standings as standings_views
 from vent_event import views_short_links as short_link_views
 from . import views_running_order
@@ -22,6 +23,8 @@ from . import views_overlays
 from . import views_squads
 from vent_cards import views_lineups, views_review
 from . import views_studio
+from . import views_layers
+from . import views_runsheet
 from . import views_staff
 from . import views_assets
 from . import views_export
@@ -30,6 +33,7 @@ from . import views_reminders
 from . import views_scheduled
 from . import views_requirements
 from . import views_stages
+from . import views_prizes
 from . import views_rules
 
 # Every tournament route takes `<str:tournament_id>` and resolves a slug or an
@@ -53,6 +57,21 @@ urlpatterns = [
          name="tournament_staff_remove"),
     # The studio's media library: clips and pictures uploaded once and
     # called on whenever. See views_assets.
+    # The run of show. The same six routes an event has, from the same
+    # module: a document built for one of the two things V-ENT runs is a
+    # feature half the platform does not have.
+    path("<str:tournament_id>/run-of-show/", views_runsheet.tournament_run_sheet,
+         name="tournament_run_sheet"),
+    path("<str:tournament_id>/run-of-show/import/", views_runsheet.tournament_import,
+         name="tournament_run_sheet_import"),
+    path("<str:tournament_id>/run-of-show/days/", views_runsheet.tournament_days,
+         name="tournament_run_sheet_days"),
+    path("<str:tournament_id>/run-of-show/days/<int:day_id>/",
+         views_runsheet.tournament_day_detail, name="tournament_run_sheet_day"),
+    path("<str:tournament_id>/run-of-show/items/", views_runsheet.tournament_items,
+         name="tournament_run_sheet_items"),
+    path("<str:tournament_id>/run-of-show/items/<int:item_id>/",
+         views_runsheet.tournament_item_detail, name="tournament_run_sheet_item"),
     path("<str:tournament_id>/studio/assets/", views_assets.assets,
          name="studio_assets"),
     path("<str:tournament_id>/studio/assets/<int:asset_id>/",
@@ -63,6 +82,19 @@ urlpatterns = [
          views_studio.session_detail, name="studio_session_detail"),
     path("<str:tournament_id>/studio/sessions/<int:session_id>/element/<str:kind>/",
          views_studio.element, name="studio_element"),
+    # The four layers an operator pastes into OBS once. See BroadcastSlot.
+    path("<str:tournament_id>/studio/sessions/<int:session_id>/slot/<str:role>/",
+         views_studio.slot, name="studio_slot"),
+    # Text an operator put on top of a graphic. The same four addresses exist
+    # for an uploaded file below and under /event/ for both, because "on any
+    # overlay" is the whole of what was asked for.
+    path("<str:tournament_id>/studio/sessions/<int:session_id>/element/"
+         "<str:element_kind>/layers/",
+         views_layers.tournament_element_layers, name="studio_element_layers"),
+    path("<str:tournament_id>/studio/sessions/<int:session_id>/element/"
+         "<str:element_kind>/layers/<int:layer_id>/",
+         views_layers.tournament_element_layer_detail,
+         name="studio_element_layer_detail"),
 
     # The catalogue the wizard asks its questions from. Public: somebody
     # deciding whether to run a tournament here should see what is
@@ -114,11 +146,23 @@ urlpatterns = [
     path("update-bracket/<str:tournament_id>/", update_bracket, name="update_bracket"),
     path("get-organizer-tournaments/", get_organizer_tournaments, name="get_organizer_tournaments"),
     path("delete-draft/<str:tournament_id>/", delete_draft, name="delete_draft"),
+    # Deleting a published tournament, which nothing could do: the only path
+    # was `delete-draft/`, which refuses anything published and destroyed the
+    # row outright. This one is reversible and an admin can restore it.
+    path("<str:tournament_id>/delete/", views_delete.delete_tournament,
+         name="delete_tournament"),
+    path("<str:tournament_id>/restore/", views_delete.restore_tournament,
+         name="restore_tournament"),
     path("edit-tournament/<str:tournament_id>/", edit_tournament, name="edit_tournament"),
 
     # --- M1 lifecycle endpoints ------------------------------------------
     path("<str:tournament_id>/generate-bracket/", generate_bracket, name="generate_bracket"),
     path("<str:tournament_id>/distribute-prizes/", distribute_prizes, name="distribute_prizes"),
+    # Who would be paid what, before anybody is, and paying it on a timer.
+    path("<str:tournament_id>/prizes/plan/", views_prizes.prize_plan,
+         name="prize_plan"),
+    path("<str:tournament_id>/prizes/schedule/", views_prizes.prize_schedule,
+         name="prize_schedule"),
     path("<str:tournament_id>/cancel/", cancel_tournament, name="cancel_tournament"),
     path("match/<int:match_id>/", match_detail, name="match_detail"),
     path("match/<int:match_id>/report-score/", report_match_score, name="report_match_score"),
@@ -226,6 +270,12 @@ urlpatterns = [
          views_overlays.overlay_detail, name="tournament_overlay_detail"),
     path("<str:tournament_id>/overlays/<int:overlay_id>/rotate/",
          views_overlays.rotate, name="tournament_overlay_rotate"),
+    path("<str:tournament_id>/overlays/<int:overlay_id>/layers/",
+         views_layers.tournament_overlay_layers,
+         name="tournament_overlay_layers"),
+    path("<str:tournament_id>/overlays/<int:overlay_id>/layers/<int:layer_id>/",
+         views_layers.tournament_overlay_layer_detail,
+         name="tournament_overlay_layer_detail"),
     path("tie/<int:tie_id>/", tie_detail, name="tie_detail"),
     path("tie/<int:tie_id>/record/", record_fixture, name="record_tie_fixture"),
     path("<str:tournament_id>/league-rules/", set_league_rules, name="set_league_rules"),

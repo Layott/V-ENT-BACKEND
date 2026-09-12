@@ -17,7 +17,7 @@ they break the event module at runtime:
   * `interaction_count`  -> view_event increments it; serializer reads it
 
 This migration reconciles the DATABASE to the STATE, idempotently, using Django's
-own schema editor so every column type is derived from the model — no hand-typed
+own schema editor so every column type is derived from the model - no hand-typed
 DDL and no INT/BIGINT guesswork. In particular the `game` FK column matches its
 target `vent_auth_games.game_id`, which is an explicit `AutoField` (INT) even
 though the project's DEFAULT_AUTO_FIELD is BigAutoField; `add_field` resolves that

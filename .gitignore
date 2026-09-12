@@ -63,7 +63,9 @@ local-dev.sqlite3
 
 # The scraper runs on a desktop and brings Playwright with it. The browser
 # profile holds the Cloudflare clearance cookie for whoever solved it, so it is
-# personal to that machine and never committed.
+# personal to that machine and never committed. Playwright also installs
+# itself here when a browser tool runs in this repo, and an unqualified
+# `git add` swept a browser profile into a commit once already.
 node_modules/
 tools/.futbin-profile/
 tools/.futbin-state.json

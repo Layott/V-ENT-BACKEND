@@ -16,7 +16,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from .models import Users, Transaction, AdminAction
-from .decorators import ADMIN_ROLES, admin_role_required
+from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .views_admin import _log_action, _approve_payout_core, _paginate
 
 
@@ -25,7 +25,7 @@ from .views_admin import _log_action, _approve_payout_core, _paginate
 # ---------------------------------------------------------------------------
 
 @api_view(['GET'])
-@admin_role_required(ADMIN_ROLES)
+@admin_role_required(ROLE_PERMISSIONS['view_dashboard'])
 def admin_charts(request):
     """Last-14-days timeline, oldest→newest, zero-filled (contract §4)."""
     from vent_tournament.models import TournamentRegistration
@@ -81,7 +81,7 @@ def _activity_description(a):
 
 
 @api_view(['GET'])
-@admin_role_required(ADMIN_ROLES)
+@admin_role_required(ROLE_PERMISSIONS['view_dashboard'])
 def admin_recent_activity(request):
     """Latest 15 AdminAction rows (contract §5). super_admin sees all; every
     other admin sees only their own actions (mirrors audit-log scoping)."""
@@ -112,7 +112,7 @@ def admin_recent_activity(request):
 # ---------------------------------------------------------------------------
 
 @api_view(['POST'])
-@admin_role_required(['super_admin', 'mod_admin'])
+@admin_role_required(ROLE_PERMISSIONS['ban_users'])
 def admin_bulk_user_action(request):
     """Bulk ban/unban (contract §10). Body {action:"ban"|"unban", ids:[...]}."""
     admin = request.admin_user
@@ -160,7 +160,7 @@ def admin_bulk_user_action(request):
 # ---------------------------------------------------------------------------
 
 @api_view(['POST'])
-@admin_role_required(['super_admin', 'mod_admin'])
+@admin_role_required(ROLE_PERMISSIONS['manage_tournaments'])
 def admin_disqualify_registration(request, tournament_id):
     """Disqualify a registration (contract §14). Body {team_name} OR
     {registration_id}."""
@@ -240,7 +240,7 @@ def admin_disqualify_registration(request, tournament_id):
 # ---------------------------------------------------------------------------
 
 @api_view(['POST'])
-@admin_role_required(['super_admin', 'finance_admin'])
+@admin_role_required(ROLE_PERMISSIONS['approve_payouts'])
 def admin_bulk_approve_payouts(request):
     """Bulk-approve payouts (contract §17). Body {ids:[...]}. Reuses the single
     approve core incl. the KYC gate; skips + doesn't count any that fail."""
@@ -272,7 +272,7 @@ def admin_bulk_approve_payouts(request):
 # ---------------------------------------------------------------------------
 
 @api_view(['GET', 'POST'])
-@admin_role_required(['super_admin'])
+@admin_role_required(ROLE_PERMISSIONS['manage_settings'])
 def admin_settings(request):
     """Platform-wide admin settings (contract §21). GET returns the merged blob;
     POST deep-merges the request body into the stored blob."""
@@ -327,7 +327,7 @@ def _dispute_row(d):
 
 
 @api_view(['GET'])
-@admin_role_required(['super_admin', 'mod_admin'])
+@admin_role_required(ROLE_PERMISSIONS['resolve_dispute'])
 def admin_disputes_list(request):
     """GET /auth/admin/disputes/ - every dispute across tournaments (contract §2.3).
 
@@ -357,7 +357,7 @@ def admin_disputes_list(request):
 
 
 @api_view(['POST'])
-@admin_role_required(['super_admin', 'mod_admin'])
+@admin_role_required(ROLE_PERMISSIONS['resolve_dispute'])
 def admin_resolve_dispute_by_id(request, dispute_id):
     """POST /auth/admin/disputes/{id}/resolve/ - resolve/dismiss any dispute by id
     (contract §2.3). Logs the action and notifies the user who raised it."""
@@ -413,11 +413,40 @@ def public_platform_modules(request):
     banner = settings_blob.get('banner', {}) or {}
     maintenance = settings_blob.get('maintenance', {}) or {}
 
+    published = {k: bool(v) for k, v in flags.items()}
+
+    # The marketplace has TWO switches and they are not equals. The console
+    # flag is an admin's day-to-day decision; `MARKETPLACE_ENABLED` on the
+    # server is the platform one, it defaults to OFF, and every marketplace
+    # endpoint refuses while it says so. Publishing the console flag alone
+    # would put a live-looking Marketplace in the navigation above endpoints
+    # that answer 503, which is the "control that renders live and fails on
+    # press" fault written into the project rules.
+    #
+    # So the answer published here is the AND of the two. The server switch can
+    # keep it shut whatever the console says; the console can shut it while the
+    # server is open. Neither can open it alone.
+    try:
+        from vent_marketplace.switch import marketplace_is_on
+        published['marketplace_enabled'] = bool(
+            published.get('marketplace_enabled')) and marketplace_is_on()
+    except Exception:
+        published['marketplace_enabled'] = False
+
+    # The anime module, the same way and for the same reason. Its own server
+    # switch rather than a shared one, so neither module can open the other.
+    try:
+        from vent_anime.switch import anime_is_on
+        published['anime_enabled'] = bool(
+            published.get('anime_enabled')) and anime_is_on()
+    except Exception:
+        published['anime_enabled'] = False
+
     return Response({
         'status': 'success',
         'message': 'OK',
         'data': {
-            'feature_flags': {k: bool(v) for k, v in flags.items()},
+            'feature_flags': published,
             # The banner and the maintenance notice are shown to visitors, so
             # they travel with the flags rather than needing a second request.
             'banner': {

@@ -52,7 +52,14 @@ def _abs(request, filefield):
         return None
 
 
-def serialize_product(request, p):
+def serialize_product(request, p, vendor=None):
+    """One item on a stall.
+
+    `vendor` is passed in wherever the caller already holds it, because
+    `p.vendor` on a prefetched product list is one query per product and these
+    lists are drawn on the storefront.
+    """
+    stall = vendor if vendor is not None else (p.vendor if p.vendor_id else None)
     return {
         'id': p.id,
         'name': p.name,
@@ -65,6 +72,16 @@ def serialize_product(request, p):
         'sold': p.sold,
         'in_stock': p.stock > 0,
         'is_active': p.is_active,
+        # What the buyer has to choose, and whether it can be posted.
+        'variants': p.variants or [],
+        'can_deliver': p.can_deliver,
+        # Which stall sells it. The storefront draws a "see everything from
+        # this stall" link off `vendor_slug`, and neither this nor `vendor_id`
+        # was in the payload - so that link read `vendor=undefined` and opened
+        # nothing. A product without its stall is not a product anybody can buy.
+        'vendor_id': p.vendor_id,
+        'vendor_slug': stall.slug if stall else None,
+        'vendor_name': stall.name if stall else None,
     }
 
 
@@ -73,6 +90,7 @@ def serialize_vendor(request, v, include_products=False):
         'id': v.id,
         'event_id': v.event_id,
         'name': v.name,
+        'slug': v.slug,
         'category': v.category or None,
         'description': v.description,
         'booth': v.booth or None,
@@ -85,7 +103,8 @@ def serialize_vendor(request, v, include_products=False):
     }
     if include_products:
         data['products'] = [
-            serialize_product(request, p) for p in v.products.filter(is_active=True)
+            serialize_product(request, p, vendor=v)
+            for p in v.products.filter(is_active=True)
         ]
     return data
 
@@ -115,12 +134,33 @@ def event_vendors(request, event_id):
 
 
 # ---------------------------------------------------------------------------
+def _vendor_by_ref(ref, **extra):
+    """A stall, by slug or by primary key.
+
+    Stalls were addressed by primary key everywhere. The address is the slug
+    now, and the key still resolves so every link already shared - an order
+    confirmation, a message to a stallholder - keeps opening the right stall.
+
+    The slug is tried FIRST here, unlike the admin user resolver: a stall slug
+    is never all digits, so there is no ambiguity to break, and trying the slug
+    first means the common case is one query.
+    """
+    ref = str(ref)
+    qs = Vendor.objects.select_related('event')
+    found = qs.filter(slug=ref, **extra).first()
+    if found is None and ref.isdigit():
+        found = qs.filter(id=int(ref), **extra).first()
+    return found
+
+
 # GET /event/<event_id>/vendor/<vendor_id>/
 # ---------------------------------------------------------------------------
 
 @api_view(['GET'])
 def vendor_detail(request, event_id, vendor_id):
-    vendor = Vendor.objects.filter(id=vendor_id, event_id=event_id).prefetch_related('products').first()
+    vendor = _vendor_by_ref(vendor_id, event_id=event_id)
+    if vendor is not None:
+        vendor = Vendor.objects.filter(pk=vendor.pk).prefetch_related('products').first()
     if vendor is None:
         return _error('Vendor not found for this event.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
@@ -136,28 +176,48 @@ def vendor_detail(request, event_id, vendor_id):
 
 @api_view(['POST'])
 def create_vendor(request, event_id):
-    user, auth_error = _authenticate(request)
-    if auth_error:
-        return auth_error
+    """The organiser adds a stall by hand, beside the pitches they sell.
 
+    `owner` is an email address or a username, as every invite on the
+    platform takes (CEO, row 145). Somebody on V-ENT already becomes the
+    owner now; an address nobody has claimed becomes a `VendorInvite`, and
+    `invites.claim_pending` turns it into this same stall the moment they sign
+    up. Until 12 September this endpoint had no screen at all: the console's
+    own blurb said "you can still invite people directly instead" and there
+    was nothing to press.
+    """
+    from .views_promos import _actor_for_event
     event = _event_by_ref(event_id)
     if event is None:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    if event.creator_id != user.user_id:
-        return _error('Only the event organizer can add vendors.',
-                      'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
+    # Whoever runs the event, which includes the organisation's own people,
+    # rather than the one account that created it.
+    user, err = _actor_for_event(request, event)
+    if err:
+        return err
 
     name = (request.data.get('name') or '').strip()
     if not name:
         return _error('A stall name is required.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
 
     owner = None
-    owner_username = (request.data.get('owner_username') or '').strip()
-    if owner_username:
-        from vent_auth.models import Users
-        owner = Users.objects.filter(username=owner_username).first()
+    raw_owner = (request.data.get('owner') or request.data.get('owner_username') or '').strip()
+    if raw_owner:
+        from vent_auth.invites import invitee_for
+        owner, email, why = invitee_for(raw_owner)
+        if why:
+            return _error(why, 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
         if owner is None:
-            return _error(f'No user called @{owner_username}.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+            from .models import VendorInvite
+            invite = VendorInvite.objects.create(
+                event=event, name=name[:100], email=email,
+                booth=(request.data.get('booth') or '').strip()[:40])
+            return Response(
+                {'status': 'success',
+                 'data': {'invite': {'id': invite.id, 'name': invite.name,
+                                     'email': invite.email, 'booth': invite.booth}},
+                 'message': 'Invited. The stall opens when %s joins V-ENT.' % email},
+                status=status.HTTP_201_CREATED)
 
     vendor = Vendor.objects.create(
         event=event,
@@ -185,7 +245,7 @@ def create_product(request, vendor_id):
     if auth_error:
         return auth_error
 
-    vendor = Vendor.objects.select_related('event').filter(id=vendor_id).first()
+    vendor = _vendor_by_ref(vendor_id)
     if vendor is None:
         return _error('Vendor not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if vendor.owner_id != user.user_id and vendor.event.creator_id != user.user_id:
@@ -221,122 +281,201 @@ def create_product(request, vendor_id):
 # POST /event/vendor/<vendor_id>/order/
 # ---------------------------------------------------------------------------
 
+class Refused(Exception):
+    """A refusal raised from inside `transaction.atomic()`.
+
+    `return` inside an atomic block COMMITS. Every refusal after the wallet
+    debit in `create_order` therefore kept the money: the buyer was charged,
+    the response said "Nothing has been taken from your wallet", and it was not
+    true. Caught by a delivery test on 7 September 2026 - the buyer was 2 VC
+    down after being told the order was refused.
+
+    Raising instead of returning makes every refusal roll back BY
+    CONSTRUCTION, rather than by whoever writes the next check remembering to
+    put it above the debit.
+    """
+
+    def __init__(self, message, code, http_status=status.HTTP_400_BAD_REQUEST,
+                 extra=None):
+        super().__init__(message)
+        self.response = _error(message, code, http_status, extra)
+
+
+def _refuse(message, code, http_status=status.HTTP_400_BAD_REQUEST, extra=None):
+    raise Refused(message, code, http_status, extra)
+
+
 @api_view(['POST'])
 def create_order(request, vendor_id):
     user, auth_error = _authenticate(request)
     if auth_error:
         return auth_error
 
-    vendor = Vendor.objects.filter(id=vendor_id).first()
-    if vendor is None:
-        return _error('Vendor not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    if vendor.status == 'closed':
-        return _error(f'{vendor.name} is closed.', 'VENDOR_CLOSED', status.HTTP_409_CONFLICT)
+    # ONE guard for the whole function. Three refusals sat above the old,
+    # narrower try - vendor missing, stall closed, empty basket - and raised
+    # into nothing, which turned three clean 400s into 500s. A guard that
+    # covers only part of a function is a guard somebody will step outside.
+    try:
 
-    items = request.data.get('items') or []
-    pin = request.data.get('pin')
-    if not isinstance(items, list) or not items:
-        return _error('Add at least one item to your order.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+        vendor = _vendor_by_ref(vendor_id)
+        if vendor is None:
+            _refuse('Vendor not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+        if vendor.status == 'closed':
+            _refuse(f'{vendor.name} is closed.', 'VENDOR_CLOSED', status.HTTP_409_CONFLICT)
 
-    with transaction.atomic():
-        priced = []
-        total_vc = 0
-        for raw in items:
-            if not isinstance(raw, dict):
-                return _error('Malformed order item.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
-            try:
-                qty = int(raw.get('quantity', raw.get('qty', 1)))
-            except (TypeError, ValueError):
-                return _error('Quantity must be a number.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
-            if qty < 1:
-                return _error('Quantity must be at least 1.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+        items = request.data.get('items') or []
+        pin = request.data.get('pin')
+        if not isinstance(items, list) or not items:
+            _refuse('Add at least one item to your order.', 'VALIDATION_ERROR',
+                    status.HTTP_400_BAD_REQUEST)
 
-            product = VendorProduct.objects.select_for_update().filter(
-                id=raw.get('product_id') or raw.get('id'), vendor=vendor, is_active=True
-            ).first()
-            if product is None:
-                return _error('One of those products is no longer available.',
-                              'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-            if product.stock < qty:
-                return _error(f'Only {product.stock} × {product.name} left.',
-                              'INSUFFICIENT_STOCK', status.HTTP_409_CONFLICT)
-
-            unit_vc = _ngn_to_coins(product.price)
-            total_vc += unit_vc * qty
-            priced.append((product, qty, unit_vc))
-
-        wallet = UserWallet.objects.select_for_update().filter(user=user).first()
-        if wallet is None:
-            return _error('No wallet found for this account.', 'NO_WALLET', status.HTTP_400_BAD_REQUEST)
-
-        # Taking your own stock costs nothing.
-        #
-        # The stall owner buying from their own stall was charged and, since
-        # there is nobody to pay, the coins went nowhere - the same money
-        # destruction as the missing credit below, in the one case where it is
-        # hardest to notice. The order is still recorded and stock still moves,
-        # because a shirt off the table is a shirt off the table.
-        own_stall = bool(vendor.owner_id) and vendor.owner_id == user.user_id
-        if own_stall:
+        with transaction.atomic():
+            priced = []
             total_vc = 0
+            for raw in items:
+                if not isinstance(raw, dict):
+                    _refuse('Malformed order item.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+                try:
+                    qty = int(raw.get('quantity', raw.get('qty', 1)))
+                except (TypeError, ValueError):
+                    _refuse('Quantity must be a number.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+                if qty < 1:
+                    _refuse('Quantity must be at least 1.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
 
-        if total_vc > 0:
-            if not wallet.pin_hash:
-                return _error('Set a wallet PIN before buying.', 'PIN_REQUIRED', status.HTTP_400_BAD_REQUEST)
-            if not pin or not check_password(str(pin), wallet.pin_hash):
-                return _error('Incorrect wallet PIN.', 'INVALID_PIN', status.HTTP_400_BAD_REQUEST)
-            if wallet.wallet_balance < total_vc:
-                return _error(
-                    f'You need {total_vc} VC - your balance is {wallet.wallet_balance} VC.',
-                    'INSUFFICIENT_BALANCE', status.HTTP_400_BAD_REQUEST,
-                )
-            wallet.wallet_balance -= total_vc
-            wallet.save(update_fields=['wallet_balance'])
-            Transaction.objects.create(
-                wallet=wallet, type='deduction', amount=-total_vc,
-                description=f'Order at {vendor.name}', status='completed',
-            )
+                product = VendorProduct.objects.select_for_update().filter(
+                    id=raw.get('product_id') or raw.get('id'), vendor=vendor, is_active=True
+                ).first()
+                if product is None:
+                    _refuse('One of those products is no longer available.',
+                                  'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+                if product.stock < qty:
+                    _refuse(f'Only {product.stock} × {product.name} left.',
+                                  'INSUFFICIENT_STOCK', status.HTTP_409_CONFLICT)
 
-            # Pay the stall.
+                # Which choice they asked for. Checked against what the product
+                # actually offers, so an order cannot carry a size the stall does
+                # not sell - the stallholder reads this while packing and has no
+                # way to query it.
+                variant = str(raw.get('variant') or '').strip()
+                offered = product.variants or []
+                if offered and not variant:
+                    _refuse('Choose an option for %s.' % product.name,
+                                  'VARIANT_REQUIRED', status.HTTP_400_BAD_REQUEST)
+                if variant and variant not in offered:
+                    _refuse('%s does not come in %s.' % (product.name, variant),
+                                  'VARIANT_UNKNOWN', status.HTTP_400_BAD_REQUEST)
+
+                unit_vc = _ngn_to_coins(product.price)
+                total_vc += unit_vc * qty
+                priced.append((product, qty, unit_vc, variant))
+
+            wallet = UserWallet.objects.select_for_update().filter(user=user).first()
+            if wallet is None:
+                _refuse('No wallet found for this account.', 'NO_WALLET', status.HTTP_400_BAD_REQUEST)
+
+            # Taking your own stock costs nothing.
             #
-            # This was missing entirely: the buyer was debited, a row was
-            # written for them, and the money reached nobody. Every purchase
-            # destroyed it. Nothing raised, because the order still succeeded
-            # and the buyer's side of the books balanced on its own.
-            #
-            # Inside the same transaction as the debit, and under the same lock
-            # discipline, so a crash between the two cannot take the money
-            # without delivering it. Skipped when the buyer owns the stall -
-            # moving coins from a wallet to itself is a no-op that would leave
-            # two rows implying a sale to yourself.
-            # `own_stall` has already zeroed the total, so reaching here means
-            # a real buyer and a real seller.
-            if vendor.owner_id:
-                seller_wallet = UserWallet.objects.select_for_update().filter(
-                    user_id=vendor.owner_id).first()
-                if seller_wallet is None:
-                    # Refusing is the honest answer. Taking the money and
-                    # working out where to put it later is how a platform ends
-                    # up owing somebody an amount nobody recorded.
-                    return _error(
-                        f'{vendor.name} cannot be paid right now. Nothing has '
-                        'been taken from your wallet.',
-                        'SELLER_HAS_NO_WALLET', status.HTTP_409_CONFLICT)
-                seller_wallet.wallet_balance += total_vc
-                seller_wallet.save(update_fields=['wallet_balance'])
+            # The stall owner buying from their own stall was charged and, since
+            # there is nobody to pay, the coins went nowhere - the same money
+            # destruction as the missing credit below, in the one case where it is
+            # hardest to notice. The order is still recorded and stock still moves,
+            # because a shirt off the table is a shirt off the table.
+            own_stall = bool(vendor.owner_id) and vendor.owner_id == user.user_id
+            if own_stall:
+                total_vc = 0
+
+            if total_vc > 0:
+                if not wallet.pin_hash:
+                    _refuse('Set a wallet PIN before buying.', 'PIN_REQUIRED', status.HTTP_400_BAD_REQUEST)
+                if not pin or not check_password(str(pin), wallet.pin_hash):
+                    _refuse('Incorrect wallet PIN.', 'INVALID_PIN', status.HTTP_400_BAD_REQUEST)
+                if wallet.wallet_balance < total_vc:
+                    _refuse(
+                        f'You need {total_vc} VC - your balance is {wallet.wallet_balance} VC.',
+                        'INSUFFICIENT_BALANCE', status.HTTP_400_BAD_REQUEST,
+                    )
+                wallet.wallet_balance -= total_vc
+                wallet.save(update_fields=['wallet_balance'])
                 Transaction.objects.create(
-                    wallet=seller_wallet, type='receive', amount=total_vc,
-                    description=f'Sale at {vendor.name}', status='completed',
+                    wallet=wallet, type='deduction', amount=-total_vc,
+                    description=f'Order at {vendor.name}', status='completed',
                 )
 
-        order = VendorOrder.objects.create(
-            vendor=vendor, buyer=user, code=_new_order_code(), total_vc=total_vc,
-        )
-        for product, qty, unit_vc in priced:
-            VendorOrderItem.objects.create(order=order, product=product, quantity=qty, unit_vc=unit_vc)
-            VendorProduct.objects.filter(id=product.id).update(
-                stock=F('stock') - qty, sold=F('sold') + qty,
+                # Pay the stall.
+                #
+                # This was missing entirely: the buyer was debited, a row was
+                # written for them, and the money reached nobody. Every purchase
+                # destroyed it. Nothing raised, because the order still succeeded
+                # and the buyer's side of the books balanced on its own.
+                #
+                # Inside the same transaction as the debit, and under the same lock
+                # discipline, so a crash between the two cannot take the money
+                # without delivering it. Skipped when the buyer owns the stall -
+                # moving coins from a wallet to itself is a no-op that would leave
+                # two rows implying a sale to yourself.
+                # `own_stall` has already zeroed the total, so reaching here means
+                # a real buyer and a real seller.
+                if vendor.owner_id:
+                    seller_wallet = UserWallet.objects.select_for_update().filter(
+                        user_id=vendor.owner_id).first()
+                    if seller_wallet is None:
+                        # Refusing is the honest answer. Taking the money and
+                        # working out where to put it later is how a platform ends
+                        # up owing somebody an amount nobody recorded.
+                        _refuse(
+                            f'{vendor.name} cannot be paid right now. Nothing has '
+                            'been taken from your wallet.',
+                            'SELLER_HAS_NO_WALLET', status.HTTP_409_CONFLICT)
+                    seller_wallet.wallet_balance += total_vc
+                    seller_wallet.save(update_fields=['wallet_balance'])
+                    Transaction.objects.create(
+                        wallet=seller_wallet, type='receive', amount=total_vc,
+                        description=f'Sale at {vendor.name}', status='completed',
+                    )
+
+            # How they want it. `collect` unless they said otherwise, because most
+            # people at an event are walking to the table.
+            fulfilment = 'deliver' if request.data.get('fulfilment') == 'deliver' else 'collect'
+            delivery = request.data.get('delivery') or {}
+            if fulfilment == 'deliver':
+                if not isinstance(delivery, dict):
+                    _refuse('Delivery details are missing.', 'VALIDATION_ERROR',
+                                  status.HTTP_400_BAD_REQUEST)
+                missing = [k for k in ('name', 'phone', 'address')
+                           if not str(delivery.get(k) or '').strip()]
+                if missing:
+                    # Named, so the screen can point at the empty box rather than
+                    # saying "something is wrong".
+                    _refuse('A delivery needs a name, a phone number and an '
+                                  'address.', 'DELIVERY_DETAILS_REQUIRED',
+                                  status.HTTP_400_BAD_REQUEST, {'missing': missing})
+                undeliverable = [p.name for p, _, _, _ in priced if not p.can_deliver]
+                if undeliverable:
+                    # A plate of hot food cannot be posted, and finding that out
+                    # after paying is worse than being told now.
+                    _refuse('%s cannot be delivered.' % ', '.join(undeliverable),
+                                  'NOT_DELIVERABLE', status.HTTP_409_CONFLICT)
+
+            order = VendorOrder.objects.create(
+                vendor=vendor, buyer=user, code=_new_order_code(), total_vc=total_vc,
+                fulfilment=fulfilment,
+                delivery_name=str(delivery.get('name') or '')[:120] if fulfilment == 'deliver' else '',
+                delivery_phone=str(delivery.get('phone') or '')[:40] if fulfilment == 'deliver' else '',
+                delivery_address=str(delivery.get('address') or '') if fulfilment == 'deliver' else '',
+                delivery_note=str(delivery.get('note') or '')[:200] if fulfilment == 'deliver' else '',
             )
+            for product, qty, unit_vc, variant in priced:
+                VendorOrderItem.objects.create(order=order, product=product,
+                                               quantity=qty, unit_vc=unit_vc,
+                                               variant=variant)
+                VendorProduct.objects.filter(id=product.id).update(
+                    stock=F('stock') - qty, sold=F('sold') + qty,
+                )
+
+    except Refused as refusal:
+        # Everything the transaction did is unwound, so a refusal after the
+        # debit really does leave the money where it was.
+        return refusal.response
 
     try:
         from vent_auth.views_notifications import create_notification
@@ -422,7 +561,7 @@ def vendor_orders(request, vendor_id):
     if auth_error:
         return auth_error
 
-    vendor = Vendor.objects.select_related('event').filter(id=vendor_id).first()
+    vendor = _vendor_by_ref(vendor_id)
     if vendor is None:
         return _error('Vendor not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if vendor.owner_id != user.user_id and vendor.event.creator_id != user.user_id:

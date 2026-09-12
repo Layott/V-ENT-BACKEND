@@ -248,6 +248,33 @@ def send_waitlist_claim(to_address, *, name, username, position, claim_url, hold
     )
 
 
+def send_invitation(to_address, *, what, who, role, join_url, message=''):
+    """An invitation to somebody who may have no V-ENT account at all.
+
+    CEO, 7 September 2026: invites go to email addresses, not only to handles.
+    For somebody already here this is a courtesy beside the in-app
+    notification; for somebody who is not, it is the ONLY delivery, so it has
+    to carry enough to act on: what they are being invited to, by whom, as
+    what, and one link.
+
+    `what` is the thing - an organisation, a team, an event. Named plainly
+    rather than templated per kind, because one email that says the truth beats
+    three that drift apart.
+    """
+    return _send(
+        to_address,
+        '%s invited you to join %s' % (who, what),
+        'invitation.html',
+        {
+            'what': what,
+            'who': who,
+            'role': role,
+            'join_url': join_url,
+            'message': message,
+        },
+    )
+
+
 def send_password_reset(to_address, *, name, code, reset_url=None, resend=False):
     return _send(
         to_address,
@@ -353,8 +380,47 @@ def send_ticket_purchased(ticket):
 # Money
 # ---------------------------------------------------------------------------
 
+def _payout_destination(withdrawal):
+    """Where a payout went, in the same words every other screen uses."""
+    from . import payouts
+
+    return payouts.describe_destination(withdrawal)
+
+
 def send_payout_approved(withdrawal, *, amount_ngn):
+    """One payout, two destinations, and the words are not interchangeable.
+
+    A USDT payout does not go "to your bank", and it does not arrive as a
+    number of naira. There is no USDT rate on this platform that anybody
+    transacts on, so this email states the coins and where they went and
+    invents nothing. Quoting a naira figure for a crypto payment would be a
+    number nobody can stand behind.
+    """
+    from . import payouts
+    from .models import WithdrawalRequest
+
     user = withdrawal.wallet.user
+    where = payouts.describe_destination(withdrawal)
+    crypto = withdrawal.method == WithdrawalRequest.METHOD_USDT
+
+    if crypto:
+        rows = [
+            ('Amount', f'{withdrawal.amount:,} VC', '#D4AF37'),
+            ('Sent to', where),
+            ('Reference', withdrawal.payout_reference or f'WDR-{withdrawal.id}'),
+            ('Arrives', 'once the network confirms it'),
+        ]
+        intro = 'your payout has been approved and is on its way to your crypto address.'
+    else:
+        rows = [
+            ('Amount', f'{withdrawal.amount:,} VC', '#D4AF37'),
+            ('You receive', f'NGN {amount_ngn:,}', '#4CAF50'),
+            ('Bank', f'{withdrawal.bank_name} {withdrawal.account_number}'),
+            ('Reference', withdrawal.payout_reference or f'WDR-{withdrawal.id}'),
+            ('Arrives', 'within 1 to 3 business days'),
+        ]
+        intro = 'your withdrawal has been approved and sent to your bank.'
+
     return _send(
         user.email,
         'Your withdrawal is on the way',
@@ -364,15 +430,35 @@ def send_payout_approved(withdrawal, *, amount_ngn):
             'headline': 'Your withdrawal is on the way',
             'state': 'approved',
             'rejected': False,
-            'intro': 'your withdrawal has been approved and sent to your bank.',
-            'amount_ngn': f'NGN {amount_ngn:,}',
-            'rows': [
-                ('Amount', f'{withdrawal.amount:,} VC', '#D4AF37'),
-                ('You receive', f'NGN {amount_ngn:,}', '#4CAF50'),
-                ('Bank', f'{withdrawal.bank_name} {withdrawal.account_number}'),
-                ('Reference', f'WDR-{withdrawal.id}'),
-                ('Arrives', 'within 1 to 3 business days'),
-            ],
+            'intro': intro,
+            'amount_ngn': '' if crypto else f'NGN {amount_ngn:,}',
+            'rows': rows,
+        },
+    )
+
+
+def send_payout_address_code(user, row):
+    """The code that proves a crypto payout address belongs to this account.
+
+    It goes to the mailbox, not to the session, and that is the whole point: a
+    stolen session cannot add a destination without also holding the email. A
+    chain payment does not reverse, so the only place to be careful is before
+    the address exists.
+    """
+    from .models import PayoutAddress
+
+    return _send(
+        user.email,
+        'Confirm a payout address',
+        'payout_address_code.html',
+        {
+            'name': _first_name(user),
+            'preheader': 'Code to confirm %s' % row.short,
+            'code': row.confirm_code,
+            'note': 'Expires in 30 minutes.',
+            'address': row.address,
+            'network_label': dict(PayoutAddress.NETWORK_CHOICES).get(
+                row.network, row.network),
         },
     )
 
@@ -392,7 +478,10 @@ def send_payout_rejected(withdrawal, *, reason):
             'reason': reason or 'No reason was recorded. Contact support and we will explain.',
             'rows': [
                 ('Amount returned', f'{withdrawal.amount:,} VC', '#D4AF37'),
-                ('Bank', f'{withdrawal.bank_name} {withdrawal.account_number}'),
+                # Where it WOULD have gone. Naming a bank on a refused crypto
+                # payout is the kind of wrong detail that makes somebody
+                # doubt the rest of the message.
+                ('Destination', _payout_destination(withdrawal)),
                 ('Reference', f'WDR-{withdrawal.id}'),
             ],
         },
@@ -639,3 +728,79 @@ def send_event_announcement(to_address, *, event, subject, body):
             'event_url': f'{APP_URL}/events/{event.slug or event.event_id}',
         },
     )
+
+
+def send_tournament_announcement(to_address, *, tournament, subject, body):
+    """One message about a tournament to one person registered for it.
+
+    The same shape as `send_event_announcement`, and per address for the same
+    reason: a bcc list is one mistake away from publishing who is in the
+    bracket, and a tournament entry list is somebody's own information.
+    """
+    return _send(
+        to_address,
+        subject,
+        'tournament_announcement.html',
+        {
+            'subject': subject,
+            'body': body,
+            'tournament': tournament.tournament_title,
+            'preheader': (body or '')[:120],
+            'tournament_url': '%s/tournaments/%s' % (
+                APP_URL, tournament.slug or tournament.tournament_id),
+        },
+    )
+
+
+def send_discord_reconnect(user, typed_handle, intro, body):
+    """Ask somebody to reconnect a Discord handle that was typed in by hand.
+
+    CEO, 7 September 2026: "send those guys custom mails".
+
+    `intro` and `body` are passed in rather than built here because these were
+    written per person: one of the three had pasted a server INVITE where a
+    username goes, and a sentence naming that is recognisable in a way no
+    template string is. A mailshot dressed as a personal note is worse than an
+    obvious mailshot.
+
+    `typed_handle` is quoted back verbatim so the reader can see for themselves
+    what is on their profile.
+    """
+    return _send(
+        user.email,
+        'Reconnect your Discord so V-ENT can message you there',
+        'discord_reconnect.html',
+        {
+            'heading': 'Your Discord is not quite connected',
+            'name': user.full_name or user.username,
+            'intro': intro,
+            'what_we_have': typed_handle,
+            'body': body,
+            'cta_url': f'{APP_URL}/settings?panel=linked',
+            'cta_label': 'Connect Discord',
+        },
+    )
+
+
+def send_checkout_unfinished(row):
+    """One reminder to somebody who reached the payment page and never paid.
+
+    Sent because an organiser pressed a button, never on a schedule. The
+    address was given in order to pay for a ticket, and one message about that
+    same purchase is the most it was given for. `AbandonedCheckout.reminded_at`
+    is what stops a second.
+    """
+    event = row.event
+    starts = event.start_date
+    return _send(
+        row.email,
+        'You did not finish your %s tickets' % event.name,
+        'checkout_unfinished.html',
+        {
+            'event': event.name,
+            'quantity': row.quantity,
+            'tier': row.tier.name if row.tier_id else 'Ticket',
+            'when': (starts.strftime('%d %b %Y, %H:%M') if starts
+                     else 'Date to be announced'),
+            'event_url': '%s/events/%s' % (APP_URL, event.slug or event.event_id),
+        })

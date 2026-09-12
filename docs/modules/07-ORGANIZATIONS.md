@@ -1,7 +1,7 @@
-# 07 — Organizations
+# 07 - Organizations
 
 **Phase:** 2
-**Status:** ❌ Not built — no design, no code
+**Status:** ❌ Not built - no design, no code
 **Design track:** Track B (self-design required, CEO approval before build)
 **Dependencies:** User System (05), Wallet (06), Teams (04)
 
@@ -9,7 +9,7 @@
 
 ## Module Overview
 
-Organizations are the corporate layer of V-ENT — the entity above teams. An Organization can:
+Organizations are the corporate layer of V-ENT - the entity above teams. An Organization can:
 - Own multiple teams
 - Create and manage tournaments and events under the organization's brand
 - Have an organization wallet separate from user wallets
@@ -146,20 +146,20 @@ class OrgTeam(models.Model):
 
 ## Acceptance Criteria
 
-### Organization Profile — Track B
+### Organization Profile - Track B
 
 - [ ] Shows org name, logo, banner, bio, verified badge (if applicable)
 - [ ] Tabs: Overview (stats, top teams), Teams, Tournaments, Events, Members
 - [ ] Owner sees "Edit" and "Settings" buttons
 - [ ] Public users see "Follow" (Phase 2+)
 
-### Organization Creation — Track B
+### Organization Creation - Track B
 
 - [ ] Multi-step: org name, logo/banner, bio, social links → review → submit
 - [ ] On success: redirects to new org profile
 - [ ] Only authenticated users can create an org
 
-### Roles & Permissions — Track B
+### Roles & Permissions - Track B
 
 - [ ] Owner can assign roles to members
 - [ ] Roles determine what actions can be taken: create tournaments (manager+), edit org (owner only), etc.
@@ -171,9 +171,9 @@ class OrgTeam(models.Model):
 
 ### ⬜ Phase 2 (all)
 
-- [ ] Design HTML mockup for org profile — CEO approval
-- [ ] Design HTML mockup for org creation wizard — CEO approval
-- [ ] Design HTML mockup for roles/permissions settings — CEO approval
+- [ ] Design HTML mockup for org profile - CEO approval
+- [ ] Design HTML mockup for org creation wizard - CEO approval
+- [ ] Design HTML mockup for roles/permissions settings - CEO approval
 - [ ] Django models: `Organization`, `OrgMember`, `OrgTeam`
 - [ ] All CRUD endpoints
 - [ ] Organization profile page

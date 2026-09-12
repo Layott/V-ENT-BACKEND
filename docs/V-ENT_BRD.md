@@ -29,15 +29,15 @@
 
 ## 1. Executive Summary
 
-V-ENT (Vermillion Enterprise) is an all-in-one platform for competitive gaming, event management, anime culture, and digital commerce — built for Africa first, then the world.
+V-ENT (Vermillion Enterprise) is an all-in-one platform for competitive gaming, event management, anime culture, and digital commerce - built for Africa first, then the world.
 
 The African gaming market is valued at $2.29 billion in 2026 and is projected to reach $6.39 billion by 2034, growing at 11.65% CAGR. Over 349 million gamers exist on the continent, with 95% playing on mobile devices. Nigeria alone commands 27% of Africa's gaming revenue. Despite this explosive growth, the continent lacks professional-grade infrastructure for tournament organization, event management, and community commerce.
 
-V-ENT addresses this gap with a unified platform that combines an open-ended bracket system supporting six tournament formats, a ticketing and event management suite, a production solution that integrates with streaming software (OBS, VMIX, Streamlabs), an internal economy (VENT COINS), a digital marketplace, anime content features, and an e-commerce shop — all on a single platform with a shared identity and economy.
+V-ENT addresses this gap with a unified platform that combines an open-ended bracket system supporting six tournament formats, a ticketing and event management suite, a production solution that integrates with streaming software (OBS, VMIX, Streamlabs), an internal economy (VENT COINS), a digital marketplace, anime content features, and an e-commerce shop - all on a single platform with a shared identity and economy.
 
 The company is seeking $250,000 in funding to fully build and launch the platform, starting with the Nigerian market before expanding across Africa and globally.
 
-**Current Status:** Pre-launch. 100 waitlist signups during initial registration period. Built: full auth flow, landing page, user profiles (view/edit), team profiles (view/edit), tournament homepage + detail view, tournament creation wizard (5-step), tournament registration modal (multi-step), event creation wizard (5-step), events page + view event, rankings page, tournament drafts, and wallet stub. Figma designs cover 60%+ of MVP screens — several pages were built without Figma designs and require design review.
+**Current Status:** Pre-launch. 100 waitlist signups during initial registration period. Built: full auth flow, landing page, user profiles (view/edit), team profiles (view/edit), tournament homepage + detail view, tournament creation wizard (5-step), tournament registration modal (multi-step), event creation wizard (5-step), events page + view event, rankings page, tournament drafts, and wallet stub. Figma designs cover 60%+ of MVP screens - several pages were built without Figma designs and require design review.
 
 ---
 
@@ -72,7 +72,7 @@ The company is seeking $250,000 in funding to fully build and launch the platfor
 | **Total** | **6** | |
 
 ### Technology Stack
-- **Frontend:** Next.js 14 (React), JavaScript (not TypeScript — codebase uses plain JS)
+- **Frontend:** Next.js 14 (React), JavaScript (not TypeScript - codebase uses plain JS)
 - **Backend:** Django (Python), Django REST Framework
 - **Database:** MySQL
 - **Styling:** CSS Modules + CSS custom properties (not Tailwind)
@@ -97,7 +97,7 @@ Event management tools like Eventbrite are not optimized for gaming events. They
 African anime fans, manga creators, and AMV editors have no dedicated platform that combines content creation, community engagement, and monetization. Existing platforms are global and don't cater to the African creative ecosystem.
 
 ### The Core Gap
-No single platform exists that bridges competitive gaming, event management, anime culture, and digital commerce with an integrated economy — especially one designed for African markets with Africa-specific payment solutions and community needs.
+No single platform exists that bridges competitive gaming, event management, anime culture, and digital commerce with an integrated economy - especially one designed for African markets with Africa-specific payment solutions and community needs.
 
 ---
 
@@ -180,9 +180,9 @@ An internal platform currency (VENT COINS) that powers all transactions: tournam
 |-----------|-----|-------|-------------|-----------|----------------------|
 | **Gamr** | Lagos, Nigeria | African esports tournament platform | 480K+ gamers, 4,500+ tournaments, $550K+ prize payouts, 27+ African countries | Largest African esports community, Techstars backed, physical events (GamrX), training facilities (GamrLab at UNILAG) | No production/streaming integration, no event ticketing, no marketplace, no anime features, no internal currency |
 | **Challengermode** | Stockholm, Sweden | Esports tournament platform | Global, B2B focused | White-label solutions, enterprise clients, multiple game integrations | Not Africa-focused, no event management, no marketplace, premium pricing for organizers |
-| **Toornament** | Paris, France | Tournament management software | Global, 7M+ registered participants | Robust bracket system, API-first, customizable | Pure tournament tool — no events, no commerce, no community, not localized for Africa |
+| **Toornament** | Paris, France | Tournament management software | Global, 7M+ registered participants | Robust bracket system, API-first, customizable | Pure tournament tool - no events, no commerce, no community, not localized for Africa |
 | **Battlefy** | Vancouver, Canada | Tournament platform | Global, used by Riot Games and others | Used by major publishers, established brand | Enterprise-focused, not accessible to grassroots African organizers, no local payment support |
-| **Kon10dr** | [Emerging] | Esports/gaming | Smaller scale | — | Limited market data available |
+| **Kon10dr** | [Emerging] | Esports/gaming | Smaller scale | - | Limited market data available |
 
 ### 6.2 V-ENT's Competitive Advantages
 
@@ -208,7 +208,7 @@ V-ENT's primary competitor in Africa is **Gamr**, which has significant first-mo
 4. Marketplace and e-commerce for gaming/anime commerce
 5. Anime content features for the broader entertainment community
 
-V-ENT is not competing head-to-head with Gamr on community size — it's expanding the market by offering a broader, more integrated platform.
+V-ENT is not competing head-to-head with Gamr on community size - it's expanding the market by offering a broader, more integrated platform.
 
 ---
 
@@ -262,10 +262,10 @@ V-ENT employs a diversified revenue model with seven distinct streams:
 | Phase | Market | Timeline | Rationale |
 |-------|--------|----------|-----------|
 | 1 | Nigeria | Q2-Q4 2026 | Largest gaming market in Africa (27% revenue share). Home market. Lagos-based esports community. |
-| 2 | Rest of West Africa | Q1-Q2 2027 | Ghana, Senegal, Cameroon — shared cultural/gaming communities with Nigeria. |
+| 2 | Rest of West Africa | Q1-Q2 2027 | Ghana, Senegal, Cameroon - shared cultural/gaming communities with Nigeria. |
 | 3 | East Africa | Q3-Q4 2027 | Kenya (fastest-growing African market, 12.96% CAGR), Tanzania, Uganda. |
 | 4 | Southern Africa | 2028 | South Africa (most developed gaming infrastructure), Zimbabwe, Zambia. |
-| 5 | Global (Emerging Markets) | 2028+ | Southeast Asia, Latin America — similar mobile-first gaming dynamics. |
+| 5 | Global (Emerging Markets) | 2028+ | Southeast Asia, Latin America - similar mobile-first gaming dynamics. |
 
 ---
 
@@ -278,13 +278,13 @@ V-ENT employs a diversified revenue model with seven distinct streams:
 | **Phase 1: Core MVP** | Tournament hosting + brackets, production/streaming integration (OBS/VMIX/Streamlabs), user system, team system, basic wallet, basic admin dashboard | Q2-Q3 2026 | Establish core competitive gaming loop. Attract tournament organizers. |
 | **Phase 2: Events** | Event creation/management, ticketing, tournament-event linking, vendor shop system, full wallet (payouts, KYC) | Q3-Q4 2026 | Enable full event ecosystem. First revenue from ticketing. |
 | **Phase 3: Commerce** | E-Commerce shop (Vent Shop), premium tier launch | Q4 2026-Q1 2027 | First product sales revenue. Premium subscription revenue begins. |
-| **Phase 4: Marketplace** | Marketplace (Vermillion City) — services, swaps, sales, bidding | Q1-Q2 2027 | Marketplace commission revenue. Community-driven commerce. |
-| **Phase 5: Content** | Anime features — manga uploads, reader, AMV, co-reading, anime battles | Q2-Q3 2027 | Expand beyond gaming into broader entertainment. Content creator revenue. |
-| **Phase 6: Wagering** | Wager system — all bet types, management, security | Q3-Q4 2027 | High-engagement feature. Additional transaction volume through VENT COINS. |
+| **Phase 4: Marketplace** | Marketplace (Vermillion City) - services, swaps, sales, bidding | Q1-Q2 2027 | Marketplace commission revenue. Community-driven commerce. |
+| **Phase 5: Content** | Anime features - manga uploads, reader, AMV, co-reading, anime battles | Q2-Q3 2027 | Expand beyond gaming into broader entertainment. Content creator revenue. |
+| **Phase 6: Wagering** | Wager system - all bet types, management, security | Q3-Q4 2027 | High-engagement feature. Additional transaction volume through VENT COINS. |
 
 ### 9.2 Current Development Status
 - **Built:** User registration (login, signup, email verification, password reset), user profiles (view, edit, gallery), tournament homepage, tournament details (overview, rules, participants, prize tabs), tournament creation wizard (5-step), tournament registration modal (team/individual → payment → success), tournament drafts, teams (overview, members, edit), team profile (view, edit), landing page, events homepage, view event, event creation wizard (5-step), rankings page, wallet stub
-- **Partially built:** Tournament brackets (component file is a placeholder stub — no real visualization), account settings (incomplete), wallet page (UI stub only, no transactions)
+- **Partially built:** Tournament brackets (component file is a placeholder stub - no real visualization), account settings (incomplete), wallet page (UI stub only, no transactions)
 - **Designed (not built):** Tournament management (post-creation: leaderboard, scores, invites, matches), event details sub-pages (attendees, gallery, registration), search for tournaments/events
 - **Not designed:** Home page (logged in), wallet system (transactions, buy/send VENT COINS, payouts), event creation organizer tools (management dashboard, ticketing, tournament-event linking, vendor shops), admin dashboard, production/streaming integration (OBS/VMIX/Streamlabs), organizations, community, anime, marketplace, wager, e-commerce shop
 
@@ -335,14 +335,14 @@ CEO, CFO, CTO, 1 Frontend Dev, 1 Backend Dev, 1 Community Manager
 
 | Role | Count | Priority | Estimated Monthly Cost (NGN) |
 |------|-------|----------|------------------------------|
-| CEO | 1 | Existing | — |
-| CFO | 1 | Existing | — |
-| CTO | 1 | Existing | — |
-| Senior Frontend Developer | 1 | Existing | — |
-| Senior Backend Developer | 1 | Existing | — |
+| CEO | 1 | Existing | - |
+| CFO | 1 | Existing | - |
+| CTO | 1 | Existing | - |
+| Senior Frontend Developer | 1 | Existing | - |
+| Senior Backend Developer | 1 | Existing | - |
 | UI/UX Designer | 1 | **Hire** | ₦300,000-500,000 |
 | QA/Tester | 1 | **Hire** | ₦200,000-350,000 |
-| Community Manager | 1 | Existing | — |
+| Community Manager | 1 | Existing | - |
 | DevOps/Infrastructure | 1 (part-time/contract) | **Hire** | ₦200,000-400,000 |
 
 **Phase 2+ (Target: 12-15 people):** Add mobile developer, additional backend developer, marketing lead, customer support.
@@ -395,7 +395,7 @@ CEO, CFO, CTO, 1 Frontend Dev, 1 Backend Dev, 1 Community Manager
 | **Total** | **100%** | **$250,000** | |
 
 ### 12.3 Financial Runway
-At estimated monthly burn rate of $12,000-18,000 (team + infrastructure + operations), $250,000 provides approximately **14-20 months** of runway — sufficient to build through Phase 3 (Commerce) and begin generating meaningful revenue.
+At estimated monthly burn rate of $12,000-18,000 (team + infrastructure + operations), $250,000 provides approximately **14-20 months** of runway - sufficient to build through Phase 3 (Commerce) and begin generating meaningful revenue.
 
 ### 12.4 Path to Revenue
 
@@ -421,16 +421,16 @@ Assuming $15,000/month burn rate:
 
 | # | Risk | Impact | Likelihood | Mitigation |
 |---|------|--------|------------|------------|
-| 1 | **Gamr's first-mover advantage** — 480K users, Techstars backed, established events | High | High | Differentiate on production tooling, event management, and commerce. Don't compete on community size initially — compete on organizer tools. Partner with organizers who need more than what Gamr offers. |
+| 1 | **Gamr's first-mover advantage** - 480K users, Techstars backed, established events | High | High | Differentiate on production tooling, event management, and commerce. Don't compete on community size initially - compete on organizer tools. Partner with organizers who need more than what Gamr offers. |
 | 2 | **Regulatory uncertainty around wagering and crypto** in Nigeria and other African markets | High | High | Modular architecture allows disabling wager/crypto features per jurisdiction. Build wagering last (Phase 6). Consult legal counsel per market. Lead with non-regulated features. |
 | 3 | **Low internet bandwidth** in target markets impacts user experience | High | High | Mobile-first, offline-capable design for critical features. Aggressive asset optimization. Progressive loading. Compress images and media. |
-| 4 | **Payment processor limitations** — high fees, limited availability in some African countries | High | Medium | Multi-provider strategy (Paystack + Flutterwave + USDT). VENT COINS as intermediary reduces per-transaction payment processing. |
-| 5 | **User acquisition cost exceeds projections** — difficulty breaking Gamr's network effects | Medium | Medium | Organic growth through tournament organizers (each organizer brings their entire community). Referral incentives via VENT COINS. Partner with gaming cafes, universities, and esports organizations. |
+| 4 | **Payment processor limitations** - high fees, limited availability in some African countries | High | Medium | Multi-provider strategy (Paystack + Flutterwave + USDT). VENT COINS as intermediary reduces per-transaction payment processing. |
+| 5 | **User acquisition cost exceeds projections** - difficulty breaking Gamr's network effects | Medium | Medium | Organic growth through tournament organizers (each organizer brings their entire community). Referral incentives via VENT COINS. Partner with gaming cafes, universities, and esports organizations. |
 | 6 | **Small dev team (2-3 devs) may struggle with scope** | High | Medium | Strict phased delivery. Don't build Phase 2 until Phase 1 is stable. Use Claude Code for development acceleration. Contract specialists for specific features (DevOps, mobile). |
-| 7 | **Security breach or financial loss** — critical for a platform handling money (VENT COINS) | Critical | Low | 2FA, PIN protection, KYC, encrypted data at rest/in transit, quarterly penetration testing, rate limiting, IP monitoring. Admin approval for all payouts. |
-| 8 | **Key person risk** — small team means each person is critical | High | Medium | Document everything (this BRD, PRD, technical docs). Use infrastructure-as-code for reproducible deployments. Cross-train team members on critical systems. |
+| 7 | **Security breach or financial loss** - critical for a platform handling money (VENT COINS) | Critical | Low | 2FA, PIN protection, KYC, encrypted data at rest/in transit, quarterly penetration testing, rate limiting, IP monitoring. Admin approval for all payouts. |
+| 8 | **Key person risk** - small team means each person is critical | High | Medium | Document everything (this BRD, PRD, technical docs). Use infrastructure-as-code for reproducible deployments. Cross-train team members on critical systems. |
 | 9 | **Competitor launches similar features** | Medium | Medium | Speed to market with MVP. Focus on African market depth where global competitors won't invest. Build community lock-in through VENT COINS economy. |
-| 10 | **VENT COIN adoption is slow** — users prefer direct fiat payments | Medium | Medium | Make VENT COINS genuinely advantageous (discounts for COIN payments, exclusive COIN-only features). Ensure seamless fiat → COIN conversion. Don't force COIN usage where it creates friction. |
+| 10 | **VENT COIN adoption is slow** - users prefer direct fiat payments | Medium | Medium | Make VENT COINS genuinely advantageous (discounts for COIN payments, exclusive COIN-only features). Ensure seamless fiat → COIN conversion. Don't force COIN usage where it creates friction. |
 
 ---
 
@@ -467,14 +467,14 @@ Assuming $15,000/month burn rate:
 - **Best Practices Guide:** Development standards for Next.js, Django, and security (V-ENT_Best_Practices.md)
 
 ### Appendix B: Market Research Sources
-1. Mordor Intelligence — "Africa Gaming Market Report" (January 2026)
-2. Market Data Forecast — "Africa Gaming Market Size, Share & Growth Report, 2034" (February 2026)
-3. Future Market Insights — "eSports Market Trends & Innovations 2026-2036" (December 2025)
-4. ASO World — "Global Esports Market Report 2025" (November 2025)
-5. Bonafide Research — "Middle East & Africa Esports Market Outlook, 2031" (February 2026)
-6. Pulse Nigeria — "Africa's Online Gaming Sector Is Booming" (March 2026)
-7. PitchBook — Gamr Company Profile (2025)
-8. TechCabal — "Gamr; the eSports Start-up Unifying Africa" (March 2022)
+1. Mordor Intelligence - "Africa Gaming Market Report" (January 2026)
+2. Market Data Forecast - "Africa Gaming Market Size, Share & Growth Report, 2034" (February 2026)
+3. Future Market Insights - "eSports Market Trends & Innovations 2026-2036" (December 2025)
+4. ASO World - "Global Esports Market Report 2025" (November 2025)
+5. Bonafide Research - "Middle East & Africa Esports Market Outlook, 2031" (February 2026)
+6. Pulse Nigeria - "Africa's Online Gaming Sector Is Booming" (March 2026)
+7. PitchBook - Gamr Company Profile (2025)
+8. TechCabal - "Gamr; the eSports Start-up Unifying Africa" (March 2022)
 
 ### Appendix C: Figma Design File
 - **File:** [VENT-Main](https://www.figma.com/design/Ne1xquUxx1yZc0NhkN8kUE/VENT-Main)

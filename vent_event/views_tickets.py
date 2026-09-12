@@ -7,12 +7,13 @@ Tier prices are set in NGN; the charge is in VENT COINS at the platform rate, an
 both are stored on the ticket so a later rate change never rewrites history.
 """
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.contrib.auth.hashers import check_password
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
@@ -73,10 +74,27 @@ def _authenticate(request):
     return user, None
 
 
+def _maybe_viewer(request):
+    """Whoever is asking, or None. Never an error.
+
+    For the endpoints that are public but answer a better question when they
+    know who is reading - the quote, which has to price a member's discount
+    for a member and the list price for everybody else, from one place. A
+    signed-out reader is a normal case here, not a refusal.
+    """
+    user, _err = _authenticate(request)
+    return user
+
+
 def _ngn_to_coins(amount_ngn):
     # Single source of truth: the wallet app owns the rate.
     from vent_auth.views_wallet import NGN_PER_COIN
     return int(float(amount_ngn) // NGN_PER_COIN)
+
+
+def _fee_rate():
+    from . import ledger as _ledger
+    return _ledger.platform_rate()
 
 
 def _new_code():
@@ -144,6 +162,14 @@ def serialize_tier(tier):
         'early_bird_price': float(tier.early_bird_price) if tier.early_bird_price is not None else None,
         'group_min': tier.group_min,
         'group_price': float(tier.group_price) if tier.group_price is not None else None,
+        # The same two prices in VENT COINS, which is the unit every screen
+        # actually renders. Sent rather than derived, because a panel dividing
+        # naira by a rate to get coins is a second copy of the conversion and
+        # the two round differently on the tiers where it matters.
+        'group_price_vc': (_ngn_to_coins(tier.group_price)
+                           if tier.group_price is not None else None),
+        'early_bird_price_vc': (_ngn_to_coins(tier.early_bird_price)
+                                if tier.early_bird_price is not None else None),
         # The code itself is never sent. Whether one exists is not a secret;
         # what it is, is.
         'is_hidden': tier.is_hidden,
@@ -196,6 +222,17 @@ def serialize_ticket(ticket):
             'event_date': (event.start_date.date() if event.start_date else event.event_date),
             'start_time': (event.start_date.time() if event.start_date else event.start_time),
             'end_time': (event.end_date.time() if event.end_date else event.end_time),
+            # The slug, so a ticket can link back to the thing it admits to.
+            'slug': event.slug,
+            # Whether this event lets people admit themselves.
+            #
+            # On the ticket because that is where the decision is made: My
+            # Tickets should offer "check yourself in" only where pressing it
+            # will work. The page at /events/check-in/<code> has existed and
+            # been correct for days, and NOTHING LINKED TO IT, which is the
+            # same fault as the scanner nobody could find and the settings
+            # endpoint no screen could reach.
+            'self_check_in': bool(event.self_check_in),
         },
     }
 
@@ -236,8 +273,112 @@ def ticket_types(request, event_id):
             # somebody wondering whether anything happened.
             'unlocked': [t.name for t in unlocked],
             'hidden_count': len(tiers) - len(visible),
+            # Who bears the platform fee, and how much it is. Sent with the
+            # PRICES rather than discovered at the checkout, because the buy
+            # panel has to say the number before somebody commits to a
+            # quantity, never as a surprise line after they have typed their
+            # details. 0 per cent is the ordinary case and the panel says
+            # nothing at all.
+            'fee_bearer': event.fee_bearer,
+            'fee_pct': _fee_rate(),
         },
         'Ticket tiers retrieved.',
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /event/<id>/quote/
+# ---------------------------------------------------------------------------
+
+@api_view(['GET'])
+def ticket_quote(request, event_id):
+    """What this purchase costs, answered by the code that does the charging.
+
+    The buy panel used to work the total out for itself, as price times
+    quantity. That is not the question the checkout answers: a group rate, an
+    early bird price and the platform fee all move the number. At quantity 4 on
+    a tier with a group rate the panel said "20 VC x 4, total 80" while
+    `price_for(4)` returned 16 and the server took 64. Neither side was wrong.
+    They were two answers to one question, which is the fault that reads as
+    "sold out" with 4814 tickets left.
+
+    Public, and deliberately so: a guest buying without an account has to be
+    told the same number as a member, from the same place.
+    """
+    event = _event_by_ref(event_id, is_active=True)
+    if event is None:
+        return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+
+    tier_ref = request.GET.get('tier') or request.GET.get('tier_id')
+    tier = event.ticket_tiers.filter(id=tier_ref).first() if tier_ref else None
+    if tier is None:
+        return _error('Ticket type not found.', 'NOT_FOUND',
+                      status.HTTP_404_NOT_FOUND)
+
+    # A hidden tier is priced only for somebody holding the code. Quoting it to
+    # anybody who guesses its id would publish the presale it exists to hide.
+    code = str(request.GET.get('code') or '').strip()
+    if tier.is_hidden and not tier.opened_by(code):
+        return _error('That ticket type needs an access code.', 'CODE_REQUIRED',
+                      status.HTTP_403_FORBIDDEN)
+
+    try:
+        quantity = int(request.GET.get('quantity') or request.GET.get('qty') or 1)
+    except (TypeError, ValueError):
+        quantity = 1
+    quantity = max(1, min(quantity, MAX_PER_PURCHASE))
+
+    from . import ledger as _ledger
+    priced = _ledger.quote(tier, quantity, event, buyer=_maybe_viewer(request))
+
+    # Why the unit price is what it is, as a code rather than a sentence, so
+    # the screen says it in the reader's language. `list` means nothing moved
+    # it, which is the ordinary case and needs no line on the panel at all.
+    unit_ngn = float(priced['unit_ngn'])
+    reason = 'list'
+    if (tier.group_min and tier.group_price is not None
+            and quantity >= tier.group_min):
+        reason = 'group'
+    elif (tier.early_bird_quantity and tier.early_bird_price is not None
+            and int(tier.sold) >= int(tier.early_bird_quantity)):
+        reason = 'early_bird'
+
+    # What the SAME purchase would cost at the plain list price, so a panel can
+    # say what the group rate saved without doing arithmetic of its own.
+    list_unit_vc = _ngn_to_coins(tier.price)
+
+    return _ok(
+        {
+            'tier_id': tier.id,
+            'tier_name': tier.name,
+            'quantity': quantity,
+            'unit_ngn': unit_ngn,
+            'unit_vc': priced['unit_vc'],
+            'list_unit_vc': list_unit_vc,
+            'tickets_vc': priced['tickets_vc'],
+            'fee_vc': priced['fee_vc'],
+            'fee_pct': priced['fee_pct'],
+            'fee_bearer': priced['fee_bearer'],
+            'total_vc': priced['total_vc'],
+            'price_reason': reason,
+            # A membership discount is reported BESIDE `price_reason` rather
+            # than inside it, because it stacks on top of whatever the tier
+            # rule already decided: somebody buying four at a group rate and
+            # holding a member discount got both, and a single reason code
+            # could only name one of them.
+            'member_discount_pct': priced['member_discount_pct'],
+            'member_saving_vc': priced['member_saving_vc'],
+            # The two rules a panel needs in order to SAY what is on offer
+            # before somebody has typed a quantity that reaches it.
+            'group_min': tier.group_min,
+            'group_unit_vc': (_ngn_to_coins(tier.group_price)
+                              if tier.group_price is not None else None),
+            'early_bird_quantity': tier.early_bird_quantity,
+            'early_bird_unit_vc': (_ngn_to_coins(tier.early_bird_price)
+                                   if tier.early_bird_price is not None else None),
+            'sold': int(tier.sold),
+        },
+        'Quote ready.',
     )
 
 
@@ -373,12 +514,22 @@ def buy_ticket(request, event_id):
             return _error(str(exc), 'FIELD_REQUIRED',
                           status.HTTP_400_BAD_REQUEST, field=exc.field)
 
-        # Early bird and group rates. `price_for` decides, so the two cannot
-        # drift between the screen that shows a price and the code that charges
-        # one.
-        unit_ngn = tier.price_for(quantity)
-        unit_vc = _ngn_to_coins(unit_ngn)
-        total_vc = unit_vc * quantity
+        # Early bird and group rates, and who bears the platform fee. `quote`
+        # decides both, so the screen showing a price and the code charging one
+        # cannot drift. That is not hypothetical: the listing and the checkout
+        # answered different questions about availability once, and it read as
+        # "sold out" with 4814 tickets left.
+        from . import ledger as _ledger
+        # The buyer, so a member is CHARGED the discount the quote showed
+        # them. Passing nobody here is how a panel and a checkout end up
+        # answering two different questions about one price.
+        priced = _ledger.quote(tier, quantity, event, buyer=user)
+        unit_ngn = priced['unit_ngn']
+        unit_vc = priced['unit_vc']
+        # What leaves the buyer's wallet. With the fee on the organiser this is
+        # the ticket price; with it on the buyer it is the price plus the fee,
+        # and the panel told them the number before they got here.
+        total_vc = priced['total_vc']
 
         wallet = UserWallet.objects.select_for_update().filter(user=user).first()
         if wallet is None:
@@ -431,7 +582,14 @@ def buy_ticket(request, event_id):
         # since they arrived is sent here too. An unknown or switched-off code
         # credits nobody and is never a reason to refuse the sale.
         from . import referrals as _refs
-        _refs.attribute(tickets, _refs.resolve(event, request.data.get('ref')))
+        _referral = _refs.resolve(event, request.data.get('ref'))
+        _refs.attribute(tickets, _referral)
+
+        # Who is owed what, written in the same transaction as the sale. A
+        # ticket with no ledger line is money that arrived and is owed to
+        # nobody, which is invisible until somebody asks where their takings
+        # are.
+        _ledger.record_sale(event, tickets, priced, referral=_referral)
 
         # The offer is spent, inside the same transaction as the purchase.
         # Leaving it standing would let one person in the queue buy every
@@ -466,6 +624,9 @@ def buy_ticket(request, event_id):
             'tickets': [serialize_ticket(t) for t in tickets],
             'quantity': quantity,
             'total_vc': total_vc,
+            'tickets_vc': priced['tickets_vc'],
+            'fee_vc': priced['fee_vc'] if priced['fee_bearer'] == 'buyer' else 0,
+            'fee_bearer': priced['fee_bearer'],
             'wallet_balance': UserWallet.objects.get(user=user).wallet_balance,
             'new_balance': UserWallet.objects.get(user=user).wallet_balance,
         },
@@ -535,21 +696,58 @@ def check_in_ticket(request, code):
 
     ticket = Ticket.objects.select_related('event', 'tier', 'user').filter(code=code.upper()).first()
     if ticket is None:
+        from .transfers import transferred_away
+        moved = transferred_away(code)
+        if moved is not None:
+            return _error('That code was transferred and no longer works.',
+                          'TICKET_TRANSFERRED', status.HTTP_409_CONFLICT,
+                          extra=moved)
         return _error('No ticket with that code.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
-    # The creator, or somebody they put on the door. EventManager has had a
-    # `door` role since it was written - "check tickets in, nothing else" - and
-    # this path never consulted it, so in practice one person scanned or the
-    # organiser handed over their own account.
-    from .models import EventManager
-    is_creator = ticket.event.creator_id == user.user_id
-    on_the_door = EventManager.objects.filter(
-        event=ticket.event, user=user, role__in=('manager', 'door')).exists()
-    if not is_creator and not on_the_door:
+    # The creator, somebody they put on the door, or the organisation's own
+    # people. EventManager has had a `door` role since it was written, "check
+    # tickets in, nothing else", and this path never consulted it, so in
+    # practice one person scanned or the organiser handed over their account.
+    from .permissions import may_work_the_door
+    if not may_work_the_door(user, ticket.event):
         return _error('Only the event organizer or their door staff can check '
                       'tickets in.', 'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
     gate = str(request.data.get('gate') or '').strip()[:60]
+
+    # WHICH DAY this door is admitting for.
+    #
+    # CEO, 4 September 2026: "maybe there should also be different scanners for
+    # different days. so that people dont come and show day 2 tickets on day one
+    # and its work because tehre is just one scanner."
+    #
+    # `TicketTier.day` has carried the date since the tier was written, and
+    # nothing had ever read it at the door, so a Saturday ticket opened Friday's
+    # gate. A tier with no day admits on any day, which is what a single day
+    # event and a full run pass both want, so the check only ever narrows.
+    #
+    # The scanner sends the day; without one, today at the venue is meant. The
+    # API decides it either way, because a door that enforces this only in the
+    # browser is a door anybody can walk through with a second browser.
+    scan_day, day_error = _scan_day(request)
+    if day_error:
+        return day_error
+
+    tier_day = ticket.tier.day if ticket.tier_id else None
+    if tier_day and scan_day and tier_day != scan_day:
+        return _error(
+            'This ticket is for another day.', 'WRONG_DAY',
+            status.HTTP_409_CONFLICT,
+            extra={
+                'ticket': serialize_ticket(ticket),
+                # The frontend translates by code and builds the sentence from
+                # these, because a date formatted in Python is a date in the
+                # server's language.
+                'ticket_day': tier_day.isoformat(),
+                'ticket_day_label': ticket.tier.day_label or '',
+                'scanning_day': scan_day.isoformat(),
+            },
+        )
 
     if ticket.status == 'checked_in':
         # WHEN, WHERE and WHO. "Already scanned" sends a steward to a
@@ -601,6 +799,23 @@ def check_in_ticket(request, code):
 # GET /event/<id>/attendees/ - organizer only
 # ---------------------------------------------------------------------------
 
+def _scan_day(request):
+    """The date this door is admitting for, or an error.
+
+    Explicit beats implicit: a steward may open Saturday's door on Friday night
+    to test it, and a scanner pinned to a date is the only way that is possible.
+    Absent, it is today, which is what a door standing open right now means.
+    """
+    raw = str(request.data.get('day') or '').strip()
+    if not raw:
+        return timezone.localdate(), None
+    try:
+        return datetime.strptime(raw[:10], '%Y-%m-%d').date(), None
+    except ValueError:
+        return None, _error('That day could not be read.', 'INVALID_DAY',
+                            status.HTTP_400_BAD_REQUEST)
+
+
 @api_view(['GET'])
 def event_attendees(request, event_id):
     user, auth_error = _authenticate(request)
@@ -614,18 +829,52 @@ def event_attendees(request, event_id):
              else Event.objects.filter(slug=str(event_id)).first())
     if event is None:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    # The creator, or somebody on the door. The scanner downloads this list
-    # before the gates open, so a steward who cannot load it cannot scan at all
-    # - which is the same fault the check-in path had until tonight.
-    from .models import EventManager
-    on_the_door = EventManager.objects.filter(
-        event=event, user=user, role__in=('manager', 'door')).exists()
-    if event.creator_id != user.user_id and not on_the_door:
+    # The creator, somebody on the door, or the organisation's own people. The
+    # scanner downloads this list before the gates open, so a steward who
+    # cannot load it cannot scan at all, which is the same fault the check-in
+    # path had until tonight.
+    from .permissions import may_work_the_door
+    if not may_work_the_door(user, event):
         return _error('Only the event organizer or their door staff can see the '
                       'attendee list.', 'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
     tickets = (Ticket.objects.filter(event=event)
                .select_related('tier', 'user', 'checked_in_by'))
+
+    # ONLY WHAT CHANGED, when the caller says what it already has.
+    #
+    # CEO, 6 September 2026: "it took too long for the listto load on the
+    # people managing the event", and separately that every event page should
+    # keep itself current without anybody reloading it. Those two pull against
+    # each other: this payload was 648KB, and re-fetching it on a timer would
+    # starve the very connection the door needs. So a refresh asks for the
+    # delta, and the full download happens once.
+    #
+    # A bad timestamp is ignored rather than refused. A door that stops
+    # answering because a clock is odd is worse than one that sends a little
+    # too much.
+    since_raw = str(request.query_params.get('since') or '').strip()
+    since = None
+    if since_raw:
+        parsed = parse_datetime(since_raw)
+        if parsed is not None:
+            if timezone.is_naive(parsed):
+                parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+            since = parsed
+            tickets = tickets.filter(updated_at__gt=since)
+
+    # The answers are described per row, turning field ids into the organiser's
+    # own labels, and on a list this size that is most of the cost. A door
+    # refreshing every few seconds does not need them; the full list on first
+    # load does. Asking for `lean` is asking for the door's version.
+    lean = str(request.query_params.get('lean') or '').lower() in ('1', 'true', 'yes')
+
+    # The stamp to send back next time. Taken BEFORE the rows are built so a
+    # ticket bought while this response is being assembled is not skipped: it
+    # will simply arrive again in the next delta, which is the safe direction
+    # to be wrong in.
+    asked_at = timezone.now()
+
     rows = [
         {
             'code': t.code,
@@ -641,6 +890,10 @@ def event_attendees(request, event_id):
             # labelled list to find it.
             'attendee_phone': t.attendee_phone,
             'tier': t.tier.name,
+            # Which day this ticket admits on, so a scanner with no network can
+            # still refuse a ticket for another day. Null means the whole run.
+            'tier_day': t.tier.day.isoformat() if t.tier.day else None,
+            'tier_day_label': t.tier.day_label or '',
             'status': t.status,
             'purchased_at': t.purchased_at,
             'checked_in_at': t.checked_in_at,
@@ -650,16 +903,33 @@ def event_attendees(request, event_id):
             'checked_in_gate': t.checked_in_gate,
             # What the organiser asked at checkout, with labels rather than
             # field ids: a door list showing {"7": "Large"} helps nobody.
-            'answers': checkout.describe(event, t.answers),
+            'answers': [] if lean else checkout.describe(event, t.answers),
             'checked_in_by': t.checked_in_by.username if t.checked_in_by_id else '',
+            # Whether they admitted themselves, named the same way everywhere.
+            'self_check_in': t.checked_in_gate == 'self',
         }
         for t in tickets
     ]
+
+    # The totals are counted in the database, never off `rows`.
+    #
+    # They used to be `len(rows)` and a sum over them, which was right only
+    # while the response carried every ticket. The moment a delta returns four
+    # changed rows, counting those four would tell an organiser that four
+    # people bought tickets and none came. The headcount is the number this
+    # whole change exists to make trustworthy, so it does not get to be a
+    # by-product of what happened to be sent.
+    everyone = Ticket.objects.filter(event=event)
     return _ok(
         {
             'attendees': rows,
-            'count': len(rows),
-            'checked_in': sum(1 for r in rows if r['status'] == 'checked_in'),
+            'count': everyone.count(),
+            'checked_in': everyone.filter(status='checked_in').count(),
+            'returned': len(rows),
+            # Hand this back as `since` on the next request and only what has
+            # moved since comes down.
+            'asked_at': asked_at,
+            'delta': since is not None,
         },
         'Attendees retrieved.',
     )

@@ -1,0 +1,45 @@
+{% extends "emails/base.html" %}
+{% comment %}
+Asking somebody to reconnect a Discord handle that was typed in by hand.
+
+CEO, 7 September 2026: "send those guys custom mails".
+
+`what_we_have` is the exact string on their profile today, quoted back. That is
+the whole reason this reads as a real message rather than a mailshot: one of
+these three pasted a server INVITE where a username goes, and being told
+"your handle is https://discord.gg/..." is instantly recognisable in a way that
+"please reconnect your account" is not.
+{% endcomment %}
+{% block content %}
+<h1 style="margin:0 0 16px; font-size:22px; color:#ffffff;">{{ heading }}</h1>
+
+<p style="margin:0 0 16px; color:#C9C9CF; font-size:15px; line-height:1.6;">
+  Hi {{ name }},
+</p>
+
+<p style="margin:0 0 16px; color:#C9C9CF; font-size:15px; line-height:1.6;">
+  {{ intro }}
+</p>
+
+{% if what_we_have %}
+<p style="margin:0 0 8px; color:#8A8A93; font-size:13px;">What your profile says now</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 20px;">
+  <tr>
+    <td style="background-color:#26272C; border-radius:10px; padding:14px 16px; color:#FFFFFF; font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace; font-size:14px; word-break:break-all;">
+      {{ what_we_have }}
+    </td>
+  </tr>
+</table>
+{% endif %}
+
+<p style="margin:0 0 20px; color:#C9C9CF; font-size:15px; line-height:1.6;">
+  {{ body }}
+</p>
+
+{% include "emails/_button.html" with url=cta_url label=cta_label %}
+
+<p style="margin:24px 0 0; color:#8A8A93; font-size:13px; line-height:1.6;">
+  If you would rather not have Discord messages at all, ignore this and nothing
+  changes. Your V-ENT account and everything on it stays exactly as it is.
+</p>
+{% endblock %}

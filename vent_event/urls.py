@@ -2,20 +2,27 @@ from django.urls import path
 from django.conf import settings
 from django.conf.urls.static import static
 
-from . import views_guest
+from . import views_delete
+from . import views_guest, views_recovery
 from vent_tournament import views_overlays as overlay_views
 from vent_tournament import views_overlay_feed as overlay_feed_views
 from vent_tournament import views_studio as studio_views
+from vent_tournament import views_layers as layer_views
+from vent_tournament import views_runsheet as runsheet_views
 from vent_tournament import views_assets as asset_views
 from . import views_sponsors
 from . import views_holds
 from . import views_announce
 from . import views_metrics
+from . import views_track
+from . import views_ledger
+from . import views_transfer
 from . import views_comp
 from . import views_referrals
 from . import views_map
 from . import views_polls
 from . import views_self_check_in
+from . import views_door
 from . import views_sessions
 from . import views_waitlist
 from . import views_tiers
@@ -23,8 +30,14 @@ from . import views_limits
 from . import views_short_links
 from .views import create_event, get_all_events, view_event, edit_event
 from .views_tickets import (
-    ticket_types, buy_ticket, my_tickets, check_in_ticket, event_attendees,
+    ticket_types, ticket_quote, buy_ticket, my_tickets, check_in_ticket,
+    event_attendees,
 )
+from .views_vendor_shop import (
+    my_stalls, my_stall_detail, my_product, my_stall_orders,
+    my_order_status,
+)
+from .views_vendor_slots import event_slots, event_slot_detail, buy_slot
 from .views_vendors import (
     event_vendors, vendor_detail, create_vendor, create_product,
     create_order, my_vendor_orders, vendor_orders, collect_order,
@@ -45,14 +58,35 @@ urlpatterns = [
     path("view-event/<str:event_id>/", view_event, name="view_event"),
     path("edit-event/<str:event_id>/", edit_event, name="edit_event"),
     # Vendor shops
+    # Pitches an organiser is SELLING. Literal segments first so the buy
+    # route cannot be swallowed by the detail one.
+    path("<str:event_id>/slots/", event_slots, name="event_slots"),
+    path("<str:event_id>/slots/<int:slot_id>/buy/", buy_slot, name="buy_slot"),
+    path("<str:event_id>/slots/<int:slot_id>/", event_slot_detail, name="event_slot_detail"),
     path("<str:event_id>/vendors/", event_vendors, name="event_vendors"),
     path("<str:event_id>/vendors/create/", create_vendor, name="create_vendor"),
-    path("<str:event_id>/vendor/<int:vendor_id>/", vendor_detail, name="vendor_detail"),
-    path("vendor/<int:vendor_id>/products/", create_product, name="create_vendor_product"),
-    path("vendor/<int:vendor_id>/order/", create_order, name="create_vendor_order"),
-    path("vendor/<int:vendor_id>/orders/", vendor_orders, name="vendor_orders"),
+    path("<str:event_id>/vendor/<str:vendor_id>/", vendor_detail, name="vendor_detail"),
+    path("vendor/<str:vendor_id>/products/", create_product, name="create_vendor_product"),
+    path("vendor/<str:vendor_id>/order/", create_order, name="create_vendor_order"),
+    path("vendor/<str:vendor_id>/orders/", vendor_orders, name="vendor_orders"),
     path("vendor/order/<str:code>/collect/", collect_order, name="collect_vendor_order"),
     path("vendor-orders/", my_vendor_orders, name="my_vendor_orders"),
+
+    # Deleting an event, which had no path at all, and putting it back. Same
+    # rules and the same refusals as the tournament twin.
+    path("<str:event_id>/delete/", views_delete.delete_event, name="delete_event"),
+    path("<str:event_id>/restore/", views_delete.restore_event, name="restore_event"),
+
+    # Running a stall. Nothing on the site called ANY of the vendor endpoints
+    # until now: somebody who bought a pitch got a stall they could not stock.
+    # Literal segments before the parameterised ones.
+    path("my-stalls/", my_stalls, name="my_stalls"),
+    path("my-stalls/<str:vendor_id>/", my_stall_detail, name="my_stall_detail"),
+    path("my-stalls/<str:vendor_id>/orders/", my_stall_orders, name="my_stall_orders"),
+    path("my-stalls/<str:vendor_id>/orders/<str:code>/status/", my_order_status,
+         name="my_order_status"),
+    path("my-stalls/<str:vendor_id>/products/<int:product_id>/", my_product,
+         name="my_product"),
 
     # Ticketing
     path("my-tickets/", my_tickets, name="my_tickets"),
@@ -67,6 +101,10 @@ urlpatterns = [
          views_self_check_in.self_check_in_settings,
          name="self_check_in_settings"),
     path("<str:event_id>/ticket-types/", ticket_types, name="ticket_types"),
+    # What a purchase costs, from the same function that charges for it. The
+    # panel used to multiply the price by the quantity and disagreed with the
+    # checkout on every tier carrying a group or early bird rate.
+    path("<str:event_id>/quote/", ticket_quote, name="ticket_quote"),
     path("<str:event_id>/sessions/", views_sessions.sessions, name="event_sessions"),
     path("<str:event_id>/sessions/manage/", views_sessions.manage_sessions, name="manage_sessions"),
     path("<str:event_id>/sessions/<int:session_id>/", views_sessions.session_detail, name="session_detail"),
@@ -94,6 +132,13 @@ urlpatterns = [
          name="event_overlay_detail"),
     path("<str:event_id>/overlays/<int:overlay_id>/rotate/", overlay_views.event_overlay_rotate,
          name="event_overlay_rotate"),
+    # Text on top of an uploaded overlay, the same four addresses a tournament
+    # has. An event broadcast has captions exactly as a tournament does.
+    path("<str:event_id>/overlays/<int:overlay_id>/layers/",
+         layer_views.event_overlay_layers, name="event_overlay_layers"),
+    path("<str:event_id>/overlays/<int:overlay_id>/layers/<int:layer_id>/",
+         layer_views.event_overlay_layer_detail,
+         name="event_overlay_layer_detail"),
     # The production studio for an event: the same three routes a tournament
     # has, the same console, the same feed. The graphics differ (a programme
     # rather than a bracket); see BroadcastElement.kinds_for.
@@ -107,6 +152,31 @@ urlpatterns = [
          studio_views.event_session_detail, name="event_studio_session_detail"),
     path("<str:event_id>/studio/sessions/<int:session_id>/element/<str:kind>/",
          studio_views.event_element, name="event_studio_element"),
+    # The four layers, the same four an event broadcast gets.
+    path("<str:event_id>/studio/sessions/<int:session_id>/slot/<str:role>/",
+         studio_views.event_slot, name="event_studio_slot"),
+    path("<str:event_id>/studio/sessions/<int:session_id>/element/"
+         "<str:element_kind>/layers/",
+         layer_views.event_element_layers, name="event_studio_element_layers"),
+    path("<str:event_id>/studio/sessions/<int:session_id>/element/"
+         "<str:element_kind>/layers/<int:layer_id>/",
+         layer_views.event_element_layer_detail,
+         name="event_studio_element_layer_detail"),
+    # The run of show. Minute by minute, who owns each cue, and a share
+    # address the organiser decides the visibility of. Same routes on a
+    # tournament; see vent_tournament/urls.py.
+    path("<str:event_id>/run-of-show/", runsheet_views.event_run_sheet,
+         name="event_run_sheet"),
+    path("<str:event_id>/run-of-show/import/", runsheet_views.event_import,
+         name="event_run_sheet_import"),
+    path("<str:event_id>/run-of-show/days/", runsheet_views.event_days,
+         name="event_run_sheet_days"),
+    path("<str:event_id>/run-of-show/days/<int:day_id>/",
+         runsheet_views.event_day_detail, name="event_run_sheet_day"),
+    path("<str:event_id>/run-of-show/items/", runsheet_views.event_items,
+         name="event_run_sheet_items"),
+    path("<str:event_id>/run-of-show/items/<int:item_id>/",
+         runsheet_views.event_item_detail, name="event_run_sheet_item"),
     path("<str:event_id>/short-links/", views_short_links.short_links,
          name="event_short_links"),
     path("<str:event_id>/short-links/<int:link_id>/",
@@ -124,9 +194,41 @@ urlpatterns = [
     path("<str:event_id>/tiers/<int:tier_id>/delete/", views_tiers.delete_tier, name="delete_tier"),
     path("<str:event_id>/buy-ticket/", buy_ticket, name="buy_ticket"),
     path("<str:event_id>/attendees/", event_attendees, name="event_attendees"),
+    # Asking about a ticket WITHOUT admitting anybody. Before these, the only
+    # way to put a code to the server was `check-in/`, which admits as a side
+    # effect, so Search could not use it and the door filtered a snapshot in
+    # the browser instead. See views_door.
+    path("<str:event_id>/door-search/", views_door.door_search,
+         name="door_search"),
+    path("ticket/<str:code>/lookup/", views_door.ticket_lookup,
+         name="ticket_lookup"),
+    # Taking a check-in back. A steward scans the wrong phone constantly, and
+    # without this the number is simply wrong afterwards.
+    path("ticket/<str:code>/undo-check-in/", views_door.undo_check_in,
+         name="undo_check_in"),
+    path("<str:event_id>/door-summary/", views_door.door_summary,
+         name="door_summary"),
+    path("<str:event_id>/door-lookups/", views_door.door_lookups,
+         name="door_lookups"),
     # What the event did: sold, turned up, and what is left.
     path("<str:event_id>/metrics/", views_metrics.event_metrics,
          name="event_metrics"),
+    # Public and unauthenticated: the people being counted are the ones who
+    # have not signed in, which is the whole point of counting them.
+    path("<str:event_id>/track/", views_track.track, name="event_track"),
+    # What the event earned, who bears the platform fee, and paying everybody
+    # in one pass rather than one at a time.
+    path("<str:event_id>/earnings/", views_ledger.earnings,
+         name="event_earnings"),
+    path("<str:event_id>/fee-bearer/", views_ledger.set_fee_bearer,
+         name="event_fee_bearer"),
+    path("<str:event_id>/settle/", views_ledger.settle, name="event_settle"),
+    # Giving a ticket to somebody else. Addressed by CODE rather than by event,
+    # because the person doing it is holding the code and nothing else.
+    path("ticket/<str:code>/transfer/", views_transfer.transfer_ticket,
+         name="ticket_transfer"),
+    path("ticket/<str:code>/transfers/", views_transfer.transfer_history,
+         name="ticket_transfer_history"),
     path("<str:event_id>/metrics/export/", views_metrics.export_metrics,
          name="export_event_metrics"),
     # A message from the organiser to everybody holding a ticket.
@@ -158,6 +260,12 @@ urlpatterns = [
     path("<str:event_id>/promos/<int:promo_id>/", event_promo_detail, name="event_promo_detail"),
     path("<str:event_id>/managers/", event_managers, name="event_managers"),
     path("<str:event_id>/managers/<int:manager_id>/", event_manager_detail, name="event_manager_detail"),
+
+    # Who reached the payment page and never paid, and the one reminder
+    path("<str:event_id>/abandoned/", views_recovery.abandoned_checkouts,
+         name="abandoned_checkouts"),
+    path("<str:event_id>/abandoned/remind/", views_recovery.remind_abandoned,
+         name="remind_abandoned"),
 
     # Tournament linking
     path("<str:event_id>/tournaments/", event_tournaments, name="event_tournaments"),

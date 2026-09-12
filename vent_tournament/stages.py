@@ -35,6 +35,27 @@ class StageError(ValueError):
         self.index = index
 
 
+def _when(value, field):
+    """An instant, or None. Sent as ISO by the browser, which is the only side
+    that knows which zone the organiser typed in."""
+    if value in ('', None):
+        return None
+    from django.utils.dateparse import parse_datetime
+    from django.utils import timezone as tz
+
+    parsed = parse_datetime(str(value))
+    if parsed is None:
+        raise StageError('That is not a date and time.', field)
+    if tz.is_naive(parsed):
+        # A naive value would be read as the SERVER's zone, which is how an
+        # organiser in Lagos typing 10:00 creates a stage that starts at 11:00
+        # their time. The browser converts before sending; anything that gets
+        # here without a zone is treated as UTC and said so in the comment
+        # rather than guessed at silently.
+        parsed = tz.make_aware(parsed, tz.utc)
+    return parsed
+
+
 def clean(raw):
     """Check one proposed stage and return the stored form."""
     if not isinstance(raw, dict):
@@ -67,11 +88,26 @@ def clean(raw):
     if groups < 0 or groups > 64:
         raise StageError('Between 0 and 64 groups. Zero means one field.', 'groups')
 
+    place = str(raw.get('place_type') or '').strip().lower()
+    if place not in ('', 'online', 'physical', 'hybrid'):
+        raise StageError('A stage is online, at a venue, or both.', 'place_type')
+
+    starts_at = _when(raw.get('starts_at'), 'starts_at')
+    ends_at = _when(raw.get('ends_at'), 'ends_at')
+    if starts_at and ends_at and ends_at < starts_at:
+        raise StageError('A stage cannot end before it starts.', 'ends_at')
+
     return {
         'format': fmt.key,
         'label': label,
         'advances': advances,
         'groups': groups,
+        # Blank means the tournament's own, which is what most stages want.
+        'starts_at': starts_at,
+        'ends_at': ends_at,
+        'place_type': place,
+        'location': str(raw.get('location') or '').strip()[:255],
+        'virtual_link': str(raw.get('virtual_link') or '').strip()[:400],
         # The stage's own scoring. Absent means the format's standard rules,
         # which is what most stages want.
         'rules': raw.get('rules') if isinstance(raw.get('rules'), dict) else None,

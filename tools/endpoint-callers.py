@@ -66,6 +66,26 @@ INCLUDE = re.compile(r"""\bpath\(\s*['"]([^'"]*)['"]\s*,\s*include\(\s*['"]([^'"
 # here is a decision, not an oversight, which is the whole difference.
 DELIBERATE = {
     'admin/': 'Django admin',
+    # Superseded by `team/kick-member/`, which is what every screen calls
+    # and which takes ids rather than names. Kept rather than deleted
+    # because it is a public API shape somebody outside this repo may
+    # still be posting to; it is not something a screen should start
+    # calling, because two endpoints doing one job is how they drift.
+    'team/remove-member/': 'legacy, superseded by team/kick-member/',
+    # Six endpoints superseded by a newer one that every screen calls. Kept
+    # rather than deleted because each is a public shape somebody outside this
+    # repo may still post to, and named here rather than left in the orphan
+    # list, because a list that mixes "nobody built the screen" with "nothing
+    # should call this" is a list nobody works down. That is exactly what
+    # happened: seventeen sat in a baseline for weeks.
+    'change-fullname/': 'legacy, superseded by auth/edit-profile-info/ which takes fullname',
+    'save-username/': 'legacy, superseded by auth/edit-profile-info/ which takes username',
+    'edit-favorite-games/': 'legacy, superseded by auth/update-favorite-games/',
+    'social-auth/': 'legacy, superseded by the NextAuth providers and verify-google-token',
+    'team/assign-new-role/': 'legacy, superseded by team/<id>/set-role/',
+    'team/get-team-details/': 'legacy, superseded by team/view-team/<id>/',
+    'tournament/join-tournament/': 'an alias of register-tournament, which is what the screen calls',
+    'wallet/deduct/': 'server side only: tournaments and tickets debit through it, never a screen',
     'api/v1/': 'the partner API, called by partners rather than by us',
     'partners/sso/token/': 'called by a partner server, never by a browser',
     'partners/sso/userinfo/': 'called by a partner server',
@@ -85,12 +105,41 @@ DELIBERATE = {
     # fetched by exactly the same runtime for exactly the same reason.
     'event/<str:event_id>/overlay-feed/':
         'fetched by the overlay runtime inside OBS, not by the site',
-    # The scraper posts card rows here from a desktop with a real browser
-    # profile, because Futbin sits behind Cloudflare. See
-    # `tools/scrape-futbin.mjs`. Nothing in the site should ever write to the
-    # card catalogue.
+    # A machine endpoint. The card scraper POSTs a batch here with an
+    # `X-Cards-Key` header, and answers 503 INGEST_NOT_CONFIGURED when no key
+    # is set on the server. Giving it a screen would mean putting a shared
+    # secret in a browser, so the right answer here is a reason rather than a
+    # caller.
     'cards/ingest/':
-        'posted to by tools/scrape-futbin.mjs, never by the site',
+        'the card scraper POSTs here with X-Cards-Key; a browser must never hold that key',
+    # Discord POSTs a slash command here. It is not called by the site and
+    # must not be: the Ed25519 signature is its authentication, and a browser
+    # cannot produce one.
+    'discord/interactions/':
+        'Discord POSTs slash commands here; the Ed25519 signature is the auth',
+    # The formation catalogue rides on every lineup response (`formations`
+    # beside `window`, `squad_rules` and `violations`), because the picker
+    # needs all four at once and a second request would be a second copy of
+    # the same list. The bare route stays for the partner API and the tests.
+    'cards/formations/':
+        'carried on every lineup response; the picker never asks for it alone',
+    # Discord sends the BROWSER here after the organiser adds the bot to a
+    # server. The address is registered in the Discord application as the
+    # redirect, so the caller is Discord's consent page, not a screen of ours.
+    'discord/guild/callback/':
+        'the redirect Discord sends the browser to after installing the bot',
+    # The old six-digit signup code. Verification is a link now
+    # (`auth/verify/`, and the `/email-verified/<key>/<value>` page it lands
+    # on), so nothing should send a code to an address with no account.
+    'send-code/':
+        'legacy, superseded by the link-based verification the signup flow uses',
+    # Two models for what a win is worth, now joined at the write. The rules
+    # editor is the one screen, and `tournament/<id>/rules/set/` carries the
+    # points and the tiebreakers into the LeagueRules row the standings are
+    # computed from. A second screen writing this directly is how the two
+    # would start disagreeing again.
+    'tournament/<str:tournament_id>/league-rules/':
+        'superseded by tournament/<id>/rules/set/, which writes the league row too',
 }
 
 
@@ -484,11 +533,32 @@ def main():
         print('\nAn endpoint nobody can reach is not built. Either call it from a')
         print('screen, or add it to DELIBERATE in tools/endpoint-callers.py with')
         print('the reason it is not meant to be called.')
+        # LAST, because check-all reads the last line and the debt ledger takes
+        # the number out of it. On 12 September the ledger held the sentence
+        # above as this checker's count, which is a count nobody can act on.
+        print('%d endpoint(s) checked, %d with no screen'
+              % (len(called) + len(skipped) + len(fresh), len(fresh)))
         return 1
 
-    print('%d endpoints, %d called, %d known orphans, %d deliberate. No new ones.'
-          % (len(called) + len(orphaned) + len(skipped),
-             len(called), len(names), len(skipped)))
+    # The summary says how many endpoints have NO SCREEN, first and plainly.
+    #
+    # This checker existed for exactly the question the CEO asked on 9
+    # September - "is there anything with backend code and no frontend ui" -
+    # and it answered "No new ones" while seventeen endpoints had no screen,
+    # because a baseline had recorded them as accepted and nothing ever worked
+    # the list down. A baseline is a decision to ignore something, and it was
+    # made without anybody deciding.
+    #
+    # So the count is in the line the debt ledger reads. It cannot rise, it is
+    # printed on every commit, and it goes down only by building a screen or by
+    # writing a reason into DELIBERATE.
+    print('%d called, %d deliberately not called. Run --list to see the rest.'
+          % (len(called), len(skipped)))
+    # LAST, because check-all reads the last line and the debt ledger reads the
+    # number out of it. Printing the interesting number first and a friendly
+    # sentence after it is how a checker ends up recording the wrong figure.
+    print('%d endpoint(s) checked, %d with no screen'
+          % (len(called) + len(orphaned) + len(skipped), len(names)))
     return 0
 
 

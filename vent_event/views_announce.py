@@ -69,10 +69,17 @@ def _event(event_id):
 
 
 def _may_send(user, event):
-    if event.creator_id == user.user_id:
+    # One rule, in permissions.py. This used to ask EventManager directly, as
+    # five other screens did, and each had its own idea of which roles counted.
+    from .permissions import may_run_event
+    if may_run_event(user, event):
         return True
-    return EventManager.objects.filter(
-        event=event, user=user, role='manager').exists()
+    # And an admin holding `manage_events`, which is how the console sends one
+    # WITHOUT a second announcement model beside this one. `may_override` asks
+    # for the same second factor the console door does, so an ordinary session
+    # belonging to an admin does not reach this.
+    from vent_auth.actors import may_override
+    return may_override(user, 'manage_events')
 
 
 def _recipients(event, audience):
@@ -184,6 +191,14 @@ def announcements(request, event_id):
                             link=link,
                             metadata={'event_id': event.event_id,
                                       'announcement_id': row.id})
+
+    # And any Discord channel this event announces into. After the inbox,
+    # which is the write that must not be at the mercy of a third party.
+    try:
+        from vent_auth.views_discord_webhooks import announce as discord_announce
+        discord_announce(event, 'announcement', subject, body[:1500], path=link)
+    except Exception:                                           # noqa: BLE001
+        logger.exception('discord announcement failed')
 
     failures = 0
     for address in addresses:

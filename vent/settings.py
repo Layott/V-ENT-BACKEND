@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 import pymysql
 from django.core.exceptions import ImproperlyConfigured
@@ -35,6 +36,34 @@ SECRET_KEY = os.environ.get("SECRET_KEY")
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+
+# Whether subscriptions are open, as a decision rather than an accident.
+#
+# `vent_billing` shipped on 8 September with no switch and went live because it
+# deployed. Nothing was charged only because production carries no Paystack key
+# and nothing schedules the renewal run, which are two accidents standing in
+# for a decision. See `vent_billing/switch.py`.
+#
+# Default '1', which is exactly what production does today. Set to '0' and
+# every billing endpoint answers BILLING_OFF and the renewal command refuses to
+# run. Nothing is written either way, so it can be turned back on unchanged.
+BILLING_ENABLED = os.environ.get('BILLING_ENABLED', '1') == '1'
+
+# Vermillion City. Defaults to '0', which is the OPPOSITE of billing's default
+# and is the point: the marketplace is built and closed, and a feature that is
+# off unless somebody says otherwise cannot be turned on by an unrelated deploy.
+# Billing went live by accident on 8 September for exactly that reason.
+#
+# The site reads the AND of this and the console's module flag, so turning this
+# on alone changes nothing anybody can see until an admin agrees.
+MARKETPLACE_ENABLED = os.environ.get('MARKETPLACE_ENABLED', '0') == '1'
+
+# The anime module: manga uploads, the reader, co-reading rooms and the
+# character battles. Same default and the same reason as the marketplace, from
+# the same instruction: "still locked and not open to public". Its own env var
+# rather than a shared one, so the two can open independently and neither can
+# open the other by accident.
+ANIME_ENABLED = os.environ.get('ANIME_ENABLED', '0') == '1'
 
 # Fail loudly rather than booting production on a missing/dev key.
 if not DEBUG and (not SECRET_KEY or SECRET_KEY.startswith('django-insecure-')):
@@ -103,6 +132,10 @@ INSTALLED_APPS = [
     'allauth.socialaccount',
     'allauth.socialaccount.providers.google',
     'allauth.socialaccount.providers.facebook',
+    # Organiser subscriptions and memberships. Its own app so recurring
+    # billing does not sit inside the wallet: the two are related and the
+    # failure modes are not.
+    'vent_billing',
     'rest_framework',
     'dj_rest_auth',
     'dj_rest_auth.registration',
@@ -148,6 +181,11 @@ _DEV_ORIGINS = [
     "http://127.0.0.1:3005",
     "http://localhost:3100",
     "http://127.0.0.1:3100",
+    # 3005 as well: on the main dev machine 3000, 3001 and 3002 are all held by
+    # other local projects at once, and a walk on a port that is not here fails
+    # as "Failed to fetch" with nothing anywhere mentioning CORS.
+    "http://localhost:3005",
+    "http://127.0.0.1:3005",
 ]
 
 
@@ -159,6 +197,23 @@ def _origins(env_name):
 
 CORS_ALLOWED_ORIGINS = _origins('CORS_ALLOWED_ORIGINS')
 CSRF_TRUSTED_ORIGINS = _origins('CSRF_TRUSTED_ORIGINS')
+
+# Any localhost port, but only while DEBUG.
+#
+# The list above has been extended four times, once per port somebody happened
+# to start a dev server on, and each time the symptom was the same: the page
+# renders its shell, every fetch answers "Failed to fetch", and nothing in the
+# browser or the server log says the word CORS. It cost an hour on 8 September
+# on port 3200, with the warning about exactly this written three lines above.
+#
+# A regex ends the class. It is guarded by DEBUG, so production still answers
+# only the origins it was configured with, and the named list stays because it
+# is what documents the ports people actually use.
+if DEBUG:
+    CORS_ALLOWED_ORIGIN_REGEXES = [
+        r'^http://localhost:\d+$',
+        r'^http://127\.0\.0\.1:\d+$',
+    ]
 
 SITE_ID = 1
 
@@ -331,8 +386,25 @@ SOCIALACCOUNT_PROVIDERS = {
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
 
+# Looking an address up with OpenStreetMap. On by default, and OFF under the
+# test runner: `Event.save()` geocodes, so with it on every test that creates
+# an event with an address reaches a third party. A test that wants the real
+# thing overrides this with `@override_settings(GEOCODING_ENABLED=True)` and
+# stubs the network, which is what `tests_geocode` already does.
+GEOCODING_ENABLED = (
+    os.environ.get('GEOCODING_ENABLED', '') != '0'
+    and 'test' not in sys.argv
+)
+
 # Email Backend
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+#
+# Overridable so a local machine, which cannot reach the relay, can still walk
+# every screen that sends something. Without this the whole mail surface is
+# untestable in a browser: a send simply fails, and a page that reports the
+# failure badly looks identical to one that reports it well. Production sets
+# nothing and keeps SMTP.
+EMAIL_BACKEND = os.environ.get(
+    'EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
 
 # SMTP Configuration
 # Mail goes to the local Postfix, which relays to the configured provider.
@@ -384,3 +456,34 @@ WAITLIST_CLAIM_BONUS_VC = int(os.environ.get('WAITLIST_CLAIM_BONUS_VC', '0'))
 # the right default: a write endpoint with no key set must refuse everybody
 # rather than accept anybody.
 CARDS_INGEST_KEY = os.environ.get("CARDS_INGEST_KEY", "")
+
+# ---------------------------------------------------------------------------
+# Payouts
+# ---------------------------------------------------------------------------
+
+# The floor and the daily ceiling on a payout, in VENT COINS. The same numbers
+# whichever rail the money leaves by, which is why they are set once here. `0`
+# on the ceiling means no ceiling. A ceiling is what caps how much a stolen
+# account can take out before anybody looks at the queue.
+PAYOUT_MINIMUM_VC = int(os.environ.get('PAYOUT_MINIMUM_VC', '5'))
+PAYOUT_DAILY_MAX_VC = int(os.environ.get('PAYOUT_DAILY_MAX_VC', '500'))
+
+# Whether somebody may ask to be paid in USDT.
+#
+# OFF, deliberately, and it is not a stub: the whole request pipeline is built,
+# tested and ready - the address, the proof it belongs to them, the network
+# check, the hold, the approval, the audit line, the notification. What is NOT
+# decided is the custody question in `tasks/specs/crypto-and-custody.md`, which
+# is whose key signs the send, and there is no funded float or agreed USDT rate
+# behind it either.
+#
+# Switching it on before those exist would hold somebody's balance for a payout
+# nobody can complete, which is worse than not offering it. One environment
+# variable opens it the day the answer arrives.
+USDT_PAYOUTS_ENABLED = os.environ.get('USDT_PAYOUTS_ENABLED', '0') == '1'
+
+# Who checks identity. `in_house` means a V-ENT reviewer reads the uploaded
+# document, which is what actually happens today. See `vent_auth/kyc.py` for
+# the three providers under consideration and what has to be decided first.
+KYC_PROVIDER = os.environ.get('KYC_PROVIDER', 'in_house')
+
