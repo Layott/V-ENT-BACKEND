@@ -2119,10 +2119,22 @@ class EventLedgerEntry(models.Model):
     ticket = models.ForeignKey(Ticket, on_delete=models.SET_NULL, null=True,
                                blank=True, related_name='ledger')
 
+    # The money, in NAIRA, exact. CEO, 12 September 2026: "V-ent takes 5% +
+    # N100 of all tickets sold." One coin is 1,000 naira, so a 200 naira fee
+    # on a 2,000 naira ticket is not a coin, and a ledger that held whole
+    # coins wrote it as 0 on every ticket under 20,000. The line holds naira;
+    # a settlement pays the whole coins a person's naira has reached and
+    # carries the rest (see ledger.settle). `amount_vc` is that naira floored
+    # to coins, for the screens that render coins; the naira is the truth.
+    amount_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    gross_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    fee_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     amount_vc = models.IntegerField(default=0)
     gross_vc = models.IntegerField(default=0)
     fee_vc = models.IntegerField(default=0)
     fee_pct = models.FloatField(default=0)
+    # The flat part of the fee, per ticket, stamped like the rate is.
+    fee_flat_ngn = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     fee_bearer = models.CharField(max_length=16, default='organiser')
     quantity = models.PositiveIntegerField(default=1)
     note = models.CharField(max_length=200, blank=True, default='')

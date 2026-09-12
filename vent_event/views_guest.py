@@ -354,16 +354,15 @@ def guest_buy(request, event_id):
         return err
 
     from . import ledger as _ledger
-    priced = _ledger.quote(tier, quantity, event)
+    # A naira checkout: with the fee on the buyer it is IN the amount the
+    # card is charged, exact, not reconciled afterwards. A guest has no wallet
+    # to take it from later, and a fee collected from nowhere is a fee nobody
+    # paid. The quote knows the channel and puts the fee where it can go.
+    priced = _ledger.quote(tier, quantity, event, channel='naira')
     unit_ngn = priced['unit_ngn']
     unit_vc = priced['unit_vc']
-    total_ngn = unit_ngn * quantity
-    # With the fee passed to the buyer it has to be IN the amount the card is
-    # charged, not reconciled afterwards: a guest has no wallet to take it from
-    # later, and a fee collected from nowhere is a fee nobody paid.
-    from vent_auth.views_wallet import NGN_PER_COIN
-    fee_ngn = int(priced['fee_vc'] * NGN_PER_COIN) if priced['fee_bearer'] == 'buyer' else 0
-    total_ngn = total_ngn + fee_ngn
+    fee_ngn = priced['fee_ngn'] if priced['buyer_pays_fee'] else 0
+    total_ngn = float(priced['total_ngn'])
 
     # ------------------------------------------------------------------ free
     if total_ngn <= 0:

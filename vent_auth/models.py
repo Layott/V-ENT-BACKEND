@@ -1417,11 +1417,14 @@ DEFAULT_ADMIN_SETTINGS = {
         'tournament_fee_pct': 0,
         'withdrawal_fee_pct': 0,
         'listing_fee_pct': 0,
-        # What the platform takes from a ticket sale. Whether the buyer or the
-        # organiser bears it is the EVENT's setting; this is the rate. Stamped
-        # on each ledger line at the sale, so changing it here never rewrites
-        # what an event earned before the change.
-        'ticket_fee_pct': 0,
+        # What the platform takes from a ticket sale: a percentage of the
+        # price plus a flat amount per paid ticket. CEO, 12 September 2026:
+        # "V-ent takes 5% + N100 of all tickets sold." Whether the buyer or
+        # the organiser bears it is the EVENT's setting; this is the rate.
+        # Stamped on each ledger line at the sale, so changing it here never
+        # rewrites what an event earned before the change.
+        'ticket_fee_pct': 5,
+        'ticket_fee_flat_ngn': 100,
         'payout_min_vc': 0,
         'topup_max_ngn_per_day': 0,
     },

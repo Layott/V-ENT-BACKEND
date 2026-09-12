@@ -97,6 +97,14 @@ def person(handle, coins=0, admin_role=None):
     if not user.has_usable_password():
         user.set_password(WALK_PASSWORD)
         user.save(update_fields=['password'])
+    # A fresh session token when the last one was cleared (a sign-out on the
+    # site clears it) or has aged past the session timeout.
+    stale = (not user.login_session_token or user.login_session_created_at is None
+             or timezone.now() - user.login_session_created_at > timezone.timedelta(minutes=100))
+    if stale:
+        user.login_session_token = ('wk%s' % uuid.uuid4().hex)[:16]
+        user.login_session_created_at = timezone.now()
+        user.save(update_fields=['login_session_token', 'login_session_created_at'])
     wallet = UserWallet.objects.filter(user=user).first()
     if wallet is None:
         wallet = UserWallet.objects.create(
@@ -794,14 +802,17 @@ def influencer():
         else:
             if int(me.get('tickets_sold') or 0) < 1:
                 fail('the influencer sees the sale', me)
-            # 10% of a 3,000 naira (3 coin) ticket floors to 0 coins; the
-            # ledger line is what is checked, not a number the walk guesses.
+            # 10% of a 3,000 naira ticket is 300 naira, under a coin; the
+            # ledger holds it in naira and the screen says the naira.
+            from decimal import Decimal
             from vent_event.models import EventLedgerEntry
-            ledger_owed = sum(l.amount_vc for l in EventLedgerEntry.objects.filter(
-                referral=ref, kind='affiliate', settled_at__isnull=True))
-            if int(me.get('owed_vc') or 0) != ledger_owed:
+            ledger_owed = sum((l.amount_ngn for l in EventLedgerEntry.objects.filter(
+                referral=ref, kind='affiliate', settled_at__isnull=True)), Decimal('0'))
+            if ledger_owed <= 0:
+                fail("the influencer's 10% is on the ledger in naira", ledger_owed)
+            if float(me.get('owed_ngn') or 0) != float(ledger_owed):
                 fail('the influencer sees what the ledger says they are owed',
-                     (me.get('owed_vc'), ledger_owed))
+                     (me.get('owed_ngn'), ledger_owed))
             if not (me.get('url') or '').endswith('?ref=BIGST'):
                 fail('the influencer sees the link to post', me.get('url'))
             if (me.get('event') or {}).get('slug') != slug:
@@ -924,17 +935,25 @@ def numbers():
         by_day[day] = by_day.get(day, 0) + 1
 
     lines = EventLedgerEntry.objects.filter(event=event)
+    from decimal import Decimal
 
+    # In naira, exact, since 12 September: the platform's 5% + 100 per
+    # ticket and the influencer's share are under a coin on most tickets.
     def ledger(kind, settled=None):
         q = lines.filter(kind=kind) | lines.filter(kind='reversal', reverses__kind=kind)
         if settled is not None:
             q = q.filter(settled_at__isnull=not settled)
-        return sum(l.amount_vc for l in q)
-    gross = sum(l.gross_vc for l in lines.filter(kind='organiser'))
+        return sum((l.amount_ngn for l in q), Decimal('0'))
+    gross = sum((l.gross_ngn for l in lines.filter(kind='organiser')), Decimal('0'))
     truth['ledger_gross'] = gross
+    truth['revenue_ngn'] = sum((Decimal(str(t.price_ngn or 0)) for t in live), Decimal('0'))
     truth['organiser_owed'] = ledger('organiser', settled=False)
     truth['platform_fee'] = ledger('platform')
     truth['affiliate_owed'] = ledger('affiliate', settled=False)
+    # Every paid ticket's fee, computed here from the rule: 5% + 100 naira.
+    from vent_event.ledger import fee_for, platform_fee
+    pct, flat = platform_fee()
+    truth['fee_by_rule'] = sum((fee_for(t.price_ngn, 1, pct, flat) for t in live), Decimal('0'))
 
     # ---- the screens
     money = expect(c.get('/event/%s/money/' % slug), 200, 'the money tab')
@@ -969,15 +988,18 @@ def numbers():
     for day, n in by_day.items():
         check('summary by_day %s' % day, (summary.get('by_day') or {}).get(day), n)
 
-    # the ledger: every coin taken is owed to somebody, and the screen says so
-    check('ledger gross = ticket revenue', gross, truth['revenue_vc'])
-    check('ledger organiser + platform + affiliate = gross',
-          ledger('organiser') + ledger('platform') + ledger('affiliate'), gross)
-    check('earnings organiser_owed_vc', earnings.get('organiser_owed_vc'), truth['organiser_owed'])
-    check('earnings platform_fee_vc', earnings.get('platform_fee_vc'), truth['platform_fee'])
-    check('earnings affiliates_owed_vc', earnings.get('affiliates_owed_vc'), truth['affiliate_owed'])
-    check('money owed.vc = organiser owed + affiliates owed',
-          (money.get('owed') or {}).get('vc'), truth['organiser_owed'] + truth['affiliate_owed'])
+    # the ledger: every naira taken is owed to somebody, and the screen says so
+    check('ledger gross = ticket revenue (naira)', gross, truth['revenue_ngn'])
+    # A guest who paid the fee on top: the gross is the ticket price and the
+    # platform line is on top of it, so the sum is gross plus those fees.
+    buyer_borne = sum((l.fee_ngn for l in lines.filter(kind='platform', fee_bearer='buyer')), Decimal('0'))
+    check('ledger organiser + platform + affiliate = gross (+ fees buyers paid on top)',
+          ledger('organiser') + ledger('platform') + ledger('affiliate'), gross + buyer_borne)
+    check('platform fee = 5% + 100 on every paid ticket', truth['platform_fee'], truth['fee_by_rule'])
+    check('earnings organiser_owed_ngn', earnings.get('organiser_owed_ngn'), truth['organiser_owed'])
+    check('earnings platform_fee_ngn', earnings.get('platform_fee_ngn'), truth['platform_fee'])
+    check('earnings affiliates_owed_ngn', earnings.get('affiliates_owed_ngn'), truth['affiliate_owed'])
+    check('earnings fee_pct and fee_flat_ngn', (earnings.get('fee_pct'), earnings.get('fee_flat_ngn')), (pct, float(flat)))
 
     # vendor sales: what the stall's orders endpoint totals against the orders
     for stall in Vendor.objects.filter(event=event):
@@ -1000,9 +1022,9 @@ def numbers():
     for row in mine.get('results') or []:
         if (row.get('event') or {}).get('slug') != slug:
             continue
-        owed = sum(l.amount_vc for l in lines.filter(referral_id=row.get('id'), settled_at__isnull=True)
-                   .filter(Q(kind='affiliate') | Q(kind='reversal', reverses__kind='affiliate')))
-        check('payee %s owed_vc' % row.get('code'), row.get('owed_vc'), owed)
+        owed = sum((l.amount_ngn for l in lines.filter(referral_id=row.get('id'), settled_at__isnull=True)
+                    .filter(Q(kind='affiliate') | Q(kind='reversal', reverses__kind='affiliate'))), Decimal('0'))
+        check('payee %s owed_ngn' % row.get('code'), row.get('owed_ngn'), owed)
 
     save_state(st)
     say('numbers: %d mismatch(es)' % mismatches)

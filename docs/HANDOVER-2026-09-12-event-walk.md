@@ -15,7 +15,39 @@ possible, then fix everything wrong or hat might even have potental to cause
 any issues." And mid-walk: "when i said full test, i also meant claude chrome
 full UI test also. not jsut code."
 
-## 1. The one decision only the CEO can make: the size of a coin
+## 0. Decided the same evening: "V-ent takes 5% + N100 of all tickets sold" (row 261)
+
+The CEO answered section 1 with the fee rule, not a coin size. So the ledger
+now holds NAIRA and coins are what a wallet receives:
+
+- `EventLedgerEntry` gained `amount_ngn`, `gross_ngn`, `fee_ngn`,
+  `fee_flat_ngn` (migration 0046, which backfills existing lines from their
+  coins). `amount_vc` stays as the whole-coin floor for coin screens.
+- The fee is `price x 5% + 100 naira` per PAID ticket (`ledger.fee_for`),
+  free tickets none, both numbers admin settings (`ticket_fee_pct` 5,
+  `ticket_fee_flat_ngn` 100, both stamped on the line at the sale). The admin
+  settings page now has both fields; it had neither.
+- A settlement pays each person the whole coins their naira has reached and
+  writes the remainder out of the run and into an open carry line, so "paid"
+  reads exactly the coins that moved and nothing under a coin is lost. The
+  influencer's 300 naira on a 3,000 naira ticket waits for the next payout
+  instead of being zeroed.
+- Who pays it: a guest paying naira at Paystack with the fee on the buyer pays
+  price plus fee exactly (`channel=naira` on the quote, `buyer_pays_fee`). A
+  wallet buyer pays the price in coins, because 2,200 naira is not a whole
+  number of coins, and the fee comes out of the organiser's share for that
+  sale. The Money tab and the buy panel say so.
+- **After deploy:** open Admin > Settings and confirm the ticket fee reads
+  5 and 100. Production may hold a stored `ticket_fee_pct` of 0 from before,
+  and a stored value wins over the default.
+
+Measured: Money tab on a walk event before payout `31,350 NGN (31 VC)` owed,
+after `Paid 31 VC`, `Already paid 31,000 NGN`, `350 NGN (0 VC)` waiting, fee
+`3,350 NGN` = 5% + 100 on every paid ticket (the walk checks the rule against
+every ticket). Guest checkout on a 3,000 naira ticket with the fee on the
+buyer: `Service fee (5% + 100 naira a ticket) 250 NGN`, `Total 3,250 NGN`.
+
+## 1. What the CEO was asked, and how it was answered
 
 One coin is 1,000 naira (`NGN_PER_COIN`), and every naira-to-coin conversion
 floors. Three consequences the walk measured on one event, all correct

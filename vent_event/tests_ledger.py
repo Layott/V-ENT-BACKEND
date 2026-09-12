@@ -20,6 +20,7 @@ The decisions worth pinning:
 - **An affiliate earns from the ticket price, never from the platform's fee.**
 """
 from datetime import time, timedelta
+from decimal import Decimal
 
 from django.test import TestCase
 from django.utils import timezone
@@ -45,11 +46,16 @@ def a_user(name, coins=0):
     return user, {'HTTP_AUTHORIZATION': 'Bearer %s' % user.login_session_token}
 
 
-def set_fee(pct):
+def set_fee(pct, flat=0):
+    """The rate and the flat naira per ticket. The older tests below reason in
+    whole coins on a 20,000 naira ticket and set the flat part to 0 so their
+    arithmetic still reads; FivePercentPlusAHundredTests is the rule as the
+    CEO set it on 12 September."""
     row = AdminSetting.load()
     data = dict(row.data or {})
     fees = dict(data.get('platform_fees') or {})
     fees['ticket_fee_pct'] = pct
+    fees['ticket_fee_flat_ngn'] = flat
     data['platform_fees'] = fees
     row.data = data
     row.save()
@@ -104,9 +110,28 @@ class WhoBearsTheFeeTests(LedgerBase):
         set_fee(10)
         self.event.fee_bearer = Event.FEE_BUYER
         self.event.save(update_fields=['fee_bearer'])
-        q = ledger.quote(self.tier, 1, self.event)
-        self.assertEqual(q['total_vc'], 22)
+        # Paying naira at the card: the fee rides on top, exactly.
+        q = ledger.quote(self.tier, 1, self.event, channel='naira')
+        self.assertTrue(q['buyer_pays_fee'])
+        self.assertEqual(q['total_ngn'], Decimal('22000.00'))
+        self.assertEqual(q['organiser_ngn'], Decimal('20000.00'))
         self.assertEqual(q['organiser_vc'], 20)
+
+    def test_a_wallet_buyer_cannot_carry_the_fee_so_it_comes_off_the_organiser(self):
+        """A coin is 1,000 naira. With the fee on the buyer, a wallet buyer
+        still pays the price in coins (2,200 naira is not a whole number of
+        them) and the fee comes out of the organiser's share for that sale.
+        The quote says so, and the line is stamped with who actually bore it."""
+        set_fee(5, 100)
+        self.event.fee_bearer = Event.FEE_BUYER
+        self.event.save(update_fields=['fee_bearer'])
+        q = ledger.quote(self.tier, 1, self.event, channel='wallet')
+        self.assertFalse(q['buyer_pays_fee'])
+        self.assertEqual(q['total_vc'], 20)
+        self.assertEqual(q['fee_ngn'], Decimal('1100.00'))
+        self.assertEqual(q['organiser_ngn'], Decimal('18900.00'))
+        ledger.record_sale(self.event, [self.a_ticket()], q)
+        self.assertEqual(EventLedgerEntry.objects.get(kind='organiser').fee_bearer, 'organiser')
 
     def test_a_free_ticket_carries_no_fee_either_way(self):
         """A 0 VC ticket that quietly costs 1 VC is the trap, and it would land
@@ -126,6 +151,58 @@ class WhoBearsTheFeeTests(LedgerBase):
         # 1 VC at 10 per cent is 0.1, which is not a coin.
         self.assertEqual(ledger.fee_on(1), 0)
         self.assertEqual(ledger.fee_on(19), 1)
+        # The same fee in naira is exact, and that is what the ledger keeps.
+        self.assertEqual(ledger.fee_for(1000, 1), Decimal('100.00'))
+
+
+class FivePercentPlusAHundredTests(LedgerBase):
+    """CEO, 12 September 2026: "V-ent takes 5% + N100 of all tickets sold." """
+
+    def test_the_defaults_are_five_per_cent_and_a_hundred_naira(self):
+        AdminSetting.objects.all().delete()
+        self.assertEqual(ledger.platform_fee(), (5.0, Decimal('100.00')))
+
+    def test_five_per_cent_plus_a_hundred_per_paid_ticket_in_naira(self):
+        set_fee(5, 100)
+        # 2,000 naira: 100 + 100 = 200 a ticket, three tickets 600.
+        self.assertEqual(ledger.fee_for(2000, 1), Decimal('200.00'))
+        self.assertEqual(ledger.fee_for(2000, 3), Decimal('600.00'))
+        # 20,000 naira: 1,000 + 100.
+        self.assertEqual(ledger.fee_for(20000, 1), Decimal('1100.00'))
+
+    def test_a_free_ticket_carries_no_flat_fee_either(self):
+        set_fee(5, 100)
+        self.assertEqual(ledger.fee_for(0, 4), Decimal('0.00'))
+        free = TicketTier.objects.create(event=self.event, name='Free', price=0, quantity=10)
+        q = ledger.quote(free, 4, self.event, channel='naira')
+        self.assertEqual(q['fee_ngn'], Decimal('0.00'))
+        self.assertEqual(q['total_ngn'], Decimal('0.00'))
+
+    def test_the_platform_line_is_exact_where_coins_would_have_read_zero(self):
+        set_fee(5, 100)
+        cheap = TicketTier.objects.create(event=self.event, name='Cheap', price=2000, quantity=10)
+        ticket = Ticket.objects.create(event=self.event, tier=cheap, user=self.buyer,
+                                       code='LDCHEAP1', price_vc=2, price_ngn=2000)
+        ledger.record_sale(self.event, [ticket], ledger.quote(cheap, 1, self.event))
+        platform = EventLedgerEntry.objects.get(kind='platform')
+        self.assertEqual(platform.amount_ngn, Decimal('200.00'))
+        self.assertEqual(platform.amount_vc, 0)      # the floor, for a coin screen
+        self.assertEqual(platform.fee_pct, 5)
+        self.assertEqual(platform.fee_flat_ngn, Decimal('100.00'))
+        organiser = EventLedgerEntry.objects.get(kind='organiser')
+        self.assertEqual(organiser.amount_ngn, Decimal('1800.00'))
+        figures = ledger.balances(self.event)
+        self.assertEqual(figures['platform_fee_ngn'], Decimal('200.00'))
+        self.assertEqual(figures['organiser_owed_ngn'], Decimal('1800.00'))
+        self.assertEqual(figures['organiser_owed_vc'], 1)
+
+    def test_both_numbers_are_stamped_so_a_later_change_rewrites_nothing(self):
+        set_fee(5, 100)
+        ledger.record_sale(self.event, [self.a_ticket()], ledger.quote(self.tier, 1, self.event))
+        set_fee(12, 500)
+        line = EventLedgerEntry.objects.get(kind='platform')
+        self.assertEqual((line.fee_pct, line.fee_flat_ngn), (5, Decimal('100.00')))
+        self.assertEqual(line.amount_ngn, Decimal('1100.00'))
 
     def test_the_organiser_can_choose_and_a_stranger_cannot(self):
         res = self.client.post('/event/%s/fee-bearer/' % self.event.slug,
@@ -260,6 +337,55 @@ class SettlementTests(LedgerBase):
         self.assertEqual(second.lines_paid, 0)
         self.assertEqual(
             UserWallet.objects.get(user=self.organiser).wallet_balance, 20)
+
+    def test_naira_under_a_coin_is_carried_to_the_next_run_never_lost(self):
+        """1,800 naira owed pays 1 coin and carries 800; another 1,800 makes
+        2,600, pays 2 and carries 600. The influencer's 300 naira on a 3,000
+        naira ticket waits the same way instead of being zeroed."""
+        set_fee(5, 100)
+        cheap = TicketTier.objects.create(event=self.event, name='Cheap', price=2000, quantity=10)
+
+        def sell_cheap(code):
+            ticket = Ticket.objects.create(event=self.event, tier=cheap, user=self.buyer,
+                                           code=code, price_vc=2, price_ngn=2000)
+            ledger.record_sale(self.event, [ticket], ledger.quote(cheap, 1, self.event))
+
+        sell_cheap('LDC1')
+        first = ledger.settle(self.event)
+        self.assertEqual(first.amount_vc, 1)
+        self.assertEqual(UserWallet.objects.get(user=self.organiser).wallet_balance, 1)
+        carried = EventLedgerEntry.objects.get(kind='organiser', settled_at__isnull=True)
+        self.assertEqual(carried.amount_ngn, Decimal('800.00'))
+        self.assertIn('Carried', carried.note)
+        figures = ledger.balances(self.event)
+        self.assertEqual(figures['organiser_owed_ngn'], Decimal('800.00'))
+        # What was PAID reads as exactly the coins that moved, not the naira
+        # of the lines that were stamped: 1,000, with the 800 carried out.
+        self.assertEqual(figures['organiser_paid_ngn'], Decimal('1000.00'))
+        self.assertEqual(figures['organiser_paid_vc'], 1)
+
+        sell_cheap('LDC2')
+        second = ledger.settle(self.event)
+        self.assertEqual(second.amount_vc, 2)
+        self.assertEqual(UserWallet.objects.get(user=self.organiser).wallet_balance, 3)
+        self.assertEqual(ledger.balances(self.event)['organiser_owed_ngn'], Decimal('600.00'))
+        # And a third run with nothing new pays nothing and carries the same.
+        third = ledger.settle(self.event)
+        self.assertEqual(third.amount_vc, 0)
+        self.assertEqual(ledger.balances(self.event)['organiser_owed_ngn'], Decimal('600.00'))
+
+    def test_the_affiliate_share_under_a_coin_waits_rather_than_vanishing(self):
+        set_fee(5, 100)
+        link = EventReferral.objects.create(event=self.event, name='Ada', code='ADA',
+                                            commission_pct=10, payee=self.stranger)
+        tier = TicketTier.objects.create(event=self.event, name='Three', price=3000, quantity=10)
+        ticket = Ticket.objects.create(event=self.event, tier=tier, user=self.buyer,
+                                       code='LDA1', price_vc=3, price_ngn=3000)
+        ledger.record_sale(self.event, [ticket], ledger.quote(tier, 1, self.event), referral=link)
+        self.assertEqual(EventLedgerEntry.objects.get(kind='affiliate').amount_ngn, Decimal('300.00'))
+        ledger.settle(self.event)
+        self.assertEqual(UserWallet.objects.get(user=self.stranger).wallet_balance, 0)
+        self.assertEqual(ledger.balances(self.event)['affiliates_owed_ngn'], Decimal('300.00'))
 
     def test_somebody_owed_on_four_sales_gets_one_payment(self):
         for i in range(4):
