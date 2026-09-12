@@ -97,6 +97,11 @@ def _fee_rate():
     return _ledger.platform_rate()
 
 
+def _ledger_fee():
+    from . import ledger as _ledger
+    return _ledger.platform_fee()
+
+
 def _new_code():
     while True:
         code = 'VT-' + ''.join(secrets.choice(CODE_ALPHABET) for _ in range(8))
@@ -288,6 +293,7 @@ def ticket_types(request, event_id):
             # nothing at all.
             'fee_bearer': event.fee_bearer,
             'fee_pct': _fee_rate(),
+            'fee_flat_ngn': float(_ledger_fee()[1]),
         },
         'Ticket tiers retrieved.',
     )
@@ -336,7 +342,12 @@ def ticket_quote(request, event_id):
     quantity = max(1, min(quantity, MAX_PER_PURCHASE))
 
     from . import ledger as _ledger
-    priced = _ledger.quote(tier, quantity, event, buyer=_maybe_viewer(request))
+    # `channel=naira` is the guest checkout asking; a wallet buyer is the
+    # default. The fee lands in a different place on each, and the panel has
+    # to say the right one.
+    channel = 'naira' if request.query_params.get('channel') == 'naira' else 'wallet'
+    priced = _ledger.quote(tier, quantity, event, buyer=_maybe_viewer(request),
+                           channel=channel)
 
     # Why the unit price is what it is, as a code rather than a sentence, so
     # the screen says it in the reader's language. `list` means nothing moved
@@ -363,10 +374,19 @@ def ticket_quote(request, event_id):
             'unit_vc': priced['unit_vc'],
             'list_unit_vc': list_unit_vc,
             'tickets_vc': priced['tickets_vc'],
+            'tickets_ngn': float(priced['tickets_ngn']),
             'fee_vc': priced['fee_vc'],
+            # The fee as it is: naira, 5% of the price plus the flat amount
+            # per ticket. `fee_vc` is its whole-coin floor and reads 0 on
+            # most tickets; a panel should say the naira.
+            'fee_ngn': float(priced['fee_ngn']),
             'fee_pct': priced['fee_pct'],
+            'fee_flat_ngn': float(priced['fee_flat_ngn']),
             'fee_bearer': priced['fee_bearer'],
+            'buyer_pays_fee': priced['buyer_pays_fee'],
+            'channel': priced['channel'],
             'total_vc': priced['total_vc'],
+            'total_ngn': float(priced['total_ngn']),
             'price_reason': reason,
             # A membership discount is reported BESIDE `price_reason` rather
             # than inside it, because it stacks on top of whatever the tier

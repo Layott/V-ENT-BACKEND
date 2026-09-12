@@ -209,10 +209,12 @@ def mine_for(user):
                          reverses__kind=EventLedgerEntry.KIND_AFFILIATE)))
 
     def per_link(lines):
-        return {row['referral_id']: int(row['n'] or 0)
-                for row in lines.values('referral_id').annotate(n=Sum('amount_vc'))}
+        return {row['referral_id']: float(row['n'] or 0)
+                for row in lines.values('referral_id').annotate(n=Sum('amount_ngn'))}
     owed = per_link(money.filter(settled_at__isnull=True))
     paid = per_link(money.filter(settled_at__isnull=False))
+    from .ledger import ngn_per_coin
+    unit = float(ngn_per_coin())
 
     out = []
     for r in links:
@@ -231,8 +233,12 @@ def mine_for(user):
             'visits': visits,
             'tickets_sold': sold,
             'revenue_vc': int(r.revenue_vc or 0),
-            'owed_vc': owed.get(r.id, 0),
-            'paid_vc': paid.get(r.id, 0),
+            # Naira is the number (300 naira on a 3,000 naira ticket at 10
+            # per cent); the coins are what a settlement has paid or can pay.
+            'owed_ngn': owed.get(r.id, 0.0),
+            'paid_ngn': paid.get(r.id, 0.0),
+            'owed_vc': int(owed.get(r.id, 0.0) // unit),
+            'paid_vc': int(paid.get(r.id, 0.0) // unit),
             'conversion': round(sold * 100.0 / visits, 1) if visits else None,
             'url': share_url(event, r.code),
             'event': {

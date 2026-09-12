@@ -72,5 +72,7 @@ def my_referrals(request):
         'count': len(rows),
         'owed_vc': sum(r['owed_vc'] for r in rows),
         'paid_vc': sum(r['paid_vc'] for r in rows),
+        'owed_ngn': round(sum(r['owed_ngn'] for r in rows), 2),
+        'paid_ngn': round(sum(r['paid_ngn'] for r in rows), 2),
         'tickets_sold': sum(r['tickets_sold'] for r in rows),
     })

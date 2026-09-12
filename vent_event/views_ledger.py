@@ -25,6 +25,8 @@ Who may do what:
   between two accounts on the platform. Cashing out to naira is the wallet's
   own withdrawal path, which already has KYC on it.
 """
+from decimal import Decimal
+
 from django.db.models import Sum
 from rest_framework import status
 from rest_framework.decorators import api_view
@@ -100,6 +102,7 @@ def earnings(request, event_id):
             'code': link.code if link else '',
             'commission_pct': link.commission_pct if link else 0,
             'owed_vc': row['owed_vc'],
+            'owed_ngn': float(row['owed_ngn']),
             'has_payee': bool(link and link.payee_id),
         })
 
@@ -118,19 +121,29 @@ def earnings(request, event_id):
     unclaimed = EventLedgerEntry.objects.filter(
         event=event, kind=EventLedgerEntry.KIND_AFFILIATE,
         user__isnull=True, settled_at__isnull=True
-    ).aggregate(n=Sum('amount_vc'))['n'] or 0
+    ).aggregate(n=Sum('amount_ngn'))['n'] or 0
+    pct, flat = ledger.platform_fee()
 
     return _ok({
         'fee_bearer': event.fee_bearer,
-        'fee_pct': ledger.platform_rate(),
+        'fee_pct': pct,
+        'fee_flat_ngn': float(flat),
+        # Naira is the number; the coins beside each are its whole-coin
+        # floor, which is what a settlement can actually pay into a wallet.
         'organiser_owed_vc': figures['organiser_owed_vc'],
+        'organiser_owed_ngn': float(figures['organiser_owed_ngn']),
         'organiser_paid_vc': figures['organiser_paid_vc'],
+        'organiser_paid_ngn': float(figures['organiser_paid_ngn']),
         'affiliates_owed_vc': figures['affiliates_owed_vc'],
+        'affiliates_owed_ngn': float(figures['affiliates_owed_ngn']),
         'affiliates_paid_vc': figures['affiliates_paid_vc'],
+        'affiliates_paid_ngn': float(figures['affiliates_paid_ngn']),
         'platform_fee_vc': figures['platform_fee_vc'],
+        'platform_fee_ngn': float(figures['platform_fee_ngn']),
         'affiliates': affiliates,
         'settlements': runs,
-        'unclaimed_vc': unclaimed,
+        'unclaimed_vc': int(Decimal(str(unclaimed)) // ledger.ngn_per_coin()),
+        'unclaimed_ngn': float(unclaimed),
     })
 
 
