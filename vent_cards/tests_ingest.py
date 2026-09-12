@@ -36,12 +36,62 @@ class SeedTests(TestCase):
         self.seed('--demo')
         self.assertGreaterEqual(GameCard.objects.count(), 23)
 
-    def test_every_demo_card_carries_both_images(self):
-        """A card with no art draws the fallback, which is a worse demo."""
+    def test_no_demo_card_claims_a_face_it_cannot_prove(self):
+        """CEO, 4 September 2026: "Are the player cards on the website the
+        actual cards from futbin?"
+
+        They are not, and the portraits made that worse rather than better. The
+        seed built a Futbin CDN address out of an EA player id, and the ids in
+        that table are hand-written. Rendered side by side, the famous ones
+        were right and the guessed ones were not: "Victor Osimhen" showed Phil
+        Foden, "Wilfred Ndidi" and "Samuel Chukwueze" showed white players,
+        and Bruno Onyemaechi answered 404.
+
+        A demo showing one player's face under another player's name is worse
+        than one with no faces. Real portraits come from the scraper, which
+        reads the address off the page rather than building it.
+        """
         self.seed('--demo')
         for card in GameCard.objects.all():
-            self.assertTrue(card.image_url, card.name)
-            self.assertTrue(card.frame_url, card.name)
+            self.assertEqual(card.image_url, '', card.name)
+
+    def test_no_demo_card_claims_frame_art_that_does_not_exist(self):
+        """This test used to assert the OPPOSITE, and it was asserting a lie.
+
+        The seed set `frame_url` to
+        `cdn.futbin.com/design/img/cards/tiny/<item_type>.png`, which answers
+        404. Checked on 4 September 2026. So every seeded card asked for a file
+        that is not there, failed, and fell back to a plain coloured band, and
+        the CEO reported the cards as carrying no design.
+
+        A URL known not to resolve is worse than no URL: the card waits on a
+        request that will fail before it can draw anything. `FutCard` builds the
+        whole card from the data now, so the frame is a bonus layer and its
+        absence is the normal case.
+        """
+        self.seed('--demo')
+        for card in GameCard.objects.all():
+            self.assertEqual(card.frame_url, '', card.name)
+
+    def test_demo_stats_are_the_player_rather_than_one_row_repeated(self):
+        """Every demo card carried 80/80/80/80/60/75, which taught nobody
+        anything about a feature whose whole point is the numbers."""
+        self.seed('--demo')
+        shapes = {tuple(sorted(c.stats.items()))
+                  for c in GameCard.objects.all()}
+        self.assertGreaterEqual(len(shapes), 20)
+
+    def test_a_keeper_gets_a_keepers_six_and_not_an_outfielders(self):
+        """PAC on a goalkeeper is wrong in a way a viewer sees immediately."""
+        self.seed('--demo')
+        keeper = GameCard.objects.filter(position='GK').first()
+        self.assertIsNotNone(keeper)
+        self.assertIn('div', keeper.stats)
+        self.assertNotIn('pac', keeper.stats)
+
+        outfield = GameCard.objects.filter(position='ST').first()
+        self.assertIn('pac', outfield.stats)
+        self.assertNotIn('div', outfield.stats)
 
     def test_the_demo_has_a_keeper_and_a_striker_so_a_squad_is_possible(self):
         self.seed('--demo')
@@ -90,6 +140,10 @@ class SeedTests(TestCase):
     def test_a_thin_file_does_not_erase_what_is_already_there(self):
         """The same rule the ingest endpoint keeps: absent means leave alone."""
         self.seed('--demo')
+        # Given a picture by hand, the way a scrape would, so the point of the
+        # test is the thin file and not where the picture came from.
+        GameCard.objects.filter(source_id='231747').update(
+            image_url='https://cdn.futbin.com/content/fifa25/img/players/231747.png')
         before = GameCard.objects.get(source_id='231747')
         self.assertTrue(before.image_url)
 

@@ -68,6 +68,18 @@ def _battle_row(request, battle, viewer=None, deep=False):
         result = battles.decide(battle)
         row.update(result)
         row['may_run'] = _is_admin(request, viewer)
+        if row['may_run']:
+            # The names waiting on a decision, for the one person who can
+            # make it. Until 12 September the approve endpoint had no screen:
+            # the list of what to approve was sent to nobody, so the button
+            # could not be drawn. The endpoint had a caller in the tests and
+            # none in the site, which the whole-frontend checker read as fine.
+            row['pending'] = [{
+                'name': c.name, 'source': c.source,
+                'nominated_by': c.nominated_by.username if c.nominated_by else None,
+                'created_at': c.created_at,
+            } for c in battle.characters.filter(is_approved=False)
+                .select_related('nominated_by').order_by('created_at')]
         if viewer is not None and viewer.is_authenticated:
             mine = AttributeVote.objects.filter(
                 user=viewer, character__battle=battle).values_list(

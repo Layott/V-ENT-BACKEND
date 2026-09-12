@@ -82,7 +82,7 @@ GATE_ID = re.compile(r'^\*\*([A-Z][A-Za-z0-9.]*)\*\*|^([A-Z][A-Za-z0-9.]*):')
 # Commands cheap enough to run every time. Matched against the command with
 # any leading `cd <dir> &&` removed.
 CHEAP = re.compile(
-    r'^(grep|ls|wc|find|cat)\b'
+    r'^(grep|ls|wc|find|cat|echo)\b'
     r'|^node\s+(scripts|tools)/(check|dict)-'
     r'|^python\s+tools/'
     r'|^\S*python\S*\s+manage\.py\s+makemigrations\s+--check')
@@ -169,7 +169,10 @@ def parse(path):
                     continue
             em = EXPECT.match(lines[j])
             if em and check and not expect:
-                expect = em.group(1).strip().strip('`').strip()
+                # The backticks are KEPT: they are what says "literal" to
+                # passes(), and stripping them here is why a six word
+                # literal was waved through as a sentence.
+                expect = em.group(1).strip()
         boxes.append({'file': os.path.relpath(path, ROOT).replace('\\', '/'),
                       'id': gid, 'ticked': ticked,
                       'check': check, 'expect': expect})
@@ -224,7 +227,24 @@ def passes(code, output, expect):
         return False
     if not expect:
         return True
-    want = expect.strip().strip('`').strip('.')
+    raw = expect.strip()
+    want = raw.strip('`').strip('.')
+    # Written in backticks, it is a literal the output has to carry, however
+    # many words it has. Found on 12 September: a gate expecting
+    # `0 that can spin for ever` was read as "passing" against an output of
+    # "41 that can spin for ever", because six words looked like a sentence
+    # and a sentence was waved through on exit 0, and `tail -1` had already
+    # turned the checker's exit 1 into a 0.
+    if raw.startswith('`') and raw.endswith('`'):
+        # A number is a whole number: `0 that can spin for ever` is not
+        # inside "20 that can spin for ever", which plain containment said
+        # it was, ten minutes after the first fix.
+        pattern = re.escape(want.lower())
+        if want[:1].isdigit():
+            pattern = r'(?<![0-9.])' + pattern
+        if want[-1:].isdigit():
+            pattern = pattern + r'(?![0-9.])'
+        return re.search(pattern, (output or '').lower()) is not None
     # An expectation written as a sentence rather than a literal cannot be
     # matched, and pretending otherwise is how a checker earns a number nobody
     # believes. Exit 0 is all there is in that case.
@@ -287,6 +307,22 @@ FIXTURE_TICKED = """# Fixture: an already ticked gate is never reported
   EVIDENCE: done
 """
 
+FIXTURE_LONG_LITERAL = """# Fixture: a long literal in backticks is matched, not waved through
+
+- [ ] **E1** The count reads zero.
+  CHECK: `echo "116 file(s) checked, 41 that can spin for ever"`
+  EXPECT: `0 that can spin for ever`
+  EVIDENCE: pending
+"""
+
+FIXTURE_NUMBER_INSIDE = """# Fixture: a number is a whole number, not a substring of a bigger one
+
+- [ ] **F1** The count reads zero.
+  CHECK: `echo "95 file(s) checked, 20 that can spin for ever"`
+  EXPECT: `0 that can spin for ever`
+  EVIDENCE: pending
+"""
+
 FIXTURE_MANUAL = """# Fixture: a walk cannot be re-run from here
 
 - [ ] **D1** Walked in Chrome at 390x844.
@@ -303,7 +339,9 @@ def self_test():
         cases = [('stale.md', FIXTURE_STALE, 'stale'),
                  ('genuine.md', FIXTURE_GENUINE, 'genuine'),
                  ('ticked.md', FIXTURE_TICKED, 'nothing'),
-                 ('manual.md', FIXTURE_MANUAL, 'unrunnable')]
+                 ('manual.md', FIXTURE_MANUAL, 'unrunnable'),
+                 ('long-literal.md', FIXTURE_LONG_LITERAL, 'genuine'),
+                 ('number-inside.md', FIXTURE_NUMBER_INSIDE, 'genuine')]
         for name, body, want in cases:
             path = os.path.join(tmp, name)
             io.open(path, 'w', encoding='utf-8').write(body)

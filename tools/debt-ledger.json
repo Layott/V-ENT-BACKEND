@@ -49,6 +49,11 @@
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
+  "dependency order": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
+  },
   "design bans": {
     "count": 0,
     "first_seen": "2026-09-07",
@@ -64,15 +69,60 @@
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
+  "duplicate checkers": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
+  },
   "endpoints with no screen": {
     "count": 0,
     "first_seen": "2026-09-09",
     "since": "2026-09-09"
   },
+  "entrant branches": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
+  },
+  "error copy": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
+  },
+  "event tabs": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
+  },
+  "format catalogue": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
+  },
   "frontend url": {
     "count": 0,
     "first_seen": "2026-09-09",
     "since": "2026-09-09"
+  },
+  "guides": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
+  },
+  "hover lift": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
+  },
+  "inert controls": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
+  },
+  "language blocks": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
   },
   "ledger parse": {
     "count": 0,
@@ -84,10 +134,25 @@
     "first_seen": "2026-09-08",
     "since": "2026-09-08"
   },
+  "legal pages": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
+  },
+  "link embeds": {
+    "count": 3128,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
+  },
   "live updates": {
     "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
+  },
+  "null images": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
   },
   "offer surface": {
     "count": 0,
@@ -99,6 +164,11 @@
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
+  "overlay runtime": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
+  },
   "parity": {
     "count": 0,
     "first_seen": "2026-09-07",
@@ -109,6 +179,11 @@
     "first_seen": "2026-09-09",
     "since": "2026-09-09"
   },
+  "pollers": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
+  },
   "prose": {
     "count": 0,
     "first_seen": "2026-09-07",
@@ -118,6 +193,11 @@
     "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
+  },
+  "required fields": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
   },
   "seo": {
     "count": 0,
@@ -135,19 +215,34 @@
     "since": "2026-09-07"
   },
   "spinner for ever": {
-    "count": 42,
+    "count": 0,
     "first_seen": "2026-09-09",
-    "since": "2026-09-09"
+    "since": "2026-09-12"
   },
   "stale builds": {
     "count": 0,
     "first_seen": "2026-09-09",
     "since": "2026-09-09"
   },
+  "stale coming soon": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
+  },
   "stale gates": {
     "count": 0,
     "first_seen": "2026-09-08",
     "since": "2026-09-08"
+  },
+  "status buckets": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
+  },
+  "tab strips": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
   },
   "tap targets": {
     "count": 0,
@@ -168,6 +263,11 @@
     "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
+  },
+  "unbounded await": {
+    "count": 0,
+    "first_seen": "2026-09-12",
+    "since": "2026-09-12"
   },
   "user chips": {
     "count": 0,

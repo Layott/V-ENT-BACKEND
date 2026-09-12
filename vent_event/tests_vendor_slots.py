@@ -339,3 +339,59 @@ class BoughtAndInvitedAreTheSameTests(SlotBase):
                                {'name': 'Nope', 'price': 1, 'stock': 1},
                                format='json', **auth(other))
         self.assertEqual(res.status_code, 403)
+
+
+class AddingAStallByHandTests(SlotBase):
+    """`POST /event/<event>/vendors/create/`: the invited door, beside the
+    bought one. It had no screen and no test until 12 September."""
+
+    def add(self, user=None, **body):
+        return self.client.post(
+            '/event/%s/vendors/create/' % self.event.slug,
+            body, format='json', **auth(user or self.organiser))
+
+    def test_the_organiser_adds_a_stall_with_no_owner(self):
+        res = self.add(name='Merch table', booth='B4')
+        self.assertEqual(res.status_code, 201, res.data)
+        stall = Vendor.objects.get(event=self.event, name='Merch table')
+        self.assertIsNone(stall.owner)
+        self.assertEqual(stall.status, 'approved')
+
+    def test_somebody_on_vent_becomes_the_owner_by_username_or_email(self):
+        res = self.add(name='Grill', owner='@' + self.buyer.username)
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(Vendor.objects.get(name='Grill').owner_id, self.buyer.user_id)
+        other = a_user('cook')
+        res = self.add(name='Smoothies', owner=other.email.upper())
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(Vendor.objects.get(name='Smoothies').owner_id, other.user_id)
+
+    def test_an_address_nobody_has_claimed_becomes_an_invitation(self):
+        from vent_event.models import VendorInvite
+        res = self.add(name='Prints', owner='artist@example.com', booth='C1')
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertFalse(Vendor.objects.filter(name='Prints').exists())
+        invite = VendorInvite.objects.get(event=self.event, email='artist@example.com')
+        self.assertEqual((invite.name, invite.booth), ('Prints', 'C1'))
+        # And the invitation becomes this same stall when they arrive.
+        from vent_auth.invites import claim_pending
+        newcomer = Users.objects.create(
+            username='artist', email='artist@example.com',
+            login_session_token='tkartist00000001', is_active=True)
+        claim_pending(newcomer)
+        stall = Vendor.objects.get(event=self.event, owner=newcomer)
+        self.assertEqual((stall.name, stall.booth, stall.status), ('Prints', 'C1', 'approved'))
+
+    def test_a_word_that_is_neither_is_refused_with_the_reason(self):
+        res = self.add(name='Prints', owner='nobody-here')
+        self.assertEqual(res.status_code, 404)
+        self.assertIn('not an email address', res.data['message'])
+
+    def test_a_stranger_may_not_add_one(self):
+        res = self.add(user=self.buyer, name='Mine')
+        self.assertEqual(res.status_code, 403)
+        self.assertFalse(Vendor.objects.filter(name='Mine').exists())
+
+    def test_a_name_is_required(self):
+        res = self.add(name='   ')
+        self.assertEqual(res.status_code, 400)

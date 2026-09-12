@@ -176,28 +176,48 @@ def vendor_detail(request, event_id, vendor_id):
 
 @api_view(['POST'])
 def create_vendor(request, event_id):
-    user, auth_error = _authenticate(request)
-    if auth_error:
-        return auth_error
+    """The organiser adds a stall by hand, beside the pitches they sell.
 
+    `owner` is an email address or a username, as every invite on the
+    platform takes (CEO, row 145). Somebody on V-ENT already becomes the
+    owner now; an address nobody has claimed becomes a `VendorInvite`, and
+    `invites.claim_pending` turns it into this same stall the moment they sign
+    up. Until 12 September this endpoint had no screen at all: the console's
+    own blurb said "you can still invite people directly instead" and there
+    was nothing to press.
+    """
+    from .views_promos import _actor_for_event
     event = _event_by_ref(event_id)
     if event is None:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    if event.creator_id != user.user_id:
-        return _error('Only the event organizer can add vendors.',
-                      'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
+    # Whoever runs the event, which includes the organisation's own people,
+    # rather than the one account that created it.
+    user, err = _actor_for_event(request, event)
+    if err:
+        return err
 
     name = (request.data.get('name') or '').strip()
     if not name:
         return _error('A stall name is required.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
 
     owner = None
-    owner_username = (request.data.get('owner_username') or '').strip()
-    if owner_username:
-        from vent_auth.models import Users
-        owner = Users.objects.filter(username=owner_username).first()
+    raw_owner = (request.data.get('owner') or request.data.get('owner_username') or '').strip()
+    if raw_owner:
+        from vent_auth.invites import invitee_for
+        owner, email, why = invitee_for(raw_owner)
+        if why:
+            return _error(why, 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
         if owner is None:
-            return _error(f'No user called @{owner_username}.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+            from .models import VendorInvite
+            invite = VendorInvite.objects.create(
+                event=event, name=name[:100], email=email,
+                booth=(request.data.get('booth') or '').strip()[:40])
+            return Response(
+                {'status': 'success',
+                 'data': {'invite': {'id': invite.id, 'name': invite.name,
+                                     'email': invite.email, 'booth': invite.booth}},
+                 'message': 'Invited. The stall opens when %s joins V-ENT.' % email},
+                status=status.HTTP_201_CREATED)
 
     vendor = Vendor.objects.create(
         event=event,

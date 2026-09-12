@@ -70,6 +70,35 @@ class NominatingTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertTrue(BattleCharacter.objects.get().is_approved)
 
+    def test_the_admin_is_sent_what_is_waiting_and_a_fan_is_not(self):
+        client_for(self.fan).post(
+            '/anime/battles/%s/nominate/' % self.battle.slug,
+            {'name': 'Zoro', 'source': 'One Piece'}, format='json')
+        mine = client_for(self.admin).get('/anime/battles/%s/' % self.battle.slug)
+        self.assertTrue(mine.data['data']['may_run'])
+        self.assertEqual(
+            [(p['name'], p['source'], p['nominated_by'])
+             for p in mine.data['data']['pending']],
+            [('Zoro', 'One Piece', self.fan.username)])
+        theirs = client_for(self.fan).get('/anime/battles/%s/' % self.battle.slug)
+        self.assertFalse(theirs.data['data']['may_run'])
+        self.assertNotIn('pending', theirs.data['data'])
+
+    def test_taking_a_character_out_puts_it_back_on_the_waiting_list(self):
+        client_for(self.fan).post(
+            '/anime/battles/%s/nominate/' % self.battle.slug,
+            {'name': 'Zoro'}, format='json')
+        client_for(self.admin).post(
+            '/anime/battles/%s/approve/' % self.battle.slug,
+            {'name': 'Zoro', 'approved': True}, format='json')
+        client_for(self.admin).post(
+            '/anime/battles/%s/approve/' % self.battle.slug,
+            {'name': 'Zoro', 'approved': False}, format='json')
+        # Out of the battle is not deleted: the name goes back to waiting,
+        # so a decision made in error can be made again the other way.
+        res = client_for(self.admin).get('/anime/battles/%s/' % self.battle.slug)
+        self.assertEqual([p['name'] for p in res.data['data']['pending']], ['Zoro'])
+
     def test_a_fan_cannot_approve(self):
         client_for(self.fan).post(
             '/anime/battles/%s/nominate/' % self.battle.slug,
