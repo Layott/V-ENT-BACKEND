@@ -318,6 +318,7 @@ urlpatterns = [
     # money leaving, and a sequential id lets anybody count them.
     path("wallet/payout-addresses/", payout_addresses,
          name="payout_addresses"),
+    path("wallet/withdraw/quote/", withdraw_quote, name="withdraw_quote"),
     path("wallet/withdraw/initiate/", withdraw_initiate, name="withdraw_initiate"),
     path("wallet/withdraw/status/", withdraw_status, name="withdraw_status"),
     path("wallet/kyc/submit/", kyc_submit, name="kyc_submit"),

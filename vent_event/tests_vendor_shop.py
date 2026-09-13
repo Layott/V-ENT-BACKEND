@@ -11,6 +11,7 @@ your own stalls, a way to change a product, and a way to fulfil an order - and
 all three are tested here on what they DO rather than on the status code they
 answer with.
 """
+import base64
 import uuid
 from decimal import Decimal
 
@@ -148,6 +149,100 @@ class ProductTests(ShopBase):
         self.assertEqual(res.status_code, 404)
         self.product.refresh_from_db()
         self.assertEqual(self.product.price, Decimal('2500'))
+
+
+class ProductCreateCarriesEverythingTests(ShopBase):
+    """The stall screen sends the whole product in one multipart call. Until
+    12 September the create endpoint read name, price and stock only, so the
+    picture was dropped and the screen PATCHed the choices in afterwards."""
+
+    # A 1x1 PNG, base64 so no escape sequence has to survive a shell.
+    PNG = base64.b64decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4DwABAQEAWDs'
+        'IsAAAAABJRU5ErkJggg==')
+
+    def create(self, **fields):
+        return self.client.post('/event/vendor/%s/products/' % self.stall.slug,
+                                fields, format='multipart', **auth(self.vendor))
+
+    def test_choices_deliverability_and_the_picture_land_on_create(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        res = self.create(name='Hoodie', price='25000', stock='3',
+                          variants='S, M, L', can_deliver='true',
+                          image=SimpleUploadedFile('h.png', self.PNG, content_type='image/png'))
+        self.assertEqual(res.status_code, 201, res.content[:300])
+        product = VendorProduct.objects.get(name='Hoodie')
+        self.assertEqual(product.variants, ['S', 'M', 'L'])
+        self.assertTrue(product.can_deliver)
+        self.assertTrue(product.image, 'the picture sent with the product was dropped')
+        self.assertEqual(res.json()['data']['product']['variants'], ['S', 'M', 'L'])
+
+    def test_a_product_with_no_choices_is_still_fine(self):
+        res = self.create(name='Plate', price='2000', stock='40')
+        self.assertEqual(res.status_code, 201, res.content[:300])
+        product = VendorProduct.objects.get(name='Plate')
+        self.assertEqual(product.variants, [])
+        self.assertFalse(product.can_deliver)
+
+
+class StallPageBySlugTests(ShopBase):
+    """The event page links a stall as /event/<event slug>/vendor/<stall slug>/.
+    That address answered 500 until 12 September: the view filtered
+    `event_id=<slug>` and Django refused the string as a number."""
+
+    def test_the_stall_opens_under_the_event_slug(self):
+        res = self.client.get('/event/%s/vendor/%s/' % (self.event.slug, self.stall.slug))
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.assertEqual(res.json()['data']['vendor']['slug'], self.stall.slug)
+
+    def test_and_under_the_event_id_for_links_shared_before(self):
+        res = self.client.get('/event/%s/vendor/%s/' % (self.event.event_id, self.stall.slug))
+        self.assertEqual(res.status_code, 200, res.content[:300])
+
+    def test_a_stall_from_another_event_is_not_found_here(self):
+        other = Event.objects.create(
+            name='Other Fest', game=self.event.game, creator=self.organiser,
+            event_type='physical', desc='x', entry_fee=0,
+            reg_start_date=timezone.now(), reg_end_date=timezone.now(),
+            start_date=timezone.now(), end_date=timezone.now())
+        res = self.client.get('/event/%s/vendor/%s/' % (other.slug, self.stall.slug))
+        self.assertEqual(res.status_code, 404)
+
+
+class ContactTheStallTests(ShopBase):
+    """The Contact box on a stall page showed "Message sent" with no request
+    behind it until 12 September. Now it is a notification to the
+    stallholder, from a signed-in person, once a minute."""
+
+    def send(self, who, message='Do you have jollof on day 2?', **extra):
+        return self.client.post('/event/vendor/%s/contact/' % self.stall.slug,
+                                {'message': message}, format='json', **extra)
+
+    def test_the_stallholder_gets_a_notification_with_the_username(self):
+        from vent_auth.models import Notification
+        res = self.send(self.buyer, **auth(self.buyer))
+        self.assertEqual(res.status_code, 201, res.content[:300])
+        row = Notification.objects.get(user=self.vendor)
+        self.assertIn(self.buyer.username, row.body)
+        self.assertIn('jollof', row.body)
+        self.assertEqual(row.metadata['kind'], 'vendor_message')
+        self.assertEqual(row.metadata['stall'], self.stall.slug)
+
+    def test_a_second_one_within_a_minute_waits(self):
+        self.send(self.buyer, **auth(self.buyer))
+        res = self.send(self.buyer, 'And on day 1?', **auth(self.buyer))
+        self.assertEqual(res.status_code, 429)
+        self.assertEqual(res.json()['code'], 'TOO_SOON')
+
+    def test_signed_out_is_refused_and_empty_is_refused(self):
+        self.assertEqual(self.send(None).status_code, 401)
+        res = self.send(self.buyer, '   ', **auth(self.buyer))
+        self.assertEqual(res.status_code, 400)
+
+    def test_the_owner_cannot_message_their_own_stall(self):
+        res = self.send(self.vendor, **auth(self.vendor))
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()['code'], 'OWN_STALL')
 
 
 class VariantOrderTests(ShopBase):

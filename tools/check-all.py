@@ -259,6 +259,16 @@ CATCHERS = [
      'a transferred code is named, not called unknown, at every door',
      ROOT, ["python", "tools/check-dead-codes.py"], True),
 
+    # CEO, 13 September: "the 5% + NGN100 is something admins should be able
+    # to set on the admin dashboard ... and it updates everywhere on the
+    # platform, please create a checker for this that makes sure it applies
+    # each time a new feature is built or added that has pricing." The day it
+    # was written, four of the dashboard's eight money controls changed
+    # nothing and the withdraw screen quoted a fee the server did not take.
+    ('pricing',
+     'every platform price has a default, a dashboard field and a reader, and is a number nowhere else',
+     ROOT, ["python", "tools/check-pricing.py"], True),
+
     # Third occurrence on 8 September of "built on the organiser side, forgotten
     # on the buyer side". A group rate of 16 VC at four or more was charged by
     # the server while the panel said 20 x 4 = 80 and took 64; an early bird

@@ -170,6 +170,89 @@ def stats_for(event):
     return out
 
 
+def mine_for(user):
+    """Every link that pays THIS person, across events, with what it did and
+    what it earned. The influencer's side of `stats_for`.
+
+    Until 12 September 2026 nothing on the site showed a payee their own link:
+    the organiser saw visits, sales and commission in the console, and the
+    person doing the selling saw nothing. Found by walking the event as the
+    influencer.
+
+    Links addressed to this person's email before they had an account are
+    included too, because `claim_pending` attaches them on signup and the
+    view should never disagree with the wallet about what is coming.
+    """
+    from .models import EventLedgerEntry
+    live = Q(tickets__status__in=['valid', 'checked_in'])
+    owns = Q(payee=user)
+    if user.email:
+        owns = owns | Q(payee__isnull=True, payee_email__iexact=user.email)
+    links = (EventReferral.objects
+             .filter(owns)
+             .select_related('event')
+             .annotate(
+                 tickets_sold=Count('tickets', filter=live, distinct=True),
+                 revenue_vc=Sum('tickets__price_vc', filter=live),
+             ))
+    ids = [r.id for r in links]
+    seen = dict(ReferralDay.objects.filter(referral_id__in=ids)
+                .values_list('referral_id').annotate(v=Sum('visits'))
+                .values_list('referral_id', 'v'))
+
+    # What the ledger holds for each link, open and paid. A reversal carries
+    # the link it reverses, so it lands on the same row with its minus sign.
+    money = (EventLedgerEntry.objects
+             .filter(referral_id__in=ids)
+             .filter(Q(kind=EventLedgerEntry.KIND_AFFILIATE)
+                     | Q(kind=EventLedgerEntry.KIND_REVERSAL,
+                         reverses__kind=EventLedgerEntry.KIND_AFFILIATE)))
+
+    def per_link(lines):
+        return {row['referral_id']: float(row['n'] or 0)
+                for row in lines.values('referral_id').annotate(n=Sum('amount_ngn'))}
+    owed = per_link(money.filter(settled_at__isnull=True))
+    paid = per_link(money.filter(settled_at__isnull=False))
+    from .ledger import ngn_per_coin
+    unit = float(ngn_per_coin())
+
+    out = []
+    for r in links:
+        event = r.event
+        visits = int(seen.get(r.id) or 0)
+        sold = int(r.tickets_sold or 0)
+        out.append({
+            'id': r.id,
+            'code': r.code,
+            'name': r.name,
+            'is_active': r.is_active,
+            'claimed': bool(r.payee_id),
+            'commission_pct': r.commission_pct,
+            'allocation': r.allocation,
+            'remaining': r.remaining,
+            'visits': visits,
+            'tickets_sold': sold,
+            'revenue_vc': int(r.revenue_vc or 0),
+            # Naira is the number (300 naira on a 3,000 naira ticket at 10
+            # per cent); the coins are what a settlement has paid or can pay.
+            'owed_ngn': owed.get(r.id, 0.0),
+            'paid_ngn': paid.get(r.id, 0.0),
+            'owed_vc': int(owed.get(r.id, 0.0) // unit),
+            'paid_vc': int(paid.get(r.id, 0.0) // unit),
+            'conversion': round(sold * 100.0 / visits, 1) if visits else None,
+            'url': share_url(event, r.code),
+            'event': {
+                'event_id': event.event_id,
+                'slug': event.slug,
+                'name': event.name,
+                'start_date': event.start_date.isoformat() if event.start_date else None,
+                'banner': event.banner.url if event.banner else None,
+            },
+        })
+    out.sort(key=lambda r: (r['event']['start_date'] or '', r['code']), reverse=True)
+    return out
+
+
 def daily_for(event):
     """Visits per link per day, for drawing a line rather than a total."""
     rows = (ReferralDay.objects

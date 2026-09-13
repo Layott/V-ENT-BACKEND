@@ -1060,6 +1060,22 @@ class Vendor(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # Who bears the platform's fee on what this stall sells. CEO, 13 September
+    # 2026: "same for vendors, should have a fee on everything sold." The same
+    # two choices the organiser has on tickets, and the same rule: a wallet
+    # pays whole coins, so with the fee on the buyer the whole-coin part is
+    # added on top and the part under a coin comes off the stallholder.
+    FEE_VENDOR = 'vendor'
+    FEE_BUYER = 'buyer'
+    FEE_BEARER_CHOICES = [(FEE_VENDOR, 'The stallholder absorbs it'),
+                          (FEE_BUYER, 'The buyer pays it on top')]
+    fee_bearer = models.CharField(max_length=16, choices=FEE_BEARER_CHOICES,
+                                  default=FEE_VENDOR)
+    # Naira the stallholder is owed that has not yet reached a whole coin.
+    # Each order adds its take here, the whole coins are paid into the wallet
+    # at once, and the rest waits for the next order. Never lost.
+    carry_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
     class Meta:
         ordering = ['name']
 
@@ -1151,6 +1167,20 @@ class VendorOrder(models.Model):
     buyer = models.ForeignKey('vent_auth.Users', on_delete=models.CASCADE, related_name='vendor_orders')
     code = models.CharField(max_length=18, unique=True, db_index=True)
     total_vc = models.PositiveIntegerField(default=0)
+    # The money on this order, in naira, exact, stamped at the sale so a fee
+    # change later never rewrites what a stall earned: what the items came
+    # to, the platform's fee (5% + 100 naira per unit), the whole coins of it
+    # the buyer paid on top, what the stallholder earned after the fee, and
+    # the whole coins of that paid into their wallet at the time (the rest is
+    # carried on the stall).
+    items_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    fee_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    fee_pct = models.FloatField(default=0)
+    fee_flat_ngn = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    fee_bearer = models.CharField(max_length=16, default='vendor')
+    buyer_fee_vc = models.PositiveIntegerField(default=0)
+    vendor_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    vendor_paid_vc = models.PositiveIntegerField(default=0)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='paid')
     created_at = models.DateTimeField(auto_now_add=True)
     collected_at = models.DateTimeField(null=True, blank=True)
@@ -2062,8 +2092,14 @@ class EventSettlement(models.Model):
     this row exists rather than a boolean on each line.
     """
     id = models.AutoField(primary_key=True)
-    event = models.ForeignKey(Event, on_delete=models.CASCADE,
-                              related_name='settlements')
+    # One of the two. A tournament's entry fees are settled by the same run
+    # as an event's ticket sales (13 September 2026), because a second
+    # settlement table would be a second place a payout could be made twice.
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, null=True,
+                              blank=True, related_name='settlements')
+    tournament = models.ForeignKey('vent_tournament.Tournament',
+                                   on_delete=models.CASCADE, null=True,
+                                   blank=True, related_name='settlements')
     run_by = models.ForeignKey('vent_auth.Users', on_delete=models.SET_NULL,
                                null=True, blank=True,
                                related_name='settlements_run')
@@ -2076,7 +2112,7 @@ class EventSettlement(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        return '%s settlement %s VC' % (self.event_id, self.amount_vc)
+        return '%s settlement %s VC' % (self.event_id or self.tournament_id, self.amount_vc)
 
 
 class EventLedgerEntry(models.Model):
@@ -2107,8 +2143,14 @@ class EventLedgerEntry(models.Model):
     ]
 
     id = models.AutoField(primary_key=True)
-    event = models.ForeignKey(Event, on_delete=models.CASCADE,
-                              related_name='ledger')
+    # One of the two. The name of the table predates tournaments using it;
+    # a tournament's entry fees, prizes and payout are the same ledger as an
+    # event's tickets (13 September 2026), settled by the same run.
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, null=True,
+                              blank=True, related_name='ledger')
+    tournament = models.ForeignKey('vent_tournament.Tournament',
+                                   on_delete=models.CASCADE, null=True,
+                                   blank=True, related_name='ledger')
     kind = models.CharField(max_length=16, choices=KIND_CHOICES, db_index=True)
     # Null for the platform's own lines, which are not paid into a wallet, and
     # for an affiliate link whose owner has not claimed an account yet.
@@ -2118,12 +2160,36 @@ class EventLedgerEntry(models.Model):
                                  null=True, blank=True, related_name='ledger')
     ticket = models.ForeignKey(Ticket, on_delete=models.SET_NULL, null=True,
                                blank=True, related_name='ledger')
+    # A tournament line: the entry that paid it, or the prize it paid out.
+    # A refund reverses the entry's own lines, so what comes back is what
+    # that player paid, whatever the entry fee is now.
+    registration = models.ForeignKey('vent_tournament.TournamentRegistration',
+                                     on_delete=models.SET_NULL, null=True,
+                                     blank=True, related_name='ledger')
+    prize = models.ForeignKey('vent_tournament.PrizePayout',
+                              on_delete=models.SET_NULL, null=True,
+                              blank=True, related_name='ledger')
 
+    # The money, in NAIRA, exact. CEO, 12 September 2026: "V-ent takes 5% +
+    # N100 of all tickets sold." One coin is 1,000 naira, so a 200 naira fee
+    # on a 2,000 naira ticket is not a coin, and a ledger that held whole
+    # coins wrote it as 0 on every ticket under 20,000. The line holds naira;
+    # a settlement pays the whole coins a person's naira has reached and
+    # carries the rest (see ledger.settle). `amount_vc` is that naira floored
+    # to coins, for the screens that render coins; the naira is the truth.
+    amount_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    gross_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    fee_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     amount_vc = models.IntegerField(default=0)
     gross_vc = models.IntegerField(default=0)
     fee_vc = models.IntegerField(default=0)
     fee_pct = models.FloatField(default=0)
+    # The flat part of the fee, per ticket, stamped like the rate is.
+    fee_flat_ngn = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     fee_bearer = models.CharField(max_length=16, default='organiser')
+    # How much of the fee the BUYER paid on top. All of it at a card; the
+    # whole coins of it from a wallet; none when the seller absorbs it.
+    buyer_fee_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     quantity = models.PositiveIntegerField(default=1)
     note = models.CharField(max_length=200, blank=True, default='')
 
@@ -2140,10 +2206,11 @@ class EventLedgerEntry(models.Model):
 
     class Meta:
         ordering = ['-created_at']
-        indexes = [models.Index(fields=['event', 'kind', 'settled_at'])]
+        indexes = [models.Index(fields=['event', 'kind', 'settled_at']),
+                   models.Index(fields=['tournament', 'kind', 'settled_at'])]
 
     def __str__(self):
-        return '%s %s %s VC' % (self.event_id, self.kind, self.amount_vc)
+        return '%s %s %s VC' % (self.event_id or self.tournament_id, self.kind, self.amount_vc)
 
 
 class TicketTransfer(models.Model):

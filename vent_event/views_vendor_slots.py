@@ -124,6 +124,10 @@ def event_slots(request, event_id):
     if quantity < 1:
         return _error('There has to be at least one to sell.',
                       'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+    from .pricing import refuse_if_not_whole
+    refused = refuse_if_not_whole(price_ngn, field='price_ngn')
+    if refused is not None:
+        return refused
     if price_ngn < 0:
         return _error('A price cannot be negative.', 'VALIDATION_ERROR',
                       status.HTTP_400_BAD_REQUEST)
@@ -186,6 +190,10 @@ def event_slot_detail(request, event_id, slot_id):
         except (TypeError, ValueError):
             return _error('The price has to be a number.', 'VALIDATION_ERROR',
                           status.HTTP_400_BAD_REQUEST)
+        from .pricing import refuse_if_not_whole
+        refused = refuse_if_not_whole(slot.price_ngn, field='price_ngn')
+        if refused is not None:
+            return refused
         fields.append('price_ngn')
     if 'quantity' in request.data:
         try:

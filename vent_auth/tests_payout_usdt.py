@@ -27,7 +27,7 @@ from rest_framework.test import APIClient
 
 from . import payouts
 from . import wallets
-from .models import PayoutAddress, Transaction, UserWallet, Users, \
+from .models import AdminSetting, PayoutAddress, Transaction, UserWallet, Users, \
     WithdrawalRequest
 
 PIN = '4417'
@@ -365,16 +365,17 @@ class NotOpenYetTests(TestCase):
         self.assertEqual(res.status_code, 201, res.data)
 
 
-@override_settings(PAYOUT_MINIMUM_VC=5, PAYOUT_DAILY_MAX_VC=200)
 class LimitTests(TestCase):
     """The ceilings are rail independent, which is why they are built now.
 
     A daily limit is the same number whether the money leaves as naira or as
     USDT, and it is what caps how much a stolen account can take before
-    anybody looks at the queue.
+    anybody looks at the queue. They are dashboard numbers, so the test sets
+    them where an admin would.
     """
 
     def setUp(self):
+        AdminSetting.put('platform_fees', payout_min_vc=5, payout_daily_max_vc=200)
         self.client = APIClient()
         self.user, self.wallet = make_user('usdt_limits', coins=1000)
         self.client.credentials(
@@ -414,8 +415,8 @@ class LimitTests(TestCase):
     def test_exactly_the_ceiling_is_allowed(self):
         self.assertEqual(self.bank(200).status_code, 201)
 
-    @override_settings(PAYOUT_DAILY_MAX_VC=0)
     def test_zero_means_no_ceiling(self):
+        AdminSetting.put('platform_fees', payout_daily_max_vc=0)
         self.assertEqual(self.bank(900).status_code, 201)
 
 
