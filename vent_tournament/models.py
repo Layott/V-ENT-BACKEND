@@ -209,6 +209,15 @@ class Tournament(models.Model):
     def __str__(self):
         return self.tournament_title
 
+    # Who bears the platform's fee on an entry: the organiser (absorbed from
+    # their share) or the player (the whole coins of it on top of the entry,
+    # told before the PIN; the part under a coin still comes off the
+    # organiser). The same choice an event has, stamped on each ledger line
+    # at the entry, so changing it never rewrites an entry already paid.
+    FEE_ORGANISER = 'organiser'
+    FEE_PLAYER = 'player'
+    fee_bearer = models.CharField(max_length=16, default=FEE_ORGANISER)
+
     @property
     def prize_pool_coins(self):
         """Sum of every prize-distribution position, in VENT COINS."""

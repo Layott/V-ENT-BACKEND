@@ -973,28 +973,27 @@ def admin_cancel_tournament(request, tournament_id):
     entry_fee_coins = int(float(tournament.entry_fee_price))
     with transaction.atomic():
         if entry_fee_coins > 0:
-            paid_regs = (
+            from vent_event import ledger as money_ledger
+            from vent_tournament.services import wallet as wallet_service
+            paid_regs = list(
                 tournament.registrations
                 .select_for_update()
                 .filter(status='confirmed', entry_fee_paid=True)
+                .select_related('user', 'team')
             )
+            # A team entry is paid by its owner and refunded to them; this
+            # used to skip every registration with no user on it.
+            locked_wallets = wallet_service.lock_wallets_for_registrations(paid_regs)
             for reg in paid_regs:
-                if not reg.user_id:
+                wallet = wallet_service.wallet_for_registration(reg, locked_wallets)
+                if wallet is None:
                     continue
-                try:
-                    wallet = UserWallet.objects.select_for_update().get(user_id=reg.user_id)
-                except UserWallet.DoesNotExist:
-                    continue
-                wallet.wallet_balance += entry_fee_coins
-                wallet.save(update_fields=['wallet_balance'])
-                Transaction.objects.create(
-                    wallet=wallet,
-                    type='refund',
-                    amount=entry_fee_coins,
+                _reversed, paid = money_ledger.reverse_entry(reg, 'Tournament cancelled by an admin')
+                refund = paid if paid is not None else entry_fee_coins
+                wallet_service.credit(
+                    wallet, refund, tx_type='refund',
                     description=f'Refund - cancelled tournament: {tournament.tournament_title}',
-                    status='completed',
-                    tournament=tournament,
-                )
+                    tournament=tournament)
                 refunded += 1
 
             tournament.registrations.update(status='withdrawn')

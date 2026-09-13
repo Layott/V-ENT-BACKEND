@@ -235,6 +235,28 @@ PAIRS = [
         'tournament', (BACKEND, 'vent_tournament/views.py',
                        r'"organization": organization'),
     ),
+    # CEO, 13 September 2026: tournaments pay organisers a share of entries,
+    # the way events pay them their ticket sales. Both go through one ledger;
+    # these three rows are the doors that must exist on both sides.
+    (
+        'the organiser can read what it earned',
+        'A ledger with no earnings endpoint is money nobody can see.',
+        'event', (BACKEND, 'vent_event/views_ledger.py', r'def earnings'),
+        'tournament', (BACKEND, 'vent_tournament/views_money.py', r'def earnings'),
+    ),
+    (
+        'the organiser can be paid out',
+        'A settlement run on one side only leaves the other side owed for ever.',
+        'event', (BACKEND, 'vent_event/views_ledger.py', r'def settle'),
+        'tournament', (BACKEND, 'vent_tournament/views_money.py', r'def settle'),
+    ),
+    (
+        'the organiser chooses who bears the fee, on a screen',
+        'The same choice an event has: absorb it, or the buyer pays it on top.',
+        'event', (FRONTEND, 'src/app/events/manage/page.js', r"'manage\.feeOnMe'"),
+        'tournament', (FRONTEND, 'src/components/tournament-manage/MoneyPanel.js',
+                       r"'manage\.feeOnMe'"),
+    ),
     (
         'a screen can set the organisation',
         'The event console has a picker and the tournament edit screen has one. '

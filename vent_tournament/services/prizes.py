@@ -10,7 +10,20 @@ you sure" warns nobody; one that lists four names, four amounts and a total is
 something an organiser can actually check. Both functions resolve the winners
 through the same code, so the list somebody approves is the list that gets
 paid.
+
+## Where the prize money comes from (13 September 2026)
+
+Until then a prize was minted: credited to the winner and debited from nobody,
+whatever the organiser had announced, on a free tournament as much as a paid
+one. CEO, asked whether tournaments should pay organisers a share of entries:
+"i want it". So the two move together. Entries build a pool on the ledger
+(`vent_event.ledger`, the same one events use), each prize is a negative line
+against it, and when the pool is short the organiser's OWN wallet covers the
+rest in whole coins, taken before any winner is paid. `plan()` says which is
+which, so the confirmation names both numbers.
 """
+import math
+
 from django.db import transaction
 
 from . import wallet as wallet_service
@@ -83,11 +96,44 @@ def plan(tournament):
             total += amount
         rows.append(entry)
 
+    funding = pool_funding(tournament, total)
+    if funding['from_wallet_vc'] > 0 and not funding['wallet_can_cover']:
+        problems.append('pool_short')
+
     return {
         'rows': rows,
         'total': total,
         'already_paid': len(paid),
         'problems': problems,
+        **funding,
+    }
+
+
+def pool_funding(tournament, prizes_vc):
+    """How `prizes_vc` coins of prizes would be funded, without moving any.
+
+    The pool is what the organiser is owed on this tournament right now:
+    entries less the platform's fee, less prizes already paid. What it does
+    not cover comes from the organiser's own wallet, in whole coins, rounded
+    UP so a prize is never short by a fraction of a coin.
+    """
+    from vent_auth.models import UserWallet
+    from vent_event import ledger
+
+    unit = ledger.ngn_per_coin()
+    pool = ledger.pool_ngn(tournament)
+    prizes_ngn = ledger._ngn(prizes_vc) * unit
+    short = max(ledger._ngn(0), prizes_ngn - max(pool, ledger._ngn(0)))
+    from_wallet = int(math.ceil(float(short) / float(unit))) if short > 0 else 0
+    wallet = UserWallet.objects.filter(user_id=tournament.tournament_creator_id).first()
+    balance = wallet.wallet_balance if wallet else 0
+    return {
+        'pool_ngn': float(pool),
+        'pool_vc': ledger._floor_vc(pool) if pool > 0 else 0,
+        'from_pool_vc': int(prizes_vc) - from_wallet,
+        'from_wallet_vc': from_wallet,
+        'organiser_balance_vc': balance,
+        'wallet_can_cover': balance >= from_wallet,
     }
 
 
@@ -141,6 +187,30 @@ def distribute(tournament, *, triggered_by=None, auto=False, force_recompute=Fal
                 continue
             targets.append((position, reg, amount))
 
+        # Where the coins come from, BEFORE any winner is paid. The pool the
+        # entries built covers what it can; the organiser's own wallet covers
+        # the rest, and if it cannot, nothing moves and the organiser is told
+        # the number rather than finding half a podium paid.
+        from vent_auth.models import UserWallet
+        from vent_event import ledger
+        prizes_now = sum(t[2] for t in targets)
+        funding = pool_funding(tournament, prizes_now)
+        if funding['from_wallet_vc'] > 0:
+            organiser_wallet = UserWallet.objects.select_for_update().filter(
+                user_id=tournament.tournament_creator_id).first()
+            if organiser_wallet is None or organiser_wallet.wallet_balance < funding['from_wallet_vc']:
+                raise PrizeError(
+                    'pool_short',
+                    'Entries cover %d of the %d VC in prizes; the other %d VC comes from '
+                    'your wallet, which holds %d VC.' % (
+                        funding['from_pool_vc'], prizes_now, funding['from_wallet_vc'],
+                        organiser_wallet.wallet_balance if organiser_wallet else 0))
+            wallet_service.debit(
+                organiser_wallet, funding['from_wallet_vc'], tx_type='deduction',
+                description=f'Prize top-up - {tournament.tournament_title}',
+                tournament=tournament)
+            ledger.record_prize_topup(tournament, funding['from_wallet_vc'])
+
         # Lock all recipient wallets up front in PK order (deadlock avoidance).
         locked_wallets = wallet_service.lock_wallets_for_registrations([t[1] for t in targets])
 
@@ -168,6 +238,9 @@ def distribute(tournament, *, triggered_by=None, auto=False, force_recompute=Fal
                 paid_by=triggered_by,
                 auto_distributed=auto,
             )
+            # Out of the pool, on the ledger, so what the organiser is owed
+            # is entries less fee less prizes, and a settlement pays that.
+            ledger.record_prize(tournament, payout, amount)
             results.append(_result(payout, label=label))
 
     return results

@@ -64,6 +64,23 @@ people buying the tickets to, same for vendors"): a card payment adds the
 whole fee; a wallet payment adds the WHOLE COINS of it, told to the buyer
 before they pay, and the part under a coin comes off the seller. `split_fee`
 is that rule, and tickets and stalls both go through it.
+
+## Tournaments are the same ledger
+
+CEO, 13 September 2026, asked whether tournaments should pay organisers a
+share of entry fees: "i want it". Until then an entry fee left the player's
+wallet and reached nobody, and prizes were minted to winners out of nothing at
+distribution. Both move together, because handing entries to organisers while
+the platform kept minting prizes would pay every prize twice:
+
+- a paid entry writes an organiser line and a platform line, exactly as a
+  ticket does, with `tournament_fee_pct` + `tournament_fee_flat_ngn` stamped;
+- a prize is a negative organiser line, so it comes out of what the entries
+  brought in; when the pool cannot cover the prizes, the organiser's own
+  wallet is debited the shortfall in whole coins first (a positive line);
+- the organiser is paid what is left by the same `settle()` run as an event.
+
+A line names its event or its tournament; every function below takes either.
 """
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -73,6 +90,24 @@ from django.db.models import Q, Sum
 from .models import EventLedgerEntry, EventSettlement
 
 CENT = Decimal('0.01')
+
+
+def _is_tournament(record):
+    return record.__class__.__name__ == 'Tournament'
+
+
+def _scope(record):
+    """The filter/create kwargs naming whose ledger this is."""
+    return {'tournament': record} if _is_tournament(record) else {'event': record}
+
+
+def owner_of(record):
+    """Whose takings these are: the event's creator or the tournament's."""
+    return record.tournament_creator if _is_tournament(record) else record.creator
+
+
+def name_of(record):
+    return record.tournament_title if _is_tournament(record) else record.name
 
 
 def _ngn(value):
@@ -115,6 +150,26 @@ def platform_fee():
         # wrongly. Charging nothing is the safe direction to fail in: the
         # alternative is charging an amount nobody chose.
         return 0.0, Decimal('0')
+
+
+def tournament_fee():
+    """The fee on a tournament entry as `(pct, flat_ngn)`, from the dashboard.
+
+    Its own two keys, beside the ticket ones: a ticket and an entry are not
+    the same sale and an admin may want them priced apart. Same shape, same
+    stamping, same settlement.
+    """
+    try:
+        from vent_auth.models import AdminSetting, DEFAULT_ADMIN_SETTINGS
+        defaults = DEFAULT_ADMIN_SETTINGS['platform_fees']
+        fees = AdminSetting.load().merged().get('platform_fees') or {}
+        pct = fees.get('tournament_fee_pct')
+        flat = fees.get('tournament_fee_flat_ngn')
+        pct = defaults['tournament_fee_pct'] if pct is None else pct
+        flat = defaults['tournament_fee_flat_ngn'] if flat is None else flat
+        return max(Decimal('0'), _ngn(pct)), max(Decimal('0'), _ngn(flat))
+    except Exception:
+        return Decimal('0'), Decimal('0')
 
 
 def platform_rate():
@@ -238,16 +293,140 @@ def quote(tier, quantity, event=None, buyer=None, channel='wallet'):
     }
 
 
-def _line(event, kind, amount_ngn, priced, first, count, user=None, referral=None):
+def quote_entry(tournament, channel='wallet'):
+    """What a player is asked for to enter, and what each party is owed.
+
+    The same shape `quote()` gives a ticket, so the screens and the ledger
+    lines read one dictionary. Quantity is always 1: one registration, one
+    entry. A free tournament quotes zeros and carries no fee.
+    """
+    unit = ngn_per_coin()
+    entry_vc = int(tournament.entry_fee_price or 0) if tournament.entry_fee == 'Paid' else 0
+    entry_ngn = _ngn(Decimal(entry_vc) * unit)
+    pct, flat = tournament_fee()
+    fee_ngn = fee_for(entry_ngn, 1, pct, flat)
+    bearer = getattr(tournament, 'fee_bearer', 'organiser') or 'organiser'
+    buyer_fee_ngn, seller_fee_ngn, buyer_fee_vc = split_fee(fee_ngn, bearer == 'player', channel)
+    organiser_ngn = entry_ngn - seller_fee_ngn
+    return {
+        'unit_vc': entry_vc,
+        'unit_ngn': entry_ngn,
+        'quantity': 1,
+        'tickets_vc': entry_vc,
+        'tickets_ngn': entry_ngn,
+        'fee_ngn': fee_ngn,
+        'fee_vc': _floor_vc(fee_ngn),
+        'fee_pct': pct,
+        'fee_flat_ngn': flat,
+        'fee_bearer': bearer,
+        'channel': channel,
+        'buyer_fee_ngn': buyer_fee_ngn,
+        'buyer_fee_vc': buyer_fee_vc,
+        'seller_fee_ngn': seller_fee_ngn,
+        'buyer_pays_fee': buyer_fee_ngn > 0,
+        'total_ngn': entry_ngn + buyer_fee_ngn,
+        'total_vc': entry_vc + buyer_fee_vc,
+        'organiser_ngn': organiser_ngn,
+        'organiser_vc': _floor_vc(organiser_ngn),
+    }
+
+
+def _line(record, kind, amount_ngn, priced, first, count, user=None, referral=None,
+          registration=None):
     return EventLedgerEntry.objects.create(
-        event=event, kind=kind, user=user, referral=referral,
+        kind=kind, user=user, referral=referral,
         amount_ngn=_ngn(amount_ngn), amount_vc=_floor_vc(amount_ngn),
         gross_ngn=_ngn(priced['tickets_ngn']), gross_vc=priced['tickets_vc'],
         fee_ngn=_ngn(priced['fee_ngn']), fee_vc=priced['fee_vc'],
         fee_pct=priced['fee_pct'], fee_flat_ngn=_ngn(priced.get('fee_flat_ngn', 0)),
         fee_bearer=priced.get('fee_bearer', 'organiser'),
         buyer_fee_ngn=_ngn(priced.get('buyer_fee_ngn', 0)),
-        ticket=first, quantity=count)
+        ticket=first, registration=registration, quantity=count, **_scope(record))
+
+
+def record_entry(registration, priced):
+    """Write the lines one paid entry created: the organiser's take and the
+    platform's fee. Called inside the registration transaction. A free entry
+    writes nothing, because nothing is owed."""
+    tournament = registration.tournament
+    gross = _ngn(priced['tickets_ngn'])
+    if gross <= 0:
+        return []
+    fee = _ngn(priced['fee_ngn'])
+    lines = [_line(tournament, EventLedgerEntry.KIND_ORGANISER,
+                   gross - _ngn(priced.get('seller_fee_ngn', fee)), priced,
+                   None, 1, user=tournament.tournament_creator,
+                   registration=registration)]
+    if fee:
+        lines.append(_line(tournament, EventLedgerEntry.KIND_PLATFORM, fee, priced,
+                           None, 1, user=None, registration=registration))
+    return lines
+
+
+def _reverse_lines(originals, reason):
+    out = []
+    for line in originals:
+        if line.reversed_by_id:
+            continue
+        reversal = EventLedgerEntry.objects.create(
+            event=line.event, tournament=line.tournament,
+            kind=EventLedgerEntry.KIND_REVERSAL, user=line.user,
+            amount_ngn=-line.amount_ngn, amount_vc=-line.amount_vc,
+            gross_ngn=-line.gross_ngn, gross_vc=-line.gross_vc,
+            fee_ngn=-line.fee_ngn, fee_vc=-line.fee_vc,
+            fee_pct=line.fee_pct, fee_flat_ngn=line.fee_flat_ngn,
+            fee_bearer=line.fee_bearer, buyer_fee_ngn=-line.buyer_fee_ngn,
+            ticket=line.ticket, registration=line.registration,
+            quantity=line.quantity,
+            referral=line.referral, note=reason[:200],
+            reverses=line)
+        EventLedgerEntry.objects.filter(pk=line.pk).update(reversed_by=reversal)
+        out.append(reversal)
+    return out
+
+
+def reverse_entry(registration, reason=''):
+    """Undo the lines one entry created. Returns `(reversals, refund_vc)`:
+    what the player actually paid for it, the entry plus whatever of the fee
+    they bore, in whole coins. None when this entry wrote no line (an entry
+    from before the ledger, or a free one)."""
+    originals = list(EventLedgerEntry.objects.filter(registration=registration)
+                     .exclude(kind=EventLedgerEntry.KIND_REVERSAL))
+    paid = None
+    for line in originals:
+        if line.kind == EventLedgerEntry.KIND_ORGANISER and not line.reversed_by_id:
+            paid = line.gross_vc + _floor_vc(line.buyer_fee_ngn)
+    return _reverse_lines(originals, reason), paid
+
+
+def record_prize(tournament, payout, amount_vc):
+    """A prize paid out, as a negative organiser line: it comes out of the
+    pool the entries built. Stamped with the payout row it paid."""
+    ngn = _ngn(Decimal(int(amount_vc)) * ngn_per_coin())
+    return EventLedgerEntry.objects.create(
+        tournament=tournament, kind=EventLedgerEntry.KIND_ORGANISER,
+        user=tournament.tournament_creator, prize=payout,
+        amount_ngn=-ngn, amount_vc=-int(amount_vc), quantity=0,
+        note='Prize - position %d' % payout.position)
+
+
+PRIZE_TOPUP_NOTE = 'Prize top-up from your wallet'
+
+
+def record_prize_topup(tournament, coins):
+    """Coins the organiser put in from their own wallet to cover prizes the
+    entries did not, as a positive organiser line."""
+    ngn = _ngn(Decimal(int(coins)) * ngn_per_coin())
+    return EventLedgerEntry.objects.create(
+        tournament=tournament, kind=EventLedgerEntry.KIND_ORGANISER,
+        user=tournament.tournament_creator,
+        amount_ngn=ngn, amount_vc=int(coins), quantity=0, note=PRIZE_TOPUP_NOTE)
+
+
+def pool_ngn(tournament):
+    """What the organiser is owed on this tournament right now, in naira:
+    entries less the fee, less prizes already paid, plus any top-up."""
+    return balances(tournament)['organiser_owed_ngn']
 
 
 def record_sale(event, tickets, priced, referral=None):
@@ -282,7 +461,7 @@ def record_sale(event, tickets, priced, referral=None):
     # is an answer they will get wrong.
     payable = gross - _ngn(priced.get('seller_fee_ngn', fee)) - commission
     lines.append(_line(event, EventLedgerEntry.KIND_ORGANISER, payable, priced,
-                       first, count, user=event.creator))
+                       first, count, user=owner_of(event)))
 
     if fee:
         # The platform is not paid through anybody's wallet, so its lines are
@@ -312,35 +491,21 @@ def reverse_sale(ticket, reason=''):
     """
     originals = EventLedgerEntry.objects.filter(ticket=ticket).exclude(
         kind=EventLedgerEntry.KIND_REVERSAL)
-    out = []
-    for line in originals:
-        if line.reversed_by_id:
-            continue
-        reversal = EventLedgerEntry.objects.create(
-            event=line.event, kind=EventLedgerEntry.KIND_REVERSAL,
-            user=line.user,
-            amount_ngn=-line.amount_ngn, amount_vc=-line.amount_vc,
-            gross_ngn=-line.gross_ngn, gross_vc=-line.gross_vc,
-            fee_ngn=-line.fee_ngn, fee_vc=-line.fee_vc,
-            fee_pct=line.fee_pct, fee_flat_ngn=line.fee_flat_ngn,
-            fee_bearer=line.fee_bearer, buyer_fee_ngn=-line.buyer_fee_ngn,
-            ticket=ticket, quantity=line.quantity,
-            referral=line.referral, note=reason[:200],
-            reverses=line)
-        EventLedgerEntry.objects.filter(pk=line.pk).update(reversed_by=reversal)
-        out.append(reversal)
-    return out
+    return _reverse_lines(originals, reason)
 
 
-def balances(event):
-    """What each party is owed on this event, and what has already been paid.
+def balances(record):
+    """What each party is owed on this event or tournament, and what has
+    already been paid.
 
     Summed from the lines, in naira. Nothing here reads a stored total,
     because a stored total is the thing that drifts. Each figure comes with
     its whole-coin floor beside it, for the screens that render coins.
     """
+    scope = _scope(record)
+
     def total(kind, settled=None):
-        q = EventLedgerEntry.objects.filter(event=event)
+        q = EventLedgerEntry.objects.filter(**scope)
         # A reversal carries its own kind, so it has to be matched against the
         # kind it reverses rather than counted on its own.
         q = q.filter(kind=kind) | q.filter(kind=EventLedgerEntry.KIND_REVERSAL,
@@ -350,7 +515,7 @@ def balances(event):
         return _ngn(q.aggregate(n=Sum('amount_ngn'))['n'] or 0)
 
     affiliates = []
-    rows = (EventLedgerEntry.objects.filter(event=event, referral__isnull=False)
+    rows = (EventLedgerEntry.objects.filter(referral__isnull=False, **scope)
             .filter(Q(kind=EventLedgerEntry.KIND_AFFILIATE)
                     | Q(kind=EventLedgerEntry.KIND_REVERSAL,
                         reverses__kind=EventLedgerEntry.KIND_AFFILIATE))
@@ -375,8 +540,9 @@ def balances(event):
     return figures
 
 
-def settle(event, run_by=None, note=''):
-    """Pay everybody who is owed anything on this event, once, in one pass.
+def settle(record, run_by=None, note=''):
+    """Pay everybody who is owed anything on this event or tournament, once,
+    in one pass.
 
     This is the whole difference between a run and a queue. A queue is a list of
     payments somebody works through, and the second time somebody works through
@@ -396,13 +562,13 @@ def settle(event, run_by=None, note=''):
     from vent_auth.models import Transaction, UserWallet
 
     unit = ngn_per_coin()
+    scope = _scope(record)
     with transaction.atomic():
-        run = EventSettlement.objects.create(event=event, run_by=run_by,
-                                             note=note[:200])
+        run = EventSettlement.objects.create(run_by=run_by, note=note[:200], **scope)
 
         open_lines = list(EventLedgerEntry.objects
                           .select_for_update()
-                          .filter(event=event, settled_at__isnull=True)
+                          .filter(settled_at__isnull=True, **scope)
                           .exclude(kind=EventLedgerEntry.KIND_PLATFORM))
 
         # Grouped by person AND by what the money is (their own takings, or
@@ -442,7 +608,7 @@ def settle(event, run_by=None, note=''):
             wallet.save(update_fields=['wallet_balance'])
             Transaction.objects.create(
                 wallet=wallet, type='prize', amount=coins,
-                description='Settlement - %s' % event.name,
+                description='Settlement - %s' % name_of(record),
                 status='completed')
 
             # Stamped inside the same transaction as the coins moving. This is
@@ -461,16 +627,16 @@ def settle(event, run_by=None, note=''):
                 # to exactly the coins that moved) and an open line carrying
                 # it to the next run, which pays it once it is a coin.
                 EventLedgerEntry.objects.create(
-                    event=event, kind=kind, user_id=user_id,
+                    kind=kind, user_id=user_id,
                     referral_id=referral_id,
                     amount_ngn=-remainder, amount_vc=0, quantity=0,
                     note='Carried to the next payout',
-                    settled_at=run.created_at, settlement=run)
+                    settled_at=run.created_at, settlement=run, **scope)
                 EventLedgerEntry.objects.create(
-                    event=event, kind=kind, user_id=user_id,
+                    kind=kind, user_id=user_id,
                     referral_id=referral_id,
                     amount_ngn=remainder, amount_vc=0,
-                    quantity=0, note='Carried from settlement %d' % run.id)
+                    quantity=0, note='Carried from settlement %d' % run.id, **scope)
 
         run.amount_vc = paid_total
         run.lines_paid = paid_lines

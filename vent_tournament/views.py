@@ -547,6 +547,12 @@ def join_tournament(request):
             is_paid = False
 
         entry_fee_coins = int(tournament.entry_fee_price) if is_paid else 0
+        # What the entry costs and who is owed what, from the one function the
+        # quote endpoint and the ledger read. With the fee on the player the
+        # whole coins of it are added on top; the rest comes off the organiser.
+        from vent_event import ledger as money_ledger
+        priced = money_ledger.quote_entry(tournament) if is_paid else None
+        charge_coins = entry_fee_coins + (priced['buyer_fee_vc'] if priced else 0)
         # KYC gate applies to any tournament that charges entry OR awards a prize
         # (locked CEO decision 2026-05-26).
         needs_kyc = tournament.is_paid_entry
@@ -618,22 +624,34 @@ def join_tournament(request):
             if is_paid:
                 from vent_auth.models import Transaction
                 locked_wallet = UserWallet.objects.select_for_update().get(pk=user_wallet.pk)
-                if locked_wallet.wallet_balance < entry_fee_coins:
+                if locked_wallet.wallet_balance < charge_coins:
+                    # A refusal inside the atomic block still COMMITS on
+                    # return, and the registration row above was already
+                    # written: somebody with no coins was registered, unpaid,
+                    # holding a slot. Roll it back.
+                    db_transaction.set_rollback(True)
                     return Response({'status': 'error', 'code': 'INSUFFICIENT_BALANCE',
-                                     'message': 'Insufficient VENT COINS balance'},
+                                     'message': 'Insufficient VENT COINS balance',
+                                     'needed_vc': charge_coins,
+                                     'balance_vc': locked_wallet.wallet_balance},
                                     status=status.HTTP_422_UNPROCESSABLE_ENTITY)
-                locked_wallet.wallet_balance -= entry_fee_coins
+                locked_wallet.wallet_balance -= charge_coins
                 locked_wallet.save(update_fields=['wallet_balance'])
                 Transaction.objects.create(
                     wallet=locked_wallet,
                     type='deduction',
-                    amount=-entry_fee_coins,
-                    description=f'Registration fee - {tournament.tournament_title}',
+                    amount=-charge_coins,
+                    description=(f'Registration fee - {tournament.tournament_title}'
+                                 + (' (incl. %d VC service fee)' % priced['buyer_fee_vc']
+                                    if priced['buyer_fee_vc'] else '')),
                     status='completed',
                     tournament=tournament,
                 )
                 registration.entry_fee_paid = True
                 registration.save(update_fields=['entry_fee_paid'])
+                # The organiser's take and the platform's fee, on the ledger,
+                # in the same transaction as the coins leaving.
+                money_ledger.record_entry(registration, priced)
 
         # Notify the registrant (team owner for team entries) - fire-and-forget.
         try:
@@ -664,7 +682,9 @@ def join_tournament(request):
                 'registration_id': registration.id,
                 'status': registration.status,
                 'entry_fee_paid': registration.entry_fee_paid,
-                'coins_deducted': entry_fee_coins if is_paid else 0,
+                'coins_deducted': charge_coins if is_paid else 0,
+                'entry_vc': entry_fee_coins if is_paid else 0,
+                'fee_vc': priced['buyer_fee_vc'] if priced else 0,
                 'covered_by_event_ticket': covered_by_ticket,
                 # What paid for the entry when it was not the wallet. Reported
                 # rather than left to be inferred from a zero: "you were not
@@ -2087,7 +2107,16 @@ def edit_tournament(request, tournament_id):
             # so an organiser who won a sponsor after publishing could not say
             # so, and one who typed the wrong figure was stuck with it.
             'prize_currency', 'prize_pool_total', 'prize_pool_total_vc',
+            # Who bears the platform fee on an entry: 'organiser' or 'player'.
+            # Applies to entries from now on; each entry already paid keeps
+            # the split it was paid under.
+            'fee_bearer',
         ]
+        if 'fee_bearer' in request.data and str(request.data.get('fee_bearer')) not in (
+                Tournament.FEE_ORGANISER, Tournament.FEE_PLAYER):
+            return Response({'status': 'error', 'code': 'VALIDATION_ERROR',
+                             'message': 'Say whether the organiser or the player pays the fee.'},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         # These reach integer and decimal columns. The loop below used to
         # setattr whatever arrived, so a caps field sent as "fifty" raised at

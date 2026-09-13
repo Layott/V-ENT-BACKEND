@@ -506,6 +506,7 @@ def distribute_prizes(request, tournament_id):
             'prize_distribution_missing': http.HTTP_409_CONFLICT,
             'already_distributed': http.HTTP_409_CONFLICT,
             'winner_wallet_missing': http.HTTP_422_UNPROCESSABLE_ENTITY,
+            'pool_short': http.HTTP_402_PAYMENT_REQUIRED,
         }
         return _err(e.message, e.code.upper(), code_map.get(e.code, http.HTTP_400_BAD_REQUEST))
 
@@ -548,12 +549,19 @@ def cancel_tournament(request, tournament_id):
                         .select_related('user', 'team'))
             # Lock every recipient wallet up front in PK order (deadlock avoidance).
             locked_wallets = wallet_service.lock_wallets_for_registrations(regs)
+            from vent_event import ledger as money_ledger
             for reg in regs:
                 wallet = wallet_service.wallet_for_registration(reg, locked_wallets)
                 if wallet is None:
                     continue
+                # What this entry actually cost, from its own ledger lines,
+                # which also reverses the organiser's take and the fee. An
+                # entry from before the ledger has no lines and is refunded
+                # at the price, which is what was taken then.
+                _reversed, paid = money_ledger.reverse_entry(reg, 'Tournament cancelled')
+                refund = paid if paid is not None else entry_fee_coins
                 wallet_service.credit(
-                    wallet, entry_fee_coins,
+                    wallet, refund,
                     tx_type='refund',
                     description=f'Refund - cancelled tournament: {locked.tournament_title}',
                     tournament=locked,
@@ -562,7 +570,7 @@ def cancel_tournament(request, tournament_id):
                 reg.entry_fee_paid = False
                 reg.save(update_fields=['status', 'entry_fee_paid'])
                 refunded_count += 1
-                total_refunded += entry_fee_coins
+                total_refunded += refund
         locked.registrations.filter(status='confirmed').update(status='withdrawn')
         locked.status = 'cancelled'
         locked.cancelled_at = timezone.now()

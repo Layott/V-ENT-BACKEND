@@ -377,6 +377,9 @@ class PrizeDistributionTests(TestCase):
         t.refresh_from_db()
         TournamentPrizeDistribution.objects.create(tournament=t, position=1, prize=1000)
         TournamentPrizeDistribution.objects.create(tournament=t, position=2, prize=500)
+        # A free tournament's prizes come out of the organiser's own wallet
+        # (13 September 2026): nothing is minted. So the organiser holds them.
+        UserWallet.objects.filter(user=org).update(wallet_balance=1500)
         return org, t
 
     def test_distribute_credits_winner_wallet(self):
