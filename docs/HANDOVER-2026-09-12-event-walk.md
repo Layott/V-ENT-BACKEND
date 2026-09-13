@@ -85,6 +85,85 @@ paid`; the stall's totals `Sold 54,000 / fee 3,100 / yours 51,900 / paid 51 VC
 / waiting 900`. The walk checks, on every stall: buyers paid = kept + fee,
 fee = 5% + 100 on every unit, kept = coins paid + carry.
 
+## 0c. 13 September: every price is set on the dashboard, and a checker holds it (row 263)
+
+CEO: "the 5% + NGN100 is something admins should be able to set on the admin
+dashboard, they should be able to set what prices it is now for any premium
+feature or option and it updates everywhere on the platform, please create a
+checker for this that makes sure it applies each time a new feature is built
+or added that has pricing."
+
+What was true before a line was written: the dashboard carried eight money
+controls and FOUR changed nothing. `payout_min_vc` showed 0 while the real
+minimum was 5, read from `PAYOUT_MINIMUM_VC` in the environment.
+`topup_max_ngn_per_day` and `withdrawal_fee_pct` had no reader at all.
+`tournament_fee_pct` could not have one: an entry fee is collected by the
+platform and prizes are paid out of it, so there is no seller to take a
+percentage from. The withdraw screen told people "Withdrawal fee (2% + N50)"
+and drew a net payout from `calcWithdrawFee` in `walletHelpers.js`, while the
+server sent the whole amount. Billing read `subscription_fee_pct`, which was
+in no defaults and on no screen, falling back to the ticket rate.
+
+The rule, now written at the top of `DEFAULT_ADMIN_SETTINGS`: a platform rate
+or price has a default there, a field on the admin settings page, a reader in
+the code that charges it, and appears nowhere else as a number.
+
+- **The list** (`platform_fees`): ticket_fee_pct 5, ticket_fee_flat_ngn 100,
+  subscription_fee_pct 5, listing_fee_pct 0, anime_fee_pct 0,
+  withdrawal_fee_pct 0, withdrawal_fee_flat_ngn 0, payout_min_vc 5,
+  payout_daily_max_vc 500, topup_max_ngn_per_day 0; `premium`:
+  price_vc_monthly, price_vc_yearly. `tournament_fee_pct` is gone (see above;
+  the CEO can reverse this the day tournaments pay organisers).
+- **Readers wired**: `payouts.limits()` reads the two payout keys (the two
+  environment variables are deleted from settings.py; the tests set the
+  dashboard value with `AdminSetting.put`). `payouts.fee_on(amount)` prices a
+  withdrawal in naira off what the bank receives (a coin is 1,000 naira, so a
+  fee under a coin taken in coins would round to nothing), stamped on the
+  request as `fee_pct, fee_flat_ngn, fee_ngn, payout_ngn` (migration 0082);
+  the admin queue and the approval email say `payout_ngn`; an unstamped older
+  row is sent whole. `GET /auth/wallet/withdraw/quote/?amount=` is what the
+  withdraw screen now asks; `calcWithdrawFee` is deleted.
+  `topup_initiate` refuses over the daily ceiling with `OVER_TOPUP_LIMIT` and
+  the numbers beside the code (pending rows count; checked before Paystack is
+  asked). `vent_anime.money` takes `anime_fee_pct` in whole coins off the
+  author's credit and stamps `fee_vc` on the chapter row (migration 0002).
+  `vent_billing.charging.platform_rate` reads its own key with no fallback.
+- **The settings endpoint checks money before storing it**: a value that is
+  not a number at or above zero, or a key nothing reads, is refused with
+  `PRICE_NOT_A_NUMBER`, `PRICE_NEGATIVE` or `UNKNOWN_PRICE`. Before this it
+  deep-merged anything, and one stray string would have broken every sale.
+  `merged()` also drops money keys not in the defaults, so an install that
+  once stored `tournament_fee_pct` cannot post it back.
+- **The page**: two cards, "What V-ENT takes" (7 fields) and "Limits" (3),
+  plus Premium; one field per key, no `?? 5` fallbacks (the server always
+  serves every key); inputs 44px on a phone. Copy in en, fr, pt. The Money
+  tab's wallet note was still describing the pre-262 rule and now says the
+  split rule.
+- **The checker**, `tools/check-pricing.py`, in `check-all` as a blocking
+  catcher: every money key in the defaults has a `patch('<section>', '<key>'`
+  on the admin page and a reader in backend code (found by following the
+  variable that holds `merged().get('platform_fees')`, or a helper that
+  returns it); every key read is in the defaults; no `* 5 / 100`, `* 0.05` or
+  `FEE_PCT = 5` in backend money code; no rate or naira amount in frontend
+  copy beside a fee word (the coin unit, 1,000 naira, is allowed), no
+  `fee_pct ?? 5` and no `* 0.02` in a helper. `--self-test` is 9 fixtures,
+  one per fault plus two clean ones. It read 14 real problems on this tree
+  before the fixes and 0 after; calibrated by reading all 14.
+
+Measured in Chrome and on the emulator: typed 7 and 150 on the dashboard,
+pressed Save, and with no restart the tiers endpoint and the organiser's Money
+tab read 7% + 150; set the withdrawal fee to 2 + 50 and the withdraw screen
+quoted `Service fee (2% + 50 naira) -N250, You will receive N9,750` on both
+screens. Rates put back afterwards. Local sqlite had `payout_min_vc: 0` STORED
+(an earlier save of the old page posted the whole blob), so on this machine
+the minimum reads 0 until an admin sets it; production stores nothing, so 5
+applies there on deploy.
+
+**Left open**: the withdrawal fee defaults to 0 + 0 because that is what the
+server has always done; whether V-ENT wants the 2% + 50 the old screen
+promised is the CEO's call and is now one field. The tournament fee is not a
+thing until tournaments pay organisers.
+
 ## 1. What the CEO was asked, and how it was answered
 
 One coin is 1,000 naira (`NGN_PER_COIN`), and every naira-to-coin conversion

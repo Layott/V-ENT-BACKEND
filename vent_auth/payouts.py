@@ -34,6 +34,7 @@ is not wasted under any of the three answers."
 import re
 import secrets
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.utils import timezone
@@ -216,9 +217,15 @@ def confirmed_address(user, ref):
 # How much may go at once
 # ---------------------------------------------------------------------------
 
-def _limit(name, fallback):
+def _fees():
+    """The `platform_fees` section of the dashboard, defaults filled in."""
+    from .models import AdminSetting
+    return AdminSetting.load().merged().get('platform_fees') or {}
+
+
+def _whole(value, fallback):
     try:
-        return int(getattr(settings, name, fallback))
+        return int(value)
     except (TypeError, ValueError):
         return fallback
 
@@ -235,16 +242,65 @@ def usdt_enabled():
 
 
 def limits():
-    """The payout ceilings, in VENT COINS. Settings, so they can be moved.
+    """The payout ceilings, in VENT COINS, from the admin dashboard.
 
     They are rail independent, which is why they are built now: a daily
     ceiling is the same number whether the money leaves as naira or as USDT,
     and it is the control that limits what a compromised account can take
     before anybody notices. `0` on the daily ceiling means no ceiling.
+
+    Until 13 September these were environment variables, while the dashboard
+    showed a "payout minimum" of 0 that nothing read. One place now, the one
+    an admin can see.
     """
+    from .models import DEFAULT_ADMIN_SETTINGS
+    fees = _fees()
+    defaults = DEFAULT_ADMIN_SETTINGS['platform_fees']
     return {
-        'minimum': _limit('PAYOUT_MINIMUM_VC', 5),
-        'daily_max': _limit('PAYOUT_DAILY_MAX_VC', 500),
+        'minimum': max(0, _whole(fees.get('payout_min_vc'), defaults['payout_min_vc'])),
+        'daily_max': max(0, _whole(fees.get('payout_daily_max_vc'), defaults['payout_daily_max_vc'])),
+    }
+
+
+def fee_rate():
+    """(pct, flat_ngn): what comes off a payout, from the dashboard."""
+    fees = _fees()
+    try:
+        pct = max(Decimal('0'), Decimal(str(fees.get('withdrawal_fee_pct') or 0)))
+    except (InvalidOperation, ValueError):
+        pct = Decimal('0')
+    try:
+        flat = max(Decimal('0'), Decimal(str(fees.get('withdrawal_fee_flat_ngn') or 0)))
+    except (InvalidOperation, ValueError):
+        flat = Decimal('0')
+    return pct, flat
+
+
+def fee_on(amount_vc, pct=None, flat=None):
+    """What the platform keeps of one payout, in naira.
+
+    The coins leave the wallet in full and the fee comes off the naira the
+    bank receives, because a coin is 1,000 naira and a fee of a few percent
+    on a five coin payout is under a coin: taken in coins it would round to
+    nothing on every small payout and to a whole coin on a slightly larger
+    one. In naira it is exact. Never more than the payout itself.
+
+    Returns {'gross_ngn', 'fee_ngn', 'payout_ngn', 'pct', 'flat_ngn'}.
+    """
+    from .views_wallet import coins_to_ngn
+    if pct is None or flat is None:
+        pct, flat = fee_rate()
+    gross = Decimal(coins_to_ngn(int(amount_vc)))
+    fee = Decimal('0')
+    if gross > 0:
+        fee = (gross * pct / Decimal('100') + flat).quantize(Decimal('0.01'))
+        fee = min(fee, gross)
+    return {
+        'gross_ngn': gross,
+        'fee_ngn': fee,
+        'payout_ngn': gross - fee,
+        'pct': pct,
+        'flat_ngn': flat,
     }
 
 

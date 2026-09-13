@@ -483,12 +483,10 @@ CARDS_INGEST_KEY = os.environ.get("CARDS_INGEST_KEY", "")
 # Payouts
 # ---------------------------------------------------------------------------
 
-# The floor and the daily ceiling on a payout, in VENT COINS. The same numbers
-# whichever rail the money leaves by, which is why they are set once here. `0`
-# on the ceiling means no ceiling. A ceiling is what caps how much a stolen
-# account can take out before anybody looks at the queue.
-PAYOUT_MINIMUM_VC = int(os.environ.get('PAYOUT_MINIMUM_VC', '5'))
-PAYOUT_DAILY_MAX_VC = int(os.environ.get('PAYOUT_DAILY_MAX_VC', '500'))
+# The floor and the daily ceiling on a payout live on the admin dashboard
+# (`DEFAULT_ADMIN_SETTINGS['platform_fees']`, payout_min_vc and
+# payout_daily_max_vc), not here: a number an admin can see and change beats
+# one that needs a deploy. Nothing about money is read from the environment.
 
 # Whether somebody may ask to be paid in USDT.
 #

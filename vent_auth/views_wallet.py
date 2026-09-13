@@ -191,6 +191,32 @@ def get_wallet_transactions(request):
     }, status=status.HTTP_200_OK)
 
 
+def topup_ceiling_ngn():
+    """The most one account may top up in a day, in naira. 0 means none."""
+    from .models import AdminSetting
+    fees = AdminSetting.load().merged().get('platform_fees') or {}
+    try:
+        return max(0, int(fees.get('topup_max_ngn_per_day') or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _over_topup_ceiling(wallet, amount_ngn):
+    """None when this top-up fits under the day's ceiling, else the numbers."""
+    cap = topup_ceiling_ngn()
+    if cap <= 0:
+        return None
+    since = timezone.now() - timedelta(days=1)
+    coins = sum(Transaction.objects.filter(
+        wallet=wallet, type='top_up', created_at__gte=since,
+        status__in=('pending', 'completed'),
+    ).values_list('amount', flat=True))
+    already = coins_to_ngn(coins)
+    if already + int(amount_ngn) > cap:
+        return {'daily_max_ngn': cap, 'already_ngn': already}
+    return None
+
+
 # ---------------------------------------------------------------------------
 # W3 - POST /auth/wallet/topup/initiate/
 # ---------------------------------------------------------------------------
@@ -218,10 +244,25 @@ def topup_initiate(request):
 
     if amount_ngn < NGN_PER_COIN:
         return Response(
-            {'status': 'error',
+            {'code': 'BELOW_MINIMUM_TOPUP', 'status': 'error',
+             'minimum_ngn': NGN_PER_COIN,
              'message': f'Minimum top-up is {NGN_PER_COIN:,} NGN (1 VENT COIN)'},
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+    # The daily ceiling, from the dashboard (topup_max_ngn_per_day; 0 means
+    # none). Counted from what this wallet asked for in the last day, pending
+    # rows included: twenty top-ups started and not yet paid are exactly the
+    # case a ceiling exists for. Checked BEFORE Paystack is asked for a link,
+    # because a refusal after somebody has paid is a refund, not a refusal.
+    over = _over_topup_ceiling(wallet, amount_ngn)
+    if over is not None:
+        return Response(dict({'code': 'OVER_TOPUP_LIMIT', 'status': 'error',
+                              'message': 'That is over the daily top-up limit of '
+                                         '%s NGN. You have topped up %s NGN in the '
+                                         'last day.' % (over['daily_max_ngn'], over['already_ngn'])},
+                             **over),
+                        status=status.HTTP_400_BAD_REQUEST)
 
     vent_coins = _ngn_to_coins(amount_ngn)
     reference = f"VENT-{uuid.uuid4().hex[:16].upper()}"
@@ -777,6 +818,10 @@ def withdraw_initiate(request):
     # rejection left the first one pending for ever.
     #
     # One line per payout, and it is the held one. See `wallets.hold_for_payout`.
+    # What comes off it, at today's rate, copied onto the row so the queue,
+    # the email and the statement all say the same number for ever.
+    priced = payouts.fee_on(amount)
+
     try:
         with transaction.atomic():
             wr = WithdrawalRequest(
@@ -787,6 +832,10 @@ def withdraw_initiate(request):
                 account_number=account_number or '',
                 account_name=account_name or '',
                 payout_address=address,
+                fee_pct=priced['pct'],
+                fee_flat_ngn=priced['flat_ngn'],
+                fee_ngn=priced['fee_ngn'],
+                payout_ngn=priced['payout_ngn'],
             )
             # The statement line says where it went, in the same words the
             # console and the email use. One function builds that sentence, so
@@ -807,9 +856,47 @@ def withdraw_initiate(request):
             'method': wr.method,
             'destination': payouts.describe_destination(wr),
             'status': wr.status,
+            'fee_ngn': float(wr.fee_ngn),
+            'payout_ngn': float(wr.payout_ngn),
             'message': 'Withdrawal request submitted. Pending admin approval.',
         }
     }, status=status.HTTP_201_CREATED)
+
+
+# ---------------------------------------------------------------------------
+# GET /auth/wallet/withdraw/quote/?amount=<vc>
+# ---------------------------------------------------------------------------
+
+@api_view(['GET'])
+def withdraw_quote(request):
+    """What a payout of this many coins would land as, before the PIN.
+
+    The screen used to compute "2% + 50 naira" itself while the server took
+    nothing, so the number a person was shown was not the number they got.
+    One function prices a payout (`payouts.fee_on`) and this is the only way
+    a screen learns the answer. The limits ride along so the same call can
+    say whether the amount is allowed at all.
+    """
+    wallet, err = _get_user_from_token(request)
+    if err:
+        return err
+    try:
+        amount = max(0, int(request.query_params.get('amount') or 0))
+    except (TypeError, ValueError):
+        amount = 0
+    priced = payouts.fee_on(amount)
+    return Response({
+        'status': 'success',
+        'data': {
+            'amount_vc': amount,
+            'gross_ngn': float(priced['gross_ngn']),
+            'fee_pct': float(priced['pct']),
+            'fee_flat_ngn': float(priced['flat_ngn']),
+            'fee_ngn': float(priced['fee_ngn']),
+            'payout_ngn': float(priced['payout_ngn']),
+            'limits': payouts.limits(),
+        },
+    }, status=status.HTTP_200_OK)
 
 
 # ---------------------------------------------------------------------------
@@ -897,6 +984,8 @@ def withdraw_status(request):
             'id': w.id,
             'amount': w.amount,
             'method': w.method,
+            'fee_ngn': float(w.fee_ngn or 0),
+            'payout_ngn': float(w.payout_ngn or 0),
             # One sentence naming where it went, built by the same function
             # the statement line and the console read.
             'destination': payouts.describe_destination(w),

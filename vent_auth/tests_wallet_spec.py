@@ -24,7 +24,7 @@ from rest_framework.test import APIClient
 
 from . import totp as totp_lib
 from . import wallets
-from .models import (Games, KYCDocument, OrgMember, Organization, TeamMembers,
+from .models import (AdminSetting, Games, KYCDocument, OrgMember, Organization, TeamMembers,
                      Teams, Transaction, UserTOTP, UserWallet, Users,
                      WithdrawalRequest)
 
@@ -299,8 +299,8 @@ class PayoutHoldTests(TestCase):
     # daily limit and the balance and the limit is checked first. Without
     # this the test still passes and proves the other thing, which is how a
     # test quietly stops covering what its name says.
-    @override_settings(PAYOUT_DAILY_MAX_VC=0)
     def test_asking_for_more_than_there_is_records_no_request(self):
+        AdminSetting.put('platform_fees', payout_daily_max_vc=0)
         res = self.request_payout(5000)
         self.assertEqual(res.status_code, 400, res.data)
         self.assertEqual(res.data['code'], 'INSUFFICIENT_BALANCE')

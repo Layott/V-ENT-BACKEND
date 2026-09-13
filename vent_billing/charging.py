@@ -79,10 +79,7 @@ def platform_rate():
     try:
         from vent_auth.models import AdminSetting
         fees = AdminSetting.load().merged().get('platform_fees') or {}
-        value = fees.get('subscription_fee_pct')
-        if value is None:
-            value = fees.get('ticket_fee_pct')
-        return max(0.0, float(value or 0))
+        return max(0.0, float(fees.get('subscription_fee_pct') or 0))
     except Exception:
         # A settings row that does not exist yet, or a value somebody typed
         # wrongly. Charging nothing is the safe direction to fail in: the
