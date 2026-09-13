@@ -164,6 +164,69 @@ server has always done; whether V-ENT wants the 2% + 50 the old screen
 promised is the CEO's call and is now one field. The tournament fee is not a
 thing until tournaments pay organisers.
 
+## 0d. 13 September: 1% on payouts, and tournaments pay organisers a share (rows 265, 266)
+
+CEO, on the payout fee: "what do you suggest for withdrawal fee 1% seems fine
+to me right?" Answer: yes, 1% and nothing flat. The smallest payout is 5
+coins (5,000 naira), so 1% is 50 naira there, which covers a Paystack bank
+transfer (about 10 to 50 naira) at every size, and the platform already took
+5% + 100 on the sale. The default in code is now 1 + 0, so it applies on
+deploy; the dashboard field changes it without one.
+
+CEO, asked whether tournaments should pay organisers a share of entry fees so
+the tournament fee on the dashboard means something: "i want it".
+
+What was true before: an entry fee left the player's wallet and reached
+nobody, and prizes were minted to winners at distribution out of nothing, on a
+free tournament as much as a paid one. Handing entries to organisers while the
+platform kept minting prizes would pay every prize twice, so the two moved
+together. **This is a behaviour change on production tournaments: from this
+deploy, a prize is paid out of what the entries brought in, and what they did
+not bring in comes out of the ORGANISER'S OWN WALLET at distribution.** A free
+tournament with a 100 VC prize pool needs an organiser holding 100 VC when the
+prizes are paid, and the confirmation says so before the press.
+
+- **One ledger.** `EventLedgerEntry` and `EventSettlement` take a tournament
+  as well as an event (migration vent_event 0048); a line names the entry
+  that paid it (`registration`) or the prize it paid (`prize`). `balances()`
+  and `settle()` take either record. `tournament_fee_pct` 5 and
+  `tournament_fee_flat_ngn` 100 are on the dashboard and read by
+  `ledger.tournament_fee()`; `quote_entry(tournament)` is the one function
+  the register step, the join endpoint and the ledger lines read.
+- **The entry.** A paid registration debits entry + the whole coins of the
+  fee when `Tournament.fee_bearer` is 'player' (editable on the console's
+  new Money tab; migration vent_tournament 0052), writes the organiser line
+  and the platform line, and stamps the rate. `GET /tournament/<ref>/entry-
+  quote/` is public, and the Confirm Payment step shows `Entry 30 VC +
+  service fee (5% + 100 naira) 1 VC` from it. A refused debit now rolls the
+  registration row back too: it used to commit inside the atomic block and
+  leave an unpaid entrant holding a slot.
+- **Refunds.** Both cancel paths (organiser and admin) reverse the entry's
+  own lines and refund what that player paid, fee included, whatever the
+  price is now; the admin path no longer skips team entries.
+- **Prizes from the pool.** `prizes.plan()` reports `pool_ngn`,
+  `from_pool_vc`, `from_wallet_vc`, `organiser_balance_vc` and adds
+  `pool_short` to problems. `distribute()` debits the organiser's wallet for
+  the shortfall in whole coins (rounded up) before any winner is paid, writes
+  a top-up line and a negative organiser line per prize, and refuses with
+  `POOL_SHORT` (402 at the console, a notification on the scheduled path)
+  when the wallet cannot cover it. The test fixture that every prize test
+  builds on now gives the organiser the 1,500 coins its prizes need.
+- **Payout.** `GET /tournament/<ref>/earnings/` (entries, refunded, fee and
+  who bore it, prizes, top-up, owed, paid, runs) and `POST
+  /tournament/<ref>/settle/`, organiser or admin only. The console's Money
+  tab draws them with `Pay me out`. `check-parity` holds three rows for it.
+- **Numbers, walked.** Walk Cup Fee: 30 VC entry, player paid 31, ledger
+  organiser 29,400 / platform 1,600 (1,000 of it the player's), payout 29 VC
+  with 400 naira carried. Walk Cup Finished: four 20 VC entries built a
+  75,600 naira pool; prizes 150 VC took 75 from it and 75 from the wallet
+  (100 -> 25), 600 naira left.
+
+**Left open**: the register review step (`review-team/Review.js`) still
+draws a `$` sign and a "40 vent coins" placeholder for the entry fee, from
+before the wallet existed; the payment step is where the number is decided
+and it is right, but that review line should read the quote too.
+
 ## 1. What the CEO was asked, and how it was answered
 
 One coin is 1,000 naira (`NGN_PER_COIN`), and every naira-to-coin conversion

@@ -34,6 +34,7 @@ from . import views_scheduled
 from . import views_requirements
 from . import views_stages
 from . import views_prizes
+from . import views_money
 from . import views_rules
 
 # Every tournament route takes `<str:tournament_id>` and resolves a slug or an
@@ -163,6 +164,10 @@ urlpatterns = [
          name="prize_plan"),
     path("<str:tournament_id>/prizes/schedule/", views_prizes.prize_schedule,
          name="prize_schedule"),
+    # What the entries earn and paying it out: the same ledger as an event.
+    path("<str:tournament_id>/entry-quote/", views_money.entry_quote, name="entry_quote"),
+    path("<str:tournament_id>/earnings/", views_money.earnings, name="tournament_earnings"),
+    path("<str:tournament_id>/settle/", views_money.settle, name="tournament_settle"),
     path("<str:tournament_id>/cancel/", cancel_tournament, name="cancel_tournament"),
     path("match/<int:match_id>/", match_detail, name="match_detail"),
     path("match/<int:match_id>/report-score/", report_match_score, name="report_match_score"),

@@ -40,23 +40,18 @@ class TheListOfMoneyKeysTests(TestCase):
 
     def test_the_fee_section_holds_exactly_these_keys(self):
         self.assertEqual(set(DEFAULT_ADMIN_SETTINGS['platform_fees']), {
-            'ticket_fee_pct', 'ticket_fee_flat_ngn', 'subscription_fee_pct',
+            'ticket_fee_pct', 'ticket_fee_flat_ngn', 'tournament_fee_pct',
+            'tournament_fee_flat_ngn', 'subscription_fee_pct',
             'listing_fee_pct', 'anime_fee_pct', 'withdrawal_fee_pct',
             'withdrawal_fee_flat_ngn', 'payout_min_vc', 'payout_daily_max_vc',
             'topup_max_ngn_per_day',
         })
 
-    def test_the_tournament_fee_is_gone(self):
-        """An entry fee is collected by the platform and prizes are paid
-        from it, so there is no seller to take a percentage from. A control
-        for it would change nothing, which is what it did until today."""
-        self.assertNotIn('tournament_fee_pct', DEFAULT_ADMIN_SETTINGS['platform_fees'])
-
     def test_the_defaults_are_the_rule_the_ceo_set(self):
         fees = DEFAULT_ADMIN_SETTINGS['platform_fees']
         self.assertEqual((fees['ticket_fee_pct'], fees['ticket_fee_flat_ngn']), (5, 100))
         self.assertEqual(fees['subscription_fee_pct'], 5)
-        self.assertEqual((fees['withdrawal_fee_pct'], fees['withdrawal_fee_flat_ngn']), (0, 0))
+        self.assertEqual((fees['withdrawal_fee_pct'], fees['withdrawal_fee_flat_ngn']), (1, 0))
         self.assertEqual((fees['payout_min_vc'], fees['payout_daily_max_vc']), (5, 500))
 
     def test_a_fresh_install_serves_the_whole_list(self):
@@ -73,6 +68,15 @@ class EveryReaderReadsTheDashboardTests(TestCase):
         self.assertEqual(platform_fee(), (Decimal('5'), Decimal('100')))
         AdminSetting.put('platform_fees', ticket_fee_pct=7, ticket_fee_flat_ngn=150)
         self.assertEqual(platform_fee(), (Decimal('7'), Decimal('150')))
+
+    def test_the_tournament_fee(self):
+        """Its own two keys. Removed on the morning of 13 September because an
+        entry fee reached nobody; back that afternoon when the CEO said
+        tournaments pay organisers a share ("i want it")."""
+        from vent_event.ledger import tournament_fee
+        self.assertEqual(tournament_fee(), (Decimal('5'), Decimal('100')))
+        AdminSetting.put('platform_fees', tournament_fee_pct=8, tournament_fee_flat_ngn=50)
+        self.assertEqual(tournament_fee(), (Decimal('8'), Decimal('50')))
 
     def test_the_subscription_fee_reads_its_own_key_and_not_the_ticket_rate(self):
         from vent_billing.charging import platform_rate
@@ -101,7 +105,7 @@ class EveryReaderReadsTheDashboardTests(TestCase):
         self.assertEqual(payouts.limits(), {'minimum': 2, 'daily_max': 0})
 
     def test_the_withdrawal_fee(self):
-        self.assertEqual(payouts.fee_on(10)['fee_ngn'], Decimal('0'))
+        self.assertEqual(payouts.fee_on(10)['fee_ngn'], Decimal('100.00'), '1% by default')
         AdminSetting.put('platform_fees', withdrawal_fee_pct=2, withdrawal_fee_flat_ngn=50)
         priced = payouts.fee_on(10)
         self.assertEqual(priced['gross_ngn'], Decimal('10000'))
@@ -159,10 +163,10 @@ class SettingsRefuseBadMoneyTests(TestCase):
         self.assertEqual(res.data['code'], 'PRICE_NEGATIVE')
 
     def test_a_key_nothing_reads(self):
-        res = self.post({'platform_fees': {'tournament_fee_pct': 5}})
+        res = self.post({'platform_fees': {'wager_fee_pct': 5}})
         self.assertEqual(res.status_code, 400, res.data)
         self.assertEqual(res.data['code'], 'UNKNOWN_PRICE')
-        self.assertNotIn('tournament_fee_pct', AdminSetting.load().data.get('platform_fees') or {})
+        self.assertNotIn('wager_fee_pct', AdminSetting.load().data.get('platform_fees') or {})
 
     def test_a_boolean_is_not_a_price(self):
         res = self.post({'platform_fees': {'listing_fee_pct': True}})

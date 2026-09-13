@@ -44,11 +44,13 @@ class WithdrawalFeeTests(TestCase):
             'account_number': '0123456789', 'account_name': 'W Fee',
         }, format='json')
 
-    def test_by_default_nothing_comes_off(self):
+    def test_by_default_one_percent_comes_off(self):
+        """CEO, 13 September: 1%. On the smallest payout, 5 coins, that is 50
+        naira, which covers the bank transfer; nothing flat on top."""
         res = self.ask(10)
         self.assertEqual(res.status_code, 201, res.data)
-        self.assertEqual(res.data['data']['fee_ngn'], 0.0)
-        self.assertEqual(res.data['data']['payout_ngn'], 10000.0)
+        self.assertEqual(res.data['data']['fee_ngn'], 100.0)
+        self.assertEqual(res.data['data']['payout_ngn'], 9900.0)
 
     def test_the_rate_on_the_dashboard_is_stamped_on_the_request(self):
         AdminSetting.put('platform_fees', withdrawal_fee_pct=2, withdrawal_fee_flat_ngn=50)

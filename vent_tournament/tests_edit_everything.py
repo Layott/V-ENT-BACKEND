@@ -216,6 +216,8 @@ class EditEverythingTests(TestCase):
             'tournament_game', 'registration_opens_at', 'registration_closes_at',
             'prize_currency', 'prize_pool_total', 'prize_pool_total_vc',
             'approve_registrations', 'score_confirmation_mode',
+            # Who bears the platform fee on an entry (13 September 2026).
+            'fee_bearer',
         }
 
         columns = {f.name for f in Tournament._meta.get_fields()

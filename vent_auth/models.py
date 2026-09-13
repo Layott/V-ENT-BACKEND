@@ -1452,6 +1452,14 @@ DEFAULT_ADMIN_SETTINGS = {
         # Read by vent_event.ledger.platform_fee.
         'ticket_fee_pct': 5,
         'ticket_fee_flat_ngn': 100,
+        # What the platform takes of a tournament entry fee, the same shape as
+        # a ticket: a percentage plus a flat amount per paid entry. CEO, 13
+        # September 2026, asked whether tournaments should pay organisers a
+        # share of entries: "i want it". Entries fund prizes, the organiser
+        # keeps the rest, and their own wallet covers a prize pool the
+        # entries did not. Read by vent_event.ledger.tournament_fee.
+        'tournament_fee_pct': 5,
+        'tournament_fee_flat_ngn': 100,
         # The platform's cut of an organiser's membership subscription, as a
         # percentage of what the member pays. Its own key: a membership and a
         # ticket are not the same trade. Read by vent_billing.charging.
@@ -1466,8 +1474,11 @@ DEFAULT_ADMIN_SETTINGS = {
         # What comes off a payout before it is sent, in naira, off the naira
         # the bank receives: a percentage of the payout plus a flat amount.
         # The coins leave the wallet in full; the fee is what the platform
-        # keeps of the money it sends. Read by vent_auth.payouts.fee_on.
-        'withdrawal_fee_pct': 0,
+        # keeps of the money it sends. CEO, 13 September 2026: 1%. The
+        # smallest payout is 5 coins (5,000 naira), so 1% is 50 naira there,
+        # which covers a bank transfer at every size; no flat part needed.
+        # Read by vent_auth.payouts.fee_on.
+        'withdrawal_fee_pct': 1,
         'withdrawal_fee_flat_ngn': 0,
         # The smallest payout, and the most one account may ask for in a
         # day, both in VENT COINS. 0 on the ceiling means none. These were

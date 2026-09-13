@@ -2092,8 +2092,14 @@ class EventSettlement(models.Model):
     this row exists rather than a boolean on each line.
     """
     id = models.AutoField(primary_key=True)
-    event = models.ForeignKey(Event, on_delete=models.CASCADE,
-                              related_name='settlements')
+    # One of the two. A tournament's entry fees are settled by the same run
+    # as an event's ticket sales (13 September 2026), because a second
+    # settlement table would be a second place a payout could be made twice.
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, null=True,
+                              blank=True, related_name='settlements')
+    tournament = models.ForeignKey('vent_tournament.Tournament',
+                                   on_delete=models.CASCADE, null=True,
+                                   blank=True, related_name='settlements')
     run_by = models.ForeignKey('vent_auth.Users', on_delete=models.SET_NULL,
                                null=True, blank=True,
                                related_name='settlements_run')
@@ -2106,7 +2112,7 @@ class EventSettlement(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        return '%s settlement %s VC' % (self.event_id, self.amount_vc)
+        return '%s settlement %s VC' % (self.event_id or self.tournament_id, self.amount_vc)
 
 
 class EventLedgerEntry(models.Model):
@@ -2137,8 +2143,14 @@ class EventLedgerEntry(models.Model):
     ]
 
     id = models.AutoField(primary_key=True)
-    event = models.ForeignKey(Event, on_delete=models.CASCADE,
-                              related_name='ledger')
+    # One of the two. The name of the table predates tournaments using it;
+    # a tournament's entry fees, prizes and payout are the same ledger as an
+    # event's tickets (13 September 2026), settled by the same run.
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, null=True,
+                              blank=True, related_name='ledger')
+    tournament = models.ForeignKey('vent_tournament.Tournament',
+                                   on_delete=models.CASCADE, null=True,
+                                   blank=True, related_name='ledger')
     kind = models.CharField(max_length=16, choices=KIND_CHOICES, db_index=True)
     # Null for the platform's own lines, which are not paid into a wallet, and
     # for an affiliate link whose owner has not claimed an account yet.
@@ -2148,6 +2160,15 @@ class EventLedgerEntry(models.Model):
                                  null=True, blank=True, related_name='ledger')
     ticket = models.ForeignKey(Ticket, on_delete=models.SET_NULL, null=True,
                                blank=True, related_name='ledger')
+    # A tournament line: the entry that paid it, or the prize it paid out.
+    # A refund reverses the entry's own lines, so what comes back is what
+    # that player paid, whatever the entry fee is now.
+    registration = models.ForeignKey('vent_tournament.TournamentRegistration',
+                                     on_delete=models.SET_NULL, null=True,
+                                     blank=True, related_name='ledger')
+    prize = models.ForeignKey('vent_tournament.PrizePayout',
+                              on_delete=models.SET_NULL, null=True,
+                              blank=True, related_name='ledger')
 
     # The money, in NAIRA, exact. CEO, 12 September 2026: "V-ent takes 5% +
     # N100 of all tickets sold." One coin is 1,000 naira, so a 200 naira fee
@@ -2185,10 +2206,11 @@ class EventLedgerEntry(models.Model):
 
     class Meta:
         ordering = ['-created_at']
-        indexes = [models.Index(fields=['event', 'kind', 'settled_at'])]
+        indexes = [models.Index(fields=['event', 'kind', 'settled_at']),
+                   models.Index(fields=['tournament', 'kind', 'settled_at'])]
 
     def __str__(self):
-        return '%s %s %s VC' % (self.event_id, self.kind, self.amount_vc)
+        return '%s %s %s VC' % (self.event_id or self.tournament_id, self.kind, self.amount_vc)
 
 
 class TicketTransfer(models.Model):
