@@ -384,6 +384,11 @@ def ticket_quote(request, event_id):
             'fee_flat_ngn': float(priced['fee_flat_ngn']),
             'fee_bearer': priced['fee_bearer'],
             'buyer_pays_fee': priced['buyer_pays_fee'],
+            # Of the fee, what THIS buyer pays on top (all of it at a card, the
+            # whole coins from a wallet) and what the organiser absorbs.
+            'buyer_fee_ngn': float(priced['buyer_fee_ngn']),
+            'buyer_fee_vc': priced['buyer_fee_vc'],
+            'seller_fee_ngn': float(priced['seller_fee_ngn']),
             'channel': priced['channel'],
             'total_vc': priced['total_vc'],
             'total_ngn': float(priced['total_ngn']),

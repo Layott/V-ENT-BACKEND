@@ -47,6 +47,44 @@ after `Paid 31 VC`, `Already paid 31,000 NGN`, `350 NGN (0 VC)` waiting, fee
 every ticket). Guest checkout on a 3,000 naira ticket with the fee on the
 buyer: `Service fee (5% + 100 naira a ticket) 250 NGN`, `Total 3,250 NGN`.
 
+## 0b. 13 September: who bears it is the seller's choice, and stalls pay it too (row 262)
+
+CEO: "The organizer decides if they want to handle the cost or they want people
+buying the tickets to, same for vendors, should have a fee on everything sold.
+You can check production yourself to be sure there's no stored value."
+
+- **Production checked** over ssh: `AdminSetting` has no stored `platform_fees`,
+  so 5 and 100 apply the moment the backend deploys. Nothing for anybody to set.
+- **Who bears it, one rule for tickets and stalls** (`ledger.split_fee`): a
+  card payment adds the whole fee; a wallet payment adds the WHOLE COINS of it
+  on top (the buyer sees the number before the PIN) and the part under a coin
+  comes off the seller. Yesterday's version put all of a wallet buyer's fee on
+  the organiser; this is closer to what the CEO said. The ledger line records
+  `buyer_fee_ngn`.
+- **Stalls**: 5% + 100 naira on every unit sold (`price_basket`), stamped on
+  the order (`fee_ngn`, `fee_pct`, `fee_flat_ngn`, `fee_bearer`, `buyer_fee_vc`,
+  `vendor_ngn`, `vendor_paid_vc`). The stallholder chooses on their stall page
+  (`Vendor.fee_bearer`, PATCH `my-stalls/<slug>/`). The stall is paid the whole
+  coins its naira has reached at each order and carries the rest
+  (`Vendor.carry_ngn`); the stallholder taking their own stock pays no fee.
+- **A quote for the cart**: `POST /event/vendor/<slug>/quote/`, the same items
+  payload and the same function as the order, so the cart's fee line is never
+  the screen's arithmetic.
+- **A cancel refunds**: until now a cancelled order kept the buyer's coins and
+  the stock stayed sold. It now refunds the buyer in full, takes back what the
+  stall was paid for it (refused with `CANNOT_REFUND` if the stall's wallet no
+  longer holds it), trims the carry, and restocks. "Cancel and refund" is on
+  the stallholder's order rows.
+- Migration 0047 backfills old orders (paid in full, no fee) and old buyer-borne
+  ledger lines.
+
+Measured in Chrome: the stallholder's chips; a buyer's cart `Service fee (5% +
+100 naira a unit) 1 VC, Total 26 VC` on a 25,000 naira hoodie; the order row
+`Fee 1,350 naira (1 VC of it paid by the buyer), yours 24,650 naira, 24 VC
+paid`; the stall's totals `Sold 54,000 / fee 3,100 / yours 51,900 / paid 51 VC
+/ waiting 900`. The walk checks, on every stall: buyers paid = kept + fee,
+fee = 5% + 100 on every unit, kept = coins paid + carry.
+
 ## 1. What the CEO was asked, and how it was answered
 
 One coin is 1,000 naira (`NGN_PER_COIN`), and every naira-to-coin conversion

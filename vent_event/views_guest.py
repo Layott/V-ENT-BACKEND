@@ -361,7 +361,7 @@ def guest_buy(request, event_id):
     priced = _ledger.quote(tier, quantity, event, channel='naira')
     unit_ngn = priced['unit_ngn']
     unit_vc = priced['unit_vc']
-    fee_ngn = priced['fee_ngn'] if priced['buyer_pays_fee'] else 0
+    fee_ngn = priced['buyer_fee_ngn']
     total_ngn = float(priced['total_ngn'])
 
     # ------------------------------------------------------------------ free

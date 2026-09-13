@@ -40,7 +40,7 @@ from .views_vendor_shop import (
 from .views_vendor_slots import event_slots, event_slot_detail, buy_slot
 from .views_vendors import (
     event_vendors, vendor_detail, create_vendor, create_product,
-    create_order, my_vendor_orders, vendor_orders, collect_order, contact_vendor,
+    create_order, my_vendor_orders, vendor_orders, collect_order, contact_vendor, quote_order,
 )
 from .views_promos import (
     event_referrals, event_referral_detail, event_promos, event_promo_detail,
@@ -69,6 +69,7 @@ urlpatterns = [
     path("vendor/<str:vendor_id>/products/", create_product, name="create_vendor_product"),
     path("vendor/<str:vendor_id>/order/", create_order, name="create_vendor_order"),
     path("vendor/<str:vendor_id>/contact/", contact_vendor, name="contact_vendor"),
+    path("vendor/<str:vendor_id>/quote/", quote_order, name="quote_vendor_order"),
     path("vendor/<str:vendor_id>/orders/", vendor_orders, name="vendor_orders"),
     path("vendor/order/<str:code>/collect/", collect_order, name="collect_vendor_order"),
     path("vendor-orders/", my_vendor_orders, name="my_vendor_orders"),

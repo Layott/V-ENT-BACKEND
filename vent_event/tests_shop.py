@@ -88,11 +88,20 @@ class BuyingTests(ShopBase):
 
     def test_the_seller_is_paid(self):
         # The fault this suite was written to find. The buyer was debited and
-        # nobody was credited, so the money simply stopped existing.
+        # nobody was credited, so the money simply stopped existing. Since
+        # 13 September the stall is paid what it earned AFTER the platform's
+        # fee (5% + 100 naira a unit): a 10,000 naira shirt earns 9,400, which
+        # pays 9 coins now and carries 400 on the stall.
         before = self.balance(self.organiser)
         res = self.buy()
-        cost = res.data['data']['order']['total_vc']
-        self.assertEqual(self.balance(self.organiser), before + cost)
+        order = res.data['data']['order']
+        self.assertEqual(order['total_vc'], 10)
+        self.assertEqual(order['fee_ngn'], 600.0)
+        self.assertEqual(order['vendor_ngn'], 9400.0)
+        self.assertEqual(order['vendor_paid_vc'], 9)
+        self.assertEqual(self.balance(self.organiser), before + 9)
+        self.vendor.refresh_from_db()
+        self.assertEqual(float(self.vendor.carry_ngn), 400.0)
 
     def test_the_seller_gets_a_transaction_row(self):
         # A balance that changed with no record of why is unauditable.
@@ -102,10 +111,15 @@ class BuyingTests(ShopBase):
         self.assertGreater(rows.first().amount, 0)
 
     def test_the_money_is_conserved(self):
+        # What left the buyer is what the stall was paid, plus the platform's
+        # fee, plus what is waiting on the stall under a coin. In naira.
         before = self.balance(self.buyer) + self.balance(self.organiser)
-        self.buy()
+        res = self.buy()
+        order = res.data['data']['order']
         after = self.balance(self.buyer) + self.balance(self.organiser)
-        self.assertEqual(before, after)
+        self.vendor.refresh_from_db()
+        self.assertEqual((before - after) * 1000,
+                         order['fee_ngn'] + float(self.vendor.carry_ngn))
 
     def test_stock_goes_down_and_sold_goes_up(self):
         self.buy([{'product_id': self.shirt.id, 'quantity': 2}])
