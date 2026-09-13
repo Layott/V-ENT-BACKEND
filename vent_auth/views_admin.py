@@ -1022,6 +1022,18 @@ def admin_cancel_tournament(request, tournament_id):
 # Payout Approval
 # ---------------------------------------------------------------------------
 
+def _payout_ngn(w):
+    """What the bank receives for this request.
+
+    A request made before the fee existed carries payout_ngn of 0, and 0 is
+    not what it should be paid: it is the whole amount, which is what the
+    server always sent. So an unstamped row is worth its coins in full.
+    """
+    if w.payout_ngn and w.payout_ngn > 0:
+        return w.payout_ngn
+    return coins_to_ngn(w.amount) - (w.fee_ngn or 0)
+
+
 @api_view(['GET'])
 @admin_role_required(ROLE_PERMISSIONS['list_payouts'])
 def admin_pending_payouts(request):
@@ -1047,6 +1059,8 @@ def admin_pending_payouts(request):
                          kyc_verified=w.wallet.kyc_verified),
             'amount_vent_coins': w.amount,
             'amount_ngn': coins_to_ngn(w.amount),
+            'fee_ngn': float(w.fee_ngn or 0),
+            'payout_ngn': float(_payout_ngn(w)),
             'bank_name': w.bank_name,
             'account_number': w.account_number[-4:].rjust(len(w.account_number), '*'),
             'account_name': w.account_name,
@@ -1104,6 +1118,8 @@ def admin_payouts_list(request):
             'avatar': _face(request, w.wallet.user if w.wallet else None),
             'amount_vc': w.amount,
             'amount_ngn': coins_to_ngn(w.amount),
+            'fee_ngn': float(w.fee_ngn or 0),
+            'payout_ngn': float(_payout_ngn(w)),
             # How it leaves, and where to. A payout queue that shows a bank
             # column and nothing else cannot be worked once USDT exists: an
             # admin would be approving a row without knowing the destination.
@@ -1205,7 +1221,7 @@ def admin_approve_payout(request, withdrawal_id):
             link='/wallets', metadata={'withdrawal_id': w.id, 'amount': w.amount,
                                        'method': w.method},
         )
-        emails.send_payout_approved(w, amount_ngn=coins_to_ngn(w.amount))
+        emails.send_payout_approved(w, amount_ngn=int(_payout_ngn(w)))
     except Exception:
         pass
 

@@ -414,6 +414,11 @@ def send_payout_approved(withdrawal, *, amount_ngn):
     else:
         rows = [
             ('Amount', f'{withdrawal.amount:,} VC', '#D4AF37'),
+        ]
+        fee = int(withdrawal.fee_ngn or 0)
+        if fee > 0:
+            rows.append(('Service fee', f'NGN {fee:,}'))
+        rows += [
             ('You receive', f'NGN {amount_ngn:,}', '#4CAF50'),
             ('Bank', f'{withdrawal.bank_name} {withdrawal.account_number}'),
             ('Reference', withdrawal.payout_reference or f'WDR-{withdrawal.id}'),

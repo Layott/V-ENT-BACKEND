@@ -14,16 +14,18 @@ them beside their prize money and can withdraw them the same way. An earnings
 figure that is not a wallet balance is a promise, and this platform has one
 ledger.
 
-## The platform takes nothing, today, and it says so
+## The platform's cut is a dashboard number, and today it is 0
 
-There is no commission on a chapter sale. Not because it is free forever, but
-because nobody has decided a rate, and taking a percentage nobody chose is the
-fault `holds.commission_rate` documents on the marketplace side. When a rate is
-decided it goes in `AdminSetting.platform_fees` beside the others and is stamped
-on the row at the sale, so a change never rewrites what an author earned last
-month.
+The rate is `anime_fee_pct` in `AdminSetting.platform_fees`, beside the ticket
+and stall fees, so an admin sets it without a deploy. It is 0 until somebody
+decides otherwise: taking a percentage nobody chose is the fault
+`holds.commission_rate` documents on the marketplace side. The fee is whole
+coins, rounded down, off the author's credit; the reader pays the price on the
+label. It is stamped on the chapter row at the sale, so a change on the
+dashboard never rewrites what an author earned last month.
 """
 from datetime import timedelta
+from decimal import Decimal
 
 from django.db import transaction as db_transaction
 from django.utils import timezone
@@ -61,8 +63,30 @@ def _wallets(reader, author):
     return reader_wallet, author_wallet
 
 
+def platform_rate():
+    """The platform's cut of a comic sale, as a percentage, from the dashboard."""
+    from vent_auth.models import AdminSetting
+    fees = AdminSetting.load().merged().get('platform_fees') or {}
+    try:
+        return max(0.0, float(fees.get('anime_fee_pct') or 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def fee_on(coins, rate=None):
+    """The platform's whole coins out of one sale, rounded DOWN.
+
+    Down for the same reason every other fee here rounds down: a fee rounded
+    up takes a coin the platform did not earn on every small sale.
+    """
+    rate = platform_rate() if rate is None else rate
+    if not coins or rate <= 0:
+        return 0
+    return min(int(coins), int(Decimal(str(coins)) * Decimal(str(rate)) / Decimal('100')))
+
+
 def _move(reader, author, coins, description):
-    """Debit the reader, credit the author, return the reader's transaction."""
+    """Debit the reader, credit the author less the fee. Returns (tx, fee_vc)."""
     reader_wallet, author_wallet = _wallets(reader, author)
     if reader_wallet.wallet_balance < coins:
         raise PaymentError(
@@ -70,12 +94,14 @@ def _move(reader, author, coins, description):
             'You need %s VENT COINS and have %s.'
             % (coins, reader_wallet.wallet_balance))
 
+    fee = fee_on(coins)
     tx = wallet_service.debit(reader_wallet, coins, tx_type='deduction',
                               description=description)
-    if author_wallet is not None:
-        wallet_service.credit(author_wallet, coins, tx_type='prize',
-                              description=description)
-    return tx
+    if author_wallet is not None and coins - fee > 0:
+        wallet_service.credit(
+            author_wallet, coins - fee, tx_type='prize',
+            description=description + (' (after a %s VC V-ENT fee)' % fee if fee else ''))
+    return tx, fee
 
 
 def buy_chapter(reader, chapter, *, reason='chapter'):
@@ -101,10 +127,10 @@ def buy_chapter(reader, chapter, *, reason='chapter'):
     with db_transaction.atomic():
         if ChapterPurchase.objects.filter(user=reader, chapter=chapter).exists():
             raise PaymentError('ALREADY_BOUGHT', 'You already have that one.')
-        tx = _move(reader, series.author, coins,
-                   'Anime: %s #%s' % (series.title[:80], chapter.number))
+        tx, fee = _move(reader, series.author, coins,
+                        'Anime: %s #%s' % (series.title[:80], chapter.number))
         row = ChapterPurchase.objects.create(
-            user=reader, chapter=chapter, coins=coins, reason=reason)
+            user=reader, chapter=chapter, coins=coins, fee_vc=fee, reason=reason)
     return row, tx
 
 
@@ -128,8 +154,8 @@ def subscribe(reader, series, months=1):
         start = row.until if (row and row.until > now) else now
         until = start + timedelta(days=SUBSCRIPTION_DAYS * months)
 
-        tx = _move(reader, series.author, coins,
-                   'Anime subscription: %s' % series.title[:80])
+        tx, _fee = _move(reader, series.author, coins,
+                         'Anime subscription: %s' % series.title[:80])
 
         if row is None:
             row = SeriesSubscription.objects.create(
