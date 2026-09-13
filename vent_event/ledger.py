@@ -57,11 +57,13 @@ sales while the Money tab said it took 10 per cent. So the line holds NAIRA
 each person the whole coins their naira has reached and carries the rest as
 an open line for the next run. Nothing under a coin is lost; it waits.
 
-A wallet buyer cannot carry the fee either, for the same reason: 2,200 naira
-is not a whole number of coins. With the fee on the buyer, a guest paying
-naira at Paystack pays price plus fee exactly; a wallet buyer pays the price
-in coins and the fee comes out of the organiser's share for that sale. The
-quote says which (`buyer_pays_fee`), so the panel and the console can too.
+A wallet cannot carry all of the fee either, for the same reason: 2,200 naira
+is not a whole number of coins. So, with the fee on the buyer (CEO, 13
+September: "the organizer decides if they want to handle the cost or they want
+people buying the tickets to, same for vendors"): a card payment adds the
+whole fee; a wallet payment adds the WHOLE COINS of it, told to the buyer
+before they pay, and the part under a coin comes off the seller. `split_fee`
+is that rule, and tickets and stalls both go through it.
 """
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -135,6 +137,25 @@ def fee_for(unit_ngn, quantity, pct=None, flat=None):
     return _ngn(per_ticket * quantity)
 
 
+def split_fee(fee_ngn, bearer_pays, channel):
+    """Who pays how much of a fee, as `(buyer_ngn, seller_ngn, buyer_vc)`.
+
+    `bearer_pays` is whether the seller put the fee on the buyer. At a card
+    (`channel='naira'`) the buyer then pays all of it. From a wallet the buyer
+    pays the whole coins of it, on top of the price, and the seller absorbs
+    what is left under a coin: the buyer is told a whole number before they
+    pay and the platform still takes its exact fee.
+    """
+    fee = _ngn(fee_ngn)
+    if not bearer_pays or fee <= 0:
+        return Decimal('0.00'), fee, 0
+    if channel == 'naira':
+        return fee, Decimal('0.00'), 0
+    coins = _floor_vc(fee)
+    buyer = _ngn(Decimal(coins) * ngn_per_coin())
+    return buyer, _ngn(fee - buyer), coins
+
+
 def fee_on(amount_vc, rate=None):
     """The percentage part of the fee on an amount of whole coins, in whole
     coins, rounded down. Kept for the callers that reason in coins (the
@@ -184,12 +205,10 @@ def quote(tier, quantity, event=None, buyer=None, channel='wallet'):
     pct, flat = platform_fee()
     fee_ngn = fee_for(unit_ngn, quantity, pct, flat)
     bearer = getattr(event, 'fee_bearer', 'organiser') or 'organiser'
-    # A coin cannot carry 200 naira. With the fee on the buyer, only a naira
-    # checkout can add it to what they pay; a wallet buyer pays the price and
-    # the fee comes out of the organiser's share for that sale.
-    buyer_pays_fee = bearer == 'buyer' and channel == 'naira' and fee_ngn > 0
+    buyer_fee_ngn, seller_fee_ngn, buyer_fee_vc = split_fee(fee_ngn, bearer == 'buyer', channel)
+    organiser_ngn = tickets_ngn - seller_fee_ngn
 
-    out = {
+    return {
         'unit_vc': unit_vc,
         'unit_ngn': unit_ngn,
         'quantity': quantity,
@@ -202,30 +221,21 @@ def quote(tier, quantity, event=None, buyer=None, channel='wallet'):
         'fee_pct': pct,
         'fee_flat_ngn': flat,
         'fee_bearer': bearer,
-        'buyer_pays_fee': buyer_pays_fee,
         'channel': channel,
+        # What the buyer pays of the fee, on top of the price, and what the
+        # organiser absorbs. At a card the buyer pays all of it; from a wallet
+        # the whole coins of it; none when the organiser absorbs it.
+        'buyer_fee_ngn': buyer_fee_ngn,
+        'buyer_fee_vc': buyer_fee_vc,
+        'seller_fee_ngn': seller_fee_ngn,
+        'buyer_pays_fee': buyer_fee_ngn > 0,
+        'total_ngn': tickets_ngn + buyer_fee_ngn,
+        'total_vc': tickets_vc + buyer_fee_vc,
+        'organiser_ngn': organiser_ngn,
+        'organiser_vc': _floor_vc(organiser_ngn),
         'member_discount_pct': member_pct,
         'member_saving_vc': (list_unit_vc - unit_vc) * quantity,
     }
-    if buyer_pays_fee:
-        # Added on top, in naira, at the card. The organiser keeps the whole
-        # ticket price, and the buyer is told the number before they pay.
-        out.update({
-            'total_ngn': tickets_ngn + fee_ngn,
-            'total_vc': tickets_vc,
-            'organiser_ngn': tickets_ngn,
-            'organiser_vc': tickets_vc,
-        })
-    else:
-        # Taken out of what the organiser receives. The buyer pays the ticket
-        # price and nothing else, which is what the price on the page said.
-        out.update({
-            'total_ngn': tickets_ngn,
-            'total_vc': tickets_vc,
-            'organiser_ngn': tickets_ngn - fee_ngn,
-            'organiser_vc': _floor_vc(tickets_ngn - fee_ngn),
-        })
-    return out
 
 
 def _line(event, kind, amount_ngn, priced, first, count, user=None, referral=None):
@@ -235,7 +245,8 @@ def _line(event, kind, amount_ngn, priced, first, count, user=None, referral=Non
         gross_ngn=_ngn(priced['tickets_ngn']), gross_vc=priced['tickets_vc'],
         fee_ngn=_ngn(priced['fee_ngn']), fee_vc=priced['fee_vc'],
         fee_pct=priced['fee_pct'], fee_flat_ngn=_ngn(priced.get('fee_flat_ngn', 0)),
-        fee_bearer='buyer' if priced.get('buyer_pays_fee') else 'organiser',
+        fee_bearer=priced.get('fee_bearer', 'organiser'),
+        buyer_fee_ngn=_ngn(priced.get('buyer_fee_ngn', 0)),
         ticket=first, quantity=count)
 
 
@@ -269,7 +280,7 @@ def record_sale(event, tickets, priced, referral=None):
     # rather than a gross line and two negatives, because the question an
     # organiser asks is "what am I owed", and an answer they have to add up
     # is an answer they will get wrong.
-    payable = gross - (Decimal('0') if priced.get('buyer_pays_fee') else fee) - commission
+    payable = gross - _ngn(priced.get('seller_fee_ngn', fee)) - commission
     lines.append(_line(event, EventLedgerEntry.KIND_ORGANISER, payable, priced,
                        first, count, user=event.creator))
 
@@ -312,7 +323,7 @@ def reverse_sale(ticket, reason=''):
             gross_ngn=-line.gross_ngn, gross_vc=-line.gross_vc,
             fee_ngn=-line.fee_ngn, fee_vc=-line.fee_vc,
             fee_pct=line.fee_pct, fee_flat_ngn=line.fee_flat_ngn,
-            fee_bearer=line.fee_bearer,
+            fee_bearer=line.fee_bearer, buyer_fee_ngn=-line.buyer_fee_ngn,
             ticket=ticket, quantity=line.quantity,
             referral=line.referral, note=reason[:200],
             reverses=line)

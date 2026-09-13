@@ -1060,6 +1060,22 @@ class Vendor(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # Who bears the platform's fee on what this stall sells. CEO, 13 September
+    # 2026: "same for vendors, should have a fee on everything sold." The same
+    # two choices the organiser has on tickets, and the same rule: a wallet
+    # pays whole coins, so with the fee on the buyer the whole-coin part is
+    # added on top and the part under a coin comes off the stallholder.
+    FEE_VENDOR = 'vendor'
+    FEE_BUYER = 'buyer'
+    FEE_BEARER_CHOICES = [(FEE_VENDOR, 'The stallholder absorbs it'),
+                          (FEE_BUYER, 'The buyer pays it on top')]
+    fee_bearer = models.CharField(max_length=16, choices=FEE_BEARER_CHOICES,
+                                  default=FEE_VENDOR)
+    # Naira the stallholder is owed that has not yet reached a whole coin.
+    # Each order adds its take here, the whole coins are paid into the wallet
+    # at once, and the rest waits for the next order. Never lost.
+    carry_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
     class Meta:
         ordering = ['name']
 
@@ -1151,6 +1167,20 @@ class VendorOrder(models.Model):
     buyer = models.ForeignKey('vent_auth.Users', on_delete=models.CASCADE, related_name='vendor_orders')
     code = models.CharField(max_length=18, unique=True, db_index=True)
     total_vc = models.PositiveIntegerField(default=0)
+    # The money on this order, in naira, exact, stamped at the sale so a fee
+    # change later never rewrites what a stall earned: what the items came
+    # to, the platform's fee (5% + 100 naira per unit), the whole coins of it
+    # the buyer paid on top, what the stallholder earned after the fee, and
+    # the whole coins of that paid into their wallet at the time (the rest is
+    # carried on the stall).
+    items_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    fee_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    fee_pct = models.FloatField(default=0)
+    fee_flat_ngn = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    fee_bearer = models.CharField(max_length=16, default='vendor')
+    buyer_fee_vc = models.PositiveIntegerField(default=0)
+    vendor_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    vendor_paid_vc = models.PositiveIntegerField(default=0)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='paid')
     created_at = models.DateTimeField(auto_now_add=True)
     collected_at = models.DateTimeField(null=True, blank=True)
@@ -2136,6 +2166,9 @@ class EventLedgerEntry(models.Model):
     # The flat part of the fee, per ticket, stamped like the rate is.
     fee_flat_ngn = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     fee_bearer = models.CharField(max_length=16, default='organiser')
+    # How much of the fee the BUYER paid on top. All of it at a card; the
+    # whole coins of it from a wallet; none when the seller absorbs it.
+    buyer_fee_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     quantity = models.PositiveIntegerField(default=1)
     note = models.CharField(max_length=200, blank=True, default='')
 

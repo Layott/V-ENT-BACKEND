@@ -99,6 +99,11 @@ def serialize_vendor(request, v, include_products=False):
         'logo': _abs(request, v.logo),
         'banner': _abs(request, v.banner),
         'status': v.status,
+        # Who bears the platform's fee on this stall, and the rule, so a cart
+        # can say the number before the PIN.
+        'fee_bearer': v.fee_bearer,
+        'fee_pct': _fee_rule()[0],
+        'fee_flat_ngn': float(_fee_rule()[1]),
         'owner': v.owner.username if v.owner else None,
         'product_count': v.products.filter(is_active=True).count(),
     }
@@ -135,6 +140,11 @@ def event_vendors(request, event_id):
 
 
 # ---------------------------------------------------------------------------
+def _fee_rule():
+    from . import ledger as _ledger
+    return _ledger.platform_fee()
+
+
 def _vendor_by_ref(ref, **extra):
     """A stall, by slug or by primary key.
 
@@ -380,6 +390,82 @@ def contact_vendor(request, vendor_id):
 
 
 # ---------------------------------------------------------------------------
+# Pricing a basket: what the items come to, the platform's fee on every unit
+# sold (5% + 100 naira, CEO 13 September: "should have a fee on everything
+# sold"), who bears it, and what the stallholder keeps. One function for the
+# quote the cart shows and the order that charges, so the two cannot drift.
+# ---------------------------------------------------------------------------
+
+def price_basket(vendor, priced, own_stall=False):
+    """`priced` is `[(product, qty, unit_vc, variant), ...]`. Returns a dict
+    with the naira, the fee split by the stall's choice, and the coin totals
+    a wallet actually moves. A stallholder taking their own stock pays nothing
+    and owes no fee: a shirt off the table is a shirt off the table."""
+    from decimal import Decimal
+    from . import ledger as _ledger
+    pct, flat = _ledger.platform_fee()
+    items_vc = sum(unit_vc * qty for _, qty, unit_vc, _ in priced)
+    items_ngn = sum((_ledger._ngn(p.price) * qty for p, qty, _, _ in priced), Decimal('0'))
+    fee_ngn = (Decimal('0') if own_stall
+               else sum((_ledger.fee_for(p.price, qty, pct, flat) for p, qty, _, _ in priced),
+                        Decimal('0')))
+    bearer = getattr(vendor, 'fee_bearer', 'vendor') or 'vendor'
+    buyer_fee_ngn, seller_fee_ngn, buyer_fee_vc = _ledger.split_fee(
+        fee_ngn, bearer == 'buyer', 'wallet')
+    return {
+        'items_vc': 0 if own_stall else items_vc,
+        'items_ngn': items_ngn,
+        'fee_ngn': _ledger._ngn(fee_ngn),
+        'fee_pct': pct,
+        'fee_flat_ngn': flat,
+        'fee_bearer': bearer,
+        'buyer_fee_ngn': buyer_fee_ngn,
+        'buyer_fee_vc': buyer_fee_vc,
+        'seller_fee_ngn': seller_fee_ngn,
+        'buyer_pays_fee': buyer_fee_ngn > 0,
+        'total_vc': 0 if own_stall else items_vc + buyer_fee_vc,
+        'vendor_ngn': _ledger._ngn(items_ngn - seller_fee_ngn) if not own_stall else Decimal('0.00'),
+    }
+
+
+def _basket_payload(quote):
+    return {k: (float(v) if hasattr(v, 'quantize') else v) for k, v in quote.items()}
+
+
+@api_view(['POST'])
+def quote_order(request, vendor_id):
+    """What a basket would cost, before the PIN: the same items payload the
+    order takes, the same pricing function, no charge. The cart shows the fee
+    line from this rather than working the rule out itself."""
+    user, auth_error = _authenticate(request)
+    if auth_error:
+        return auth_error
+    vendor = _vendor_by_ref(vendor_id)
+    if vendor is None:
+        return _error('Vendor not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    items = request.data.get('items') or []
+    if not isinstance(items, list) or not items:
+        return _error('Add at least one item to your order.', 'VALIDATION_ERROR',
+                      status.HTTP_400_BAD_REQUEST)
+    priced = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            return _error('Malformed order item.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+        try:
+            qty = max(1, int(raw.get('quantity', raw.get('qty', 1))))
+        except (TypeError, ValueError):
+            return _error('Quantity must be a number.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+        product = VendorProduct.objects.filter(
+            id=raw.get('product_id') or raw.get('id'), vendor=vendor, is_active=True).first()
+        if product is None:
+            return _error('One of those products is no longer available.',
+                          'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+        priced.append((product, qty, _ngn_to_coins(product.price), str(raw.get('variant') or '')))
+    own_stall = bool(vendor.owner_id) and vendor.owner_id == user.user_id
+    return _ok(_basket_payload(price_basket(vendor, priced, own_stall)), 'Quoted.')
+
+
+# ---------------------------------------------------------------------------
 # POST /event/vendor/<vendor_id>/order/
 # ---------------------------------------------------------------------------
 
@@ -468,7 +554,6 @@ def create_order(request, vendor_id):
                                   'VARIANT_UNKNOWN', status.HTTP_400_BAD_REQUEST)
 
                 unit_vc = _ngn_to_coins(product.price)
-                total_vc += unit_vc * qty
                 priced.append((product, qty, unit_vc, variant))
 
             wallet = UserWallet.objects.select_for_update().filter(user=user).first()
@@ -483,8 +568,10 @@ def create_order(request, vendor_id):
             # hardest to notice. The order is still recorded and stock still moves,
             # because a shirt off the table is a shirt off the table.
             own_stall = bool(vendor.owner_id) and vendor.owner_id == user.user_id
-            if own_stall:
-                total_vc = 0
+            # Locked, because the carry below is read and written on the stall.
+            vendor = Vendor.objects.select_for_update().get(pk=vendor.pk)
+            basket = price_basket(vendor, priced, own_stall)
+            total_vc = basket['total_vc']
 
             if total_vc > 0:
                 if not wallet.pin_hash:
@@ -528,12 +615,28 @@ def create_order(request, vendor_id):
                             f'{vendor.name} cannot be paid right now. Nothing has '
                             'been taken from your wallet.',
                             'SELLER_HAS_NO_WALLET', status.HTTP_409_CONFLICT)
-                    seller_wallet.wallet_balance += total_vc
-                    seller_wallet.save(update_fields=['wallet_balance'])
-                    Transaction.objects.create(
-                        wallet=seller_wallet, type='receive', amount=total_vc,
-                        description=f'Sale at {vendor.name}', status='completed',
-                    )
+                    # What the stall earned on this order, after the part of the
+                    # fee it bears, in naira; paid into the wallet in whole
+                    # coins as soon as the carry reaches them. 1,800 naira on a
+                    # first order pays 1 coin and carries 800; the next 1,800
+                    # pays 2 and carries 600. Nothing under a coin is lost.
+                    from . import ledger as _ledger
+                    unit = _ledger.ngn_per_coin()
+                    carry = _ledger._ngn(vendor.carry_ngn) + basket['vendor_ngn']
+                    paid_vc = _ledger._floor_vc(carry)
+                    vendor.carry_ngn = _ledger._ngn(carry - paid_vc * unit)
+                    vendor.save(update_fields=['carry_ngn'])
+                    if paid_vc > 0:
+                        seller_wallet.wallet_balance += paid_vc
+                        seller_wallet.save(update_fields=['wallet_balance'])
+                        Transaction.objects.create(
+                            wallet=seller_wallet, type='receive', amount=paid_vc,
+                            description=f'Sale at {vendor.name}', status='completed',
+                        )
+                else:
+                    paid_vc = 0
+            else:
+                paid_vc = 0
 
             # How they want it. `collect` unless they said otherwise, because most
             # people at an event are walking to the table.
@@ -560,6 +663,10 @@ def create_order(request, vendor_id):
 
             order = VendorOrder.objects.create(
                 vendor=vendor, buyer=user, code=_new_order_code(), total_vc=total_vc,
+                items_ngn=basket['items_ngn'], fee_ngn=basket['fee_ngn'],
+                fee_pct=basket['fee_pct'], fee_flat_ngn=basket['fee_flat_ngn'],
+                fee_bearer=basket['fee_bearer'], buyer_fee_vc=basket['buyer_fee_vc'],
+                vendor_ngn=basket['vendor_ngn'], vendor_paid_vc=paid_vc,
                 fulfilment=fulfilment,
                 delivery_name=str(delivery.get('name') or '')[:120] if fulfilment == 'deliver' else '',
                 delivery_phone=str(delivery.get('phone') or '')[:40] if fulfilment == 'deliver' else '',
@@ -614,6 +721,17 @@ def serialize_order(request, order):
         'code': order.code,
         'status': order.status,
         'total_vc': order.total_vc,
+        # The money on it, in naira: what the items came to, the platform's
+        # fee, the whole coins of it the buyer paid on top, and what the stall
+        # kept. Stamped at the sale.
+        'items_ngn': float(order.items_ngn),
+        'fee_ngn': float(order.fee_ngn),
+        'fee_pct': order.fee_pct,
+        'fee_flat_ngn': float(order.fee_flat_ngn),
+        'fee_bearer': order.fee_bearer,
+        'buyer_fee_vc': order.buyer_fee_vc,
+        'vendor_ngn': float(order.vendor_ngn),
+        'vendor_paid_vc': order.vendor_paid_vc,
         'created_at': order.created_at,
         'collected_at': order.collected_at,
         'vendor': {'id': order.vendor_id, 'name': order.vendor.name, 'booth': order.vendor.booth or None},
@@ -676,6 +794,13 @@ def vendor_orders(request, vendor_id):
             'orders': [serialize_order(request, o) for o in orders],
             'count': orders.count(),
             'revenue_vc': sum(o.total_vc for o in orders if o.status != 'cancelled'),
+            # In naira: what the items came to, what the platform took, what
+            # the stall kept, and what is waiting on the stall under a coin.
+            'items_ngn': float(sum(o.items_ngn for o in orders if o.status != 'cancelled')),
+            'fees_ngn': float(sum(o.fee_ngn for o in orders if o.status != 'cancelled')),
+            'kept_ngn': float(sum(o.vendor_ngn for o in orders if o.status != 'cancelled')),
+            'paid_vc': sum(o.vendor_paid_vc for o in orders if o.status != 'cancelled'),
+            'carry_ngn': float(vendor.carry_ngn),
         },
         'Vendor orders retrieved.',
     )

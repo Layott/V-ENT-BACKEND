@@ -117,21 +117,39 @@ class WhoBearsTheFeeTests(LedgerBase):
         self.assertEqual(q['organiser_ngn'], Decimal('20000.00'))
         self.assertEqual(q['organiser_vc'], 20)
 
-    def test_a_wallet_buyer_cannot_carry_the_fee_so_it_comes_off_the_organiser(self):
+    def test_a_wallet_buyer_pays_the_whole_coins_of_the_fee_and_the_organiser_the_rest(self):
         """A coin is 1,000 naira. With the fee on the buyer, a wallet buyer
-        still pays the price in coins (2,200 naira is not a whole number of
-        them) and the fee comes out of the organiser's share for that sale.
-        The quote says so, and the line is stamped with who actually bore it."""
+        pays the whole coins of it on top (1 coin of a 1,100 naira fee) and
+        is told so before paying; the 100 under a coin comes off the
+        organiser. The line records what the buyer bore."""
         set_fee(5, 100)
         self.event.fee_bearer = Event.FEE_BUYER
         self.event.save(update_fields=['fee_bearer'])
         q = ledger.quote(self.tier, 1, self.event, channel='wallet')
-        self.assertFalse(q['buyer_pays_fee'])
-        self.assertEqual(q['total_vc'], 20)
+        self.assertTrue(q['buyer_pays_fee'])
         self.assertEqual(q['fee_ngn'], Decimal('1100.00'))
-        self.assertEqual(q['organiser_ngn'], Decimal('18900.00'))
+        self.assertEqual(q['buyer_fee_vc'], 1)
+        self.assertEqual(q['buyer_fee_ngn'], Decimal('1000.00'))
+        self.assertEqual(q['seller_fee_ngn'], Decimal('100.00'))
+        self.assertEqual(q['total_vc'], 21)
+        self.assertEqual(q['organiser_ngn'], Decimal('19900.00'))
         ledger.record_sale(self.event, [self.a_ticket()], q)
-        self.assertEqual(EventLedgerEntry.objects.get(kind='organiser').fee_bearer, 'organiser')
+        platform = EventLedgerEntry.objects.get(kind='platform')
+        self.assertEqual(platform.amount_ngn, Decimal('1100.00'))
+        self.assertEqual(platform.buyer_fee_ngn, Decimal('1000.00'))
+        self.assertEqual(EventLedgerEntry.objects.get(kind='organiser').amount_ngn, Decimal('19900.00'))
+
+    def test_under_a_coin_the_wallet_buyer_pays_nothing_on_top_and_the_organiser_absorbs_it(self):
+        set_fee(5, 100)
+        self.event.fee_bearer = Event.FEE_BUYER
+        self.event.save(update_fields=['fee_bearer'])
+        cheap = TicketTier.objects.create(event=self.event, name='Cheap', price=2000, quantity=10)
+        q = ledger.quote(cheap, 1, self.event, channel='wallet')
+        self.assertEqual(q['fee_ngn'], Decimal('200.00'))
+        self.assertEqual(q['buyer_fee_vc'], 0)
+        self.assertFalse(q['buyer_pays_fee'])
+        self.assertEqual(q['total_vc'], 2)
+        self.assertEqual(q['organiser_ngn'], Decimal('1800.00'))
 
     def test_a_free_ticket_carries_no_fee_either_way(self):
         """A 0 VC ticket that quietly costs 1 VC is the trap, and it would land

@@ -690,12 +690,17 @@ def vendor():
         'items': [{'product_id': pid(jollof), 'quantity': 2}], 'pin': PIN,
         'fulfilment': 'collect'}), content_type='application/json')
     order1 = expect(res, 201, 'the eater orders two plates to collect')
-    code1 = ((order1 or {}).get('order') or {}).get('code')
+    o1 = (order1 or {}).get('order') or {}
+    code1 = o1.get('code')
     if balance(eater) != before_e - 4:
         fail('4 coins left the eater', (before_e, balance(eater)))
-    if balance(trader) != before_t + 4:
-        fail('4 coins reached the vendor', (before_t, balance(trader)))
-    wearer = person('buyer_wearer', coins=50)
+    # The platform's 5% + 100 on each plate (400 on two) comes off the stall,
+    # which earns 3,600: 3 coins now and 600 carried on the stall.
+    if o1.get('fee_ngn') != 400.0 or o1.get('vendor_ngn') != 3600.0:
+        fail('the order carries the fee and the take', (o1.get('fee_ngn'), o1.get('vendor_ngn')))
+    if balance(trader) != before_t + o1.get('vendor_paid_vc', 0) or o1.get('vendor_paid_vc') != 3:
+        fail('3 coins reached the vendor now', (before_t, balance(trader), o1.get('vendor_paid_vc')))
+    wearer = person('buyer_wearer', coins=100)
     res = client(wearer).post('/event/vendor/%s/order/' % stall_slug, data=json.dumps({
         'items': [{'product_id': pid(hoodie), 'quantity': 1, 'variant': 'M'}], 'pin': PIN,
         'fulfilment': 'deliver',
@@ -741,6 +746,40 @@ def vendor():
     tx = Transaction.objects.filter(wallet__user=eater).order_by('-id').first()
     if tx is None or tx.amount != -4:
         fail('one transaction of -4 on the eater', getattr(tx, 'amount', None))
+
+    # 8. The stallholder puts the fee on the buyer: a hoodie (25,000, fee
+    #    1,350) costs the wearer 25 + 1 coins, the 350 under a coin comes off
+    #    the stall, and the cart was told the number first.
+    expect(c.patch('/event/my-stalls/%s/' % stall_slug, data=json.dumps({'fee_bearer': 'buyer'}),
+                   content_type='application/json'), 200, 'the fee goes on the buyer')
+    q = expect(client(wearer).post('/event/vendor/%s/quote/' % stall_slug, data=json.dumps({
+        'items': [{'product_id': pid(hoodie), 'quantity': 1, 'variant': 'L'}]}),
+        content_type='application/json'), 200, 'the cart is quoted before the PIN')
+    if (q or {}).get('total_vc') != 26 or (q or {}).get('buyer_fee_vc') != 1:
+        fail('the quote says 25 + 1 coins', q)
+    before_w = balance(wearer)
+    o3 = expect(client(wearer).post('/event/vendor/%s/order/' % stall_slug, data=json.dumps({
+        'items': [{'product_id': pid(hoodie), 'quantity': 1, 'variant': 'L'}], 'pin': PIN,
+        'fulfilment': 'collect'}), content_type='application/json'), 201,
+        'the wearer buys a second hoodie with the fee on top')
+    o3 = (o3 or {}).get('order') or {}
+    if balance(wearer) != before_w - 26 or o3.get('vendor_ngn') != 24650.0:
+        fail('26 coins left the wearer and the stall keeps 24,650', (before_w - balance(wearer), o3.get('vendor_ngn')))
+
+    # 9. A cancel gives everything back: the buyer's coins, the stall's, the stock.
+    stock_before = VendorProduct.objects.get(pk=pid(hoodie)).stock
+    holder_before, wearer_before = balance(trader), balance(wearer)
+    expect(c.post('/event/my-stalls/%s/orders/%s/status/' % (stall_slug, o3.get('code')),
+                  data=json.dumps({'status': 'cancelled'}), content_type='application/json'),
+           200, 'the stallholder cancels it')
+    if balance(wearer) != wearer_before + 26:
+        fail('the wearer got 26 coins back', (wearer_before, balance(wearer)))
+    if balance(trader) != holder_before - o3.get('vendor_paid_vc', 0):
+        fail('the stall gave back what it was paid', (holder_before, balance(trader), o3.get('vendor_paid_vc')))
+    if VendorProduct.objects.get(pk=pid(hoodie)).stock != stock_before + 1:
+        fail('the hoodie is back in stock')
+    expect(c.patch('/event/my-stalls/%s/' % stall_slug, data=json.dumps({'fee_bearer': 'vendor'}),
+                   content_type='application/json'), 200, 'and the fee goes back on the stall')
     save_state(st)
     say('vendor: %d failure(s)' % len(FAILS))
 
@@ -951,8 +990,9 @@ def numbers():
     truth['platform_fee'] = ledger('platform')
     truth['affiliate_owed'] = ledger('affiliate', settled=False)
     # Every paid ticket's fee, computed here from the rule: 5% + 100 naira.
-    from vent_event.ledger import fee_for, platform_fee
+    from vent_event.ledger import fee_for, platform_fee, ngn_per_coin
     pct, flat = platform_fee()
+    unit_ngn = ngn_per_coin()
     truth['fee_by_rule'] = sum((fee_for(t.price_ngn, 1, pct, flat) for t in live), Decimal('0'))
 
     # ---- the screens
@@ -1001,7 +1041,9 @@ def numbers():
     check('earnings affiliates_owed_ngn', earnings.get('affiliates_owed_ngn'), truth['affiliate_owed'])
     check('earnings fee_pct and fee_flat_ngn', (earnings.get('fee_pct'), earnings.get('fee_flat_ngn')), (pct, float(flat)))
 
-    # vendor sales: what the stall's orders endpoint totals against the orders
+    # vendor sales: what the stall's orders endpoint totals against the orders,
+    # and the money identity on every stall: what left buyers = what the stall
+    # kept + the platform's fee, and what the stall kept = coins paid + carry.
     for stall in Vendor.objects.filter(event=event):
         orders = VendorOrder.objects.filter(vendor=stall).exclude(status='cancelled')
         want = sum(int(o.total_vc or 0) for o in orders)
@@ -1009,6 +1051,17 @@ def numbers():
                      'the organiser reads %s orders' % stall.name) or {}
         check('vendor %s revenue_vc' % stall.name, got.get('revenue_vc'), want)
         check('vendor %s count' % stall.name, got.get('count'), VendorOrder.objects.filter(vendor=stall).count())
+        paid_by_buyers = sum((Decimal(o.total_vc) * unit_ngn for o in orders), Decimal('0'))
+        kept = sum((o.vendor_ngn for o in orders), Decimal('0'))
+        fees = sum((o.fee_ngn for o in orders), Decimal('0'))
+        check('stall %s: buyers paid = kept + fee' % stall.name, paid_by_buyers, kept + fees)
+        check('stall %s: fee = 5 pct + 100 on every unit' % stall.name, fees,
+              sum((fee_for(i.product.price, i.quantity, pct, flat) for o in orders for i in o.items.all()
+                   if o.buyer_id != stall.owner_id), Decimal('0')))
+        paid_coins = sum(o.vendor_paid_vc for o in orders)
+        check('stall %s: kept = coins paid + carry' % stall.name, kept,
+              Decimal(paid_coins) * unit_ngn + Decimal(str(stall.carry_ngn)))
+        check('stall %s: orders endpoint fees_ngn' % stall.name, got.get('fees_ngn'), fees)
 
     # influencer commission: the organiser's list and the payee's own view agree with the ledger
     refs_seen = expect(c.get('/event/%s/referrals/' % slug), 200, 'referrals') or {}
