@@ -15,6 +15,81 @@ possible, then fix everything wrong or hat might even have potental to cause
 any issues." And mid-walk: "when i said full test, i also meant claude chrome
 full UI test also. not jsut code."
 
+## WHERE THINGS STAND, end of 13 September 2026 (read this first)
+
+Two branches, both `fix/event-walk-12-sept`, both pushed, both waiting for
+the CEO to merge. Nothing on them is deployed.
+
+- **BE #180** (5 commits, head `394615a8`): the event walk fixes; the naira
+  ledger and 5% + 100; the seller chooses who bears it and stalls pay it; every
+  price on the dashboard plus `tools/check-pricing.py`; tournaments pay
+  organisers and prizes come from the pool; withdrawal fee 1%.
+- **FE #190** (5 commits, head `a9c24ac`): the screens for all of the above.
+- Merge order: FE #190 can go first or second; nothing on it breaks against
+  the old backend except the new Money tab and the withdraw quote, which show
+  an error state rather than a wrong number. BE #180 needs FE #190 for the
+  organiser screens. The peer's BE #178 / #179 are separate and unmerged.
+
+**Inbox rows this covers:** 260 (walk), 261 (5% + 100), 262 (bearer, stalls),
+263 (dashboard + checker), 265 (1% payouts), 266 (tournament fee). All done
+in `V-ENT/tasks/inbox.md`. **Next: row 264**, "people can still buy stuff
+directly on the platform without having to buy V-ENT coins, that option must
+always be available": a card (Paystack, naira) path on every purchase door.
+Today only the guest ticket checkout has one; signed-in tickets, stall
+orders, vendor pitches, premium, memberships, tournament entries and comic
+chapters are wallet-only. Inventory first, then gates/39.
+
+**What deploying BE #180 does, and what to tell people:**
+
+1. Migrations: vent_event 0046, 0047, 0048; vent_auth 0082; vent_anime 0002;
+   vent_tournament 0052. All additive or backfills; none destructive.
+2. Nothing to set on the dashboard. Production stores no `platform_fees`
+   (checked over ssh on 13 September), so the code defaults apply: tickets
+   and stalls 5% + 100, tournament entries 5% + 100, memberships 5%,
+   marketplace 0, comics 0, withdrawals 1% + 0, payout minimum 5 coins, daily
+   payout ceiling 500 coins, top-up ceiling none, premium not on sale.
+3. **Behaviour changes people will notice:** (a) every ticket, stall sale and
+   tournament entry now carries the fee, absorbed by the seller unless they
+   put it on the buyer; (b) **prizes are no longer minted**: they come out of
+   the entries, and what the entries did not bring in comes out of the
+   organiser's wallet at distribution, refused with the numbers if the
+   wallet cannot cover it, so an organiser of a free tournament with a prize
+   pool must hold those coins; (c) payouts land 1% lighter, said on the
+   withdraw screen and in the approval email; (d) the withdraw screen stops
+   promising "2% + N50", which the server never took.
+4. Local sqlite differs from production in one way worth knowing: it has
+   `payout_min_vc: 0` and an old `tournament_fee_pct` STORED from earlier
+   saves of the old dashboard blob; production stores nothing.
+
+**Checkers added this run** (all in `check-all`, all blocking):
+`tools/check-pricing.py` (every price has a default, a field and a reader,
+and is a number nowhere else; self-test 9/9), three new `check-parity` rows
+(earnings, settle, fee bearer on both sides), `check-live-updates` part 3,
+`check-signed-out` reading `gatedRoutes.js`. Tests added: `tests_ledger`,
+`tests_vendor_fee`, `tests_pricing_settings`, `tests_withdrawal_fee`,
+`tests_topup_ceiling`, `vent_anime/tests_fee`, `vent_tournament/tests_entry_fee`,
+`tests_in_flight`, `tests_whole_coins`. Suite: 2454 in tournament + event +
+admin + pricing; the money apps 2374 earlier the same day.
+
+**Gates files:** `V-ENT/gates/34` (20/20), `35` (8/8), `36` (8/8), `37`
+(11/11), `38` (10/10). Ticked with `tools/gate-run.py` (the bundled
+`gate-check.mjs` runs cmd.exe and cannot).
+
+**Local fixtures on this machine** (sqlite only): `walk_*` accounts, password
+`walk-con-2026`, PIN 2468; `walk_admin` is super_admin with 2FA stamped;
+`walk-con-ea5e` (event), `walk-cup-fee` (30 VC entry, fee on the player, one
+entry paid), `walk-cup-finished` (paid, prizes paid from the pool). Tokens
+rotate: `walk.person('name')` in `tools/walk_event.py` refreshes one. Sign a
+Chrome tab in with `/auth/external?token=<t>&username=<u>`; the console also
+needs `localStorage.adminToken` and the `adminToken` cookie set to the same
+token. The emulator froze once today and needed `emulator -avd evotv_test
+-no-snapshot-load` again; the phone Chrome signs in through the NextAuth
+callback POST (`scratchpad/phone_admin_walk.py` shape).
+
+**Open, named:** the register review step draws `$` and a "40 vent coins"
+placeholder; `link embeds` debt needs the dev server up to check; two
+`useCallback` warnings pre-date the branch.
+
 ## 0. Decided the same evening: "V-ent takes 5% + N100 of all tickets sold" (row 261)
 
 The CEO answered section 1 with the fee rule, not a coin size. So the ledger
