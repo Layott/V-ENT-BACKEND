@@ -62,12 +62,18 @@ DAYS_PER_MONTH = 30
 
 
 class PremiumSaleError(Exception):
-    """Carries a code, because the screen showing it may be in French."""
+    """Carries a code, because the screen showing it may be in French.
 
-    def __init__(self, code, message):
+    And numbers beside it where there are any: a refusal for want of coins
+    that does not say how many were needed cannot be turned into a card
+    payment by the screen without asking the price a second time.
+    """
+
+    def __init__(self, code, message, **params):
         super().__init__(message)
         self.code = code
         self.message = message
+        self.params = params
 
 
 def offer():
@@ -163,7 +169,8 @@ def buy(user, *, months=1, org_slug=None):
             raise PremiumSaleError(
                 'INSUFFICIENT_FUNDS',
                 'You need %s VENT COINS and have %s.'
-                % (cost, wallet.wallet_balance))
+                % (cost, wallet.wallet_balance),
+                needed_vc=cost, balance_vc=wallet.wallet_balance)
 
         # Extend from whichever is later: what is already paid for, or now. A
         # lapsed subscription starts again today rather than backdating itself

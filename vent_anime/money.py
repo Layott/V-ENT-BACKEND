@@ -41,12 +41,18 @@ SUBSCRIPTION_DAYS = 30
 
 
 class PaymentError(Exception):
-    """Carries a code, because the screen showing it may be in French."""
+    """Carries a code, because the screen showing it may be in French.
 
-    def __init__(self, code, message):
+    And numbers beside it where there are any: a refusal for want of coins
+    that does not say how many were needed cannot be turned into a card
+    payment by the screen without asking the price a second time.
+    """
+
+    def __init__(self, code, message, **params):
         super().__init__(message)
         self.code = code
         self.message = message
+        self.params = params
 
 
 def _wallets(reader, author):
@@ -92,7 +98,8 @@ def _move(reader, author, coins, description):
         raise PaymentError(
             'INSUFFICIENT_FUNDS',
             'You need %s VENT COINS and have %s.'
-            % (coins, reader_wallet.wallet_balance))
+            % (coins, reader_wallet.wallet_balance),
+            needed_vc=int(coins), balance_vc=reader_wallet.wallet_balance)
 
     fee = fee_on(coins)
     tx = wallet_service.debit(reader_wallet, coins, tx_type='deduction',
