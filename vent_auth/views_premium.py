@@ -27,8 +27,8 @@ def _ok(data, message='OK'):
                     status=status.HTTP_200_OK)
 
 
-def _err(message, code, http_status=status.HTTP_400_BAD_REQUEST):
-    return Response({'status': 'error', 'data': {}, 'message': message,
+def _err(message, code, http_status=status.HTTP_400_BAD_REQUEST, data=None):
+    return Response({'status': 'error', 'data': data or {}, 'message': message,
                      'code': code}, status=http_status)
 
 
@@ -102,7 +102,9 @@ def premium_buy(request):
             http = status.HTTP_403_FORBIDDEN
         elif exc.code == 'ORG_NOT_FOUND':
             http = status.HTTP_404_NOT_FOUND
-        return _err(exc.message, exc.code, http)
+        # The numbers ride with the code so the offer page can pay the
+        # shortfall by card. See vent_auth/pay.py.
+        return _err(exc.message, exc.code, http, data=exc.params)
 
     holder = purchase.org if purchase.org_id else purchase.user
     wallet = UserWallet.objects.filter(user=user).first()

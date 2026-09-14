@@ -30,8 +30,8 @@ def _ok(data, message='OK', http_status=status.HTTP_200_OK):
                     status=http_status)
 
 
-def _err(message, code, http_status=status.HTTP_400_BAD_REQUEST):
-    return Response({'status': 'error', 'data': {}, 'message': message,
+def _err(message, code, http_status=status.HTTP_400_BAD_REQUEST, data=None):
+    return Response({'status': 'error', 'data': data or {}, 'message': message,
                      'code': code}, status=http_status)
 
 

@@ -319,6 +319,9 @@ urlpatterns = [
     path("wallet/payout-addresses/", payout_addresses,
          name="payout_addresses"),
     path("wallet/withdraw/quote/", withdraw_quote, name="withdraw_quote"),
+    # Paying for something with a card instead of coins already held.
+    path("wallet/pay/methods/", pay_methods, name="pay_methods"),
+    path("wallet/pay/", pay_shortfall, name="pay_shortfall"),
     path("wallet/withdraw/initiate/", withdraw_initiate, name="withdraw_initiate"),
     path("wallet/withdraw/status/", withdraw_status, name="withdraw_status"),
     path("wallet/kyc/submit/", kyc_submit, name="kyc_submit"),

@@ -276,10 +276,13 @@ def buy_slot(request, event_id, slot_id):
                 return _error('Incorrect wallet PIN.', 'INVALID_PIN',
                               status.HTTP_400_BAD_REQUEST)
             if wallet.wallet_balance < price_vc:
+                # The numbers ride with the code so the screen can offer a
+                # card for exactly the shortfall. See vent_auth/pay.py.
                 return _error(
                     f'You need {price_vc} VC - your balance is '
                     f'{wallet.wallet_balance} VC.',
-                    'INSUFFICIENT_BALANCE', status.HTTP_400_BAD_REQUEST)
+                    'INSUFFICIENT_BALANCE', status.HTTP_400_BAD_REQUEST,
+                    extra={'needed_vc': price_vc, 'balance_vc': wallet.wallet_balance})
 
             # Pay the organiser. Refused rather than taken when there is
             # nowhere to put it, for the same reason as a vendor order.

@@ -46,7 +46,9 @@ def chapter_buy(request, reference):
             http = status.HTTP_402_PAYMENT_REQUIRED
         elif exc.code == 'ALREADY_BOUGHT':
             http = status.HTTP_409_CONFLICT
-        return _err(exc.message, exc.code, http)
+        # The numbers ride with the code so the reader can offer a card for
+        # exactly the shortfall. See vent_auth/pay.py.
+        return _err(exc.message, exc.code, http, data=exc.params)
 
     wallet = UserWallet.objects.filter(user=user).first()
     return _ok({
@@ -73,7 +75,7 @@ def series_subscribe(request, reference):
         http = status.HTTP_400_BAD_REQUEST
         if exc.code == 'INSUFFICIENT_FUNDS':
             http = status.HTTP_402_PAYMENT_REQUIRED
-        return _err(exc.message, exc.code, http)
+        return _err(exc.message, exc.code, http, data=exc.params)
 
     wallet = UserWallet.objects.filter(user=user).first()
     return _ok({

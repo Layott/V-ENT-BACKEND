@@ -218,6 +218,79 @@ def _over_topup_ceiling(wallet, amount_ngn):
 
 
 # ---------------------------------------------------------------------------
+# GET /auth/wallet/pay/methods/  and  POST /auth/wallet/pay/
+#
+# CEO, 13 September 2026: "i hope people can still bu stuff directly on the
+# platform without having to buy V-ENT coins, that option must always be
+# vaailable." These two are how any purchase screen offers a card at the price
+# it just quoted, without sending anybody to the wallet first.
+# ---------------------------------------------------------------------------
+
+@api_view(['GET'])
+def pay_methods(request):
+    """What this person can pay with, before a screen offers anything."""
+    wallet, err = _get_user_from_token(request)
+    if err:
+        return err
+    from . import pay
+    return Response({'status': 'success', 'data': pay.options(wallet.user)},
+                    status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+def pay_shortfall(request):
+    """Cover what a purchase is short, with a card. `{coins}` or `{coins_ngn}`.
+
+    Answers `paid: true` when a saved card covered it, and the caller carries
+    straight on with the purchase they were making; otherwise it answers an
+    `authorization_url` to send them to, and the coins arrive through the same
+    `topup/verify` the wallet's own top-up uses.
+    """
+    wallet, err = _get_user_from_token(request)
+    if err:
+        return err
+    from . import pay
+
+    try:
+        coins = int(request.data.get('coins') or 0)
+    except (TypeError, ValueError):
+        coins = 0
+    if coins <= 0:
+        return Response({'code': 'NOTHING_TO_PAY', 'status': 'error',
+                         'message': 'Say how many VENT COINS to cover.'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    # Only ever the shortfall: charging for coins somebody already has is
+    # taking money for nothing, and a screen that computed the difference
+    # itself would get it wrong the moment two tabs are open.
+    short = pay.shortfall_vc(wallet, coins)
+    if short <= 0:
+        return Response({'status': 'success',
+                         'data': {'paid': True, 'coins_added': 0,
+                                  'balance_vc': wallet.wallet_balance,
+                                  'already_covered': True},
+                         'message': 'There are enough VENT COINS already.'},
+                        status=status.HTTP_200_OK)
+
+    try:
+        data = pay.cover_or_start(
+            wallet.user, short,
+            str(request.data.get('callback_url') or ''),
+            purpose=str(request.data.get('purpose') or 'purchase')[:40],
+            card_id=request.data.get('card_id'))
+    except pay.PayError as exc:
+        http = (status.HTTP_503_SERVICE_UNAVAILABLE
+                if exc.code == pay.CARDS_UNAVAILABLE else
+                status.HTTP_502_BAD_GATEWAY if exc.code == pay.GATEWAY_ERROR else
+                status.HTTP_400_BAD_REQUEST)
+        return Response(dict({'code': exc.code, 'status': 'error',
+                              'message': exc.message}, **exc.params), status=http)
+
+    return Response({'status': 'success', 'data': dict(data, needed_vc=short)},
+                    status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
 # W3 - POST /auth/wallet/topup/initiate/
 # ---------------------------------------------------------------------------
 

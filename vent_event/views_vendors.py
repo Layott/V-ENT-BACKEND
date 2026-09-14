@@ -579,9 +579,12 @@ def create_order(request, vendor_id):
                 if not pin or not check_password(str(pin), wallet.pin_hash):
                     _refuse('Incorrect wallet PIN.', 'INVALID_PIN', status.HTTP_400_BAD_REQUEST)
                 if wallet.wallet_balance < total_vc:
+                    # The numbers ride with the code so the cart can offer a
+                    # card for exactly the shortfall. See vent_auth/pay.py.
                     _refuse(
                         f'You need {total_vc} VC - your balance is {wallet.wallet_balance} VC.',
                         'INSUFFICIENT_BALANCE', status.HTTP_400_BAD_REQUEST,
+                        extra={'needed_vc': total_vc, 'balance_vc': wallet.wallet_balance},
                     )
                 wallet.wallet_balance -= total_vc
                 wallet.save(update_fields=['wallet_balance'])
