@@ -15,29 +15,29 @@ possible, then fix everything wrong or hat might even have potental to cause
 any issues." And mid-walk: "when i said full test, i also meant claude chrome
 full UI test also. not jsut code."
 
-## WHERE THINGS STAND, end of 13 September 2026 (read this first)
+## WHERE THINGS STAND, 14 September 2026, paused (read this first)
 
 Two branches, both `fix/event-walk-12-sept`, both pushed, both waiting for
-the CEO to merge. Nothing on them is deployed.
+the CEO to merge. Nothing on them is deployed. **Paused here on 14 September
+at the CEO's word ("pause completely"), with everything committed.**
 
-- **BE #180** (5 commits, head `394615a8`): the event walk fixes; the naira
-  ledger and 5% + 100; the seller chooses who bears it and stalls pay it; every
-  price on the dashboard plus `tools/check-pricing.py`; tournaments pay
-  organisers and prizes come from the pool; withdrawal fee 1%.
-- **FE #190** (5 commits, head `a9c24ac`): the screens for all of the above.
+- **BE #180** (7 commits, head `099a54f9`): the event walk fixes; the naira
+  ledger and 5% + 100; the seller chooses who bears it and stalls pay it;
+  every price on the dashboard plus `tools/check-pricing.py`; tournaments pay
+  organisers and prizes come from the pool; withdrawal fee 1%; a card at
+  every purchase door plus `tools/check-card-path.py`.
+- **FE #190** (7 commits, head `ed7e8d6`): the screens for all of the above.
 - Merge order: FE #190 can go first or second; nothing on it breaks against
-  the old backend except the new Money tab and the withdraw quote, which show
-  an error state rather than a wrong number. BE #180 needs FE #190 for the
-  organiser screens. The peer's BE #178 / #179 are separate and unmerged.
+  the old backend except the new Money tab, the withdraw quote and the card
+  panel, which show an error state rather than a wrong number. BE #180 needs
+  FE #190 for the organiser screens. The peer's BE #178 / #179 are separate
+  and unmerged.
 
 **Inbox rows this covers:** 260 (walk), 261 (5% + 100), 262 (bearer, stalls),
-263 (dashboard + checker), 265 (1% payouts), 266 (tournament fee). All done
-in `V-ENT/tasks/inbox.md`. **Next: row 264**, "people can still buy stuff
-directly on the platform without having to buy V-ENT coins, that option must
-always be available": a card (Paystack, naira) path on every purchase door.
-Today only the guest ticket checkout has one; signed-in tickets, stall
-orders, vendor pitches, premium, memberships, tournament entries and comic
-chapters are wallet-only. Inventory first, then gates/39.
+263 (dashboard + checker), 264 (buy without coins), 265 (1% payouts), 266
+(tournament fee). All seven are done in `V-ENT/tasks/inbox.md` and nothing is
+waiting in the register. **Nothing is in flight: the next session starts from
+whatever the CEO says next.**
 
 **What deploying BE #180 does, and what to tell people:**
 
@@ -56,7 +56,11 @@ chapters are wallet-only. Inventory first, then gates/39.
    wallet cannot cover it, so an organiser of a free tournament with a prize
    pool must hold those coins; (c) payouts land 1% lighter, said on the
    withdraw screen and in the approval email; (d) the withdraw screen stops
-   promising "2% + N50", which the server never took.
+   promising "2% + N50", which the server never took; (e) **a card appears at
+   every purchase** where the wallet is short, so more people reach Paystack.
+   Production needs `PAYSTACK_SECRET_KEY` set (a live key): with no key the
+   panel says card payment is not set up rather than offering a control that
+   fails, which is correct and is not what anybody wants to see.
 4. Local sqlite differs from production in one way worth knowing: it has
    `payout_min_vc: 0` and an old `tournament_fee_pct` STORED from earlier
    saves of the old dashboard blob; production stores nothing.
@@ -301,6 +305,78 @@ prizes are paid, and the confirmation says so before the press.
 draws a `$` sign and a "40 vent coins" placeholder for the entry fee, from
 before the wallet existed; the payment step is where the number is decided
 and it is right, but that review line should read the quote too.
+
+## 0e. 14 September: a card at every door (row 264)
+
+CEO: "Also i hope people can still bu stuff directly on the platform without
+having to buy V-ENT coins, that option must always be vaailable."
+
+What was true before: ONE door in the platform took a card, the guest ticket
+checkout. Everybody else met `INSUFFICIENT_BALANCE` and was sent to the
+wallet to buy coins as an errand, then back to find what they had been doing.
+The tournament register had built its own way through ("Top up & pay"),
+alone, which is how a thing ends up existing on one screen out of six.
+
+Coins stay the unit the platform settles in: sellers are paid in them and the
+ledger keeps naira behind them. What changed is that the coins can arrive in
+the same breath as the purchase, at the price the door quoted.
+
+- **`vent_auth/pay.py`** is the one answer to "cover what this purchase is
+  short, with a card, now". `options(user)` says what somebody can actually
+  pay with (cards configured at all, a saved card, the balance, whether the
+  key is a test key); `cover()` charges a saved card for exactly the
+  shortfall and credits it in one request; `start()` hands back a Paystack
+  page for somebody with no saved card; `cover_or_start()` picks. The credit
+  is idempotent on the reference. A charge that succeeds with nowhere to put
+  the coins is logged loudly rather than read as a decline: it is money at
+  Paystack and a refund somebody makes by hand.
+- **Two endpoints**: `GET /auth/wallet/pay/methods/` (what to offer, before
+  offering it) and `POST /auth/wallet/pay/` (cover this many coins). The
+  SERVER subtracts the balance, so a screen cannot charge for coins somebody
+  already has and two tabs cannot double up.
+- **One card charger**: the wallet's own saved-card top-up now calls
+  `pay.cover` instead of keeping a second copy, which had already drifted
+  from the subscription charger.
+- **Every door names its numbers**: tickets, stall orders, stall pitches,
+  tournament entries, premium and comics all answer `needed_vc` and
+  `balance_vc` with the refusal, so a screen offers the card at that number
+  without asking the price a second time. `PremiumSaleError` and
+  `PaymentError` carry params now.
+- **`PayShortfall`** is mounted at all seven screens, including the
+  tournament register beside its own older control. It draws nothing when the
+  wallet covers it, and says plainly when cards are not set up rather than
+  offering a button that answers 503.
+- **`PaystackReturn` in the root layout.** THE FAULT THIS WALK FOUND: the
+  verify lived inside the buy modal, and a modal is shut on a fresh page
+  load, so coming back from Paystack credited nothing and left the money at
+  the gateway with nothing to show for it. It now verifies wherever somebody
+  lands, strips the reference from the address so a reload cannot ask twice,
+  and says what happened. It does not resume the purchase: the buyer lands
+  with the coins in the wallet and the button in front of them.
+- **A Paystack 400 says why in its body**, and `raise_for_status` threw that
+  away: an email address the gateway will not accept read as "could not be
+  reached" and sent me looking at the network. Found because `@walk.test` is
+  not a TLD Paystack accepts.
+- **`tools/check-card-path.py`**, blocking in `check-all`: every backend file
+  that refuses for want of coins is either mapped to the screens that press
+  it (which must mount `PayShortfall`) or named, with a reason, as not a
+  purchase. A door built later lands in neither table and fails the build,
+  which is what "must always be available" needs to survive this session. Six
+  self-test fixtures; `vent_auth/tests_pay.py` is 24 tests.
+
+Measured in Chrome as a buyer holding 0 coins: the confirm step drew "You are
+3 VENT COINS short", "Pay 3,000 naira with a card" and the test-key notice;
+pressing it reached the Paystack hosted page for the reference the server
+wrote. **The card form was not filled in: I do not type card details, test
+ones included**, so the credit leg is proven by the tests rather than by the
+browser. Coming back on an abandoned payment verified, stripped the
+parameter, left the balance at 0 and said nothing was added and nothing
+charged. Same panel at 412px on the emulator, no horizontal overflow.
+
+**Left open:** the guest ticket checkout keeps its own Paystack flow (it has
+no wallet to credit, so it is a different thing wearing the same word).
+Vermillion City gets the card the day it opens; the line naming it is in the
+checker.
 
 ## 1. What the CEO was asked, and how it was answered
 
