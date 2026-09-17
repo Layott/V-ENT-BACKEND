@@ -161,10 +161,9 @@ urlpatterns = [
     path('setting/username/', v.change_username),
     path('setting/account/', v.account_overview),
     # Two-factor for an ordinary account, and the danger zone.
-    path('setting/2fa/status/', sec.twofactor_status),
-    path('setting/2fa/begin/', sec.twofactor_begin),
-    path('setting/2fa/confirm/', sec.twofactor_confirm),
-    path('setting/2fa/disable/', sec.twofactor_disable),
+    # /setting/2fa/* was a second implementation of /auth/2fa/* with its own
+    # code check and no caller on the frontend. Retired 17 September 2026:
+    # one door, `views_twofactor`, which counts wrong codes.
     path('setting/export/', sec.export_data),
     path('setting/deactivate/', sec.deactivate_account),
     path('setting/delete/', sec.delete_account),

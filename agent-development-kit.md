@@ -36,8 +36,6 @@ V-ENT-BACKEND/
 ├── config.py                       # SMTP config - reads COMPANY_EMAIL / COMPANY_EMAIL_PASSWORD
 ├── requirements.txt                # dev dependencies
 ├── requirements-prod.txt           # prod dependencies
-├── runtime.txt                     # python-3.11.9
-├── Procfile                        # process types (web: daphne / worker: celery)
 ├── vent/                           # Django project (settings + URL root)
 │   ├── settings.py                 # DB, INSTALLED_APPS, CORS, auth backends, media, social
 │   ├── urls.py                     # mounts all app URL confs

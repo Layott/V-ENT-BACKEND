@@ -32,18 +32,33 @@ two wallets are handed to it.
    caller asks it first. Keeping the two apart is what stops a new endpoint
    quietly getting a different answer.
 """
+import math
+from datetime import timedelta
+
 from django.contrib.auth.hashers import check_password
 from django.db import transaction as db_transaction
+from django.utils import timezone
 
 from .models import OrgWallet, TeamWallet, Transaction, UserWallet
 
 
 class WalletError(Exception):
-    """A refusal, carrying the code the frontend translates."""
+    """A refusal, carrying the code the frontend translates.
 
-    def __init__(self, message, code):
+    `params` are the numbers the sentence was built from (minutes left,
+    tries left), sent beside the code so the screen can translate the
+    sentence and keep the number. See `apiMessage` on the frontend.
+    """
+
+    def __init__(self, message, code, **params):
         super().__init__(message)
         self.code = code
+        self.params = params
+
+    def body(self):
+        """The refusal as the envelope every endpoint answers with."""
+        return dict({'status': 'error', 'code': self.code, 'message': str(self)},
+                    **self.params)
 
 
 #: How each kind of wallet is addressed on a Transaction row.
@@ -87,18 +102,57 @@ def describe(wallet):
     return 'a wallet'
 
 
+#: Wrong tries before the wallet locks, and for how long.
+PIN_TRIES = 5
+PIN_LOCK_MINUTES = 15
+
+
 def check_pin(wallet, pin):
     """Raise unless the PIN is right. Every spend goes through here.
 
     A wallet with no PIN set cannot spend at all. That is deliberate: the
     alternative is a wallet anybody who reaches the endpoint can empty, and a
     team wallet is reachable by everybody in the team.
+
+    And this is the ONLY place a PIN is compared. Ten doors used to do it
+    by hand with `check_password`, and none of them counted, so a four
+    digit PIN could be walked from one address in under an hour. Five wrong
+    tries lock the wallet for fifteen minutes, whoever is asking and
+    whichever door they ask at; a right PIN clears the count. The count is
+    on the row, not in a cache, so a restart does not hand out a fresh
+    five. Owner rule R58/R59, 17 September 2026.
     """
     if not wallet.pin_hash:
         raise WalletError('Set a wallet PIN before sending anything.',
                           'PIN_REQUIRED')
+    now = timezone.now()
+    until = wallet.pin_locked_until
+    if until is not None and until > now:
+        left = max(1, math.ceil((until - now).total_seconds() / 60))
+        raise WalletError(
+            'Too many wrong PINs. Try again in %d minute%s.'
+            % (left, '' if left == 1 else 's'),
+            'PIN_LOCKED', minutes=left)
     if not pin or not check_password(str(pin), wallet.pin_hash):
-        raise WalletError('Incorrect wallet PIN.', 'INVALID_PIN')
+        failures = int(wallet.pin_failures or 0) + 1
+        if failures >= PIN_TRIES:
+            wallet.pin_failures = 0
+            wallet.pin_locked_until = now + timedelta(minutes=PIN_LOCK_MINUTES)
+            wallet.save(update_fields=['pin_failures', 'pin_locked_until'])
+            raise WalletError(
+                'Too many wrong PINs. Try again in %d minutes.' % PIN_LOCK_MINUTES,
+                'PIN_LOCKED', minutes=PIN_LOCK_MINUTES)
+        wallet.pin_failures = failures
+        wallet.save(update_fields=['pin_failures'])
+        left = PIN_TRIES - failures
+        raise WalletError(
+            'Incorrect wallet PIN. %d tr%s left before it locks.'
+            % (left, 'y' if left == 1 else 'ies'),
+            'INVALID_PIN', tries_left=left)
+    if wallet.pin_failures or wallet.pin_locked_until is not None:
+        wallet.pin_failures = 0
+        wallet.pin_locked_until = None
+        wallet.save(update_fields=['pin_failures', 'pin_locked_until'])
 
 
 def transfer(source, target, amount, *, note='', kind='transfer', pin=None,
@@ -286,8 +340,11 @@ def check_second_factor(user, code):
             'Enter the code from your authenticator app.',
             'TWO_FACTOR_REQUIRED')
     from .login_2fa import spend_code
-    ok, _problem = spend_code(user, code)
+    ok, problem = spend_code(user, code)
     if not ok:
+        if problem == 'TWO_FACTOR_LOCKED':
+            raise WalletError('Too many wrong codes. Wait fifteen minutes and try again.',
+                              'TWO_FACTOR_LOCKED')
         raise WalletError('That code is not right, or it has been used.',
                           'INVALID_CODE')
 

@@ -1038,6 +1038,12 @@ class UserWallet(models.Model):
     user = models.OneToOneField(Users, on_delete=models.CASCADE, related_name='wallet')
     wallet_balance = models.IntegerField(default=0)
     pin_hash = models.CharField(max_length=128, blank=True, null=True)  # hashed 4-digit PIN via make_password
+    #: Wrong PINs in a row, and until when the wallet refuses every PIN.
+    #: Owner rule R58/R59, 17 September 2026: five wrong tries lock it for
+    #: fifteen minutes. Counted in the row rather than a cache so a restart
+    #: does not hand an attacker a fresh five. See `wallets.check_pin`.
+    pin_failures = models.PositiveSmallIntegerField(default=0)
+    pin_locked_until = models.DateTimeField(null=True, blank=True)
     kyc_verified = models.BooleanField(default=False)
 
     def __str__(self):
@@ -1061,6 +1067,12 @@ class TeamWallet(models.Model):
     #: Legacy, unused. See the note above.
     team_wallet_pin = models.IntegerField(null=True, blank=True)
     pin_hash = models.CharField(max_length=128, null=True, blank=True)
+    #: Wrong PINs in a row, and until when the wallet refuses every PIN.
+    #: Owner rule R58/R59, 17 September 2026: five wrong tries lock it for
+    #: fifteen minutes. Counted in the row rather than a cache so a restart
+    #: does not hand an attacker a fresh five. See `wallets.check_pin`.
+    pin_failures = models.PositiveSmallIntegerField(default=0)
+    pin_locked_until = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return '%s wallet (%d VC)' % (self.team.team_name, self.wallet_balance)
@@ -1077,6 +1089,12 @@ class OrgWallet(models.Model):
     #: Legacy, unused. See TeamWallet.
     org_wallet_pin = models.IntegerField(null=True, blank=True)
     pin_hash = models.CharField(max_length=128, null=True, blank=True)
+    #: Wrong PINs in a row, and until when the wallet refuses every PIN.
+    #: Owner rule R58/R59, 17 September 2026: five wrong tries lock it for
+    #: fifteen minutes. Counted in the row rather than a cache so a restart
+    #: does not hand an attacker a fresh five. See `wallets.check_pin`.
+    pin_failures = models.PositiveSmallIntegerField(default=0)
+    pin_locked_until = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return '%s wallet (%d VC)' % (self.org.org_name, self.wallet_balance)
@@ -1703,6 +1721,11 @@ class UserTOTP(models.Model):
     secret = models.CharField(max_length=64)
     confirmed = models.BooleanField(default=False)
     last_used_step = models.BigIntegerField(null=True, blank=True)
+    #: Wrong codes in a row, and until when every code is refused. Ten wrong
+    #: tries lock it for fifteen minutes (owner rule R59, 17 September 2026).
+    #: `last_used_step` stops a replay; this stops a walk through the space.
+    code_failures = models.PositiveSmallIntegerField(default=0)
+    code_locked_until = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     confirmed_at = models.DateTimeField(null=True, blank=True)
 

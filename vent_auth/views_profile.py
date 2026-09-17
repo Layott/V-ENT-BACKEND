@@ -20,6 +20,7 @@ from .models import (
 )
 from . import emails
 from .views_helpers import session_timeout_minutes, username_refusal
+from .throttle import limited
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,7 @@ def change_email(request):
 
 
 @api_view(['POST'])
+@limited('verify-new-email', 10)
 def verify_new_email(request):
     from .models import VerificationToken
 

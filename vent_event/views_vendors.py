@@ -6,7 +6,6 @@ debit written in one transaction, a Transaction row for the ledger.
 import secrets
 from datetime import timedelta
 
-from django.contrib.auth.hashers import check_password
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
@@ -14,6 +13,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 
+from vent_auth import wallets
 from vent_auth.models import UserWallet, Transaction
 from .models import Event, Vendor, VendorProduct, VendorOrder, VendorOrderItem
 from .views_tickets import _authenticate, _error, _ok, _ngn_to_coins, CODE_ALPHABET
@@ -576,8 +576,10 @@ def create_order(request, vendor_id):
             if total_vc > 0:
                 if not wallet.pin_hash:
                     _refuse('Set a wallet PIN before buying.', 'PIN_REQUIRED', status.HTTP_400_BAD_REQUEST)
-                if not pin or not check_password(str(pin), wallet.pin_hash):
-                    _refuse('Incorrect wallet PIN.', 'INVALID_PIN', status.HTTP_400_BAD_REQUEST)
+                try:
+                    wallets.check_pin(wallet, pin)
+                except wallets.WalletError as exc:
+                    _refuse(str(exc), exc.code, status.HTTP_400_BAD_REQUEST, exc.params)
                 if wallet.wallet_balance < total_vc:
                     # The numbers ride with the code so the cart can offer a
                     # card for exactly the shortfall. See vent_auth/pay.py.

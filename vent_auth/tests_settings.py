@@ -32,53 +32,53 @@ class TwoFactorTests(TestCase):
                                 content_type='application/json', **self.auth)
 
     def test_it_starts_off(self):
-        res = self.client.get('/setting/2fa/status/', **self.auth)
+        res = self.client.get('/auth/2fa/status/', **self.auth)
         self.assertFalse(res.json()['data']['enabled'])
 
     def test_beginning_hands_back_something_an_app_can_scan(self):
-        res = self.post('/setting/2fa/begin/')
+        res = self.post('/auth/2fa/start/')
         self.assertEqual(res.status_code, 200)
         data = res.json()['data']
         self.assertTrue(data['secret'])
-        self.assertIn('otpauth://totp/', data['otpauth_url'])
+        self.assertIn('otpauth://totp/', data['provisioning_uri'])
 
     def test_a_wrong_code_does_not_switch_it_on(self):
-        self.post('/setting/2fa/begin/')
-        res = self.post('/setting/2fa/confirm/', {'code': '000000'})
+        self.post('/auth/2fa/start/')
+        res = self.post('/auth/2fa/confirm/', {'code': '000000'})
         self.assertEqual(res.status_code, 400)
         self.assertFalse(UserTOTP.objects.get(user=self.user).confirmed)
 
     def test_a_real_code_switches_it_on(self):
-        self.post('/setting/2fa/begin/')
+        self.post('/auth/2fa/start/')
         secret = UserTOTP.objects.get(user=self.user).secret
         code = totp_lib._code_for_step(secret, totp_lib.current_step())
-        res = self.post('/setting/2fa/confirm/', {'code': code})
+        res = self.post('/auth/2fa/confirm/', {'code': code})
         self.assertEqual(res.status_code, 200)
         self.assertTrue(UserTOTP.objects.get(user=self.user).confirmed)
 
-        status_res = self.client.get('/setting/2fa/status/', **self.auth)
+        status_res = self.client.get('/auth/2fa/status/', **self.auth)
         self.assertTrue(status_res.json()['data']['enabled'])
 
     def test_the_same_code_cannot_be_replayed(self):
-        self.post('/setting/2fa/begin/')
+        self.post('/auth/2fa/start/')
         secret = UserTOTP.objects.get(user=self.user).secret
         code = totp_lib._code_for_step(secret, totp_lib.current_step())
-        self.post('/setting/2fa/confirm/', {'code': code})
-        again = self.post('/setting/2fa/disable/', {'code': code})
+        self.post('/auth/2fa/confirm/', {'code': code})
+        again = self.post('/auth/2fa/disable/', {'code': code})
         self.assertEqual(again.status_code, 400)
 
     def test_turning_it_off_needs_a_current_code(self):
-        self.post('/setting/2fa/begin/')
+        self.post('/auth/2fa/start/')
         secret = UserTOTP.objects.get(user=self.user).secret
-        self.post('/setting/2fa/confirm/',
+        self.post('/auth/2fa/confirm/',
                   {'code': totp_lib._code_for_step(secret, totp_lib.current_step())})
 
-        without = self.post('/setting/2fa/disable/', {})
+        without = self.post('/auth/2fa/disable/', {})
         self.assertEqual(without.status_code, 400)
         self.assertTrue(UserTOTP.objects.filter(user=self.user).exists())
 
         # a code from the next step, so it is not the one already spent
-        with_code = self.post('/setting/2fa/disable/', {
+        with_code = self.post('/auth/2fa/disable/', {
             'code': totp_lib._code_for_step(secret, totp_lib.current_step() + 1),
         })
         self.assertEqual(with_code.status_code, 200)

@@ -60,6 +60,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING('DRY RUN - no changes will be made.\n'))
             with connection.cursor() as cursor:
                 for table, column in tables:
+                    # sql-safe: table and column come from the fixed list above, never from input; the id is bound
                     cursor.execute(f"SELECT COUNT(*) FROM {table} WHERE {column} = %s", [user.user_id])
                     count = cursor.fetchone()[0]
                     if count:
@@ -72,6 +73,7 @@ class Command(BaseCommand):
         with transaction.atomic():
             with connection.cursor() as cursor:
                 for table, column in tables:
+                    # sql-safe: table and column come from the fixed list above, never from input; the id is bound
                     cursor.execute(f"DELETE FROM {table} WHERE {column} = %s", [user.user_id])
             user.delete()
 

@@ -1,0 +1,27 @@
+{
+  "$comment": "Owner rule R58, runtime proof. User A (walk_organiser) owns the event walk-con-ea5e and the tournaments walk-cup-fee / walk-cup-finished; walk_vendor_bisi owns a stall on that event; walk_buyer_promo holds ticket VT-T6SF8ASW. User B (walk_buyer_ada) is signed in and owns none of it, and every attempt below must be refused with 403 or 404. The records are the walk fixtures on this machine's local sqlite (tools/walk_event.py --setup; password walk-con-2026). Run with the dev server on 8000: node ~/.claude/skills/security-rules/scripts/check-security.mjs --idor http://127.0.0.1:8000. Run --idor BEFORE --live: the live check bursts the login until it sees 429, and the sign-ins here would be caught by that same limiter for the rest of the minute.",
+  "baseUrl": "http://127.0.0.1:8000",
+  "users": {
+    "a": {
+      "login": { "path": "/auth/login/", "method": "POST", "body": { "username_or_email": "walk_organiser", "password": "walk-con-2026" }, "tokenPath": "session_token", "header": "Authorization: Bearer {token}" }
+    },
+    "b": {
+      "login": { "path": "/auth/login/", "method": "POST", "body": { "username_or_email": "walk_buyer_ada", "password": "walk-con-2026" }, "tokenPath": "session_token", "header": "Authorization: Bearer {token}" }
+    }
+  },
+  "cases": [
+    { "name": "B cannot read the money on A's event", "attempt": { "as": "b", "method": "GET", "path": "/event/walk-con-ea5e/earnings/" } },
+    { "name": "B cannot pay A's event out", "attempt": { "as": "b", "method": "POST", "path": "/event/walk-con-ea5e/settle/", "body": {} } },
+    { "name": "B cannot read A's door list", "attempt": { "as": "b", "method": "GET", "path": "/event/walk-con-ea5e/attendees/" } },
+    { "name": "B cannot read A's promo codes", "attempt": { "as": "b", "method": "GET", "path": "/event/walk-con-ea5e/promos/" } },
+    { "name": "B cannot add a ticket type to A's event", "attempt": { "as": "b", "method": "POST", "path": "/event/walk-con-ea5e/tiers/", "body": { "name": "Intruder", "price_vc": 1, "quantity": 1 } } },
+    { "name": "B cannot read the money on A's tournament", "attempt": { "as": "b", "method": "GET", "path": "/tournament/walk-cup-fee/earnings/" } },
+    { "name": "B cannot pay A's tournament out", "attempt": { "as": "b", "method": "POST", "path": "/tournament/walk-cup-fee/settle/", "body": {} } },
+    { "name": "B cannot read A's tournament staff", "attempt": { "as": "b", "method": "GET", "path": "/tournament/walk-cup-fee/staff/" } },
+    { "name": "B cannot read A's tournament registrations", "attempt": { "as": "b", "method": "GET", "path": "/tournament/walk-cup-fee/registrations/" } },
+    { "name": "B cannot edit A's tournament", "attempt": { "as": "b", "method": "PUT", "path": "/tournament/edit-tournament/walk-cup-fee/", "body": { "tournament_title": "Taken" } } },
+    { "name": "B cannot read another stallholder's orders", "attempt": { "as": "b", "method": "GET", "path": "/event/my-stalls/walk_vendor_bisi-at-walk-con-ea5e/orders/" } },
+    { "name": "B cannot read the transfer history of somebody else's ticket", "attempt": { "as": "b", "method": "GET", "path": "/event/ticket/VT-T6SF8ASW/transfers/" } },
+    { "name": "B cannot give somebody else's ticket away", "attempt": { "as": "b", "method": "POST", "path": "/event/ticket/VT-T6SF8ASW/transfer/", "body": { "to": "walk_buyer_ada" } } }
+  ]
+}

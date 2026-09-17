@@ -7,7 +7,8 @@ Unlimited, that is an enumeration tool with no cost attached.
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
+from rest_framework.test import APIClient
 
 from vent_auth.throttle import client_ip, too_many
 
@@ -77,3 +78,76 @@ class TooManyTests(TestCase):
         with patch('vent_auth.throttle.cache.get_or_set', side_effect=OSError('down')):
             self.assertFalse(too_many(request, 'probe', 1))
             self.assertFalse(too_many(request, 'probe', 1))
+
+
+class LimitedEndpointsTests(TestCase):
+    """Owner rule R59: the credential endpoints carry their own limiter.
+
+    Off under the test runner by default (the cache outlives a test), so this
+    switches it on and proves the (n + 1)th request in a minute is a 429 with
+    a code the screen can translate.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+
+    def burst(self, path, body, times):
+        last = None
+        for _ in range(times):
+            last = self.client.post(path, body, format='json',
+                                    REMOTE_ADDR='41.58.1.9')
+        return last
+
+    @override_settings(AUTH_THROTTLE_ENABLED=True)
+    def test_login_answers_429_after_its_allowance(self):
+        body = {'username_or_email': 'nobody@example.com', 'password': 'wrong'}
+        res = self.burst('/auth/login/', body, 20)
+        self.assertNotEqual(res.status_code, 429)
+        res = self.burst('/auth/login/', body, 1)
+        self.assertEqual(res.status_code, 429)
+        self.assertEqual(res.data['code'], 'TOO_MANY_ATTEMPTS')
+        self.assertEqual(res['Retry-After'], '60')
+
+    @override_settings(AUTH_THROTTLE_ENABLED=True)
+    def test_another_address_has_its_own_allowance(self):
+        body = {'username_or_email': 'nobody@example.com', 'password': 'wrong'}
+        self.burst('/auth/login/', body, 21)
+        res = self.client.post('/auth/login/', body, format='json',
+                               REMOTE_ADDR='41.58.1.10')
+        self.assertNotEqual(res.status_code, 429)
+
+    @override_settings(AUTH_THROTTLE_ENABLED=True)
+    def test_the_mail_sending_endpoints_are_tighter(self):
+        """Five a minute: every one of these sends an email, and a loop on
+        them is a mail bill and a spam complaint."""
+        for path, body in (
+            ('/auth/resend-link/', {'email': 'nobody@example.com'}),
+            ('/auth/send-code/', {'email': 'nobody@example.com'}),
+            ('/auth/forgot-password/send-token/', {'email': 'nobody@example.com'}),
+            ('/auth/resend-forgot-password-token/', {'email': 'nobody@example.com'}),
+        ):
+            cache.clear()
+            res = self.burst(path, body, 6)
+            self.assertEqual(res.status_code, 429, path)
+
+    @override_settings(AUTH_THROTTLE_ENABLED=True)
+    def test_the_code_endpoints_are_limited(self):
+        for path, body in (
+            ('/auth/signup/', {}),
+            ('/auth/login/2fa/verify/', {'pending_token': 'x', 'code': '000000'}),
+            ('/auth/forgot-password/verify-token/', {}),
+            ('/auth/forgot-password/change-password/', {}),
+            ('/auth/2fa/confirm/', {'code': '000000'}),
+            ('/auth/2fa/disable/', {'code': '000000'}),
+            ('/auth/verify-new-email/', {}),
+            ('/auth/social-auth/', {'provider': 'google'}),
+        ):
+            cache.clear()
+            res = self.burst(path, body, 21)
+            self.assertEqual(res.status_code, 429, path)
+
+    def test_off_under_the_test_runner_by_default(self):
+        body = {'username_or_email': 'nobody@example.com', 'password': 'wrong'}
+        res = self.burst('/auth/login/', body, 25)
+        self.assertNotEqual(res.status_code, 429)

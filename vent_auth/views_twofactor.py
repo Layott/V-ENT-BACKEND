@@ -36,6 +36,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from . import login_2fa, totp as totp_lib
+from .throttle import limited
 from .models import UserTOTP
 
 SESSION_TIMEOUT_MINUTES = 120
@@ -99,6 +100,7 @@ def two_factor_start(request):
 
 
 @api_view(['POST'])
+@limited('2fa-confirm', 20)
 def two_factor_confirm(request):
     """POST /auth/2fa/confirm/ - prove the authenticator works, then switch on.
 
@@ -125,6 +127,9 @@ def two_factor_confirm(request):
     # there. Two implementations of the same check is how they drift.
     ok, problem = login_2fa.spend_code(user, code)
     if not ok:
+        if problem == 'TWO_FACTOR_LOCKED':
+            return _error('Too many wrong codes. Wait fifteen minutes and try again.',
+                          problem, status.HTTP_400_BAD_REQUEST)
         return _error('That code is not right. Check your app and try again.',
                       problem or 'BAD_CODE', status.HTTP_400_BAD_REQUEST)
 
@@ -134,6 +139,7 @@ def two_factor_confirm(request):
 
 
 @api_view(['POST'])
+@limited('2fa-disable', 20)
 def two_factor_disable(request):
     """POST /auth/2fa/disable/ - turn it off, with a current code.
 
@@ -168,6 +174,9 @@ def two_factor_disable(request):
 
     ok, problem = login_2fa.spend_code(user, code)
     if not ok:
+        if problem == 'TWO_FACTOR_LOCKED':
+            return _error('Too many wrong codes. Wait fifteen minutes and try again.',
+                          problem, status.HTTP_400_BAD_REQUEST)
         return _error('That code is not right.', problem or 'BAD_CODE',
                       status.HTTP_400_BAD_REQUEST)
 
