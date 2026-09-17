@@ -5,7 +5,6 @@ import uuid
 from datetime import timedelta
 
 import requests as http_requests
-from django.contrib.auth.hashers import check_password
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.utils import timezone
@@ -562,11 +561,10 @@ def send_funds(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    if not wallet.pin_hash or not check_password(str(pin), wallet.pin_hash):
-        return Response(
-            { 'code': 'INVALID_PIN','status': 'error', 'message': 'Invalid PIN'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+    try:
+        wallets.check_pin(wallet, pin)
+    except wallets.WalletError as exc:
+        return Response(exc.body(), status=status.HTTP_400_BAD_REQUEST)
 
     sender_username = wallet.user.username
 
@@ -656,8 +654,10 @@ def verify_wallet_pin(request):
     if not wallet.pin_hash:
         return Response({ 'code': 'NO_PIN_SET_WALLET','status': 'error', 'message': 'No PIN set on this wallet'}, status=status.HTTP_400_BAD_REQUEST)
 
-    if not check_password(str(pin), wallet.pin_hash):
-        return Response({ 'code': 'INVALID_PIN','status': 'error', 'message': 'Invalid PIN'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        wallets.check_pin(wallet, pin)
+    except wallets.WalletError as exc:
+        return Response(exc.body(), status=status.HTTP_400_BAD_REQUEST)
 
     return Response({'status': 'success', 'message': 'PIN verified'}, status=status.HTTP_200_OK)
 
@@ -695,9 +695,15 @@ def set_wallet_pin(request):
                 { 'code': 'CURRENT_PIN_REQUIRED_CHANGE','status': 'error', 'message': 'current_pin is required to change an existing PIN'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if not check_password(str(current_pin), wallet.pin_hash):
+        try:
+            wallets.check_pin(wallet, current_pin)
+        except wallets.WalletError as exc:
+            # The same count as every other door: guessing the current PIN
+            # on the change screen is guessing the PIN.
+            if exc.code == 'PIN_LOCKED':
+                return Response(exc.body(), status=status.HTTP_400_BAD_REQUEST)
             return Response(
-                { 'code': 'CURRENT_PIN_INCORRECT','status': 'error', 'message': 'Current PIN is incorrect'},
+                dict({ 'code': 'CURRENT_PIN_INCORRECT','status': 'error', 'message': 'Current PIN is incorrect'}, **exc.params),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -737,8 +743,10 @@ def wallet_deduct(request):
     if amount <= 0:
         return Response({ 'code': 'AMOUNT_MUST_POSITIVE','status': 'error', 'message': 'amount must be positive'}, status=status.HTTP_400_BAD_REQUEST)
 
-    if not wallet.pin_hash or not check_password(str(pin), wallet.pin_hash):
-        return Response({ 'code': 'INVALID_PIN','status': 'error', 'message': 'Invalid PIN'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        wallets.check_pin(wallet, pin)
+    except wallets.WalletError as exc:
+        return Response(exc.body(), status=status.HTTP_400_BAD_REQUEST)
 
     from vent_tournament.models import Tournament
     try:
@@ -858,8 +866,10 @@ def withdraw_initiate(request):
             status=status.HTTP_403_FORBIDDEN,
         )
 
-    if not wallet.pin_hash or not check_password(str(pin), wallet.pin_hash):
-        return Response({ 'code': 'INVALID_PIN','status': 'error', 'message': 'Invalid PIN'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        wallets.check_pin(wallet, pin)
+    except wallets.WalletError as exc:
+        return Response(exc.body(), status=status.HTTP_400_BAD_REQUEST)
 
     try:
         wallets.check_second_factor(wallet.user, request.data.get('code'))

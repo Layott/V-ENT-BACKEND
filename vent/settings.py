@@ -393,6 +393,12 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # settings.py
 
+# The Google OAuth client id, read on its own as well as inside the allauth
+# block below, because `/auth/social-auth/` verifies the id_token NextAuth
+# hands it against this audience. Empty means Google sign-in is refused
+# (fail closed), never that the body is trusted.
+GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
+
 SOCIALACCOUNT_PROVIDERS = {
     'google': {
         'APP': {
@@ -415,6 +421,15 @@ LOGOUT_REDIRECT_URL = '/'
 # stubs the network, which is what `tests_geocode` already does.
 GEOCODING_ENABLED = (
     os.environ.get('GEOCODING_ENABLED', '') != '0'
+    and 'test' not in sys.argv
+)
+
+# The per-IP limiter on login, signup, OTP, reset and 2FA endpoints
+# (`vent_auth.throttle.limited`, owner rule R59). Same shape as geocoding:
+# on everywhere, OFF under the test runner, because the counter lives in the
+# cache and outlives a test. `tests_throttle` overrides it to True.
+AUTH_THROTTLE_ENABLED = (
+    os.environ.get('AUTH_THROTTLE_ENABLED', '') != '0'
     and 'test' not in sys.argv
 )
 

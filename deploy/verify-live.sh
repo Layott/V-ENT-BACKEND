@@ -119,6 +119,19 @@ for PORT in "${PORTS[@]}"; do
     echo "port $PORT is serving $GOT"
 done
 
+# The environment the code now needs. `/auth/social-auth/` verifies Google's
+# id_token against GOOGLE_CLIENT_ID and refuses when it is unset (a sign-in
+# door with no key on it is a door anybody can walk through), and on
+# 17 September the box had the id in the frontend env and not the backend's.
+# A deploy that lands without it breaks Google sign-in silently until
+# somebody tries, so it fails here instead. Fix: copy the GOOGLE_CLIENT_ID
+# line from $FRONTEND/.env.production into $BACKEND/.env and reload vent-api.
+if [ -f "$BACKEND/.env" ]; then
+    grep -Eq '^GOOGLE_CLIENT_ID=.+' "$BACKEND/.env" \
+        || fail "GOOGLE_CLIENT_ID is not set in $BACKEND/.env, so Google sign-in is refused. Copy it from $FRONTEND/.env.production"
+    echo "env: GOOGLE_CLIENT_ID present"
+fi
+
 # The backend half. A migration that did not run is the other way a deploy
 # looks finished and is not.
 if [ -x "$BACKEND/venv/bin/python" ]; then

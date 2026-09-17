@@ -559,7 +559,7 @@ def join_tournament(request):
         pin = request.data.get('pin')
 
         from vent_auth.models import UserWallet
-        from django.contrib.auth.hashers import check_password as check_pw
+        from vent_auth import wallets
 
         user_wallet = None
         if is_paid or needs_kyc:
@@ -580,9 +580,12 @@ def join_tournament(request):
                 return Response({'status': 'error', 'code': 'PIN_REQUIRED',
                                  'message': 'pin is required for paid tournament registration'},
                                 status=status.HTTP_400_BAD_REQUEST)
-            if not user_wallet.pin_hash or not check_pw(str(pin), user_wallet.pin_hash):
-                return Response({'status': 'error', 'code': 'WRONG_PIN', 'message': 'Invalid PIN'},
-                                status=status.HTTP_403_FORBIDDEN)
+            try:
+                wallets.check_pin(user_wallet, pin)
+            except wallets.WalletError as exc:
+                # Was WRONG_PIN on this one door and INVALID_PIN on every
+                # other; one code now, the one the wallet itself uses.
+                return Response(exc.body(), status=status.HTTP_403_FORBIDDEN)
 
         with db_transaction.atomic():
             # The invite is spent inside the same transaction that creates the

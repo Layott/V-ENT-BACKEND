@@ -16,6 +16,7 @@ from rest_framework.response import Response
 
 from vent.settings import FRONTEND_URL
 from . import login_2fa
+from .throttle import limited
 from .models import Users, UserProfile, UserWallet, VerificationToken, WaitlistReservation
 from .serializers import UserSerializer
 from . import emails
@@ -51,6 +52,7 @@ def _login_avatar(request, user):
 
 
 @api_view(['POST'])
+@limited('signup', 10)
 def signup(request):
     email = request.data.get('email')
     username = request.data.get('username')
@@ -262,6 +264,7 @@ def get_username_with_email(request):
 
 
 @api_view(['POST'])
+@limited('login', 20)
 def login(request):
     username_or_email = request.data.get('username_or_email')
     password = request.data.get('password')
@@ -379,6 +382,7 @@ def issue_session(user, request, method='password', with_2fa=False):
 
 
 @api_view(['POST'])
+@limited('login-2fa', 20)
 def login_2fa_verify(request):
     """POST /auth/login/2fa/verify/ - the code half of the sign-in.
 
@@ -403,6 +407,7 @@ def login_2fa_verify(request):
         reasons = {
             'TWO_FACTOR_NOT_SET_UP': 'Two-factor is not set up on this account.',
             'BAD_CODE': 'That code is not right, or it has already been used.',
+            'TWO_FACTOR_LOCKED': 'Too many wrong codes. Wait fifteen minutes and try again.',
         }
         return Response(
             {'code': code_err, 'status': 'error', 'message': reasons[code_err]},
@@ -436,6 +441,7 @@ def logout(request):
 
 
 @api_view(['POST'])
+@limited('forgot-password', 5)
 def forgot_password(request):
     import random
     email = request.data.get('email')
@@ -470,6 +476,7 @@ def forgot_password(request):
 
 
 @api_view(['POST'])
+@limited('forgot-password-token', 20)
 def verify_forgot_password_token(request):
     email = request.data.get('email')
     token = request.data.get('token')
@@ -514,6 +521,7 @@ def verify_forgot_password_token(request):
 
 
 @api_view(['POST'])
+@limited('forgot-password-change', 10)
 def change_password_fp(request):
     email = request.data.get('email')
     new_password = request.data.get('new_password')
@@ -563,6 +571,7 @@ def change_password_fp(request):
 
 
 @api_view(['POST'])
+@limited('forgot-password-resend', 5)
 def resend_forgot_password_token(request):
     import random
     email = request.data.get('email')
@@ -594,6 +603,7 @@ def resend_forgot_password_token(request):
 
 
 @api_view(['POST'])
+@limited('resend-link', 5)
 def resend_link(request):
     email = request.data.get('email')
 
@@ -625,6 +635,7 @@ def resend_link(request):
 
 
 @api_view(["POST"])
+@limited('send-code', 5)
 def send_code(request):
     import random
     email = request.data.get('email')
