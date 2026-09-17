@@ -145,9 +145,9 @@
     "since": "2026-09-12"
   },
   "link embeds": {
-    "count": 3128,
+    "count": 0,
     "first_seen": "2026-09-12",
-    "since": "2026-09-12"
+    "since": "2026-09-17"
   },
   "live updates": {
     "count": 0,
@@ -208,6 +208,16 @@
     "count": 0,
     "first_seen": "2026-09-12",
     "since": "2026-09-12"
+  },
+  "security rules (backend)": {
+    "count": 0,
+    "first_seen": "2026-09-17",
+    "since": "2026-09-17"
+  },
+  "security rules (frontend)": {
+    "count": 0,
+    "first_seen": "2026-09-17",
+    "since": "2026-09-17"
   },
   "seo": {
     "count": 0,
