@@ -24,6 +24,11 @@
     "first_seen": "2026-09-10",
     "since": "2026-09-10"
   },
+  "card path": {
+    "count": 0,
+    "first_seen": "2026-09-14",
+    "since": "2026-09-14"
+  },
   "colour variables": {
     "count": 0,
     "first_seen": "2026-09-07",
@@ -140,9 +145,9 @@
     "since": "2026-09-12"
   },
   "link embeds": {
-    "count": 3128,
+    "count": 0,
     "first_seen": "2026-09-12",
-    "since": "2026-09-12"
+    "since": "2026-09-17"
   },
   "live updates": {
     "count": 0,
@@ -164,6 +169,11 @@
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
+  "one press": {
+    "count": 0,
+    "first_seen": "2026-09-18",
+    "since": "2026-09-18"
+  },
   "overlay runtime": {
     "count": 0,
     "first_seen": "2026-09-12",
@@ -174,6 +184,11 @@
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
+  "plurals": {
+    "count": 0,
+    "first_seen": "2026-09-18",
+    "since": "2026-09-18"
+  },
   "pnpm store": {
     "count": 0,
     "first_seen": "2026-09-09",
@@ -183,6 +198,11 @@
     "count": 0,
     "first_seen": "2026-09-12",
     "since": "2026-09-12"
+  },
+  "pricing": {
+    "count": 0,
+    "first_seen": "2026-09-13",
+    "since": "2026-09-13"
   },
   "prose": {
     "count": 0,
@@ -198,6 +218,16 @@
     "count": 0,
     "first_seen": "2026-09-12",
     "since": "2026-09-12"
+  },
+  "security rules (backend)": {
+    "count": 0,
+    "first_seen": "2026-09-17",
+    "since": "2026-09-17"
+  },
+  "security rules (frontend)": {
+    "count": 0,
+    "first_seen": "2026-09-17",
+    "since": "2026-09-17"
   },
   "seo": {
     "count": 0,
@@ -238,6 +268,11 @@
     "count": 0,
     "first_seen": "2026-09-12",
     "since": "2026-09-12"
+  },
+  "structured data": {
+    "count": 0,
+    "first_seen": "2026-09-18",
+    "since": "2026-09-18"
   },
   "tab strips": {
     "count": 0,

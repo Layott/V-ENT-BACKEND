@@ -235,6 +235,28 @@ PAIRS = [
         'tournament', (BACKEND, 'vent_tournament/views.py',
                        r'"organization": organization'),
     ),
+    # CEO, 13 September 2026: tournaments pay organisers a share of entries,
+    # the way events pay them their ticket sales. Both go through one ledger;
+    # these three rows are the doors that must exist on both sides.
+    (
+        'the organiser can read what it earned',
+        'A ledger with no earnings endpoint is money nobody can see.',
+        'event', (BACKEND, 'vent_event/views_ledger.py', r'def earnings'),
+        'tournament', (BACKEND, 'vent_tournament/views_money.py', r'def earnings'),
+    ),
+    (
+        'the organiser can be paid out',
+        'A settlement run on one side only leaves the other side owed for ever.',
+        'event', (BACKEND, 'vent_event/views_ledger.py', r'def settle'),
+        'tournament', (BACKEND, 'vent_tournament/views_money.py', r'def settle'),
+    ),
+    (
+        'the organiser chooses who bears the fee, on a screen',
+        'The same choice an event has: absorb it, or the buyer pays it on top.',
+        'event', (FRONTEND, 'src/app/events/manage/page.js', r"'manage\.feeOnMe'"),
+        'tournament', (FRONTEND, 'src/components/tournament-manage/MoneyPanel.js',
+                       r"'manage\.feeOnMe'"),
+    ),
     (
         'a screen can set the organisation',
         'The event console has a picker and the tournament edit screen has one. '
@@ -242,6 +264,40 @@ PAIRS = [
         'event', (FRONTEND, 'src/app/events/manage/page.js', r'saveOrganization'),
         'tournament', (FRONTEND, 'src/app/tournaments/edit-tournament/page.js',
                        r"set\('organization'"),
+    ),
+
+    # Three rows from the control-level walk of 18 September 2026, each a
+    # WRITER built without its READER: the organiser's side existed and the
+    # side that has to obey it did not. The pair is organiser vs the door
+    # that reads what they set.
+    (
+        'promo codes reach the till',
+        'The organiser created, scoped and limited codes for two weeks and no '
+        'purchase ever read one: a code printed on a flyer did nothing.',
+        'organiser', (BACKEND, 'vent_event/views_promos.py', r'def event_promos'),
+        'the till', (BACKEND, 'vent_event/views_tickets.py', r'promos\.resolve|_promos\.resolve'),
+    ),
+    (
+        'stall approval decides something',
+        'The pitch said "the organiser approves each one" and a pending stall '
+        'was listed and took orders; the approval decided nothing.',
+        'organiser', (BACKEND, 'vent_event/views_vendor_review.py', r'def decide_stall'),
+        'the public list', (BACKEND, 'vent_event/views_vendors.py', r'OPEN_STATUSES'),
+    ),
+    (
+        'a returned seat is offered to the queue at every door',
+        'The queue was offered a place only when somebody LEFT the queue; a '
+        'voided ticket, a released hold, a raised allocation offered nobody.',
+        'the admin void', (BACKEND, 'vent_auth/views_admin_events.py', r'capacity_changed'),
+        'the tier editor', (BACKEND, 'vent_event/views_tiers.py', r'capacity_changed'),
+    ),
+    (
+        'the organiser can cancel, and cancelling refunds the people who paid',
+        'CEO, 18 September 2026: "if an event is cancelled then refunds must '
+        'happen." A tournament cancel refunded entry fees for weeks while an '
+        'event had no organiser cancel at all and the admin cancel refunded nobody.',
+        'event', (BACKEND, 'vent_event/views_delete.py', r'def cancel_event[\s\S]*refund_event'),
+        'tournament', (BACKEND, 'vent_tournament/views_bracket.py', r'def cancel_tournament[\s\S]*tx_type=.refund.'),
     ),
 ]
 
@@ -275,7 +331,7 @@ def main():
         print('  looked in %s' % p['where'].replace(os.sep, '/'))
         print('')
 
-    print('%d capability pair(s) checked, %d built on one side only'
+    print('%d capability pairs checked, %d built on one side only'
           % (checked, len(problems)))
     return 1 if problems else 0
 

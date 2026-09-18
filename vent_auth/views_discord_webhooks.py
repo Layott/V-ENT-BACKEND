@@ -45,18 +45,12 @@ def _owner(kind, ref):
     """The tournament or the event, by slug or by id, and who may run it."""
     if kind == 'tournament':
         from vent_tournament.access import may_manage
-        from vent_tournament.models import Tournament
-        obj = (Tournament.objects.filter(tournament_id=int(ref)).first()
-               if str(ref).isdigit()
-               else Tournament.objects.filter(slug=str(ref)).first())
-        return obj, may_manage
+        from vent_tournament.lookup import find
+        return find(ref), may_manage
     if kind == 'event':
-        from vent_event.models import Event
         from vent_event.permissions import may_run_event
-        obj = (Event.objects.filter(event_id=int(ref)).first()
-               if str(ref).isdigit()
-               else Event.objects.filter(slug=str(ref)).first())
-        return obj, may_run_event
+        from vent_event.refs import event_by_ref
+        return event_by_ref(ref), may_run_event
     return None, None
 
 

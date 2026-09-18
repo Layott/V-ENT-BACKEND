@@ -257,8 +257,8 @@ class EverythingSetAtCreationCanBeChangedTests(TestCase):
             'self_check_in', 'self_check_in_opens_minutes',
             # artwork, multipart
             'logo', 'banner',
-            # published or not
-            'is_active',
+            # published or not, and listed or not (the edit page's switch)
+            'is_active', 'is_listed',
         }
 
         deliberately_fixed = {

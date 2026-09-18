@@ -25,7 +25,6 @@ money that cannot be delivered. That last rule is why the seller's missing
 wallet is a 409 and not a shrug - a platform that takes the money and works out
 where to put it later ends up owing somebody an amount nobody recorded.
 """
-from django.contrib.auth.hashers import check_password
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
@@ -34,6 +33,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
+from vent_auth import wallets
 from vent_auth.models import Transaction, UserWallet
 
 from .models import Event, Vendor, VendorSlot, VendorSlotPurchase
@@ -67,9 +67,12 @@ def _slot_row(slot, viewer=None):
         # Whether the person reading this already holds one. Without it the
         # page offers Buy to somebody who cannot buy again, and the refusal
         # arrives after they have entered their PIN.
+        # A stall turned down (and refunded) is not one they have: the same
+        # rule the purchase applies, or the page says "You have one of
+        # these" over a Buy button that would work (18 September 2026).
         'already_mine': bool(
             viewer and VendorSlotPurchase.objects.filter(
-                slot=slot, buyer=viewer).exists()),
+                slot=slot, buyer=viewer).exclude(vendor__status='closed').exists()),
     }
 
 
@@ -124,6 +127,10 @@ def event_slots(request, event_id):
     if quantity < 1:
         return _error('There has to be at least one to sell.',
                       'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+    from .pricing import refuse_if_not_whole
+    refused = refuse_if_not_whole(price_ngn, field='price_ngn')
+    if refused is not None:
+        return refused
     if price_ngn < 0:
         return _error('A price cannot be negative.', 'VALIDATION_ERROR',
                       status.HTTP_400_BAD_REQUEST)
@@ -186,6 +193,10 @@ def event_slot_detail(request, event_id, slot_id):
         except (TypeError, ValueError):
             return _error('The price has to be a number.', 'VALIDATION_ERROR',
                           status.HTTP_400_BAD_REQUEST)
+        from .pricing import refuse_if_not_whole
+        refused = refuse_if_not_whole(slot.price_ngn, field='price_ngn')
+        if refused is not None:
+            return refused
         fields.append('price_ngn')
     if 'quantity' in request.data:
         try:
@@ -244,7 +255,10 @@ def buy_slot(request, event_id, slot_id):
             return _error(f'{slot.name} is sold out.', 'SOLD_OUT',
                           status.HTTP_409_CONFLICT)
 
-        if VendorSlotPurchase.objects.filter(slot__event=event, buyer=user).exists():
+        # A stall that was turned down or closed does not count: the person
+        # can buy another pitch. Without this a rejection was permanent.
+        if VendorSlotPurchase.objects.filter(slot__event=event, buyer=user).exclude(
+                vendor__status='closed').exists():
             return _error('You already have a stall at this event.',
                           'ALREADY_A_VENDOR', status.HTTP_409_CONFLICT)
 
@@ -264,14 +278,19 @@ def buy_slot(request, event_id, slot_id):
             if not wallet.pin_hash:
                 return _error('Set a wallet PIN before buying.', 'PIN_REQUIRED',
                               status.HTTP_400_BAD_REQUEST)
-            if not pin or not check_password(str(pin), wallet.pin_hash):
-                return _error('Incorrect wallet PIN.', 'INVALID_PIN',
-                              status.HTTP_400_BAD_REQUEST)
+            try:
+                wallets.check_pin(wallet, pin)
+            except wallets.WalletError as exc:
+                return _error(str(exc), exc.code, status.HTTP_400_BAD_REQUEST,
+                              extra=exc.params)
             if wallet.wallet_balance < price_vc:
+                # The numbers ride with the code so the screen can offer a
+                # card for exactly the shortfall. See vent_auth/pay.py.
                 return _error(
                     f'You need {price_vc} VC - your balance is '
                     f'{wallet.wallet_balance} VC.',
-                    'INSUFFICIENT_BALANCE', status.HTTP_400_BAD_REQUEST)
+                    'INSUFFICIENT_BALANCE', status.HTTP_400_BAD_REQUEST,
+                    extra={'needed_vc': price_vc, 'balance_vc': wallet.wallet_balance})
 
             # Pay the organiser. Refused rather than taken when there is
             # nowhere to put it, for the same reason as a vendor order.

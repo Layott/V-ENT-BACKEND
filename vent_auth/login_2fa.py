@@ -31,6 +31,9 @@ One secret per person. `UserTOTP` is the account's factor and every member has
 one; migration 0054 folded the old console-only secrets into it so no existing
 admin has to enrol again.
 """
+import math
+from datetime import timedelta
+
 from django.core import signing
 from django.utils import timezone
 
@@ -121,21 +124,58 @@ def user_from_pending(pending):
     return user, None
 
 
+#: Wrong codes before the factor locks, and for how long.
+CODE_TRIES = 10
+CODE_LOCK_MINUTES = 15
+
+
+def code_lock_minutes_left(factor, now=None):
+    """Minutes until this factor takes codes again, or 0 if it does now."""
+    now = now or timezone.now()
+    until = factor.code_locked_until
+    if until is None or until <= now:
+        return 0
+    return max(1, math.ceil((until - now).total_seconds() / 60))
+
+
 def spend_code(user, code):
     """Check a code and burn its step. (ok, error_code).
 
     Confirms a first-time enrolment on the way through, so somebody setting up
     an authenticator proves it works in the same breath as using it.
+
+    And counts. `last_used_step` stops one code being replayed; nothing
+    stopped a million of them being tried. Ten wrong in a row lock the
+    factor for fifteen minutes (`TWO_FACTOR_LOCKED`), whichever door asked:
+    sign-in, the settings page, or a withdrawal. A right code clears the
+    count. On the row rather than in a cache, so a restart does not hand
+    out a fresh ten. Owner rule R59, 17 September 2026.
     """
     factor = factor_for(user)
     if factor is None:
         return False, 'TWO_FACTOR_NOT_SET_UP'
 
+    now = timezone.now()
+    if code_lock_minutes_left(factor, now):
+        return False, 'TWO_FACTOR_LOCKED'
+
     matched = totp_lib.verify(factor.secret, code, factor.last_used_step)
     if matched is None:
+        failures = int(factor.code_failures or 0) + 1
+        if failures >= CODE_TRIES:
+            factor.code_failures = 0
+            factor.code_locked_until = now + timedelta(minutes=CODE_LOCK_MINUTES)
+            factor.save(update_fields=['code_failures', 'code_locked_until'])
+            return False, 'TWO_FACTOR_LOCKED'
+        factor.code_failures = failures
+        factor.save(update_fields=['code_failures'])
         return False, 'BAD_CODE'
 
     fields = ['last_used_step']
+    if factor.code_failures or factor.code_locked_until is not None:
+        factor.code_failures = 0
+        factor.code_locked_until = None
+        fields += ['code_failures', 'code_locked_until']
     factor.last_used_step = matched
     if not factor.confirmed:
         factor.confirmed = True

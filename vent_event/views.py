@@ -21,19 +21,14 @@ from .serializers import serialize_event_card, serialize_event_detail
 
 
 def _event_by_ref(ref, **extra):
-    """An event by slug or by id.
+    """An event by slug, by id, or by a slug it used to have.
 
-    The named address is what the slug rule requires, and the numeric one still
-    has to resolve because links were shared before that rule existed.
+    One resolver for the whole app, in `refs.py`: sixteen copies of this
+    each missed the slug history (18 September 2026).
     """
-    from .models import Event
+    from .refs import event_by_ref
 
-    ref = str(ref)
-    if ref.isdigit():
-        found = Event.objects.filter(event_id=int(ref), **extra).first()
-        if found:
-            return found
-    return Event.objects.filter(slug=ref, **extra).first()
+    return event_by_ref(ref, **extra)
 
 
 
@@ -181,6 +176,14 @@ def create_event(request):
 
     if start_date and end_date and end_date < start_date:
         field_errors['end_date'] = ['End date must be on or after the start date.']
+    # A new event starts in the future. The wizard's picker offered every
+    # day of the month and this accepted 10 September on the 17th, which
+    # published an event that had already ended (walk, 17 September 2026).
+    # Only on create: an event that has started is edited elsewhere, and
+    # its dates are its own business.
+    if start_date and 'start_date' not in field_errors \
+            and start_date < timezone.now() - timezone.timedelta(minutes=5):
+        field_errors['start_date'] = ['The start has to be in the future.']
 
     location = (data.get('location') or '').strip() or None
     virtual_link = (data.get('virtual_link') or data.get('event_link') or '').strip() or None
@@ -292,6 +295,13 @@ def create_event(request):
                     price = float(tier.get('price') or 0)
                 except (ValueError, TypeError):
                     price = 0
+                # Whole coins only; a 1,500 naira type charged one coin from
+                # a wallet until 12 September 2026. See vent_event/pricing.py.
+                from .pricing import refuse_if_not_whole
+                refused = refuse_if_not_whole(price, field='ticket_types', prefix=tier_name)
+                if refused is not None:
+                    transaction.set_rollback(True)
+                    return refused
                 try:
                     quantity = int(tier.get('quantity') or 0)
                 except (ValueError, TypeError):
@@ -397,7 +407,7 @@ def get_all_events(request):
     from vent_tournament.models import RunSheet
 
     base = (
-        Event.objects.filter(is_active=True)
+        Event.objects.filter(is_active=True, is_listed=True)
         .select_related('game', 'creator')
         .prefetch_related('ticket_tiers')
         .annotate(has_public_run_sheet=Exists(
@@ -482,7 +492,9 @@ def view_event(request, event_id):
             Event.objects
             .select_related('game', 'creator')
             .prefetch_related('ticket_tiers', 'sponsors', 'sponsors__links', 'social_links', 'vendor_invites')
-            .filter(is_active=True)
+            # A cancelled event (is_active off) keeps answering: people
+            # hold tickets to it and the page is where they find out. A
+            # deleted one is gone, and the manager already holds that.
         ),
     )
     if moved_to:
@@ -578,7 +590,12 @@ def edit_event(request, event_id):
 
         raise Http404('No event matches %s' % event_id)
 
-    is_owner = event.creator_id == user.user_id
+    # Whoever runs the event edits it: the creator, a named manager, the
+    # organisation's events people (permissions.py). An admin who runs it
+    # through the override alone is acting as an admin, and the organiser
+    # is told; a manager is the organiser's own team and is not.
+    from .permissions import may_run_event
+    is_owner = may_run_event(user, event)
     acting_as_admin = (not is_owner) and may_override(user, 'manage_events')
     if not is_owner and not acting_as_admin:
         return _error('Only the event organizer can edit this event.',
@@ -785,6 +802,9 @@ def edit_event(request, event_id):
     if 'is_active' in data:
         event.is_active = str(data.get('is_active')).lower() in ('1', 'true', 'yes')
         updated.append('is_active')
+    if 'is_listed' in data:
+        event.is_listed = str(data.get('is_listed')).lower() in ('1', 'true', 'yes')
+        updated.append('is_listed')
 
     if request.FILES.get('logo'):
         event.logo = request.FILES['logo']
@@ -812,6 +832,19 @@ def edit_event(request, event_id):
             target_model='Event',
             target_id=str(event.event_id),
             metadata={'updated_fields': updated, 'owner_id': event.creator_id},
+        )
+        # The console's Edit control promises "the organiser is told it
+        # changed", and until 18 September only the audit log was. The
+        # owner's inbox names what moved and who moved it.
+        from vent_auth.views_notifications import create_notification
+        create_notification(
+            event.creator_id, 'event',
+            'An admin changed %s' % event.name,
+            '%s changed: %s. Open the event to see it.'
+            % (user.username, ', '.join(updated)),
+            link='/events/%s' % event.slug,
+            metadata={'event_id': event.event_id, 'updated_fields': updated,
+                      'by': user.username},
         )
 
     return Response({

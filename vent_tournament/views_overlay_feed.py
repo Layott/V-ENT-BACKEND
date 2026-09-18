@@ -41,11 +41,11 @@ def _error(message, code, http=status.HTTP_400_BAD_REQUEST):
 
 
 def _tournament(key):
-    if str(key).isdigit():
-        found = Tournament.objects.filter(tournament_id=int(key)).first()
-        if found:
-            return found
-    return Tournament.objects.filter(slug=str(key)).first()
+    from .lookup import find
+
+    # One resolver, in lookup.py, which reads the slug history; this copy
+    # did not (18 September 2026).
+    return find(key)
 
 
 def _url(request, image):
@@ -1076,14 +1076,9 @@ def event_overlay_feed(request, event_id):
     from django.utils import timezone as _tz
     from vent_event.models import Event, EventSession, Sponsor, Ticket
 
-    def _find(key):
-        if str(key).isdigit():
-            found = Event.objects.filter(event_id=int(key)).first()
-            if found:
-                return found
-        return Event.objects.filter(slug=str(key)).first()
+    from vent_event.refs import event_by_ref
 
-    event = _find(event_id)
+    event = event_by_ref(event_id)
     if event is None:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 

@@ -21,6 +21,33 @@ from django.db import models
 from django.db.models import Sum
 
 
+#: How long a guest at Paystack keeps the seats they are paying for. Paystack's
+#: own checkout page gives up well inside this, and an abandoned row older
+#: than it stops counting on its own, with nothing to sweep.
+IN_FLIGHT_MINUTES = 20
+
+
+def in_flight_on_tier(tier, now=None):
+    """Seats a guest is paying for right now, at Paystack, not yet issued.
+
+    Found by the walk on 12 September 2026: the paid guest checkout checked
+    the room BEFORE sending somebody to Paystack and issued the tickets AFTER
+    they came back, and nothing held the seats in between. Two guests paying
+    for the last seat both paid and both got a ticket, because by the time
+    either came back the other had not yet been issued. The AbandonedCheckout
+    row written at the start of every paid checkout is exactly the record of
+    who is in that window, so it is what is counted here.
+    """
+    from django.utils import timezone
+    from .models import AbandonedCheckout
+    now = now or timezone.now()
+    since = now - timezone.timedelta(minutes=IN_FLIGHT_MINUTES)
+    total = (AbandonedCheckout.objects
+             .filter(tier=tier, converted_at__isnull=True, started_at__gte=since)
+             .aggregate(n=Sum('quantity'))['n'])
+    return int(total or 0)
+
+
 def held_on_tier(tier):
     """Tickets on this type that are reserved and not yet issued."""
     from .models import TicketHold
@@ -30,7 +57,7 @@ def held_on_tier(tier):
     for hold in rows:
         total += hold.outstanding
 
-    return total
+    return total + in_flight_on_tier(tier)
 
 
 def held_by_referrals(event):
@@ -56,6 +83,23 @@ def held_on_event(event):
     rows = TicketHold.objects.filter(
         event=event, tier__isnull=True, released_at__isnull=True)
     return sum(hold.outstanding for hold in rows) + held_by_referrals(event)
+
+
+def offered_on_event(event, for_user=None):
+    """Places a live waitlist offer is holding open, minus the viewer's own.
+
+    An offer that held nothing was a promise: the page read "1 remaining"
+    to everybody and the first hand to reach the returned ticket took it,
+    while the person at the head of the queue had been told it was theirs
+    first (18 September 2026). The viewer's own offer is not counted
+    against them, which is what lets them buy into the room it holds.
+    """
+    from django.utils import timezone as _tz
+
+    rows = event.waitlist.filter(status='offered', offer_expires_at__gt=_tz.now())
+    if for_user is not None:
+        rows = rows.exclude(user=for_user)
+    return rows.count()
 
 
 def sold_on_event(event, day=None):
@@ -117,17 +161,22 @@ def event_room(event, day=None):
     return max(int(event.capacity) - used, 0)
 
 
-def available(tier):
+def available(tier, for_user=None, ignore_offers=False):
     """The real answer: the lower of the type's own room and the venue's.
 
     The venue's room is measured on the day this type admits, because capacity
     is a property of the room on a day rather than of the whole engagement.
+    `for_user` is the viewer, whose own waitlist offer is room they may use;
+    `ignore_offers` is for the queue itself working out what to offer.
     """
     room = event_room(tier.event, getattr(tier, 'day', None))
     by_tier = tier_available(tier)
-    if room is None:
-        return by_tier
-    return min(by_tier, room)
+    out = by_tier if room is None else min(by_tier, room)
+    if not ignore_offers:
+        # A live offer holds one of these for the person it was made to,
+        # whichever count was the binding one.
+        out -= offered_on_event(tier.event, for_user=for_user)
+    return max(out, 0)
 
 
 def snapshot(event):

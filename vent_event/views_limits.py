@@ -57,7 +57,8 @@ def _event_and_permission(request, event_id):
     if event is None:
         return None, None, _err('Event not found.', 'NOT_FOUND',
                                 status.HTTP_404_NOT_FOUND)
-    if event.creator_id != user.user_id and not may_override(user, 'manage_events'):
+    from .permissions import may_run_event
+    if not may_run_event(user, event) and not may_override(user, 'manage_events'):
         return None, None, _err(
             'Only the event organizer can change its ticket limits.',
             'ONLY_EVENT_ORGANIZER_CAN', status.HTTP_403_FORBIDDEN)

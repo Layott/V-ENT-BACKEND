@@ -129,6 +129,31 @@ def resolve_or_redirect(key, *, entity_type, id_field, model, queryset=None):
     return None, getattr(current, 'slug', None) or str(moved_id)
 
 
+def find_by_ref(key, *, entity_type, id_field, model, queryset=None):
+    """The thing at this address, or None, following a rename silently.
+
+    For every door that is not the public page. The public page uses
+    `resolve_or_redirect` and answers `moved` so the browser rewrites its
+    address; a sub-resource (tiers, promos, the studio feed) has no address
+    of its own to rewrite, so it simply answers for the thing the retired
+    slug used to name. On 18 September 2026 thirty-two private copies of
+    "by slug or by id" across the two apps each missed the history, so a
+    renamed event's console answered 404 at every one of its endpoints.
+
+    `queryset` narrows what may be found (`Event.objects` cannot see a
+    deleted event; a public door passes `is_active=True`), and it narrows
+    the history path too: a retired slug never reaches a thing the caller
+    could not reach by its live slug.
+    """
+    instance, moved_to = resolve_or_redirect(
+        key, entity_type=entity_type, id_field=id_field, model=model,
+        queryset=queryset)
+    if instance is not None or moved_to is None:
+        return instance
+    rows = queryset if queryset is not None else model.objects.all()
+    return rows.filter(slug=moved_to).first()
+
+
 # ---------------------------------------------------------------------------
 # Things that cannot be named
 # ---------------------------------------------------------------------------

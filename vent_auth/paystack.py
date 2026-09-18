@@ -63,3 +63,80 @@ def headers():
         'Authorization': 'Bearer %s' % secret(),
         'Content-Type': 'application/json',
     }
+
+
+BASE = 'https://api.paystack.co'
+
+
+class Unreachable(Exception):
+    """Paystack did not answer. Nothing was charged; it is safe to retry."""
+
+
+class Refused(Exception):
+    """Paystack answered and said no, in its own words (`str(exc)`).
+
+    Its 400 carries the useful half: an address it will not accept, an
+    amount under its floor. Three callers each posted to /transaction/
+    initialize themselves, and two of them called raise_for_status and
+    threw that sentence away, so a guest whose address Paystack refused was
+    told the gateway could not be reached (18 September 2026).
+    """
+
+    def __init__(self, message):
+        super().__init__(message or 'The payment could not be started.')
+
+    @property
+    def about_the_email(self):
+        return 'email' in str(self).lower()
+
+
+def initialize(payload, timeout=10):
+    """POST /transaction/initialize. Returns Paystack's `data` (with the
+    authorization_url) or raises Unreachable / Refused. One function, so
+    the gateway's reason reaches the person at every door."""
+    import logging
+
+    import requests as http_requests
+
+    log = logging.getLogger(__name__)
+    try:
+        res = http_requests.post('%s/transaction/initialize' % BASE, json=payload,
+                                 headers=headers(), timeout=timeout)
+        body = res.json()
+    except Exception as exc:                                  # noqa: BLE001
+        log.exception('paystack initialize failed')
+        raise Unreachable(str(exc))
+    if not body.get('status'):
+        log.warning('paystack refused an initialize: %s', body.get('message'))
+        raise Refused(body.get('message'))
+    return body.get('data') or {}
+
+
+def refund(reference, amount_ngn, timeout=10):
+    """POST /refund: send part or all of a card payment back to the card.
+
+    `reference` is the payment's own reference (the one a guest ticket
+    carries in `payment_reference`); `amount_ngn` is what to send back, in
+    naira, and Paystack takes it in kobo. A payment can be refunded in
+    parts, one per ticket, up to what was charged. Paystack answers with a
+    refund record whose status starts as pending; the money reaches the
+    card in its own time. Raises Unreachable / Refused like initialize.
+    """
+    import logging
+
+    import requests as http_requests
+
+    log = logging.getLogger(__name__)
+    payload = {'transaction': reference,
+               'amount': int(round(float(amount_ngn) * 100))}
+    try:
+        res = http_requests.post('%s/refund' % BASE, json=payload,
+                                 headers=headers(), timeout=timeout)
+        body = res.json()
+    except Exception as exc:                                  # noqa: BLE001
+        log.exception('paystack refund failed for %s', reference)
+        raise Unreachable(str(exc))
+    if not body.get('status'):
+        log.warning('paystack refused a refund of %s: %s', reference, body.get('message'))
+        raise Refused(body.get('message'))
+    return body.get('data') or {}

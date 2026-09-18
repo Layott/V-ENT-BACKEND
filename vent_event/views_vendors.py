@@ -4,8 +4,8 @@ Same money discipline as ticketing: wallet row locked, PIN verified, stock and
 debit written in one transaction, a Transaction row for the ledger.
 """
 import secrets
+from datetime import timedelta
 
-from django.contrib.auth.hashers import check_password
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
@@ -13,25 +13,22 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 
+from vent_auth import wallets
 from vent_auth.models import UserWallet, Transaction
 from .models import Event, Vendor, VendorProduct, VendorOrder, VendorOrderItem
+from .permissions import may_run_event
 from .views_tickets import _authenticate, _error, _ok, _ngn_to_coins, CODE_ALPHABET
 
 
 def _event_by_ref(ref, **extra):
-    """An event by slug or by id.
+    """An event by slug, by id, or by a slug it used to have.
 
-    The named address is what the slug rule requires, and the numeric one still
-    has to resolve because links were shared before that rule existed.
+    One resolver for the whole app, in `refs.py`: sixteen copies of this
+    each missed the slug history (18 September 2026).
     """
-    from .models import Event
+    from .refs import event_by_ref
 
-    ref = str(ref)
-    if ref.isdigit():
-        found = Event.objects.filter(event_id=int(ref), **extra).first()
-        if found:
-            return found
-    return Event.objects.filter(slug=ref, **extra).first()
+    return event_by_ref(ref, **extra)
 
 
 
@@ -98,6 +95,11 @@ def serialize_vendor(request, v, include_products=False):
         'logo': _abs(request, v.logo),
         'banner': _abs(request, v.banner),
         'status': v.status,
+        # Who bears the platform's fee on this stall, and the rule, so a cart
+        # can say the number before the PIN.
+        'fee_bearer': v.fee_bearer,
+        'fee_pct': _fee_rule()[0],
+        'fee_flat_ngn': float(_fee_rule()[1]),
         'owner': v.owner.username if v.owner else None,
         'product_count': v.products.filter(is_active=True).count(),
     }
@@ -119,7 +121,9 @@ def event_vendors(request, event_id):
     if event is None:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
-    vendors = event.vendors.exclude(status='closed').prefetch_related('products')
+    # Open stalls only. A pending one is waiting for the organiser and a
+    # closed one has gone; neither belongs on the event page.
+    vendors = event.vendors.filter(status__in=Vendor.OPEN_STATUSES).prefetch_related('products')
     return _ok(
         {
             'event_id': event.event_id,
@@ -134,6 +138,11 @@ def event_vendors(request, event_id):
 
 
 # ---------------------------------------------------------------------------
+def _fee_rule():
+    from . import ledger as _ledger
+    return _ledger.platform_fee()
+
+
 def _vendor_by_ref(ref, **extra):
     """A stall, by slug or by primary key.
 
@@ -158,7 +167,13 @@ def _vendor_by_ref(ref, **extra):
 
 @api_view(['GET'])
 def vendor_detail(request, event_id, vendor_id):
-    vendor = _vendor_by_ref(vendor_id, event_id=event_id)
+    # The event is resolved by slug or id like everywhere else. Until
+    # 12 September this passed the raw address into `event_id=`, so every
+    # stall page opened from an event page (which links by slug) was a 500.
+    event = _event_by_ref(event_id)
+    if event is None:
+        return _error('Vendor not found for this event.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    vendor = _vendor_by_ref(vendor_id, event=event)
     if vendor is not None:
         vendor = Vendor.objects.filter(pk=vendor.pk).prefetch_related('products').first()
     if vendor is None:
@@ -239,6 +254,26 @@ def create_vendor(request, event_id):
 # POST /event/vendor/<vendor_id>/products/  - vendor owner or event organizer
 # ---------------------------------------------------------------------------
 
+
+def read_variants(raw):
+    """The choices a product comes in, as `(list, error)`. Accepts a list or
+    a comma separated line, because the stall screen types them as one line
+    and the API takes JSON. Absent is an empty list, not an error."""
+    if raw in (None, ''):
+        return [], ''
+    if isinstance(raw, str):
+        raw = [part.strip() for part in raw.split(',')]
+    if not isinstance(raw, list):
+        return [], 'Choices have to be a list, or a comma separated line.'
+    return [str(x).strip()[:60] for x in raw if str(x).strip()][:20], ''
+
+
+def _truthy(value):
+    if isinstance(value, str):
+        return value.strip().lower() in ('1', 'true', 'yes', 'on')
+    return bool(value)
+
+
 @api_view(['POST'])
 def create_product(request, vendor_id):
     user, auth_error = _authenticate(request)
@@ -248,7 +283,7 @@ def create_product(request, vendor_id):
     vendor = _vendor_by_ref(vendor_id)
     if vendor is None:
         return _error('Vendor not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    if vendor.owner_id != user.user_id and vendor.event.creator_id != user.user_id:
+    if vendor.owner_id != user.user_id and not may_run_event(user, vendor.event):
         return _error('Only the stall owner or the event organizer can add products.',
                       'FORBIDDEN', status.HTTP_403_FORBIDDEN)
 
@@ -262,6 +297,18 @@ def create_product(request, vendor_id):
         return _error('Price and stock must be numbers.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
     if price < 0 or stock < 0:
         return _error('Price and stock cannot be negative.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+    from .pricing import refuse_if_not_whole
+    refused = refuse_if_not_whole(price, field='price')
+    if refused is not None:
+        return refused
+
+    # Everything the stall screen sends is read here. Until 12 September this
+    # took name, price and stock and dropped the rest on the floor: a picture
+    # sent with the product never landed, and the screen had grown a second
+    # call to PATCH the choices and deliverability in afterwards.
+    variants, why = read_variants(request.data.get('variants'))
+    if why:
+        return _error(why, 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
 
     product = VendorProduct.objects.create(
         vendor=vendor,
@@ -269,12 +316,155 @@ def create_product(request, vendor_id):
         description=(request.data.get('description') or '').strip(),
         price=price,
         stock=stock,
+        variants=variants,
+        can_deliver=_truthy(request.data.get('can_deliver')),
+        image=request.FILES.get('image'),
     )
     return Response(
         {'status': 'success', 'data': {'product': serialize_product(request, product)},
          'message': f'{product.name} listed.'},
         status=status.HTTP_201_CREATED,
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /event/vendor/<vendor_id>/contact/   - a question for the stallholder
+# ---------------------------------------------------------------------------
+
+CONTACT_COOLDOWN_SECONDS = 60
+
+
+@api_view(['POST'])
+def contact_vendor(request, vendor_id):
+    """A signed-in person asks a stall something. The stallholder gets it as
+    a notification carrying the sender's username.
+
+    The stall page has offered a Contact box since the shop was built, and
+    until 12 September 2026 pressing Send set a flag and showed "Message sent"
+    without a request leaving the browser. Found by the Chrome walk: the
+    network tab was empty. There is no direct-message system on the platform,
+    so this is one-way and says so; the notification is real and lands in
+    the bell.
+    """
+    user, auth_error = _authenticate(request)
+    if auth_error:
+        return auth_error
+    vendor = _vendor_by_ref(vendor_id)
+    if vendor is None or not vendor.is_open:
+        return _error('Vendor not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    if vendor.owner_id == user.user_id:
+        return _error('That is your own stall.', 'OWN_STALL', status.HTTP_400_BAD_REQUEST)
+    message = str(request.data.get('message') or '').strip()
+    if not message:
+        return _error('Write the message first.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+    if len(message) > 400:
+        return _error('Keep it under 400 characters.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+
+    # One a minute per person per stall. A stall is a public page and the
+    # box is one text field; without this it is a way to fill somebody's
+    # bell from a loop.
+    from vent_auth.models import Notification
+    recent = Notification.objects.filter(
+        user_id=vendor.owner_id, category='event',
+        metadata__kind='vendor_message', metadata__from=user.username,
+        created_at__gte=timezone.now() - timedelta(seconds=CONTACT_COOLDOWN_SECONDS)).exists()
+    if recent:
+        return _error('Give them a minute before sending another.', 'TOO_SOON',
+                      status.HTTP_429_TOO_MANY_REQUESTS)
+
+    from vent_auth.views_notifications import create_notification
+    row = create_notification(
+        vendor.owner_id, 'event',
+        'Question for %s' % vendor.name,
+        body='%s: %s' % (user.username, message),
+        link='/u/%s' % user.username,
+        metadata={'kind': 'vendor_message', 'from': user.username,
+                  'stall': vendor.slug, 'event': vendor.event.slug})
+    if row is None:
+        return _error('That did not send. Try again.', 'SEND_FAILED',
+                      status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return Response({'status': 'success', 'data': {'sent': True},
+                     'message': 'Sent to %s.' % vendor.name}, status=status.HTTP_201_CREATED)
+
+
+# ---------------------------------------------------------------------------
+# Pricing a basket: what the items come to, the platform's fee on every unit
+# sold (5% + 100 naira, CEO 13 September: "should have a fee on everything
+# sold"), who bears it, and what the stallholder keeps. One function for the
+# quote the cart shows and the order that charges, so the two cannot drift.
+# ---------------------------------------------------------------------------
+
+def price_basket(vendor, priced, own_stall=False):
+    """`priced` is `[(product, qty, unit_vc, variant), ...]`. Returns a dict
+    with the naira, the fee split by the stall's choice, and the coin totals
+    a wallet actually moves. A stallholder taking their own stock pays nothing
+    and owes no fee: a shirt off the table is a shirt off the table."""
+    from decimal import Decimal
+    from . import ledger as _ledger
+    pct, flat = _ledger.platform_fee()
+    items_vc = sum(unit_vc * qty for _, qty, unit_vc, _ in priced)
+    items_ngn = sum((_ledger._ngn(p.price) * qty for p, qty, _, _ in priced), Decimal('0'))
+    fee_ngn = (Decimal('0') if own_stall
+               else sum((_ledger.fee_for(p.price, qty, pct, flat) for p, qty, _, _ in priced),
+                        Decimal('0')))
+    bearer = getattr(vendor, 'fee_bearer', 'vendor') or 'vendor'
+    buyer_fee_ngn, seller_fee_ngn, buyer_fee_vc = _ledger.split_fee(
+        fee_ngn, bearer == 'buyer', 'wallet')
+    return {
+        'items_vc': 0 if own_stall else items_vc,
+        'items_ngn': items_ngn,
+        'fee_ngn': _ledger._ngn(fee_ngn),
+        'fee_pct': pct,
+        'fee_flat_ngn': flat,
+        'fee_bearer': bearer,
+        'buyer_fee_ngn': buyer_fee_ngn,
+        'buyer_fee_vc': buyer_fee_vc,
+        'seller_fee_ngn': seller_fee_ngn,
+        'buyer_pays_fee': buyer_fee_ngn > 0,
+        'total_vc': 0 if own_stall else items_vc + buyer_fee_vc,
+        'vendor_ngn': _ledger._ngn(items_ngn - seller_fee_ngn) if not own_stall else Decimal('0.00'),
+    }
+
+
+def _basket_payload(quote):
+    return {k: (float(v) if hasattr(v, 'quantize') else v) for k, v in quote.items()}
+
+
+@api_view(['POST'])
+def quote_order(request, vendor_id):
+    """What a basket would cost, before the PIN: the same items payload the
+    order takes, the same pricing function, no charge. The cart shows the fee
+    line from this rather than working the rule out itself."""
+    user, auth_error = _authenticate(request)
+    if auth_error:
+        return auth_error
+    vendor = _vendor_by_ref(vendor_id)
+    if vendor is None:
+        return _error('Vendor not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    if vendor.status == 'closed':
+        return _error(f'{vendor.name} is closed.', 'VENDOR_CLOSED', status.HTTP_409_CONFLICT)
+    if not vendor.is_open:
+        return _error(f'{vendor.name} is not open yet.', 'VENDOR_PENDING', status.HTTP_409_CONFLICT)
+    items = request.data.get('items') or []
+    if not isinstance(items, list) or not items:
+        return _error('Add at least one item to your order.', 'VALIDATION_ERROR',
+                      status.HTTP_400_BAD_REQUEST)
+    priced = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            return _error('Malformed order item.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+        try:
+            qty = max(1, int(raw.get('quantity', raw.get('qty', 1))))
+        except (TypeError, ValueError):
+            return _error('Quantity must be a number.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+        product = VendorProduct.objects.filter(
+            id=raw.get('product_id') or raw.get('id'), vendor=vendor, is_active=True).first()
+        if product is None:
+            return _error('One of those products is no longer available.',
+                          'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+        priced.append((product, qty, _ngn_to_coins(product.price), str(raw.get('variant') or '')))
+    own_stall = bool(vendor.owner_id) and vendor.owner_id == user.user_id
+    return _ok(_basket_payload(price_basket(vendor, priced, own_stall)), 'Quoted.')
 
 
 # ---------------------------------------------------------------------------
@@ -322,6 +512,8 @@ def create_order(request, vendor_id):
             _refuse('Vendor not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
         if vendor.status == 'closed':
             _refuse(f'{vendor.name} is closed.', 'VENDOR_CLOSED', status.HTTP_409_CONFLICT)
+        if not vendor.is_open:
+            _refuse(f'{vendor.name} is not open yet.', 'VENDOR_PENDING', status.HTTP_409_CONFLICT)
 
         items = request.data.get('items') or []
         pin = request.data.get('pin')
@@ -366,7 +558,6 @@ def create_order(request, vendor_id):
                                   'VARIANT_UNKNOWN', status.HTTP_400_BAD_REQUEST)
 
                 unit_vc = _ngn_to_coins(product.price)
-                total_vc += unit_vc * qty
                 priced.append((product, qty, unit_vc, variant))
 
             wallet = UserWallet.objects.select_for_update().filter(user=user).first()
@@ -381,18 +572,25 @@ def create_order(request, vendor_id):
             # hardest to notice. The order is still recorded and stock still moves,
             # because a shirt off the table is a shirt off the table.
             own_stall = bool(vendor.owner_id) and vendor.owner_id == user.user_id
-            if own_stall:
-                total_vc = 0
+            # Locked, because the carry below is read and written on the stall.
+            vendor = Vendor.objects.select_for_update().get(pk=vendor.pk)
+            basket = price_basket(vendor, priced, own_stall)
+            total_vc = basket['total_vc']
 
             if total_vc > 0:
                 if not wallet.pin_hash:
                     _refuse('Set a wallet PIN before buying.', 'PIN_REQUIRED', status.HTTP_400_BAD_REQUEST)
-                if not pin or not check_password(str(pin), wallet.pin_hash):
-                    _refuse('Incorrect wallet PIN.', 'INVALID_PIN', status.HTTP_400_BAD_REQUEST)
+                try:
+                    wallets.check_pin(wallet, pin)
+                except wallets.WalletError as exc:
+                    _refuse(str(exc), exc.code, status.HTTP_400_BAD_REQUEST, exc.params)
                 if wallet.wallet_balance < total_vc:
+                    # The numbers ride with the code so the cart can offer a
+                    # card for exactly the shortfall. See vent_auth/pay.py.
                     _refuse(
                         f'You need {total_vc} VC - your balance is {wallet.wallet_balance} VC.',
                         'INSUFFICIENT_BALANCE', status.HTTP_400_BAD_REQUEST,
+                        extra={'needed_vc': total_vc, 'balance_vc': wallet.wallet_balance},
                     )
                 wallet.wallet_balance -= total_vc
                 wallet.save(update_fields=['wallet_balance'])
@@ -426,12 +624,28 @@ def create_order(request, vendor_id):
                             f'{vendor.name} cannot be paid right now. Nothing has '
                             'been taken from your wallet.',
                             'SELLER_HAS_NO_WALLET', status.HTTP_409_CONFLICT)
-                    seller_wallet.wallet_balance += total_vc
-                    seller_wallet.save(update_fields=['wallet_balance'])
-                    Transaction.objects.create(
-                        wallet=seller_wallet, type='receive', amount=total_vc,
-                        description=f'Sale at {vendor.name}', status='completed',
-                    )
+                    # What the stall earned on this order, after the part of the
+                    # fee it bears, in naira; paid into the wallet in whole
+                    # coins as soon as the carry reaches them. 1,800 naira on a
+                    # first order pays 1 coin and carries 800; the next 1,800
+                    # pays 2 and carries 600. Nothing under a coin is lost.
+                    from . import ledger as _ledger
+                    unit = _ledger.ngn_per_coin()
+                    carry = _ledger._ngn(vendor.carry_ngn) + basket['vendor_ngn']
+                    paid_vc = _ledger._floor_vc(carry)
+                    vendor.carry_ngn = _ledger._ngn(carry - paid_vc * unit)
+                    vendor.save(update_fields=['carry_ngn'])
+                    if paid_vc > 0:
+                        seller_wallet.wallet_balance += paid_vc
+                        seller_wallet.save(update_fields=['wallet_balance'])
+                        Transaction.objects.create(
+                            wallet=seller_wallet, type='receive', amount=paid_vc,
+                            description=f'Sale at {vendor.name}', status='completed',
+                        )
+                else:
+                    paid_vc = 0
+            else:
+                paid_vc = 0
 
             # How they want it. `collect` unless they said otherwise, because most
             # people at an event are walking to the table.
@@ -458,6 +672,10 @@ def create_order(request, vendor_id):
 
             order = VendorOrder.objects.create(
                 vendor=vendor, buyer=user, code=_new_order_code(), total_vc=total_vc,
+                items_ngn=basket['items_ngn'], fee_ngn=basket['fee_ngn'],
+                fee_pct=basket['fee_pct'], fee_flat_ngn=basket['fee_flat_ngn'],
+                fee_bearer=basket['fee_bearer'], buyer_fee_vc=basket['buyer_fee_vc'],
+                vendor_ngn=basket['vendor_ngn'], vendor_paid_vc=paid_vc,
                 fulfilment=fulfilment,
                 delivery_name=str(delivery.get('name') or '')[:120] if fulfilment == 'deliver' else '',
                 delivery_phone=str(delivery.get('phone') or '')[:40] if fulfilment == 'deliver' else '',
@@ -512,6 +730,17 @@ def serialize_order(request, order):
         'code': order.code,
         'status': order.status,
         'total_vc': order.total_vc,
+        # The money on it, in naira: what the items came to, the platform's
+        # fee, the whole coins of it the buyer paid on top, and what the stall
+        # kept. Stamped at the sale.
+        'items_ngn': float(order.items_ngn),
+        'fee_ngn': float(order.fee_ngn),
+        'fee_pct': order.fee_pct,
+        'fee_flat_ngn': float(order.fee_flat_ngn),
+        'fee_bearer': order.fee_bearer,
+        'buyer_fee_vc': order.buyer_fee_vc,
+        'vendor_ngn': float(order.vendor_ngn),
+        'vendor_paid_vc': order.vendor_paid_vc,
         'created_at': order.created_at,
         'collected_at': order.collected_at,
         'vendor': {'id': order.vendor_id, 'name': order.vendor.name, 'booth': order.vendor.booth or None},
@@ -520,6 +749,10 @@ def serialize_order(request, order):
             {
                 'product_id': i.product_id,
                 'name': i.product.name,
+                # The option chosen, so a receipt reads "Suya plate (Chicken)"
+                # and not the product alone (the stall's own order list already
+                # carried it; the buyer's did not, 18 September 2026).
+                'variant': i.variant or None,
                 'quantity': i.quantity,
                 'unit_vc': i.unit_vc,
                 'line_vc': i.unit_vc * i.quantity,
@@ -564,7 +797,7 @@ def vendor_orders(request, vendor_id):
     vendor = _vendor_by_ref(vendor_id)
     if vendor is None:
         return _error('Vendor not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    if vendor.owner_id != user.user_id and vendor.event.creator_id != user.user_id:
+    if vendor.owner_id != user.user_id and not may_run_event(user, vendor.event):
         return _error('Only the stall owner or the event organizer can see these orders.',
                       'FORBIDDEN', status.HTTP_403_FORBIDDEN)
 
@@ -574,6 +807,13 @@ def vendor_orders(request, vendor_id):
             'orders': [serialize_order(request, o) for o in orders],
             'count': orders.count(),
             'revenue_vc': sum(o.total_vc for o in orders if o.status != 'cancelled'),
+            # In naira: what the items came to, what the platform took, what
+            # the stall kept, and what is waiting on the stall under a coin.
+            'items_ngn': float(sum(o.items_ngn for o in orders if o.status != 'cancelled')),
+            'fees_ngn': float(sum(o.fee_ngn for o in orders if o.status != 'cancelled')),
+            'kept_ngn': float(sum(o.vendor_ngn for o in orders if o.status != 'cancelled')),
+            'paid_vc': sum(o.vendor_paid_vc for o in orders if o.status != 'cancelled'),
+            'carry_ngn': float(vendor.carry_ngn),
         },
         'Vendor orders retrieved.',
     )
@@ -588,7 +828,7 @@ def collect_order(request, code):
     order = VendorOrder.objects.select_related('vendor', 'vendor__event').filter(code=code.upper()).first()
     if order is None:
         return _error('No order with that code.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    if order.vendor.owner_id != user.user_id and order.vendor.event.creator_id != user.user_id:
+    if order.vendor.owner_id != user.user_id and not may_run_event(user, order.vendor.event):
         return _error('Only the stall owner can mark an order collected.',
                       'FORBIDDEN', status.HTTP_403_FORBIDDEN)
     if order.status == 'collected':

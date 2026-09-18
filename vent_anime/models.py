@@ -227,6 +227,9 @@ class ChapterPurchase(models.Model):
     chapter = models.ForeignKey(Chapter, on_delete=models.CASCADE,
                                 related_name='purchases')
     coins = models.PositiveIntegerField()
+    #: The platform's whole coins out of this sale, at the rate on the
+    #: dashboard when it was made. The author was credited `coins - fee_vc`.
+    fee_vc = models.PositiveIntegerField(default=0)
 
     #: Which of the two it was. Both open the chapter; they are different sales
     #: and an author's earnings screen should not have to guess.

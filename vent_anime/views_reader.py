@@ -20,6 +20,7 @@ from .models import (Bookmark, ChapterComment, PromoMessage, ReaderSettings,
                      SeriesSubscription)
 from .views_series import (_chapter_row, _err, _find_chapter, _find_series,
                            _ok, _person, _series_row, _viewer)
+from vent_auth.text import count as _count
 
 
 def _need_user(request):
@@ -46,7 +47,9 @@ def chapter_buy(request, reference):
             http = status.HTTP_402_PAYMENT_REQUIRED
         elif exc.code == 'ALREADY_BOUGHT':
             http = status.HTTP_409_CONFLICT
-        return _err(exc.message, exc.code, http)
+        # The numbers ride with the code so the reader can offer a card for
+        # exactly the shortfall. See vent_auth/pay.py.
+        return _err(exc.message, exc.code, http, data=exc.params)
 
     wallet = UserWallet.objects.filter(user=user).first()
     return _ok({
@@ -73,7 +76,7 @@ def series_subscribe(request, reference):
         http = status.HTTP_400_BAD_REQUEST
         if exc.code == 'INSUFFICIENT_FUNDS':
             http = status.HTTP_402_PAYMENT_REQUIRED
-        return _err(exc.message, exc.code, http)
+        return _err(exc.message, exc.code, http, data=exc.params)
 
     wallet = UserWallet.objects.filter(user=user).first()
     return _ok({
@@ -373,4 +376,4 @@ def series_promo(request, reference):
                                       subject=subject[:140], body=body[:4000],
                                       sent_to=sent)
     return _ok({'sent_to': row.sent_to, 'created_at': row.created_at},
-               'Sent to %s reader(s).' % sent)
+               'Sent to %s.' % _count(sent, 'reader'))

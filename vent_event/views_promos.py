@@ -28,12 +28,11 @@ def event_by_ref(ref):
     """
     from django.http import Http404
 
-    ref = str(ref)
-    if ref.isdigit():
-        event = Event.objects.filter(event_id=int(ref)).first()
-        if event:
-            return event
-    event = Event.objects.filter(slug=ref).first()
+    from .refs import event_by_ref as _by_ref
+
+    # One resolver for the whole app, in refs.py: it reads the slug
+    # history, which this copy did not (18 September 2026).
+    event = _by_ref(ref)
     if event:
         return event
     raise Http404('No event matches %s' % ref)
@@ -490,7 +489,8 @@ def event_promo_detail(request, event_id, promo_id):
 def event_managers(request, event_id):
     """GET / POST /event/{id}/managers/ - who else may run this event.
 
-    POST is refused unless the event belongs to an organisation.
+    The organiser adds anybody, organisation or not (CEO, 7 September
+    2026). A manager may not add more managers.
     """
     event = event_by_ref(event_id)
     user, err = _actor_for_event(request, event)
@@ -503,8 +503,12 @@ def event_managers(request, event_id):
             'results': [_manager_row(request, m) for m in rows],
             'count': rows.count(),
             # The screen needs to know whether to offer the control at all,
-            # rather than offering it and having the save refused.
-            'can_add': bool(event.organization_id),
+            # rather than offering it and having the save refused. The SAME
+            # rule as the POST below: until 18 September 2026 this still
+            # said "only in an organisation" eleven days after the POST
+            # stopped requiring one, so the form was hidden from everybody.
+            'can_add': (event.creator_id == user.user_id
+                        or may_override(user, 'manage_events')),
             # And which organisation it is in, so the control that moves it
             # there can show what it is set to. Sent from here rather than
             # fetched separately: the screen is already asking this endpoint
@@ -613,8 +617,13 @@ def my_events(request):
     if auth_error is not None:
         return auth_error
 
-    managed_ids = list(
-        EventManager.objects.filter(user=user).values_list('event_id', flat=True))
+    # The role this person was given on each event. A door steward and a
+    # manager are different things, and until 12 September both came back as
+    # "manager", so the screen offered the steward Edit and the console and
+    # both refused them.
+    managed_role = dict(
+        EventManager.objects.filter(user=user).values_list('event_id', 'role'))
+    managed_ids = list(managed_role)
 
     # And every event held by an organisation this person runs events for.
     # CEO, 4 September 2026: "when you add people to your organization you can
@@ -636,7 +645,11 @@ def my_events(request):
                       | Q(event_id__in=managed_ids)
                       | Q(organization_id__in=org_ids))
               .select_related('game', 'series', 'organization')
-              .annotate(tickets_sold=Count('tickets', distinct=True))
+              # Live tickets only. A transferred or refunded row is not a sale,
+              # and the number here read 42 while the console read 41.
+              .annotate(tickets_sold=Count(
+                  'tickets', distinct=True,
+                  filter=Q(tickets__status__in=['valid', 'checked_in'])))
               .order_by('-start_date', '-event_id')
               .distinct())
 
@@ -655,12 +668,14 @@ def my_events(request):
             'capacity': e.capacity,
             'tickets_sold': e.tickets_sold,
             'is_active': e.is_active,
+            'is_listed': e.is_listed,
             'banner': e.banner.url if e.banner else (e.banner_url or None),
             'organization': e.organization.org_name if e.organization_id else None,
             # What this person may do with it, so the screen does not have to
             # guess and then be refused.
             'is_owner': e.creator_id == user.user_id,
-            'role': 'owner' if e.creator_id == user.user_id else 'manager',
+            'role': ('owner' if e.creator_id == user.user_id
+                     else managed_role.get(e.event_id, 'org')),
         })
 
     return _ok({'results': rows, 'count': len(rows)})

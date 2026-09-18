@@ -50,6 +50,7 @@ def _workspace_root():
 ROOT = _workspace_root()
 
 FRONTEND = os.path.join(ROOT, 'V-ENT-FRONTEND')
+BACKEND = os.path.join(ROOT, 'V-ENT-BACKEND')
 
 # (name, rule it enforces, working directory, command, blocking)
 CATCHERS = [
@@ -119,6 +120,29 @@ CATCHERS = [
     ('seo',
      'every public page can be found and read',
      FRONTEND, ['node', 'scripts/check-seo.mjs'], False),
+
+    # check-seo proves a page HAS structured data; this proves the numbers in
+    # it are the record's. Every event's JSON-LD started at the registration-
+    # open instant with no end and no offers for weeks (18 September 2026).
+    ('structured data',
+     'the JSON-LD is built from the payload the API sends',
+     FRONTEND, ['node', '--no-warnings', 'scripts/check-ld-shape.mjs'], True),
+
+    # "3 line(s)" reached a screen on 18 September 2026, the sweep after it
+    # claimed there were no more, and there were thirty across both repos.
+    # Reads the dictionaries, every component string and every backend
+    # module; one/many keys and text.count() are what to write instead.
+    ('plurals',
+     'no unfinished plural, a bracketed s, in a sentence a person reads',
+     FRONTEND, ['node', 'scripts/check-plurals.mjs'], True),
+
+    # Eight controls deleted, ended, cancelled or refunded something on ONE
+    # press on 18 September 2026 (a pitch was deleted mid-walk); four more
+    # were found by the catcher once it was calibrated. Two presses, always:
+    # the first asks, beside "Keep it".
+    ('one press',
+     'a destructive control asks before it acts',
+     FRONTEND, ['node', 'scripts/check-one-press.mjs'], True),
 
     ('design bans',
      'no hairline borders, no glow, no vibecoded defaults',
@@ -209,8 +233,9 @@ CATCHERS = [
      'one definition of a tab strip, not a second copy per console',
      FRONTEND, ['node', 'scripts/check-tabstrips.mjs'], False),
 
-    # Needs a dev server on 127.0.0.1:3001 and reports "nothing was checked"
-    # without one, so it can never block. Run it by hand during a Chrome walk.
+    # Needs a dev server on 127.0.0.1:3001 or :3005 (it tries both) and
+    # reports "nothing was checked" without one, so it can never block. Run it
+    # by hand during a Chrome walk.
     ('link embeds',
      'a pasted link shows a picture and a title',
      FRONTEND, ['node', 'scripts/check-embeds.mjs'], False),
@@ -258,6 +283,36 @@ CATCHERS = [
     ('dead ticket codes',
      'a transferred code is named, not called unknown, at every door',
      ROOT, ["python", "tools/check-dead-codes.py"], True),
+
+    # CEO, 13 September: "the 5% + NGN100 is something admins should be able
+    # to set on the admin dashboard ... and it updates everywhere on the
+    # platform, please create a checker for this that makes sure it applies
+    # each time a new feature is built or added that has pricing." The day it
+    # was written, four of the dashboard's eight money controls changed
+    # nothing and the withdraw screen quoted a fee the server did not take.
+    ('pricing',
+     'every platform price has a default, a dashboard field and a reader, and is a number nowhere else',
+     ROOT, ["python", "tools/check-pricing.py"], True),
+
+    # CEO, 13 September: "i hope people can still bu stuff directly on the
+    # platform without having to buy V-ENT coins, that option must always be
+    # vaailable." One door in the platform took a card that morning.
+    ('card path',
+     'every purchase that can refuse for want of coins offers a card instead',
+     ROOT, ["python", "tools/check-card-path.py"], True),
+
+    # Owner rules R55 to R61 (17 September 2026): secrets, the admin key, RLS,
+    # ownership, rate limits, billing caps, parameterised queries. One global
+    # checker, configured per repo in security-rules.json; `--ledger` fails
+    # when a HIGH count rises above security/debt.json. The runtime halves
+    # (`--idor`, `--live`) need a server and are run by hand; see gates/40.
+    ('security rules (backend)',
+     'R55 to R61 on the Django side, against the ledger',
+     BACKEND, ['node', os.path.expanduser('~/.claude/skills/security-rules/scripts/check-security.mjs'), '--ledger'], True),
+
+    ('security rules (frontend)',
+     'R55 to R61 on the Next side, against the ledger',
+     FRONTEND, ['node', os.path.expanduser('~/.claude/skills/security-rules/scripts/check-security.mjs'), '--ledger'], True),
 
     # Third occurrence on 8 September of "built on the organiser side, forgotten
     # on the buyer side". A group rate of 16 VC at four or more was charged by
@@ -418,6 +473,7 @@ STALE_DAYS = 7
 # neither side of it. A decimal reads as its whole part, which no catcher prints
 # today and which is recorded here so the next person knows rather than guesses.
 _NUMBER = re.compile(r'(?<![\w.])(\d+)(?![\w])')
+_URL = re.compile(r'https?://\S+')
 
 # The verb beside a number that means it is the SIZE OF THE SCAN. "311
 # stylesheet(s) CHECKED" is how much was read, never how much is wrong.
@@ -482,6 +538,10 @@ def _count(line):
     not tracked, rather than recorded at a number nobody can defend.
     """
     line = line or ''
+    # An address is not a count. The embeds checker's "NOTHING WAS CHECKED.
+    # Is the dev server running on http://127.0.0.1:3001?" was read as
+    # 127 + 3001 = 3128 and sat in the ledger as debt for five days.
+    line = _URL.sub('', line)
     hits = list(_NUMBER.finditer(line))
     if not hits:
         return None

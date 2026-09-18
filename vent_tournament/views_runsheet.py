@@ -350,7 +350,9 @@ def import_run_sheet(request, kind, ref):
                 sheet.event = owner
             else:
                 sheet.tournament = owner
-            sheet.name = _owner_summary(owner)['name'] or 'Run of show'
+            # Not the owner's name: a copy of it went stale on the first
+            # rename (18 September 2026). Readers head the sheet with the
+            # owner's live name and use `name` only when it says more.
             sheet.save()
 
         if mode == 'replace':

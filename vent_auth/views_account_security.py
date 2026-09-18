@@ -21,8 +21,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from . import totp as totp_lib
-from .models import UserTOTP, Users
+from .models import Users
 from .views_profile import _user_from_bearer
 
 logger = logging.getLogger(__name__)
@@ -43,94 +42,9 @@ def _err(message, code='ERROR', http_status=status.HTTP_400_BAD_REQUEST):
 # Two-factor authentication
 # ---------------------------------------------------------------------------
 
-@api_view(['GET'])
-def twofactor_status(request):
-    """Whether this account has an authenticator, and whether it is confirmed."""
-    user, err = _user_from_bearer(request)
-    if err:
-        return err
-    enrolment = UserTOTP.objects.filter(user=user).first()
-    return _ok({
-        'enabled': bool(enrolment and enrolment.confirmed),
-        'pending': bool(enrolment and not enrolment.confirmed),
-    }, 'Two-factor status')
-
-
-@api_view(['POST'])
-def twofactor_begin(request):
-    """Start enrolment: mint a secret and hand back what an app can scan.
-
-    The secret is re-shown until it is confirmed, so somebody who closes the
-    screen halfway is not locked out of finishing.
-    """
-    user, err = _user_from_bearer(request)
-    if err:
-        return err
-
-    enrolment = UserTOTP.objects.filter(user=user).first()
-    if enrolment and enrolment.confirmed:
-        return _err('Two-factor is already on for this account.', 'ALREADY_ENABLED')
-
-    if enrolment is None:
-        enrolment = UserTOTP.objects.create(user=user, secret=totp_lib.generate_secret())
-
-    return _ok({
-        'secret': enrolment.secret,
-        'otpauth_url': totp_lib.provisioning_uri(
-            enrolment.secret, user.email or user.username, issuer='V-ENT',
-        ),
-    }, 'Scan this in your authenticator app, then enter a code to confirm.')
-
-
-@api_view(['POST'])
-def twofactor_confirm(request):
-    """Prove the app is set up before switching it on.
-
-    Turning 2FA on without a verified code is how people lock themselves out.
-    """
-    user, err = _user_from_bearer(request)
-    if err:
-        return err
-
-    enrolment = UserTOTP.objects.filter(user=user).first()
-    if enrolment is None:
-        return _err('Start the setup first.', 'NOT_STARTED')
-
-    matched = totp_lib.verify(enrolment.secret, request.data.get('code'), enrolment.last_used_step)
-    if matched is None:
-        return _err('That code did not match. Check your app and try again.', 'BAD_CODE')
-
-    enrolment.last_used_step = matched
-    enrolment.confirmed = True
-    enrolment.confirmed_at = timezone.now()
-    enrolment.save(update_fields=['last_used_step', 'confirmed', 'confirmed_at'])
-    return _ok({'enabled': True}, 'Two-factor authentication is on.')
-
-
-@api_view(['POST'])
-def twofactor_disable(request):
-    """Switching it off needs a current code, not just a session.
-
-    A stolen session should not be able to remove the thing protecting the
-    account from a stolen session.
-    """
-    user, err = _user_from_bearer(request)
-    if err:
-        return err
-
-    enrolment = UserTOTP.objects.filter(user=user).first()
-    if enrolment is None:
-        return _ok({'enabled': False}, 'Two-factor was not on.')
-
-    if enrolment.confirmed:
-        matched = totp_lib.verify(enrolment.secret, request.data.get('code'),
-                                  enrolment.last_used_step)
-        if matched is None:
-            return _err('Enter a current code from your authenticator to turn this off.',
-                        'BAD_CODE')
-
-    enrolment.delete()
-    return _ok({'enabled': False}, 'Two-factor authentication is off.')
+# The four /setting/2fa/* views that lived here were a second copy of
+# vent_auth/views_twofactor.py with their own code check and no frontend
+# caller. Retired 17 September 2026; the settings screen calls /auth/2fa/*.
 
 
 # ---------------------------------------------------------------------------

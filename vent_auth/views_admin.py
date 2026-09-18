@@ -973,28 +973,27 @@ def admin_cancel_tournament(request, tournament_id):
     entry_fee_coins = int(float(tournament.entry_fee_price))
     with transaction.atomic():
         if entry_fee_coins > 0:
-            paid_regs = (
+            from vent_event import ledger as money_ledger
+            from vent_tournament.services import wallet as wallet_service
+            paid_regs = list(
                 tournament.registrations
                 .select_for_update()
                 .filter(status='confirmed', entry_fee_paid=True)
+                .select_related('user', 'team')
             )
+            # A team entry is paid by its owner and refunded to them; this
+            # used to skip every registration with no user on it.
+            locked_wallets = wallet_service.lock_wallets_for_registrations(paid_regs)
             for reg in paid_regs:
-                if not reg.user_id:
+                wallet = wallet_service.wallet_for_registration(reg, locked_wallets)
+                if wallet is None:
                     continue
-                try:
-                    wallet = UserWallet.objects.select_for_update().get(user_id=reg.user_id)
-                except UserWallet.DoesNotExist:
-                    continue
-                wallet.wallet_balance += entry_fee_coins
-                wallet.save(update_fields=['wallet_balance'])
-                Transaction.objects.create(
-                    wallet=wallet,
-                    type='refund',
-                    amount=entry_fee_coins,
+                _reversed, paid = money_ledger.reverse_entry(reg, 'Tournament cancelled by an admin')
+                refund = paid if paid is not None else entry_fee_coins
+                wallet_service.credit(
+                    wallet, refund, tx_type='refund',
                     description=f'Refund - cancelled tournament: {tournament.tournament_title}',
-                    status='completed',
-                    tournament=tournament,
-                )
+                    tournament=tournament)
                 refunded += 1
 
             tournament.registrations.update(status='withdrawn')
@@ -1022,6 +1021,18 @@ def admin_cancel_tournament(request, tournament_id):
 # Payout Approval
 # ---------------------------------------------------------------------------
 
+def _payout_ngn(w):
+    """What the bank receives for this request.
+
+    A request made before the fee existed carries payout_ngn of 0, and 0 is
+    not what it should be paid: it is the whole amount, which is what the
+    server always sent. So an unstamped row is worth its coins in full.
+    """
+    if w.payout_ngn and w.payout_ngn > 0:
+        return w.payout_ngn
+    return coins_to_ngn(w.amount) - (w.fee_ngn or 0)
+
+
 @api_view(['GET'])
 @admin_role_required(ROLE_PERMISSIONS['list_payouts'])
 def admin_pending_payouts(request):
@@ -1047,6 +1058,8 @@ def admin_pending_payouts(request):
                          kyc_verified=w.wallet.kyc_verified),
             'amount_vent_coins': w.amount,
             'amount_ngn': coins_to_ngn(w.amount),
+            'fee_ngn': float(w.fee_ngn or 0),
+            'payout_ngn': float(_payout_ngn(w)),
             'bank_name': w.bank_name,
             'account_number': w.account_number[-4:].rjust(len(w.account_number), '*'),
             'account_name': w.account_name,
@@ -1104,6 +1117,8 @@ def admin_payouts_list(request):
             'avatar': _face(request, w.wallet.user if w.wallet else None),
             'amount_vc': w.amount,
             'amount_ngn': coins_to_ngn(w.amount),
+            'fee_ngn': float(w.fee_ngn or 0),
+            'payout_ngn': float(_payout_ngn(w)),
             # How it leaves, and where to. A payout queue that shows a bank
             # column and nothing else cannot be worked once USDT exists: an
             # admin would be approving a row without knowing the destination.
@@ -1205,7 +1220,7 @@ def admin_approve_payout(request, withdrawal_id):
             link='/wallets', metadata={'withdrawal_id': w.id, 'amount': w.amount,
                                        'method': w.method},
         )
-        emails.send_payout_approved(w, amount_ngn=coins_to_ngn(w.amount))
+        emails.send_payout_approved(w, amount_ngn=int(_payout_ngn(w)))
     except Exception:
         pass
 

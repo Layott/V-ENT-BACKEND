@@ -74,9 +74,9 @@ def _event_or_error(event_id):
     of the two answered 404 for the other, which is a fault this codebase has
     already shipped twice.
     """
-    event = (Event.objects.filter(event_id=int(event_id)).first()
-             if str(event_id).isdigit()
-             else Event.objects.filter(slug=str(event_id)).first())
+    from .refs import event_by_ref
+
+    event = event_by_ref(event_id)
     if event is None:
         return None, _error('Event not found.', 'NOT_FOUND',
                             status.HTTP_404_NOT_FOUND)
@@ -165,12 +165,21 @@ def ticket_lookup(request, code):
     # Whether this ticket would be admitted right now, worked out here so the
     # phone does not have to reimplement the day rule and get it subtly wrong.
     tier_day = ticket.tier.day if ticket.tier_id else None
-    today = timezone.localdate()
+    # The day this door admits for, the same `?day=` the check-in takes. The
+    # lookup judged against today while the door was pinned to Saturday, so
+    # the two buttons on one screen disagreed (18 September 2026).
+    from datetime import datetime as _dt
+    raw_day = str(request.GET.get('day') or '').strip()
+    try:
+        today = _dt.strptime(raw_day[:10], '%Y-%m-%d').date() if raw_day else timezone.localdate()
+    except ValueError:
+        today = timezone.localdate()
     return _ok(
         {
             'ticket': row,
             'holder': _holder(ticket),
             'already_checked_in': ticket.status == 'checked_in',
+            'for_day': today.isoformat(),
             'wrong_day': bool(tier_day and tier_day != today),
             'admissible': (ticket.status == 'valid'
                            and not (tier_day and tier_day != today)),

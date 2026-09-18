@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from .models import Users, Transaction, AdminAction
 from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .views_admin import _log_action, _approve_payout_core, _paginate
+from vent_auth.text import count as _count
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +151,7 @@ def admin_bulk_user_action(request):
 
     return Response({
         'status': 'success',
-        'message': f'{count} user(s) {action}ned',
+        'message': f'{_count(count, "user")} {action}ned',
         'data': {'count': count},
     }, status=status.HTTP_200_OK)
 
@@ -230,8 +231,8 @@ def admin_disqualify_registration(request, tournament_id):
     return Response({'status': 'success',
                      'data': {'forfeited_matches': forfeited,
                               'registration_id': reg.id},
-                     'message': ('Disqualified. %d upcoming match(es) forfeited '
-                                 'to their opponents.' % len(forfeited))},
+                     'message': ('Disqualified. %s forfeited to their opponents.'
+                                 % _count(len(forfeited), 'upcoming match', 'upcoming matches'))},
                     status=status.HTTP_200_OK)
 
 
@@ -262,7 +263,7 @@ def admin_bulk_approve_payouts(request):
 
     return Response({
         'status': 'success',
-        'message': f'{count} payout(s) approved',
+        'message': f'{_count(count, "payout")} approved',
         'data': {'count': count},
     }, status=status.HTTP_200_OK)
 
@@ -270,6 +271,37 @@ def admin_bulk_approve_payouts(request):
 # ---------------------------------------------------------------------------
 # §21 - GET/POST /auth/admin/settings/   (super_admin)
 # ---------------------------------------------------------------------------
+
+#: The settings sections that hold money. A number in either is a price or a
+#: rate somebody is charged, which is why they are validated and the others
+#: (flags, banner, maintenance) are not.
+MONEY_SECTIONS = ('platform_fees', 'premium')
+
+
+def _check_money(body):
+    """None when every money value in `body` is a number at or above zero
+    and every key is one the platform reads; else {code, message, ...}."""
+    from .models import DEFAULT_ADMIN_SETTINGS
+    for section in MONEY_SECTIONS:
+        given = body.get(section)
+        if given is None:
+            continue
+        if not isinstance(given, dict):
+            return {'code': 'BAD_SECTION', 'section': section,
+                    'message': '%s must be an object of numbers.' % section}
+        known = DEFAULT_ADMIN_SETTINGS[section]
+        for key, value in given.items():
+            if key not in known:
+                return {'code': 'UNKNOWN_PRICE', 'section': section, 'key': key,
+                        'message': 'Nothing on the platform reads %s.%s.' % (section, key)}
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return {'code': 'PRICE_NOT_A_NUMBER', 'section': section, 'key': key,
+                        'message': '%s must be a number.' % key}
+            if value < 0 or value != value:
+                return {'code': 'PRICE_NEGATIVE', 'section': section, 'key': key,
+                        'message': '%s cannot be below zero.' % key}
+    return None
+
 
 @api_view(['GET', 'POST'])
 @admin_role_required(ROLE_PERMISSIONS['manage_settings'])
@@ -288,6 +320,17 @@ def admin_settings(request):
 
     # POST - deep-merge incoming body over the stored blob, then persist.
     body = request.data if isinstance(request.data, dict) else {}
+
+    # Money is checked before it is stored. Every key in `platform_fees` and
+    # `premium` is read at the moment of a sale, and a stray string or a
+    # negative number there would break every ticket, stall order and
+    # payout on the platform until somebody noticed. A key nobody reads is
+    # refused too: it would be a control that changes nothing.
+    problem = _check_money(body)
+    if problem is not None:
+        return Response(dict({'status': 'error'}, **problem),
+                        status=status.HTTP_400_BAD_REQUEST)
+
     obj.data = _deep_merge_settings(obj.data or {}, body)
     obj.save()
 

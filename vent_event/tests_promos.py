@@ -202,9 +202,24 @@ class TicketingSetupTests(TestCase):
         self.assertTrue(EventManager.objects.filter(event=self.event, user=self.other).exists())
 
     def test_the_screen_is_told_whether_it_may_offer_the_control(self):
+        """The same answer as the POST: the organiser may add people to a
+        personal event (CEO, 7 September 2026); a manager may not add more."""
         res = self.client.get('/event/%s/managers/' % self.event.event_id, **self.owner_auth)
         self.assertEqual(res.status_code, 200, res.content)
+        self.assertTrue(res.json()['data']['can_add'])
+        EventManager.objects.create(event=self.event, user=self.other, role='manager')
+        res = self.client.get('/event/%s/managers/' % self.event.event_id, **self.other_auth)
+        self.assertEqual(res.status_code, 200, res.content)
         self.assertFalse(res.json()['data']['can_add'])
+
+    def test_a_personal_event_takes_a_manager(self):
+        """No organisation anywhere, and the organiser still adds help."""
+        self.assertIsNone(self.event.organization_id)
+        res = self.client.post('/event/%s/managers/' % self.event.event_id,
+                               data=json.dumps({'username': self.other.username, 'role': 'door'}),
+                               content_type='application/json', **self.owner_auth)
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertTrue(EventManager.objects.filter(event=self.event, user=self.other, role='door').exists())
 
     def test_a_manager_cannot_add_more_managers(self):
         """Otherwise an event quietly acquires people nobody chose."""
@@ -287,6 +302,22 @@ class MyEventsTests(TestCase):
         self.assertEqual([e['name'] for e in rows], ['Somebody Elses'])
         self.assertEqual(rows[0]['role'], 'manager')
         self.assertFalse(rows[0]['is_owner'])
+
+    def test_a_door_steward_is_told_they_are_the_door(self):
+        """Both roles came back as "manager" until 12 September, and the screen
+        offered the steward Edit and the console, which then refused them."""
+        EventManager.objects.create(event=self.theirs, user=self.helper, role='door')
+        res = self.client.get('/event/my-events/', **self.helper_auth)
+        self.assertEqual(res.json()['data']['results'][0]['role'], 'door')
+
+    def test_tickets_sold_counts_live_tickets_only(self):
+        from vent_event.models import Ticket, TicketTier
+        tier = TicketTier.objects.create(event=self.mine, name='GA', price=0, quantity=10)
+        for status_ in ('valid', 'checked_in', 'transferred', 'refunded'):
+            Ticket.objects.create(event=self.mine, tier=tier, user=self.owner,
+                                  code='VT-%s' % status_[:6].upper(), status=status_)
+        res = self.client.get('/event/my-events/', **self.owner_auth)
+        self.assertEqual(res.json()['data']['results'][0]['tickets_sold'], 2)
 
     def test_a_retired_event_is_still_listed(self):
         """This is the only screen that can show it, and it may need fixing."""

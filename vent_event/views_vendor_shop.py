@@ -34,6 +34,7 @@ from rest_framework.response import Response
 
 from .models import Vendor, VendorOrder, VendorProduct
 from .views_tickets import _authenticate, _error, _ngn_to_coins, _ok
+from .views_vendors import read_variants
 
 PAGE_SIZE = 100
 
@@ -45,6 +46,42 @@ def _abs(request, filefield):
         return request.build_absolute_uri(filefield.url)
     except ValueError:
         return None
+
+
+def _refund_cancelled(order, stall):
+    from django.db.models import F
+    from vent_auth.models import Transaction, UserWallet
+    from . import ledger as _ledger
+    from .models import VendorProduct
+    if order.vendor_paid_vc > 0 and stall.owner_id:
+        seller = UserWallet.objects.select_for_update().filter(user_id=stall.owner_id).first()
+        if seller is None or seller.wallet_balance < order.vendor_paid_vc:
+            return _error('Cancelling refunds the buyer from your wallet, and it holds %s VC '
+                          'of the %s VC this order paid you.'
+                          % (seller.wallet_balance if seller else 0, order.vendor_paid_vc),
+                          'CANNOT_REFUND', status.HTTP_409_CONFLICT)
+        seller.wallet_balance -= order.vendor_paid_vc
+        seller.save(update_fields=['wallet_balance'])
+        Transaction.objects.create(wallet=seller, type='refund', amount=-order.vendor_paid_vc,
+                                   description='Order %s cancelled' % order.code, status='completed')
+    if order.total_vc > 0:
+        buyer = UserWallet.objects.select_for_update().filter(user_id=order.buyer_id).first()
+        if buyer is not None:
+            buyer.wallet_balance += order.total_vc
+            buyer.save(update_fields=['wallet_balance'])
+            Transaction.objects.create(wallet=buyer, type='refund', amount=order.total_vc,
+                                       description='Order %s cancelled at %s' % (order.code, stall.name),
+                                       status='completed')
+    # The part of this order's take that was still waiting under a coin.
+    unit = _ledger.ngn_per_coin()
+    remainder = _ledger._ngn(order.vendor_ngn) - order.vendor_paid_vc * unit
+    if remainder > 0:
+        stall.carry_ngn = max(_ledger._ngn(0), _ledger._ngn(stall.carry_ngn) - remainder)
+        stall.save(update_fields=['carry_ngn'])
+    for item in order.items.all():
+        VendorProduct.objects.filter(pk=item.product_id).update(
+            stock=F('stock') + item.quantity, sold=F('sold') - item.quantity)
+    return None
 
 
 def _my_stall(user, ref):
@@ -83,6 +120,11 @@ def _order_row(request, o):
         'code': o.code,
         'status': o.status,
         'total_vc': o.total_vc,
+        'fee_ngn': float(o.fee_ngn),
+        'fee_bearer': o.fee_bearer,
+        'buyer_fee_vc': o.buyer_fee_vc,
+        'vendor_ngn': float(o.vendor_ngn),
+        'vendor_paid_vc': o.vendor_paid_vc,
         'created_at': o.created_at,
         'collected_at': o.collected_at,
         'fulfilment': o.fulfilment,
@@ -172,6 +214,15 @@ def my_stall_detail(request, vendor_id):
         # Opening and closing the stall. `approved` and `live` both trade;
         # `closed` is the stallholder saying they have stopped for the day, and
         # they must be able to undo it.
+        if 'fee_bearer' in request.data:
+            # The same choice the organiser has on tickets. Applies to orders
+            # from now on; what has sold keeps the numbers it sold under.
+            wanted = str(request.data.get('fee_bearer') or '').strip()
+            if wanted not in ('vendor', 'buyer'):
+                return _error('Who pays the fee is the stallholder or the buyer.',
+                              'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+            stall.fee_bearer = wanted
+            fields.append('fee_bearer')
         if 'status' in request.data:
             wanted = str(request.data.get('status') or '').strip()
             if wanted not in ('live', 'closed'):
@@ -196,9 +247,20 @@ def my_stall_detail(request, vendor_id):
             'description': stall.description,
             'logo': _abs(request, stall.logo),
             'banner': _abs(request, stall.banner),
+            # Who bears the platform's fee on this stall, the rule, and the
+            # money so far; the stall page draws its choice from this.
+            'fee_bearer': stall.fee_bearer,
+            'fee_pct': _fee_rule()[0],
+            'fee_flat_ngn': float(_fee_rule()[1]),
+            **_stall_money(stall),
         },
         'products': [_product_row(request, p) for p in stall.products.all()],
     }, 'Your stall.')
+
+
+def _fee_rule():
+    from . import ledger as _ledger
+    return _ledger.platform_fee()
 
 
 @api_view(['PATCH', 'DELETE'])
@@ -250,6 +312,11 @@ def my_product(request, vendor_id, product_id):
             if value < 0:
                 return _error('The %s cannot be negative.' % label,
                               'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+            if key == 'price':
+                from .pricing import refuse_if_not_whole
+                refused = refuse_if_not_whole(value, field='price')
+                if refused is not None:
+                    return refused
             setattr(product, key, value)
             fields.append(key)
     if 'is_active' in request.data:
@@ -259,13 +326,9 @@ def my_product(request, vendor_id, product_id):
         product.can_deliver = bool(request.data.get('can_deliver'))
         fields.append('can_deliver')
     if 'variants' in request.data:
-        raw = request.data.get('variants')
-        if isinstance(raw, str):
-            raw = [part.strip() for part in raw.split(',')]
-        if not isinstance(raw, list):
-            return _error('Choices have to be a list, or a comma separated line.',
-                          'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
-        product.variants = [str(x).strip()[:60] for x in raw if str(x).strip()][:20]
+        product.variants, why = read_variants(request.data.get('variants'))
+        if why:
+            return _error(why, 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
         fields.append('variants')
     if 'image' in request.FILES:
         product.image = request.FILES['image']
@@ -302,7 +365,23 @@ def my_stall_orders(request, vendor_id):
         'open': stall.orders.filter(status__in=('paid', 'ready', 'sent')).count(),
         'to_deliver': stall.orders.filter(fulfilment='deliver',
                                           status__in=('paid', 'ready')).count(),
+        # The money, in naira, over every order that was not cancelled: what
+        # the items came to, what the platform took, what the stall kept, the
+        # whole coins paid into the wallet so far, and what waits under a coin.
+        **_stall_money(stall),
     }, 'Orders on your stall.')
+
+
+def _stall_money(stall):
+    live = stall.orders.exclude(status='cancelled')
+    return {
+        'items_ngn': float(sum((o.items_ngn for o in live), 0)),
+        'fees_ngn': float(sum((o.fee_ngn for o in live), 0)),
+        'kept_ngn': float(sum((o.vendor_ngn for o in live), 0)),
+        'paid_vc': sum(o.vendor_paid_vc for o in live),
+        'carry_ngn': float(stall.carry_ngn),
+        'fee_bearer': stall.fee_bearer,
+    }
 
 
 # What a stallholder may move an order to, and from where. Written as a table
@@ -358,6 +437,14 @@ def my_order_status(request, vendor_id, code):
 
         fields = ['status']
         order.status = wanted
+        if wanted == 'cancelled':
+            # Until 13 September a cancel kept the buyer's coins and the stock
+            # stayed sold. The buyer gets back everything they paid; the stall
+            # gives back the coins it was paid for this order, and its carry
+            # loses the rest; the stock goes back on the table.
+            refused = _refund_cancelled(order, stall)
+            if refused is not None:
+                return refused
         if wanted == 'collected':
             order.collected_at = timezone.now()
             fields.append('collected_at')

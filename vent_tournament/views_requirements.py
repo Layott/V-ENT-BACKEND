@@ -206,8 +206,14 @@ def submit_requirement(request, tournament_id, requirement_id):
     if err:
         return err
 
+    # By slug or id like every other door here. Filtering the raw address
+    # into `tournament_id=` was a 500 for every slug address, which is the
+    # only kind the console uses (18 September 2026).
+    tournament = _tournament_or_none(tournament_id)
+    if tournament is None:
+        return _err('Tournament not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     requirement = EntryRequirement.objects.filter(
-        pk=requirement_id, tournament_id=tournament_id).first()
+        pk=requirement_id, tournament=tournament).first()
     if requirement is None:
         return _err('No such requirement on this tournament.', 'NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)

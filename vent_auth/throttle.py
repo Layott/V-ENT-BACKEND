@@ -15,10 +15,14 @@ closing it**. A limiter that fails shut turns one broken Redis into a site-wide
 outage, and the thing being protected is enumeration of public client ids, not
 anybody's money.
 """
+import functools
 import logging
 
+from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
+from rest_framework import status
+from rest_framework.response import Response
 
 logger = logging.getLogger(__name__)
 
@@ -58,3 +62,37 @@ def too_many(request, name, per_minute, *, extra=''):
         logger.warning('rate limiting unavailable for %s', name, exc_info=True)
         return False
     return used > max(1, per_minute)
+
+
+def limited(name, per_minute):
+    """Refuse the caller's (per_minute + 1)th request in a minute with 429.
+
+    Owner rule R59 (17 September 2026): login, signup, OTP, reset and token
+    endpoints sit behind a limiter. nginx already holds the `auth` zone at
+    5 requests a minute in front of login, signup and forgot-password on
+    production; this is the same promise made by the handler itself, so it
+    holds on a box with no nginx, covers the endpoints the nginx regex does
+    not (resend a link, send a code, confirm 2FA), and can be proven from a
+    test. The allowances here are looser than nginx's on purpose: in
+    production nginx answers first, and this is the floor under it.
+
+    Off under the test runner (`AUTH_THROTTLE_ENABLED`), because the cache
+    outlives a test and a suite that signs in two hundred times in a minute
+    would be refused by its own limiter. `tests_throttle` switches it on.
+
+    Goes UNDER `@api_view`, so it sees DRF's request.
+    """
+    def decorate(view):
+        @functools.wraps(view)
+        def guarded(request, *args, **kwargs):
+            if getattr(settings, 'AUTH_THROTTLE_ENABLED', True) \
+                    and too_many(request, name, per_minute):
+                return Response(
+                    {'status': 'error', 'code': 'TOO_MANY_ATTEMPTS',
+                     'message': 'Too many attempts. Wait a minute and try again.',
+                     'retry_after_seconds': 60},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                    headers={'Retry-After': '60'})
+            return view(request, *args, **kwargs)
+        return guarded
+    return decorate

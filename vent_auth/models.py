@@ -1038,6 +1038,12 @@ class UserWallet(models.Model):
     user = models.OneToOneField(Users, on_delete=models.CASCADE, related_name='wallet')
     wallet_balance = models.IntegerField(default=0)
     pin_hash = models.CharField(max_length=128, blank=True, null=True)  # hashed 4-digit PIN via make_password
+    #: Wrong PINs in a row, and until when the wallet refuses every PIN.
+    #: Owner rule R58/R59, 17 September 2026: five wrong tries lock it for
+    #: fifteen minutes. Counted in the row rather than a cache so a restart
+    #: does not hand an attacker a fresh five. See `wallets.check_pin`.
+    pin_failures = models.PositiveSmallIntegerField(default=0)
+    pin_locked_until = models.DateTimeField(null=True, blank=True)
     kyc_verified = models.BooleanField(default=False)
 
     def __str__(self):
@@ -1061,6 +1067,12 @@ class TeamWallet(models.Model):
     #: Legacy, unused. See the note above.
     team_wallet_pin = models.IntegerField(null=True, blank=True)
     pin_hash = models.CharField(max_length=128, null=True, blank=True)
+    #: Wrong PINs in a row, and until when the wallet refuses every PIN.
+    #: Owner rule R58/R59, 17 September 2026: five wrong tries lock it for
+    #: fifteen minutes. Counted in the row rather than a cache so a restart
+    #: does not hand an attacker a fresh five. See `wallets.check_pin`.
+    pin_failures = models.PositiveSmallIntegerField(default=0)
+    pin_locked_until = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return '%s wallet (%d VC)' % (self.team.team_name, self.wallet_balance)
@@ -1077,6 +1089,12 @@ class OrgWallet(models.Model):
     #: Legacy, unused. See TeamWallet.
     org_wallet_pin = models.IntegerField(null=True, blank=True)
     pin_hash = models.CharField(max_length=128, null=True, blank=True)
+    #: Wrong PINs in a row, and until when the wallet refuses every PIN.
+    #: Owner rule R58/R59, 17 September 2026: five wrong tries lock it for
+    #: fifteen minutes. Counted in the row rather than a cache so a restart
+    #: does not hand an attacker a fresh five. See `wallets.check_pin`.
+    pin_failures = models.PositiveSmallIntegerField(default=0)
+    pin_locked_until = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return '%s wallet (%d VC)' % (self.org.org_name, self.wallet_balance)
@@ -1306,6 +1324,18 @@ class WithdrawalRequest(models.Model):
     requested_at = models.DateTimeField(auto_now_add=True)
     processed_at = models.DateTimeField(null=True, blank=True)
 
+    # What the platform keeps of this payout, in naira, stamped at the moment
+    # it was asked for. The coins leave the wallet in full (`amount`); the
+    # fee comes off the naira the bank receives, so `payout_ngn` is what an
+    # admin sends. The rate lives on the dashboard (withdrawal_fee_pct and
+    # withdrawal_fee_flat_ngn) and a change there never rewrites a request
+    # already in the queue, which is why the rate is copied here and not
+    # looked up at approval.
+    fee_pct = models.DecimalField(max_digits=6, decimal_places=2, default=0)
+    fee_flat_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    fee_ngn = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    payout_ngn = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+
     # The statement line the money is sitting on while this is pending.
     #
     # Nullable, and it has to be: every request made before 8 September was
@@ -1412,17 +1442,71 @@ class UserSetting(models.Model):
 # Sensible defaults so a fresh install returns a complete settings object with
 # no migration required for new toggles. The view deep-merges the stored blob
 # over this so a missing key is never a crash.
+#
+# EVERY PRICE AND RATE THE PLATFORM CHARGES IS IN HERE, AND NOWHERE ELSE.
+#
+# CEO, 13 September 2026: "the 5% + NGN100 is something admins should be able
+# to set on the admin dashboard, they should be able to set what prices it is
+# now for any premium feature or option and it updates everywhere on the
+# platform." So a key in `platform_fees` or `premium` has three things, and
+# `tools/check-pricing.py` fails the build when any is missing:
+#
+#   1. a default here, which is what production runs until an admin changes it;
+#   2. a control on the admin settings page that writes exactly this key;
+#   3. a reader in the code that charges it, at the moment of the sale, which
+#      stamps the number it used on the row it writes. A rate changed on the
+#      dashboard applies to the next sale and never rewrites an earlier one.
+#
+# A key with no reader is a control that changes nothing, which is what four
+# of these were on 13 September. A rate typed into a view as a number is a
+# price nobody can change without a deploy. Neither is allowed to come back.
 DEFAULT_ADMIN_SETTINGS = {
     'platform_fees': {
-        'tournament_fee_pct': 0,
-        'withdrawal_fee_pct': 0,
+        # What the platform takes from a ticket, and from everything a stall
+        # sells at an event: a percentage of the price plus a flat amount per
+        # paid unit. CEO, 12 September 2026: "V-ent takes 5% + N100 of all
+        # tickets sold." Whether the buyer or the seller bears it is the
+        # event's (or the stall's) own setting; this is the rate.
+        # Read by vent_event.ledger.platform_fee.
+        'ticket_fee_pct': 5,
+        'ticket_fee_flat_ngn': 100,
+        # What the platform takes of a tournament entry fee, the same shape as
+        # a ticket: a percentage plus a flat amount per paid entry. CEO, 13
+        # September 2026, asked whether tournaments should pay organisers a
+        # share of entries: "i want it". Entries fund prizes, the organiser
+        # keeps the rest, and their own wallet covers a prize pool the
+        # entries did not. Read by vent_event.ledger.tournament_fee.
+        'tournament_fee_pct': 5,
+        'tournament_fee_flat_ngn': 100,
+        # The platform's cut of an organiser's membership subscription, as a
+        # percentage of what the member pays. Its own key: a membership and a
+        # ticket are not the same trade. Read by vent_billing.charging.
+        'subscription_fee_pct': 5,
+        # The marketplace's commission on a listing, when it opens. Read by
+        # vent_marketplace.holds.commission_rate.
         'listing_fee_pct': 0,
-        # What the platform takes from a ticket sale. Whether the buyer or the
-        # organiser bears it is the EVENT's setting; this is the rate. Stamped
-        # on each ledger line at the sale, so changing it here never rewrites
-        # what an event earned before the change.
-        'ticket_fee_pct': 0,
-        'payout_min_vc': 0,
+        # The platform's cut of a comic chapter or series sale, in whole
+        # coins off the author's credit. Nobody has decided a rate, so 0.
+        # Read by vent_anime.money.
+        'anime_fee_pct': 0,
+        # What comes off a payout before it is sent, in naira, off the naira
+        # the bank receives: a percentage of the payout plus a flat amount.
+        # The coins leave the wallet in full; the fee is what the platform
+        # keeps of the money it sends. CEO, 13 September 2026: 1%. The
+        # smallest payout is 5 coins (5,000 naira), so 1% is 50 naira there,
+        # which covers a bank transfer at every size; no flat part needed.
+        # Read by vent_auth.payouts.fee_on.
+        'withdrawal_fee_pct': 1,
+        'withdrawal_fee_flat_ngn': 0,
+        # The smallest payout, and the most one account may ask for in a
+        # day, both in VENT COINS. 0 on the ceiling means none. These were
+        # environment variables until 13 September, while the dashboard
+        # showed a minimum of 0 that nothing read. Read by
+        # vent_auth.payouts.limits.
+        'payout_min_vc': 5,
+        'payout_daily_max_vc': 500,
+        # The most one account may top up in a day, in naira. 0 means no
+        # ceiling. Read by vent_auth.views_wallet.topup_initiate.
         'topup_max_ngn_per_day': 0,
     },
     'feature_flags': {
@@ -1499,7 +1583,32 @@ class AdminSetting(models.Model):
         return obj
 
     def merged(self):
-        return _deep_merge_settings(DEFAULT_ADMIN_SETTINGS, self.data or {})
+        out = _deep_merge_settings(DEFAULT_ADMIN_SETTINGS, self.data or {})
+        # A money key nothing reads is not served. `tournament_fee_pct` sat
+        # in the defaults for months with no reader; an install that stored
+        # it would otherwise hand it back to the dashboard, which would post
+        # it again and be refused. The defaults are the one list.
+        for section in ('platform_fees', 'premium'):
+            known = DEFAULT_ADMIN_SETTINGS[section]
+            out[section] = {k: v for k, v in out[section].items() if k in known}
+        return out
+
+    @classmethod
+    def put(cls, section, **values):
+        """Write a few keys of one section, keeping the rest. Returns the row.
+
+        The one way code sets a platform number: `AdminSetting.put(
+        'platform_fees', ticket_fee_pct=7)`. Tests were doing this by hand in
+        three places with three copies of the same six lines.
+        """
+        row = cls.load()
+        data = dict(row.data or {})
+        block = dict(data.get(section) or {})
+        block.update(values)
+        data[section] = block
+        row.data = data
+        row.save()
+        return row
 
     def __str__(self):
         return "Admin platform settings"
@@ -1612,6 +1721,11 @@ class UserTOTP(models.Model):
     secret = models.CharField(max_length=64)
     confirmed = models.BooleanField(default=False)
     last_used_step = models.BigIntegerField(null=True, blank=True)
+    #: Wrong codes in a row, and until when every code is refused. Ten wrong
+    #: tries lock it for fifteen minutes (owner rule R59, 17 September 2026).
+    #: `last_used_step` stops a replay; this stops a walk through the space.
+    code_failures = models.PositiveSmallIntegerField(default=0)
+    code_locked_until = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     confirmed_at = models.DateTimeField(null=True, blank=True)
 

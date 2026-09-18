@@ -146,10 +146,12 @@ class LeanIsSmaller(DeltaFixture):
     """
 
     def test_lean_drops_the_answers(self):
+        # Drops the KEY, not just the list. A lean row saying `answers: []`
+        # was merged over a full row and took the answers with it.
         full = self.attendees().json()['data']['attendees'][0]
         lean = self.attendees(lean=1).json()['data']['attendees'][0]
         self.assertIn('answers', full)
-        self.assertEqual(lean['answers'], [])
+        self.assertNotIn('answers', lean)
 
     def test_lean_keeps_everything_the_door_reads(self):
         """Lean is smaller, not different. The door reads one shape."""

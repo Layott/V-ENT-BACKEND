@@ -1,0 +1,63 @@
+{
+  "$comment": "How V-ENT's backend meets owner rules R55 to R61 (17 September 2026). Read by ~/.claude/skills/security-rules/scripts/check-security.mjs. The mapping table is 'Owner rules 55 to 61 in V-ENT' in ../CLAUDE.md. Every allow row below was read by hand before it was written; a new one needs a reason somebody else can check.",
+
+  "frontend": [],
+  "server": [],
+  "ignore": ["vent/Lib", "venv", "node_modules", "media", "static", "private"],
+
+  "db": "mysql",
+  "migrations": [],
+  "rls": {
+    "na": "MySQL on production and sqlite locally, reached only through the Django ORM by the one application role. There is no anon key, no client that queries the database directly, and no row-level policy engine on this stack; ownership is enforced per handler (R58) and proven at runtime by security/idor-cases.json plus vent_auth/tests_signed_out.py."
+  },
+
+  "rateLimit": {
+    "middleware": [],
+    "edge": [
+      {
+        "provider": "nginx",
+        "rule": "limit_req_zone $binary_remote_addr zone=auth:10m rate=5r/m; location ~ ^/auth/(login|signup|forgot-password) { limit_req zone=auth burst=10 nodelay; } (deploy/nginx-vent.conf, which also covers /auth/login/2fa/verify/ by prefix)",
+        "paths": ["/vent_auth/views_auth", "/vent_auth/views_twofactor", "/vent_auth/views_social"],
+        "verified": "2026-09-17",
+        "how": "sudo nginx -T on the box, read back the zone and the location block; the api zone (120r/m) and admin zone (300r/m) cover everything else under /auth and /event and /tournament"
+      }
+    ],
+    "live": {
+      "path": "/auth/login/",
+      "method": "POST",
+      "body": { "username_or_email": "nobody@example.com", "password": "not-the-password" },
+      "burst": 40
+    }
+  },
+
+  "ownership": {
+    "markers": [
+      "_may_manage(",
+      "_actor_for_event(",
+      "may_run_production(",
+      "may_override(",
+      "user=user",
+      "user=viewer",
+      "owner=viewer",
+      "wallets.check_pin(",
+      "_get_user_from_token("
+    ],
+    "cases": "security/idor-cases.json"
+  },
+
+  "billing": {
+    "register": "security/billing-caps.md",
+    "maxAgeDays": 90
+  },
+
+  "allow": [
+    { "rule": "R58", "path": "vent_auth/views_cards.py", "reason": "card_id from the body is only ever resolved inside pay.cover, which filters SavedCard by the signed-in user (SavedCard.objects.filter(user=user, pk=card_id)); the view itself never touches a card row" },
+    { "rule": "R58", "path": "vent_auth/views_wallet.py", "reason": "every wallet view starts with _get_user_from_token(request) and reads only that wallet; the one record chosen by the body, card_id on /wallet/pay/, is resolved inside pay.cover which filters by the same user" },
+    { "rule": "R58", "path": "vent_auth/views_discord_server.py", "reason": "install_callback reaches the organisation named in a signed state (signing.loads with STATE_SALT and a max age) that only that organisation's owner could have minted at install start; Discord sends the browser back carrying it. A forged or expired state is refused before any row is read" },
+    { "rule": "R58", "path": "vent_auth/views_social.py", "reason": "the identity comes from a Google id_token verified against GOOGLE_CLIENT_ID (signature, issuer, audience, expiry, email_verified); provider_id and email in the body decide nothing. vent_auth/tests_social_auth.py proves the body alone signs nobody in" },
+    { "rule": "R58", "path": "vent_event/views_guest.py", "reason": "guest checkout has no account by design (public by default, gate the action); the tier is scoped to the event in the address (event.ticket_tiers.filter(pk=...)) and a guest reads a ticket back only by the code emailed to them" },
+    { "rule": "R58", "path": "vent_event/views_recovery.py", "reason": "every view calls _actor_for_event(request, event), which refuses anybody who is not the organiser or a manager of that event, before the abandoned-checkout rows are read; the id in the body only narrows within that event" },
+    { "rule": "R58", "path": "vent_tournament/views_studio.py", "reason": "broadcast views go through may_run_production(user, owner) on the tournament or event named in the address, and a layer's overlay_id is resolved only within that broadcast's own tournament or event (TournamentOverlay.objects.filter(pk=raw, tournament=...))" },
+    { "rule": "R61", "path": "vent_auth/management/commands/delete_user.py", "reason": "table and column names come from a fixed list in the file; the only value from outside is the user id, and it is a bound parameter. Marked sql-safe on both lines" }
+  ]
+}

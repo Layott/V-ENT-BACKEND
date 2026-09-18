@@ -57,7 +57,8 @@ def _event_and_permission(request, event_id):
         return None, None, _err('Event not found.', 'NOT_FOUND',
                                 status.HTTP_404_NOT_FOUND)
 
-    if event.creator_id != user.user_id and not may_override(user, 'manage_events'):
+    from .permissions import may_run_event
+    if not may_run_event(user, event) and not may_override(user, 'manage_events'):
         return None, None, _err(
             'Only the event organizer can change its tickets.',
             'ONLY_EVENT_ORGANIZER_CAN', status.HTTP_403_FORBIDDEN)
@@ -76,6 +77,12 @@ def _read_price(raw, current=None):
     if price < 0:
         return None, _err('A price cannot be negative.', 'INVALID_NUMBER',
                           field='price')
+    # Whole coins only. See vent_event/pricing.py for the money that was
+    # being lost before this line existed.
+    from .pricing import refuse_if_not_whole
+    refused = refuse_if_not_whole(price, field='price')
+    if refused is not None:
+        return None, refused
     return price, None
 
 
@@ -222,16 +229,32 @@ def create_tier(request, event_id):
     if err:
         return err
 
+    # The same parse the edit path does. A string went straight into the
+    # row, Django saved it, and the instance kept the string, so the
+    # serializer's `day.isoformat()` was a 500 on every type created with a
+    # day from the console (walk, 18 September 2026). The row existed; the
+    # screen saw nothing.
+    raw_day = request.data.get('day')
+    day = None
+    if raw_day not in (None, ''):
+        try:
+            day = date.fromisoformat(str(raw_day)[:10])
+        except ValueError:
+            return _err('That is not a date.', 'INVALID_DATE', field='day')
+
     tier = TicketTier.objects.create(
         event=event,
         name=name[:60],
         price=price,
         quantity=quantity,
         perks=str(perks or '')[:255],
-        day=request.data.get('day') or None,
+        day=day,
         day_label=str(request.data.get('day_label') or '')[:60],
         max_tickets_per_email=email_limit,
     )
+    # A new type on a sold-out event is room for the queue.
+    from .views_waitlist import capacity_changed
+    capacity_changed(event)
     return _ok({'tier': serialize_tier(tier),
                 'tiers': [serialize_tier(t) for t in event.ticket_tiers.all()]},
                'Ticket type added.', status.HTTP_201_CREATED)
@@ -346,6 +369,58 @@ def update_tier(request, event_id, tier_id):
         tier.day_label = str(request.data.get('day_label') or '')[:60]
         updated.append('day_label')
 
+    # The three ways a price moves, which the console's Pricing panel has
+    # sent to this endpoint since the panel was built and which this endpoint
+    # dropped on the floor until 12 September 2026. A pricing-only save was
+    # answered "Nothing to change"; a save that also carried an email cap was
+    # answered "Ticket type updated" with the pricing silently discarded.
+    # Found by the walk in tools/walk_event.py, not by any test, because the
+    # tests set these fields on the model directly.
+    #
+    # Empty clears. A quantity of 0 or a price left blank means "no early
+    # bird" / "no group rate", which is what the model's zero and null mean.
+    if 'early_bird_quantity' in request.data:
+        n, err = _read_quantity(request.data.get('early_bird_quantity'), current=0)
+        if err:
+            return err
+        tier.early_bird_quantity = n or 0
+        updated.append('early_bird_quantity')
+
+    if 'early_bird_price' in request.data:
+        raw = request.data.get('early_bird_price')
+        if raw in (None, ''):
+            tier.early_bird_price = None
+        else:
+            price, err = _read_price(raw)
+            if err:
+                return err
+            tier.early_bird_price = price
+        updated.append('early_bird_price')
+
+    if 'group_min' in request.data:
+        n, err = _read_quantity(request.data.get('group_min'), current=0)
+        if err:
+            return err
+        tier.group_min = n or 0
+        updated.append('group_min')
+
+    if 'group_price' in request.data:
+        raw = request.data.get('group_price')
+        if raw in (None, ''):
+            tier.group_price = None
+        else:
+            price, err = _read_price(raw)
+            if err:
+                return err
+            tier.group_price = price
+        updated.append('group_price')
+
+    if 'access_code' in request.data:
+        # Trimmed, and matched case-insensitively at the purchase, so it is
+        # stored as typed and compared lowercased there.
+        tier.access_code = str(request.data.get('access_code') or '').strip()[:40]
+        updated.append('access_code')
+
     if not updated:
         return _err('Nothing to change.', 'NO_FIELDS_TO_UPDATE')
 
@@ -354,6 +429,10 @@ def update_tier(request, event_id, tier_id):
     # it is, whatever was assigned above, so a serializer that calls a date
     # method on a date cannot be handed a string.
     tier.refresh_from_db()
+    if 'quantity' in updated:
+        # More on sale means the queue may be offered a place.
+        from .views_waitlist import capacity_changed
+        capacity_changed(event)
     return _ok({'tier': serialize_tier(tier),
                 'tiers': [serialize_tier(t) for t in event.ticket_tiers.all()]},
                'Ticket type updated.')

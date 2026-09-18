@@ -15,7 +15,7 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from vent_auth.models import AdminAction, Games, Users
+from vent_auth.models import AdminAction, Games, Notification, Users
 from vent_event.models import (Event, EventAnnouncement, EventManager, Ticket,
                                TicketTier, VendorInvite)
 
@@ -155,6 +155,48 @@ class EventStateTests(AdminEventBase):
         self.assertEqual(row.reason, 'Venue pulled out')
         self.assertEqual(row.target_id, str(self.event.event_id))
 
+    def test_who_runs_it_names_the_organisations_people(self):
+        # The panel read EventManager rows only and said "the organiser runs
+        # this one alone" on an event with an org owner, an admin and an
+        # events manager reaching every door (18 September).
+        from vent_auth.models import Organization, OrgMember
+        owner, _ = a_user('ae_orgowner')
+        events_mgr, _ = a_user('ae_orgevents')
+        teams_mgr, _ = a_user('ae_orgteams')
+        org = Organization.objects.create(org_name='AE Org %s' % uuid.uuid4().hex[:4],
+                                          org_owner=owner, org_creator=owner)
+        OrgMember.objects.create(org=org, user=events_mgr, role='manager', scopes=['events'])
+        OrgMember.objects.create(org=org, user=teams_mgr, role='manager', scopes=['teams'])
+        self.event.organization = org
+        self.event.save(update_fields=['organization'])
+        managers = self._get('/auth/admin/events/%s/' % self.event.slug).json()['data']['managers']
+        by_name = {m['user']['username']: m for m in managers}
+        self.assertEqual(by_name[owner.username]['role'], 'org_owner')
+        self.assertEqual(by_name[events_mgr.username]['role'], 'org_events')
+        self.assertEqual(by_name[events_mgr.username]['through'], org.org_name)
+        self.assertNotIn(teams_mgr.username, by_name)
+
+    def test_a_cancel_tells_the_organiser_and_every_ticket_holder(self):
+        # Until 18 September only the audit log knew, and a holder found
+        # out from a page that answered 404.
+        from unittest import mock
+        holder = Users.objects.create(
+            username='ae_h_%s' % uuid.uuid4().hex[:5], email='h@vent.test', is_active=True)
+        self._ticket(user=holder)
+        self._ticket(user=holder)                      # told once, not twice
+        self._ticket(user=None, attendee_email='guest@example.test')
+        with mock.patch('vent_auth.emails.send_event_announcement') as sent:
+            self._post('/auth/admin/events/%s/state/' % self.event.slug,
+                       {'action': 'cancel', 'reason': 'Venue pulled out'})
+        org_note = Notification.objects.filter(user=self.organiser).order_by('-pk').first()
+        self.assertIn('cancelled by V-ENT', org_note.title)
+        self.assertIn('Venue pulled out', org_note.body)
+        holder_notes = Notification.objects.filter(user=holder)
+        self.assertEqual(holder_notes.count(), 1)
+        self.assertIn('Venue pulled out', holder_notes.first().body)
+        self.assertEqual(sent.call_count, 1)
+        self.assertEqual(sent.call_args.args[0], 'guest@example.test')
+
     def test_restoring_puts_it_back(self):
         self._post('/auth/admin/events/%s/state/' % self.event.slug,
                    {'action': 'cancel', 'reason': 'x'})
@@ -246,6 +288,34 @@ class EventTicketTests(AdminEventBase):
         self.assertEqual(row.target_id, ticket.code)
         self.assertEqual(row.reason, 'Chargeback')
         self.assertEqual(row.metadata['was'], 'valid')
+
+    def test_voiding_tells_an_account_holder_why(self):
+        # Until 18 September the holder found out at the door.
+        holder = Users.objects.create(
+            username='held_%s' % uuid.uuid4().hex[:5], email='held@vent.test',
+            is_active=True)
+        ticket = self._ticket(user=holder)
+        self._post('/auth/admin/tickets/%s/action/' % ticket.code,
+                   {'action': 'void', 'reason': 'Chargeback'})
+        note = Notification.objects.filter(user=holder).order_by('-pk').first()
+        self.assertIsNotNone(note)
+        self.assertIn('voided', note.title)
+        self.assertIn('Chargeback', note.body)
+        self.assertIn(ticket.code, note.body)
+        self._post('/auth/admin/tickets/%s/action/' % ticket.code,
+                   {'action': 'reinstate'})
+        again = Notification.objects.filter(user=holder).order_by('-pk').first()
+        self.assertIn('valid again', again.title)
+
+    def test_voiding_mails_a_guest(self):
+        from unittest import mock
+        ticket = self._ticket(user=None)
+        with mock.patch('vent_auth.emails.send_event_announcement') as sent:
+            self._post('/auth/admin/tickets/%s/action/' % ticket.code,
+                       {'action': 'void', 'reason': 'Chargeback'})
+        self.assertEqual(sent.call_count, 1)
+        self.assertEqual(sent.call_args.args[0], 'ada@example.test')
+        self.assertIn('Chargeback', sent.call_args.kwargs['body'])
 
     def test_reinstating_gives_the_seat_back_and_restores_the_status(self):
         ticket = self._ticket()

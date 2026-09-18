@@ -147,15 +147,6 @@ def charge_saved_card(request):
     if err:
         return err
 
-    card = SavedCard.objects.filter(
-        user=user, pk=request.data.get('card_id'), removed_at__isnull=True,
-    ).first() if request.data.get('card_id') else SavedCard.objects.filter(
-        user=user, is_default=True, removed_at__isnull=True,
-    ).first()
-
-    if card is None:
-        return _err('No saved card to charge.', 'NO_CARD', status.HTTP_404_NOT_FOUND)
-
     try:
         amount_ngn = int(request.data.get('amount_ngn') or 0)
     except (TypeError, ValueError):
@@ -163,51 +154,24 @@ def charge_saved_card(request):
     if amount_ngn < 1000:
         return _err('The smallest top-up is 1,000 NGN, which is 1 VENT COIN.', 'AMOUNT_TOO_SMALL')
 
-    wallet = UserWallet.objects.filter(user=user).first()
-    if wallet is None:
-        return _err('No wallet for this account.', 'NO_WALLET', status.HTTP_404_NOT_FOUND)
-
-    reference = f'VENT-{uuid.uuid4().hex[:16].upper()}'
+    # One function charges a saved card, for a wallet top-up and for a
+    # purchase somebody is short on alike. Two copies of a card charge is two
+    # places a decline is handled differently, and this one already drifted
+    # from the subscription charger before `pay` existed.
+    from . import pay
     try:
-        res = http_requests.post(
-            f'{PAYSTACK_BASE}/transaction/charge_authorization',
-            json={
-                'authorization_code': card.authorization_code,
-                'email': user.email,
-                'amount': amount_ngn * 100,
-                'reference': reference,
-                'metadata': {'user_id': user.user_id, 'purpose': 'wallet_topup'},
-            },
-            headers=_paystack_headers(),
-            timeout=20,
-        )
-        body = res.json()
-    except Exception:
-        logger.exception('saved-card charge failed')
-        return _err('The payment gateway did not answer. Nothing was charged.',
-                    'GATEWAY_ERROR', status.HTTP_502_BAD_GATEWAY)
+        data = pay.cover(user, _ngn_to_coins(amount_ngn),
+                         purpose='wallet_topup',
+                         card_id=request.data.get('card_id'))
+    except pay.PayError as exc:
+        http = (status.HTTP_404_NOT_FOUND if exc.code in (pay.NO_CARD, pay.NO_WALLET)
+                else status.HTTP_502_BAD_GATEWAY if exc.code == pay.GATEWAY_ERROR
+                else status.HTTP_400_BAD_REQUEST)
+        return _err(exc.message, exc.code, http)
 
-    data = body.get('data') or {}
-    if not body.get('status') or data.get('status') != 'success':
-        return _err(
-            data.get('gateway_response') or body.get('message') or 'That card was declined.',
-            'CHARGE_FAILED',
-        )
-
-    coins = _ngn_to_coins(amount_ngn)
-    with transaction.atomic():
-        wallet = UserWallet.objects.select_for_update().get(pk=wallet.pk)
-        wallet.wallet_balance += coins
-        wallet.save(update_fields=['wallet_balance'])
-        Transaction.objects.create(
-            wallet=wallet, type='top_up', amount=coins,
-            description=f'Top-up with {card.brand} ending {card.last4}',
-            status='completed', reference=reference,
-        )
-        card.last_used_at = timezone.now()
-        card.save(update_fields=['last_used_at'])
-
+    coins = data['coins_added']
     return _ok(
-        {'coins_added': coins, 'balance': wallet.wallet_balance, 'reference': reference},
+        {'coins_added': coins, 'balance': data['balance_vc'],
+         'reference': data['reference']},
         f'{coins:,} VENT COINS added.',
     )

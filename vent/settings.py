@@ -158,9 +158,16 @@ MIDDLEWARE = [
     # Keeps a session alive while it is being used. Last, so it only runs for
     # requests that made it through everything above.
     'vent_auth.middleware_session.SessionActivityMiddleware',
+    # The browser's zone for every datetime that arrives without one. See the
+    # module: a naive 10:30 typed in Lagos was stored as 10:30 UTC.
+    'vent_auth.middleware_timezone.ClientTimezoneMiddleware',
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+# The one custom header the browser sends: its timezone (ClientTimezoneMiddleware).
+from corsheaders.defaults import default_headers as _cors_default_headers  # noqa: E402
+CORS_ALLOW_HEADERS = list(_cors_default_headers) + ['x-client-timezone']
 
 # Local dev origins are always allowed; production hosts come from the env so a
 # deploy never depends on editing this file. Set CORS_ALLOWED_ORIGINS and
@@ -262,8 +269,30 @@ if _USE_SQLITE:
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / os.environ.get('SQLITE_NAME', 'local-dev.sqlite3'),
+            # SQLite takes one writer at a time and refuses the rest after
+            # five seconds by default. Forty buyers in the same second is a
+            # thing this platform has to survive (tools/walk_event.py --rush),
+            # and locally the honest answer is to QUEUE them, not to fail 38
+            # of them with "database is locked" and call that a result.
+            # Production is MySQL and takes row locks instead.
+            'OPTIONS': {'timeout': 60},
         }
     }
+    # And the transactions have to be IMMEDIATE, or the timeout above never
+    # gets a chance: Django opens a sqlite transaction as DEFERRED, so forty
+    # requests all begin by reading, and the moment the second one tries to
+    # write sqlite refuses it outright ("database is locked") rather than
+    # waiting, because letting it wait would deadlock the first. Taking the
+    # write lock at BEGIN makes the second writer queue behind the first,
+    # which is what MySQL's row locks do in production and what makes a
+    # forty-buyer rush answer 25 sold rather than 2 sold and 38 errors.
+    # Django 5.1 exposes this as OPTIONS['transaction_mode']; 5.0 does not.
+    from django.db.backends.sqlite3 import base as _sqlite_base
+
+    def _begin_immediate(self):
+        self.cursor().execute('BEGIN IMMEDIATE')
+
+    _sqlite_base.DatabaseWrapper._start_transaction_under_autocommit = _begin_immediate
 else:
     DATABASES = {
     'default': {
@@ -371,6 +400,12 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # settings.py
 
+# The Google OAuth client id, read on its own as well as inside the allauth
+# block below, because `/auth/social-auth/` verifies the id_token NextAuth
+# hands it against this audience. Empty means Google sign-in is refused
+# (fail closed), never that the body is trusted.
+GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
+
 SOCIALACCOUNT_PROVIDERS = {
     'google': {
         'APP': {
@@ -393,6 +428,15 @@ LOGOUT_REDIRECT_URL = '/'
 # stubs the network, which is what `tests_geocode` already does.
 GEOCODING_ENABLED = (
     os.environ.get('GEOCODING_ENABLED', '') != '0'
+    and 'test' not in sys.argv
+)
+
+# The per-IP limiter on login, signup, OTP, reset and 2FA endpoints
+# (`vent_auth.throttle.limited`, owner rule R59). Same shape as geocoding:
+# on everywhere, OFF under the test runner, because the counter lives in the
+# cache and outlives a test. `tests_throttle` overrides it to True.
+AUTH_THROTTLE_ENABLED = (
+    os.environ.get('AUTH_THROTTLE_ENABLED', '') != '0'
     and 'test' not in sys.argv
 )
 
@@ -461,12 +505,10 @@ CARDS_INGEST_KEY = os.environ.get("CARDS_INGEST_KEY", "")
 # Payouts
 # ---------------------------------------------------------------------------
 
-# The floor and the daily ceiling on a payout, in VENT COINS. The same numbers
-# whichever rail the money leaves by, which is why they are set once here. `0`
-# on the ceiling means no ceiling. A ceiling is what caps how much a stolen
-# account can take out before anybody looks at the queue.
-PAYOUT_MINIMUM_VC = int(os.environ.get('PAYOUT_MINIMUM_VC', '5'))
-PAYOUT_DAILY_MAX_VC = int(os.environ.get('PAYOUT_DAILY_MAX_VC', '500'))
+# The floor and the daily ceiling on a payout live on the admin dashboard
+# (`DEFAULT_ADMIN_SETTINGS['platform_fees']`, payout_min_vc and
+# payout_daily_max_vc), not here: a number an admin can see and change beats
+# one that needs a deploy. Nothing about money is read from the environment.
 
 # Whether somebody may ask to be paid in USDT.
 #
