@@ -24,6 +24,7 @@ from .services import wallet as wallet_service
 from vent_auth.models import Users
 
 from . import lookup
+from vent_auth.text import count as _count
 
 SESSION_TIMEOUT = timedelta(minutes=session_timeout_minutes())
 
@@ -136,6 +137,8 @@ def generate_bracket(request, tournament_id):
         return err
 
     tournament = lookup.find(tournament_id)
+    if tournament is None:
+        return _err('Tournament not found', 'NOT_FOUND', http.HTTP_404_NOT_FOUND)
 
     if tournament.tournament_creator_id != user.user_id:
         return _err('Only the tournament organizer can generate the bracket', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
@@ -479,6 +482,8 @@ def distribute_prizes(request, tournament_id):
         return err
 
     tournament = lookup.find(tournament_id)
+    if tournament is None:
+        return _err('Tournament not found', 'NOT_FOUND', http.HTTP_404_NOT_FOUND)
     is_creator = tournament.tournament_creator_id == user.user_id
     if not is_creator and not user.is_staff:
         return _err('Only the organizer or an admin can distribute prizes', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
@@ -512,7 +517,7 @@ def distribute_prizes(request, tournament_id):
 
     return _ok(
         {'tournament_id': tournament.tournament_id, 'distributions': distributions},
-        f'{len(distributions)} prize position(s) processed.',
+        f'{_count(len(distributions), "prize position")} processed.',
     )
 
 
@@ -528,6 +533,8 @@ def cancel_tournament(request, tournament_id):
         return err
 
     tournament = lookup.find(tournament_id)
+    if tournament is None:
+        return _err('Tournament not found', 'NOT_FOUND', http.HTTP_404_NOT_FOUND)
     if tournament.tournament_creator_id != user.user_id:
         return _err('Only the organizer can cancel this tournament', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
     if tournament.status in ('completed', 'cancelled'):
@@ -581,7 +588,7 @@ def cancel_tournament(request, tournament_id):
         'tournament_id': tournament.tournament_id,
         'refunded_count': refunded_count,
         'total_refunded': total_refunded,
-    }, f'Tournament cancelled. {refunded_count} registration(s) refunded.')
+    }, f'Tournament cancelled. {_count(refunded_count, "registration")} refunded.')
 
 
 # ---------------------------------------------------------------------------

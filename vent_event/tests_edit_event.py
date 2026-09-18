@@ -14,7 +14,7 @@ from datetime import timedelta
 from django.test import TestCase
 from django.utils import timezone
 
-from vent_auth.models import AdminAction, Games, Users
+from vent_auth.models import AdminAction, Games, Notification, Users
 
 from .models import Event
 
@@ -141,6 +141,25 @@ class EditEventTests(TestCase):
         self.assertEqual(entry.target_id, str(self.event.event_id))
         self.assertEqual(entry.metadata['owner_id'], self.owner.user_id)
         self.assertIn('location', entry.metadata['updated_fields'])
+
+    def test_an_admin_edit_tells_the_organiser(self):
+        # The console's Edit control promises it, and until 18 September
+        # only the audit log knew.
+        headers = console_auth(self.admin, 'mod-grant-3')
+        self.client.put(self.url(), data={'location': 'Eko Hotel, Lagos'},
+                        content_type='application/json', **headers)
+        note = Notification.objects.filter(user=self.owner).order_by('-pk').first()
+        self.assertIsNotNone(note)
+        self.assertIn('admin changed', note.title)
+        self.assertIn('location', note.body)
+        self.assertIn(self.admin.username, note.body)
+        self.assertEqual(note.link, '/events/%s' % self.event.slug)
+
+    def test_the_owner_editing_their_own_tells_nobody(self):
+        headers = {'HTTP_AUTHORIZATION': 'Bearer %s' % self.owner.login_session_token}
+        self.client.put(self.url(), data={'location': 'Their own choice'},
+                        content_type='application/json', **headers)
+        self.assertFalse(Notification.objects.filter(user=self.owner).exists())
 
     def test_the_owner_editing_is_not_logged_as_an_admin_action(self):
         self.client.put(self.url(), data={'location': 'Somewhere else'},

@@ -2085,6 +2085,10 @@ def edit_tournament(request, tournament_id):
             return auth_error
 
         tournament = lookup.find(tournament_id)
+        if tournament is None:
+            return Response({'code': 'NOT_FOUND', 'status': 'error',
+                             'message': 'Tournament not found'},
+                            status=status.HTTP_404_NOT_FOUND)
 
         # The organiser, or an admin overruling them. Same path, same fields,
         # same validation: an admin edit that went through a separate endpoint
@@ -2554,6 +2558,19 @@ def edit_tournament(request, tournament_id):
                         'updated_fields': updated_fields,
                         'owner_id': tournament.tournament_creator_id,
                     },
+                )
+                # The console's Edit control promises "the organiser is told
+                # it changed"; the owner's inbox names what moved and who.
+                from vent_auth.views_notifications import create_notification
+                create_notification(
+                    tournament.tournament_creator_id, 'tournament',
+                    'An admin changed %s' % tournament.tournament_title,
+                    '%s changed: %s. Open the tournament to see it.'
+                    % (user.username, ', '.join(updated_fields)),
+                    link='/tournaments/%s' % tournament.slug,
+                    metadata={'tournament_id': tournament.tournament_id,
+                              'updated_fields': updated_fields,
+                              'by': user.username},
                 )
 
         return Response({

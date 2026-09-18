@@ -225,23 +225,16 @@ def start(user, coins, callback_url='', *, purpose='purchase'):
     if callback_url:
         payload['callback_url'] = callback_url
 
+    # One initialize for every door (vent_auth.paystack.initialize), so the
+    # gateway's own reason reaches the person whichever door they came in.
     try:
-        res = http_requests.post(
-            '%s/transaction/initialize' % PAYSTACK_BASE,
-            json=payload, headers=paystack.headers(), timeout=10)
-        body = res.json()
-    except Exception:                                       # noqa: BLE001
-        logger.exception('paystack initialize failed')
+        data = paystack.initialize(payload)
+    except paystack.Unreachable:
         raise PayError(GATEWAY_ERROR,
                        'The payment gateway could not be reached. Nothing was charged.')
-    # Paystack says WHY in the body, and a 400 carries the useful half: an
-    # address it will not accept, an amount under its floor. `raise_for_status`
-    # threw that away and left "could not be reached", which sent somebody
-    # looking at the network for a problem with their email address.
-    if not body.get('status'):
-        logger.warning('paystack refused an initialize: %s', body.get('message'))
-        raise PayError(GATEWAY_ERROR,
-                       body.get('message') or 'The payment could not be started.')
+    except paystack.Refused as exc:
+        raise PayError(GATEWAY_ERROR, str(exc))
+    body = {'data': data}
 
     # The pending row the wallet's own top-up writes, so the reference is
     # known to `topup_verify` when they come back and the statement shows the

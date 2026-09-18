@@ -202,9 +202,24 @@ class TicketingSetupTests(TestCase):
         self.assertTrue(EventManager.objects.filter(event=self.event, user=self.other).exists())
 
     def test_the_screen_is_told_whether_it_may_offer_the_control(self):
+        """The same answer as the POST: the organiser may add people to a
+        personal event (CEO, 7 September 2026); a manager may not add more."""
         res = self.client.get('/event/%s/managers/' % self.event.event_id, **self.owner_auth)
         self.assertEqual(res.status_code, 200, res.content)
+        self.assertTrue(res.json()['data']['can_add'])
+        EventManager.objects.create(event=self.event, user=self.other, role='manager')
+        res = self.client.get('/event/%s/managers/' % self.event.event_id, **self.other_auth)
+        self.assertEqual(res.status_code, 200, res.content)
         self.assertFalse(res.json()['data']['can_add'])
+
+    def test_a_personal_event_takes_a_manager(self):
+        """No organisation anywhere, and the organiser still adds help."""
+        self.assertIsNone(self.event.organization_id)
+        res = self.client.post('/event/%s/managers/' % self.event.event_id,
+                               data=json.dumps({'username': self.other.username, 'role': 'door'}),
+                               content_type='application/json', **self.owner_auth)
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertTrue(EventManager.objects.filter(event=self.event, user=self.other, role='door').exists())
 
     def test_a_manager_cannot_add_more_managers(self):
         """Otherwise an event quietly acquires people nobody chose."""

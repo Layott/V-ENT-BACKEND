@@ -13,6 +13,7 @@ from vent_tournament import views_assets as asset_views
 from . import views_sponsors
 from . import views_holds
 from . import views_announce
+from . import views_vendor_review
 from . import views_metrics
 from . import views_track
 from . import views_ledger
@@ -73,6 +74,12 @@ urlpatterns = [
     path("vendor/<str:vendor_id>/orders/", vendor_orders, name="vendor_orders"),
     path("vendor/order/<str:code>/collect/", collect_order, name="collect_vendor_order"),
     path("vendor-orders/", my_vendor_orders, name="my_vendor_orders"),
+    # The organiser's side: every stall at the event and the yes or no on
+    # each. "Approve each stall before it opens" had no door until now.
+    path("<str:event_id>/stalls/manage/", views_vendor_review.event_stalls_manage,
+         name="event_stalls_manage"),
+    path("<str:event_id>/stall/<str:vendor_id>/decide/", views_vendor_review.decide_stall,
+         name="decide_stall"),
 
     # Deleting an event, which had no path at all, and putting it back. Same
     # rules and the same refusals as the tournament twin.

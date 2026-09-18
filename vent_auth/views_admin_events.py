@@ -26,6 +26,8 @@ editable, because the recipients already have the old text in their inbox.
 answers "who cancelled this event and why" six weeks later, and a console that
 can act without leaving a trace is worse than one that cannot act at all.
 """
+import logging
+
 from django.db import transaction
 from django.db.models import Count, F, Q, Sum
 from django.utils import timezone
@@ -35,6 +37,8 @@ from rest_framework.response import Response
 
 from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .models import AdminAction
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # envelope and guards
@@ -66,12 +70,11 @@ VOID_ROLES = ROLE_PERMISSIONS['void_ticket']
 
 def _event(ref):
     """An event by slug or id. Slugs everywhere, ids for anything older."""
-    from vent_event.models import Event
+    from vent_event.refs import event_by_ref
 
-    event = Event.objects.filter(slug=str(ref)).first()
-    if event is None and str(ref).isdigit():
-        event = Event.objects.filter(event_id=int(ref)).first()
-    return event
+    # The event app's own resolver, which reads the slug history: the
+    # console opened from a link in last month's report still lands.
+    return event_by_ref(ref)
 
 
 def _person(user):
@@ -229,10 +232,69 @@ def admin_event_state(request, event_ref):
     event.save(update_fields=['is_active'])
     _record(admin, log_name, event.event_id, reason,
             event_name=event.name, slug=event.slug)
+    # The organiser and everybody holding a ticket are told. Until
+    # 18 September only the audit log was, and a ticket holder found out
+    # from a page that answered 404. Fire-and-forget: a mail server being
+    # down must not undo the cancellation.
+    _tell_everybody_about_the_state(event, action, reason, admin)
 
     return _ok({'event': {'id': event.event_id, 'slug': event.slug,
                           'is_active': event.is_active}},
                'Event updated.')
+
+
+def _tell_everybody_about_the_state(event, action, reason, admin):
+    from vent_event.models import Ticket
+    from .views_notifications import create_notification
+    from . import emails
+
+    link = '/events/%s' % event.slug
+    if action == 'cancel':
+        organiser_title = '%s was cancelled by V-ENT' % event.name
+        organiser_body = ('%s cancelled it. Reason: %s. It stops selling and '
+                          'leaves the listing; its page keeps answering.'
+                          % (admin.username, reason))
+        holder_title = '%s was cancelled' % event.name
+        holder_body = ('The event you hold a ticket for was cancelled. '
+                       'Reason: %s. Your ticket no longer admits anybody.'
+                       % reason)
+    else:
+        organiser_title = '%s is back on' % event.name
+        organiser_body = '%s restored it. It sells and is listed again.' % admin.username
+        holder_title = '%s is back on' % event.name
+        holder_body = 'The event was restored. Your ticket admits you again.'
+
+    try:
+        create_notification(event.creator_id, 'event', organiser_title,
+                            organiser_body, link=link,
+                            metadata={'event_id': event.event_id,
+                                      'action': action, 'by': admin.username})
+    except Exception:                                   # noqa: BLE001
+        logger.exception('could not tell the organiser of %s', event.slug)
+
+    live = (Ticket.objects.filter(event=event, status__in=('valid', 'checked_in'))
+            .select_related('user'))
+    told = set()
+    for ticket in live:
+        try:
+            if ticket.user_id:
+                if ticket.user_id in told:
+                    continue
+                told.add(ticket.user_id)
+                create_notification(ticket.user_id, 'event', holder_title,
+                                    holder_body, link='/events/my-tickets',
+                                    metadata={'event_id': event.event_id,
+                                              'action': action})
+            elif ticket.attendee_email:
+                key = ticket.attendee_email.lower()
+                if key in told:
+                    continue
+                told.add(key)
+                emails.send_event_announcement(
+                    ticket.attendee_email, event=event,
+                    subject=holder_title, body=holder_body)
+        except Exception:                               # noqa: BLE001
+            logger.exception('could not tell the holder of %s', ticket.code)
 
 
 # ---------------------------------------------------------------------------
@@ -367,6 +429,9 @@ def admin_ticket_action(request, code):
             # affiliate paid commission on a sale that was undone.
             from vent_event import ledger as _ledger
             _ledger.reverse_sale(ticket, reason=reason or 'Voided')
+            # The seat is back on sale: the queue is offered it.
+            from vent_event.views_waitlist import capacity_changed
+            capacity_changed(ticket.event, how_many=1)
         else:
             if ticket.status != 'cancelled':
                 return _err('That ticket is not void.', 'NO_CHANGE',
@@ -391,7 +456,39 @@ def admin_ticket_action(request, code):
                   'was': was, 'now': ticket.status},
     )
 
+    # The person holding the code is told. Until 18 September they found
+    # out at the door: the seat was back on sale and the money reversed,
+    # and nothing had said so. An account gets its inbox; a guest address
+    # gets the event's own mail. Neither may undo the action if it fails.
+    _tell_the_holder(ticket, action, reason)
+
     return _ok({'ticket': _ticket_row(ticket)}, 'Ticket updated.')
+
+
+def _tell_the_holder(ticket, action, reason):
+    event = ticket.event
+    if action == 'void':
+        title = 'Your ticket for %s was voided' % event.name
+        body = ('Ticket %s no longer admits anybody. Reason: %s. '
+                'If you paid for it, the money has been returned.'
+                % (ticket.code, reason or 'not given'))
+    else:
+        title = 'Your ticket for %s is valid again' % event.name
+        body = 'Ticket %s admits you again. Show it at the door.' % ticket.code
+    try:
+        if ticket.user_id:
+            from .views_notifications import create_notification
+            create_notification(
+                ticket.user_id, 'event', title, body,
+                link='/events/my-tickets',
+                metadata={'event_id': event.event_id, 'code': ticket.code,
+                          'action': action})
+        elif ticket.attendee_email:
+            from . import emails
+            emails.send_event_announcement(
+                ticket.attendee_email, event=event, subject=title, body=body)
+    except Exception:                                   # noqa: BLE001
+        logger.exception('could not tell the holder of %s', ticket.code)
 
 
 # ---------------------------------------------------------------------------
@@ -485,9 +582,9 @@ def admin_tournament_sent(request, tournament_ref):
     from vent_tournament.models import (ScheduledReminder, Tournament,
                                         TournamentInvitation, TournamentInvite)
 
-    tournament = Tournament.objects.filter(slug=str(tournament_ref)).first()
-    if tournament is None and str(tournament_ref).isdigit():
-        tournament = Tournament.objects.filter(tournament_id=int(tournament_ref)).first()
+    from vent_tournament.lookup import find as find_tournament
+
+    tournament = find_tournament(tournament_ref)
     if tournament is None:
         return _err('No tournament with that address.', 'NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)

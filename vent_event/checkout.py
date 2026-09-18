@@ -22,9 +22,18 @@ EMAIL = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 
 
 class CheckoutError(ValueError):
-    def __init__(self, message, field=None):
+    """A refusal the buyer can act on.
+
+    `code` and `label` ride on it so the screen can translate the refusal
+    with the field's own name in it. One code for every refusal meant the
+    translated sentence ("Something the organiser asked for is missing")
+    beat the server's, which had named the field (18 September 2026).
+    """
+    def __init__(self, message, field=None, code='FIELD_REQUIRED', label=None):
         super().__init__(message)
         self.field = field
+        self.code = code
+        self.label = label
 
 
 def clean_field(raw):
@@ -103,7 +112,7 @@ def clean_phone(raw, label='Phone number', field_id='phone'):
     """
     value = str(raw or '').strip()
     if not value:
-        raise CheckoutError('%s is needed.' % label, field_id)
+        raise CheckoutError('%s is needed.' % label, field_id, label=label)
 
     # Somebody typing 00234 means +234. Common on printed cards.
     if value.startswith('00'):
@@ -115,7 +124,7 @@ def clean_phone(raw, label='Phone number', field_id='phone'):
     if compact.startswith('+'):
         if len(digits) < 8 or len(digits) > 15:
             raise CheckoutError('%s does not look like a phone number.' % label,
-                                field_id)
+                                field_id, code='FIELD_PHONE', label=label)
         return '+' + digits
 
     # A national number: one leading zero, then the subscriber number. This is
@@ -127,16 +136,17 @@ def clean_phone(raw, label='Phone number', field_id='phone'):
     # Anything else has no country in it and nothing to infer one from.
     raise CheckoutError(
         'Start %s with a country code, like %s.' % (label, DEFAULT_DIALLING_CODE),
-        field_id)
+        field_id, code='FIELD_PHONE_COUNTRY', label=label)
 
 
 def clean_email(raw):
     email = str(raw or '').strip().lower()
     if not email:
         raise CheckoutError('An email address is needed, so the ticket can be '
-                            'sent somewhere.', 'email')
+                            'sent somewhere.', 'email', code='EMAIL_REQUIRED')
     if not EMAIL.match(email):
-        raise CheckoutError('That does not look like an email address.', 'email')
+        raise CheckoutError('That does not look like an email address.', 'email',
+                            code='EMAIL_INVALID')
     return email[:254]
 
 
@@ -151,25 +161,28 @@ def answer_for(field, raw):
         # checkbox means it has to be ticked, which is how a terms box works.
         value = bool(raw)
         if field.required and not value:
-            raise CheckoutError('%s has to be ticked.' % field.label, field.id)
+            raise CheckoutError('%s has to be ticked.' % field.label, field.id,
+                                code='FIELD_TICK', label=field.label)
         return value
 
     value = str(raw if raw is not None else '').strip()
 
     if not value:
         if field.required:
-            raise CheckoutError('%s is needed.' % field.label, field.id)
+            raise CheckoutError('%s is needed.' % field.label, field.id,
+                                label=field.label)
         return ''
 
     if field.kind == 'number':
         try:
             return int(value)
         except (TypeError, ValueError):
-            raise CheckoutError('%s has to be a number.' % field.label, field.id)
+            raise CheckoutError('%s has to be a number.' % field.label, field.id,
+                                code='FIELD_NUMBER', label=field.label)
 
     if field.kind == 'choice' and value not in (field.options or []):
         raise CheckoutError('Pick one of the options for %s.' % field.label,
-                            field.id)
+                            field.id, code='FIELD_OPTION', label=field.label)
 
     if field.kind == 'phone':
         return clean_phone(value, field.label, field.id)
@@ -195,6 +208,18 @@ def collect(event, payload, *, per_ticket_index=None):
     return answers
 
 
+# Keys the platform itself writes into `answers`, beside the organiser's
+# questions. A comp records who gave the ticket and why (views_comp), and the
+# admin console reads `comped_by` back to count comps. They are not answers
+# anybody typed, so a list or a sheet names them in words and the screen can
+# translate them by `key`. Anything else unknown is an answer to a question
+# that has since been deleted, and keeps its key as the only label left.
+PLATFORM_KEYS = {
+    'comped_by': 'Comped by',
+    'note': 'Note from the organiser',
+}
+
+
 def describe(event, answers):
     """Answers with their labels, for the door list and the export.
 
@@ -205,12 +230,50 @@ def describe(event, answers):
     out = []
     for key, value in (answers or {}).items():
         field = by_id.get(str(key))
+        if field is None and key in PLATFORM_KEYS:
+            out.append({
+                'key': key,
+                'label': PLATFORM_KEYS[key],
+                'value': value,
+                'kind': 'platform',
+            })
+            continue
         out.append({
             'label': field.label if field else key,
             'value': value,
             'kind': field.kind if field else 'text',
         })
     return out
+
+
+def sheet_columns(event):
+    """One column per question the organiser asked, then the platform's own.
+
+    For the attendee sheet: the header is the organiser's label, the cell is
+    what was answered, and a ticket that answered nothing leaves it blank.
+    The platform keys come last so the sheet reads questions first.
+    """
+    fields = list(event.checkout_fields.all())
+    columns = [(str(f.id), f.label) for f in fields]
+    columns += list(PLATFORM_KEYS.items())
+    return columns
+
+
+def sheet_cells(answers, columns):
+    """The cells for one ticket, in the order `sheet_columns` gave."""
+    answers = answers if isinstance(answers, dict) else {}
+    cells = []
+    for key, _label in columns:
+        value = answers.get(key)
+        if value is True:
+            cells.append('yes')
+        elif value is False:
+            cells.append('no')
+        elif value is None:
+            cells.append('')
+        else:
+            cells.append(str(value))
+    return cells
 
 
 def phone_from(event, answers):

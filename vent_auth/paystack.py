@@ -63,3 +63,50 @@ def headers():
         'Authorization': 'Bearer %s' % secret(),
         'Content-Type': 'application/json',
     }
+
+
+BASE = 'https://api.paystack.co'
+
+
+class Unreachable(Exception):
+    """Paystack did not answer. Nothing was charged; it is safe to retry."""
+
+
+class Refused(Exception):
+    """Paystack answered and said no, in its own words (`str(exc)`).
+
+    Its 400 carries the useful half: an address it will not accept, an
+    amount under its floor. Three callers each posted to /transaction/
+    initialize themselves, and two of them called raise_for_status and
+    threw that sentence away, so a guest whose address Paystack refused was
+    told the gateway could not be reached (18 September 2026).
+    """
+
+    def __init__(self, message):
+        super().__init__(message or 'The payment could not be started.')
+
+    @property
+    def about_the_email(self):
+        return 'email' in str(self).lower()
+
+
+def initialize(payload, timeout=10):
+    """POST /transaction/initialize. Returns Paystack's `data` (with the
+    authorization_url) or raises Unreachable / Refused. One function, so
+    the gateway's reason reaches the person at every door."""
+    import logging
+
+    import requests as http_requests
+
+    log = logging.getLogger(__name__)
+    try:
+        res = http_requests.post('%s/transaction/initialize' % BASE, json=payload,
+                                 headers=headers(), timeout=timeout)
+        body = res.json()
+    except Exception as exc:                                  # noqa: BLE001
+        log.exception('paystack initialize failed')
+        raise Unreachable(str(exc))
+    if not body.get('status'):
+        log.warning('paystack refused an initialize: %s', body.get('message'))
+        raise Refused(body.get('message'))
+    return body.get('data') or {}

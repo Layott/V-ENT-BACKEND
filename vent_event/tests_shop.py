@@ -51,9 +51,12 @@ class ShopBase(TestCase):
             location='Lagos')
         # The organiser's own shop is a vendor they own. There is no second
         # model for it, and there should not be: a stall is a stall.
+        # 'approved' is a real status; the fixture used to say 'open', which
+        # is none of them, and only traded because nothing read the status
+        # until the organiser's approval started to decide (18 September).
         self.vendor = Vendor.objects.create(
             event=self.event, owner=self.organiser, name='Merch Table',
-            status='open')
+            status='approved')
         self.shirt = VendorProduct.objects.create(
             vendor=self.vendor, name='Team shirt', price=10000, stock=5)
 
@@ -161,7 +164,7 @@ class BuyingTests(ShopBase):
 
     def test_a_product_from_another_stall_is_refused(self):
         other = Vendor.objects.create(event=self.event, owner=self.organiser,
-                                      name='Other', status='open')
+                                      name='Other', status='approved')
         stray = VendorProduct.objects.create(vendor=other, name='Cap',
                                              price=1000, stock=5)
         res = self.buy([{'product_id': stray.id, 'quantity': 1}])

@@ -13,7 +13,6 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from . import referrals as refs
-from .models import Event
 from .views_ledger import _viewer
 
 
@@ -28,10 +27,11 @@ def _err(message, code, http=status.HTTP_400_BAD_REQUEST):
 
 
 def _event(event_id):
-    """By slug, or by id for a link shared before a rename."""
-    if str(event_id).isdigit():
-        return Event.objects.filter(event_id=int(event_id)).first()
-    return Event.objects.filter(slug=str(event_id)).first()
+    # One resolver for the whole app, in refs.py: it reads the slug
+    # history, which this copy did not (18 September 2026).
+    from .refs import event_by_ref
+
+    return event_by_ref(event_id)
 
 
 @api_view(['POST'])

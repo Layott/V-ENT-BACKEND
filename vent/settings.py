@@ -158,9 +158,16 @@ MIDDLEWARE = [
     # Keeps a session alive while it is being used. Last, so it only runs for
     # requests that made it through everything above.
     'vent_auth.middleware_session.SessionActivityMiddleware',
+    # The browser's zone for every datetime that arrives without one. See the
+    # module: a naive 10:30 typed in Lagos was stored as 10:30 UTC.
+    'vent_auth.middleware_timezone.ClientTimezoneMiddleware',
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+# The one custom header the browser sends: its timezone (ClientTimezoneMiddleware).
+from corsheaders.defaults import default_headers as _cors_default_headers  # noqa: E402
+CORS_ALLOW_HEADERS = list(_cors_default_headers) + ['x-client-timezone']
 
 # Local dev origins are always allowed; production hosts come from the env so a
 # deploy never depends on editing this file. Set CORS_ALLOWED_ORIGINS and

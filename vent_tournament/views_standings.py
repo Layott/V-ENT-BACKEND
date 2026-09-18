@@ -76,9 +76,10 @@ def standings(request, tournament_id):
     Public: a league table is the most shareable thing a tournament produces,
     and putting it behind a sign-in is how a competition stays invisible.
     """
-    try:
-        tournament = lookup.find(tournament_id)
-    except Tournament.DoesNotExist:
+    # lookup.find answers None, never DoesNotExist: the except below never
+    # fired, and an unknown slug was a 500 (18 September 2026).
+    tournament = lookup.find(tournament_id)
+    if tournament is None:
         return _err('Tournament not found', 'TOURNAMENT_NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
     rules = league.rules_for(tournament)
@@ -245,9 +246,10 @@ def set_league_rules(request, tournament_id):
     Theirs, so they set them. This was admin-only, which made the one setting
     the format depends on unreachable by the person running it.
     """
-    try:
-        tournament = lookup.find(tournament_id)
-    except Tournament.DoesNotExist:
+    # lookup.find answers None, never DoesNotExist: the except below never
+    # fired, and an unknown slug was a 500 (18 September 2026).
+    tournament = lookup.find(tournament_id)
+    if tournament is None:
         return _err('Tournament not found', 'TOURNAMENT_NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
     _user, err = _organiser_or_admin(request, tournament)
@@ -348,9 +350,8 @@ def _stat_choices():
 @api_view(['GET', 'POST'])
 def stat_settings(request, tournament_id):
     """GET/POST /tournament/<id>/stat-settings/"""
-    try:
-        tournament = lookup.find(tournament_id)
-    except Tournament.DoesNotExist:
+    tournament = lookup.find(tournament_id)
+    if tournament is None:
         return _err('Tournament not found', 'TOURNAMENT_NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)
 
@@ -388,9 +389,8 @@ def league_adjustment(request, tournament_id):
     defend weeks later, and the spreadsheet this came from records one on its
     single adjustment row: "Stood up mid match and quit, decided to leave."
     """
-    try:
-        tournament = lookup.find(tournament_id)
-    except Tournament.DoesNotExist:
+    tournament = lookup.find(tournament_id)
+    if tournament is None:
         return _err('Tournament not found', 'TOURNAMENT_NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)
 
@@ -430,9 +430,8 @@ def league_adjustment(request, tournament_id):
 @api_view(['GET'])
 def head_to_head(request, tournament_id):
     """GET /tournament/<id>/head-to-head/?a=&b="""
-    try:
-        tournament = lookup.find(tournament_id)
-    except Tournament.DoesNotExist:
+    tournament = lookup.find(tournament_id)
+    if tournament is None:
         return _err('Tournament not found', 'TOURNAMENT_NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)
 

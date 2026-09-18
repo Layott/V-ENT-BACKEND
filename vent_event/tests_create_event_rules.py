@@ -104,3 +104,22 @@ class CreateEventRulesTests(TestCase):
         self.assertEqual(res.status_code, 201)
         self.assertEqual(TicketTier.objects.count(), 0)
         self.assertEqual(Event.objects.get().capacity_mode, 'per_day')
+
+    def test_an_event_cannot_start_in_the_past(self):
+        """The picker offered every day of the month and the server took
+        10 September on the 17th, publishing an event that had ended."""
+        start = timezone.now() - timezone.timedelta(days=7)
+        res = self.create(start_date=start.isoformat(),
+                          end_date=(start + timezone.timedelta(days=1)).isoformat())
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()['code'], 'VALIDATION_FAILED')
+        self.assertIn('start_date', res.json()['data']['field_errors'])
+        self.assertEqual(Event.objects.count(), 0)
+
+    def test_a_start_a_minute_ago_is_still_taken(self):
+        """Typing a time and pressing Publish takes a moment; the clock does
+        not refuse somebody for that."""
+        start = timezone.now() - timezone.timedelta(minutes=1)
+        res = self.create(start_date=start.isoformat(),
+                          end_date=(start + timezone.timedelta(hours=3)).isoformat())
+        self.assertEqual(res.status_code, 201)

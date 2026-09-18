@@ -16,23 +16,19 @@ from rest_framework import status
 from vent_auth import wallets
 from vent_auth.models import UserWallet, Transaction
 from .models import Event, Vendor, VendorProduct, VendorOrder, VendorOrderItem
+from .permissions import may_run_event
 from .views_tickets import _authenticate, _error, _ok, _ngn_to_coins, CODE_ALPHABET
 
 
 def _event_by_ref(ref, **extra):
-    """An event by slug or by id.
+    """An event by slug, by id, or by a slug it used to have.
 
-    The named address is what the slug rule requires, and the numeric one still
-    has to resolve because links were shared before that rule existed.
+    One resolver for the whole app, in `refs.py`: sixteen copies of this
+    each missed the slug history (18 September 2026).
     """
-    from .models import Event
+    from .refs import event_by_ref
 
-    ref = str(ref)
-    if ref.isdigit():
-        found = Event.objects.filter(event_id=int(ref), **extra).first()
-        if found:
-            return found
-    return Event.objects.filter(slug=ref, **extra).first()
+    return event_by_ref(ref, **extra)
 
 
 
@@ -125,7 +121,9 @@ def event_vendors(request, event_id):
     if event is None:
         return _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
-    vendors = event.vendors.exclude(status='closed').prefetch_related('products')
+    # Open stalls only. A pending one is waiting for the organiser and a
+    # closed one has gone; neither belongs on the event page.
+    vendors = event.vendors.filter(status__in=Vendor.OPEN_STATUSES).prefetch_related('products')
     return _ok(
         {
             'event_id': event.event_id,
@@ -285,7 +283,7 @@ def create_product(request, vendor_id):
     vendor = _vendor_by_ref(vendor_id)
     if vendor is None:
         return _error('Vendor not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    if vendor.owner_id != user.user_id and vendor.event.creator_id != user.user_id:
+    if vendor.owner_id != user.user_id and not may_run_event(user, vendor.event):
         return _error('Only the stall owner or the event organizer can add products.',
                       'FORBIDDEN', status.HTTP_403_FORBIDDEN)
 
@@ -352,7 +350,7 @@ def contact_vendor(request, vendor_id):
     if auth_error:
         return auth_error
     vendor = _vendor_by_ref(vendor_id)
-    if vendor is None or vendor.status != 'approved':
+    if vendor is None or not vendor.is_open:
         return _error('Vendor not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if vendor.owner_id == user.user_id:
         return _error('That is your own stall.', 'OWN_STALL', status.HTTP_400_BAD_REQUEST)
@@ -443,6 +441,10 @@ def quote_order(request, vendor_id):
     vendor = _vendor_by_ref(vendor_id)
     if vendor is None:
         return _error('Vendor not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    if vendor.status == 'closed':
+        return _error(f'{vendor.name} is closed.', 'VENDOR_CLOSED', status.HTTP_409_CONFLICT)
+    if not vendor.is_open:
+        return _error(f'{vendor.name} is not open yet.', 'VENDOR_PENDING', status.HTTP_409_CONFLICT)
     items = request.data.get('items') or []
     if not isinstance(items, list) or not items:
         return _error('Add at least one item to your order.', 'VALIDATION_ERROR',
@@ -510,6 +512,8 @@ def create_order(request, vendor_id):
             _refuse('Vendor not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
         if vendor.status == 'closed':
             _refuse(f'{vendor.name} is closed.', 'VENDOR_CLOSED', status.HTTP_409_CONFLICT)
+        if not vendor.is_open:
+            _refuse(f'{vendor.name} is not open yet.', 'VENDOR_PENDING', status.HTTP_409_CONFLICT)
 
         items = request.data.get('items') or []
         pin = request.data.get('pin')
@@ -745,6 +749,10 @@ def serialize_order(request, order):
             {
                 'product_id': i.product_id,
                 'name': i.product.name,
+                # The option chosen, so a receipt reads "Suya plate (Chicken)"
+                # and not the product alone (the stall's own order list already
+                # carried it; the buyer's did not, 18 September 2026).
+                'variant': i.variant or None,
                 'quantity': i.quantity,
                 'unit_vc': i.unit_vc,
                 'line_vc': i.unit_vc * i.quantity,
@@ -789,7 +797,7 @@ def vendor_orders(request, vendor_id):
     vendor = _vendor_by_ref(vendor_id)
     if vendor is None:
         return _error('Vendor not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    if vendor.owner_id != user.user_id and vendor.event.creator_id != user.user_id:
+    if vendor.owner_id != user.user_id and not may_run_event(user, vendor.event):
         return _error('Only the stall owner or the event organizer can see these orders.',
                       'FORBIDDEN', status.HTTP_403_FORBIDDEN)
 
@@ -820,7 +828,7 @@ def collect_order(request, code):
     order = VendorOrder.objects.select_related('vendor', 'vendor__event').filter(code=code.upper()).first()
     if order is None:
         return _error('No order with that code.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    if order.vendor.owner_id != user.user_id and order.vendor.event.creator_id != user.user_id:
+    if order.vendor.owner_id != user.user_id and not may_run_event(user, order.vendor.event):
         return _error('Only the stall owner can mark an order collected.',
                       'FORBIDDEN', status.HTTP_403_FORBIDDEN)
     if order.status == 'collected':

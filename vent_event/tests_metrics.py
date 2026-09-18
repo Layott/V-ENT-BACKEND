@@ -13,7 +13,7 @@ from django.utils import timezone
 
 from vent_auth.models import Games, Users
 
-from .models import Event, EventManager, Ticket, TicketTier
+from .models import Event, EventCheckoutField, EventManager, Ticket, TicketTier
 
 
 def a_user(name):
@@ -189,6 +189,34 @@ class MetricsExportTests(MetricsBase):
         gates = {r[12] for r in rows[1:]}
         self.assertIn('self', gates)
         self.assertIn('Gate A', gates)
+
+    def test_the_attendee_sheet_carries_every_checkout_answer(self):
+        # The sheet the organiser orders the shirts from carried no shirt
+        # sizes (walk, 18 September). One column per question, headed by
+        # the organiser's own label; a ticket that answered nothing leaves
+        # the cell blank; the platform's comp keys come after the questions.
+        size = EventCheckoutField.objects.create(
+            event=self.event, label='Shirt size', kind='choice',
+            options=['S', 'M', 'L'], required=True, order=1)
+        posted = EventCheckoutField.objects.create(
+            event=self.event, label='Can we post you the badge?',
+            kind='checkbox', order=2)
+        t = self.tickets[0]
+        t.answers = {str(size.id): 'L', str(posted.id): True}
+        t.save()
+        self.vip_ticket.answers = {'comped_by': 'me_org', 'note': 'Sponsor'}
+        self.vip_ticket.save()
+
+        rows = rows_of(self.get('attendees'))
+        header = rows[0]
+        self.assertEqual(header[14:], ['Shirt size', 'Can we post you the badge?',
+                                       'Comped by', 'Note from the organiser'])
+        by_code = {r[0]: r for r in rows[1:]}
+        self.assertEqual(by_code[t.code][14:16], ['L', 'yes'])
+        self.assertEqual(by_code[self.vip_ticket.code][14:],
+                         ['', '', 'me_org', 'Sponsor'])
+        # A ticket that answered nothing has the columns and nothing in them.
+        self.assertEqual(by_code[self.tickets[1].code][14:], ['', '', '', ''])
 
     def test_the_tier_sheet_carries_the_money(self):
         rows = rows_of(self.get('tiers'))

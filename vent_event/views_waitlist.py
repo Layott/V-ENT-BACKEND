@@ -72,8 +72,11 @@ def offer_next(event, how_many=1):
     Only ever offers what is genuinely available, so two returns do not produce
     three offers.
     """
+    # Counted WITHOUT the offers already out, and then those are taken off:
+    # availability subtracts live offers for everybody else.
     room = availability.event_room(event)
-    sellable = sum(availability.available(t) for t in event.ticket_tiers.all())
+    sellable = sum(availability.available(t, ignore_offers=True)
+                   for t in event.ticket_tiers.all())
     if room is not None:
         sellable = min(sellable, room)
 
@@ -90,6 +93,23 @@ def offer_next(event, how_many=1):
         entry.offer_expires_at = now + timedelta(hours=OFFER_HOURS)
         entry.save(update_fields=['status', 'offered_at', 'offer_expires_at'])
     return waiting
+
+
+def capacity_changed(event, how_many=None):
+    """Something came back on sale: offer the queue. Called wherever room
+    appears (a voided ticket, a released hold, a raised allocation, a new
+    type), because until 18 September 2026 only LEAVING the queue offered
+    anybody a place, and the page's promise was kept by nothing. Never
+    raises: a purchase or an edit must not fail because the queue could
+    not be told."""
+    try:
+        expire_stale_offers(event)
+        waiting = event.waitlist.filter(status='waiting').count()
+        if not waiting:
+            return []
+        return offer_next(event, how_many=how_many or waiting)
+    except Exception:                                       # noqa: BLE001
+        return []
 
 
 def _row(entry, position=None):
@@ -199,7 +219,8 @@ def event_waitlist(request, event_id):
     event = _event(event_id)
     if event is None:
         return _err('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    if event.creator_id != user.user_id and not may_override(user, 'manage_events'):
+    from .permissions import may_run_event
+    if not may_run_event(user, event) and not may_override(user, 'manage_events'):
         return _err('Only the event organizer can see the queue.',
                     'ONLY_EVENT_ORGANIZER_CAN', status.HTTP_403_FORBIDDEN)
 

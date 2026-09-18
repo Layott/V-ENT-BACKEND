@@ -27,20 +27,14 @@ def find_owner(kind, key):
     Accepts an id or a slug, because the console addresses things by slug and
     older links carry the id.
     """
+    # The two apps' own resolvers, which read the slug history; a copy here
+    # did not, so a renamed event's studio answered 404 (18 September 2026).
     if kind == 'event':
-        from vent_event.models import Event
-        if str(key).isdigit():
-            found = Event.objects.filter(event_id=int(key)).first()
-            if found:
-                return found
-        return Event.objects.filter(slug=str(key)).first()
+        from vent_event.refs import event_by_ref
+        return event_by_ref(key)
 
-    from .models import Tournament
-    if str(key).isdigit():
-        found = Tournament.objects.filter(tournament_id=int(key)).first()
-        if found:
-            return found
-    return Tournament.objects.filter(slug=str(key)).first()
+    from .lookup import find
+    return find(key)
 
 
 def kind_of(owner):
@@ -58,7 +52,12 @@ def may_run_production(user, owner):
         return False
     from vent_auth.actors import may_override
     if kind_of(owner) == 'event':
-        if owner.creator_id == user.user_id:
+        # Whoever runs the event runs its production: the creator, a named
+        # manager, the organisation's events people. One rule, in
+        # vent_event.permissions; this used to ask for the creator alone
+        # and refused every manager the Production tab (18 September).
+        from vent_event.permissions import may_run_event
+        if may_run_event(user, owner):
             return True
         return bool(may_override(user, 'manage_events'))
     if owner.tournament_creator_id == user.user_id:

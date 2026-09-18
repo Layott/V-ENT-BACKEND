@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from .models import Users, Transaction, AdminAction
 from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .views_admin import _log_action, _approve_payout_core, _paginate
+from vent_auth.text import count as _count
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +151,7 @@ def admin_bulk_user_action(request):
 
     return Response({
         'status': 'success',
-        'message': f'{count} user(s) {action}ned',
+        'message': f'{_count(count, "user")} {action}ned',
         'data': {'count': count},
     }, status=status.HTTP_200_OK)
 
@@ -230,8 +231,8 @@ def admin_disqualify_registration(request, tournament_id):
     return Response({'status': 'success',
                      'data': {'forfeited_matches': forfeited,
                               'registration_id': reg.id},
-                     'message': ('Disqualified. %d upcoming match(es) forfeited '
-                                 'to their opponents.' % len(forfeited))},
+                     'message': ('Disqualified. %s forfeited to their opponents.'
+                                 % _count(len(forfeited), 'upcoming match', 'upcoming matches'))},
                     status=status.HTTP_200_OK)
 
 
@@ -262,7 +263,7 @@ def admin_bulk_approve_payouts(request):
 
     return Response({
         'status': 'success',
-        'message': f'{count} payout(s) approved',
+        'message': f'{_count(count, "payout")} approved',
         'data': {'count': count},
     }, status=status.HTTP_200_OK)
 

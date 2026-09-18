@@ -185,3 +185,19 @@ class CompTicketTests(TestCase):
         self._send(['a@example.com'], note='Guest of the venue')
         self.assertEqual(Ticket.objects.get().answers.get('note'),
                          'Guest of the venue')
+
+    def test_the_door_list_names_the_comp_in_words(self):
+        # The comp's bookkeeping lives in `answers` beside the organiser's
+        # questions. The door list printed "comped_by comp_org" as if a
+        # buyer had typed it (walk, 18 September). It is labelled, keyed so
+        # a screen can translate it, and marked as the platform's own.
+        self._send(['a@example.com'], note='Guest of the venue')
+        res = self.client.get('/event/%s/attendees/' % self.event.slug)
+        answers = res.json()['data']['attendees'][0]['answers']
+        by_key = {a.get('key'): a for a in answers}
+        self.assertEqual(by_key['comped_by']['label'], 'Comped by')
+        self.assertEqual(by_key['comped_by']['value'], 'comp_org')
+        self.assertEqual(by_key['comped_by']['kind'], 'platform')
+        self.assertEqual(by_key['note']['label'], 'Note from the organiser')
+        labels = [a['label'] for a in answers]
+        self.assertNotIn('comped_by', labels)

@@ -488,3 +488,20 @@ class StallOpeningTests(ShopBase):
         self.patch(name='Mama T Kitchen and Grill', description='Home cooking.')
         self.stall.refresh_from_db()
         self.assertEqual(self.stall.name, 'Mama T Kitchen and Grill')
+
+
+class ReceiptNamesTheOptionTests(DeliveryTests):
+    def test_the_buyers_receipt_carries_the_option_chosen(self):
+        """The stall's order list said "Tee (M)"; the buyer's receipt said
+        "Tee", so a buyer with two sizes in one order could not tell which
+        line was which (18 September 2026)."""
+        self.postable.variants = ['S', 'M', 'L']
+        self.postable.save(update_fields=['variants'])
+        res = self.client.post('/event/vendor/%s/order/' % self.stall.slug,
+                               {'items': [{'product_id': self.postable.id, 'quantity': 1,
+                                           'variant': 'M'}], 'pin': PIN},
+                               format='json', **auth(self.buyer))
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(res.json()['data']['order']['items'][0]['variant'], 'M')
+        mine = self.client.get('/event/vendor-orders/', **auth(self.buyer)).json()['data']['orders']
+        self.assertEqual(mine[0]['items'][0]['variant'], 'M')

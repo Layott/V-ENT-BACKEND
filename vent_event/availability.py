@@ -85,6 +85,23 @@ def held_on_event(event):
     return sum(hold.outstanding for hold in rows) + held_by_referrals(event)
 
 
+def offered_on_event(event, for_user=None):
+    """Places a live waitlist offer is holding open, minus the viewer's own.
+
+    An offer that held nothing was a promise: the page read "1 remaining"
+    to everybody and the first hand to reach the returned ticket took it,
+    while the person at the head of the queue had been told it was theirs
+    first (18 September 2026). The viewer's own offer is not counted
+    against them, which is what lets them buy into the room it holds.
+    """
+    from django.utils import timezone as _tz
+
+    rows = event.waitlist.filter(status='offered', offer_expires_at__gt=_tz.now())
+    if for_user is not None:
+        rows = rows.exclude(user=for_user)
+    return rows.count()
+
+
 def sold_on_event(event, day=None):
     """Tickets that exist and have not been cancelled or refunded.
 
@@ -144,17 +161,22 @@ def event_room(event, day=None):
     return max(int(event.capacity) - used, 0)
 
 
-def available(tier):
+def available(tier, for_user=None, ignore_offers=False):
     """The real answer: the lower of the type's own room and the venue's.
 
     The venue's room is measured on the day this type admits, because capacity
     is a property of the room on a day rather than of the whole engagement.
+    `for_user` is the viewer, whose own waitlist offer is room they may use;
+    `ignore_offers` is for the queue itself working out what to offer.
     """
     room = event_room(tier.event, getattr(tier, 'day', None))
     by_tier = tier_available(tier)
-    if room is None:
-        return by_tier
-    return min(by_tier, room)
+    out = by_tier if room is None else min(by_tier, room)
+    if not ignore_offers:
+        # A live offer holds one of these for the person it was made to,
+        # whichever count was the binding one.
+        out -= offered_on_event(tier.event, for_user=for_user)
+    return max(out, 0)
 
 
 def snapshot(event):

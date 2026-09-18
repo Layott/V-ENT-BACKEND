@@ -62,11 +62,11 @@ def _viewer(request):
 
 
 def _tournament(key):
-    if str(key).isdigit():
-        found = Tournament.objects.filter(tournament_id=int(key)).first()
-        if found:
-            return found
-    return Tournament.objects.filter(slug=str(key)).first()
+    from .lookup import find
+
+    # One resolver, in lookup.py, which reads the slug history; this copy
+    # did not (18 September 2026).
+    return find(key)
 
 
 def _may_manage(user, tournament):

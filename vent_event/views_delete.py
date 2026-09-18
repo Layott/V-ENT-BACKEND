@@ -34,15 +34,10 @@ def _err(message, code, http_status=status.HTTP_400_BAD_REQUEST, data=None):
 
 def _find(reference, include_deleted=False):
     """An event by slug or id. `Event.objects` cannot see a deleted one."""
+    from .refs import event_by_ref
+
     manager = Event.all_objects if include_deleted else Event.objects
-    raw = str(reference or '').strip()
-    if not raw:
-        return None
-    if raw.isdigit():
-        found = manager.filter(event_id=int(raw)).first()
-        if found is not None:
-            return found
-    return manager.filter(slug=raw).first()
+    return event_by_ref(reference, queryset=manager.all())
 
 
 def _may_delete(user, event):

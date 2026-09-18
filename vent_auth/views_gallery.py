@@ -42,7 +42,7 @@ def upload_images(request):
             remaining_slots = max(0, 5 - current_image_count)
             return Response({
                 'status': 'error',
-                'message': f'Upload limit exceeded. You can only upload {remaining_slots} more image(s).'
+                'message': f'Upload limit exceeded. You can only upload {remaining_slots} more.'
             }, status=status.HTTP_400_BAD_REQUEST)
 
         for image in images:

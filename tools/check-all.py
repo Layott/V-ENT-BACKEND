@@ -121,6 +121,29 @@ CATCHERS = [
      'every public page can be found and read',
      FRONTEND, ['node', 'scripts/check-seo.mjs'], False),
 
+    # check-seo proves a page HAS structured data; this proves the numbers in
+    # it are the record's. Every event's JSON-LD started at the registration-
+    # open instant with no end and no offers for weeks (18 September 2026).
+    ('structured data',
+     'the JSON-LD is built from the payload the API sends',
+     FRONTEND, ['node', '--no-warnings', 'scripts/check-ld-shape.mjs'], True),
+
+    # "3 line(s)" reached a screen on 18 September 2026, the sweep after it
+    # claimed there were no more, and there were thirty across both repos.
+    # Reads the dictionaries, every component string and every backend
+    # module; one/many keys and text.count() are what to write instead.
+    ('plurals',
+     'no unfinished plural, a bracketed s, in a sentence a person reads',
+     FRONTEND, ['node', 'scripts/check-plurals.mjs'], True),
+
+    # Eight controls deleted, ended, cancelled or refunded something on ONE
+    # press on 18 September 2026 (a pitch was deleted mid-walk); four more
+    # were found by the catcher once it was calibrated. Two presses, always:
+    # the first asks, beside "Keep it".
+    ('one press',
+     'a destructive control asks before it acts',
+     FRONTEND, ['node', 'scripts/check-one-press.mjs'], True),
+
     ('design bans',
      'no hairline borders, no glow, no vibecoded defaults',
      FRONTEND, ['node', 'scripts/check-design.mjs'], False),

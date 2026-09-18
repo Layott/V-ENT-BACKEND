@@ -23,19 +23,14 @@ from .models import Event, EventTournamentLink, Ticket, TicketTier
 
 
 def _event_by_ref(ref, **extra):
-    """An event by slug or by id.
+    """An event by slug, by id, or by a slug it used to have.
 
-    The named address is what the slug rule requires, and the numeric one still
-    has to resolve because links were shared before that rule existed.
+    One resolver for the whole app, in `refs.py`: sixteen copies of this
+    each missed the slug history (18 September 2026).
     """
-    from .models import Event
+    from .refs import event_by_ref
 
-    ref = str(ref)
-    if ref.isdigit():
-        found = Event.objects.filter(event_id=int(ref), **extra).first()
-        if found:
-            return found
-    return Event.objects.filter(slug=ref, **extra).first()
+    return event_by_ref(ref, **extra)
 
 
 
@@ -191,7 +186,8 @@ def _organizer_gate(request, event_id):
     event = _event_by_ref(event_id)
     if event is None:
         return None, None, _error('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    if event.creator_id != user.user_id:
+    from .permissions import may_run_event
+    if not may_run_event(user, event):
         return None, None, _error('Only the event organizer can manage linked tournaments.',
                                   'FORBIDDEN', status.HTTP_403_FORBIDDEN)
     return event, user, None
