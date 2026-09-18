@@ -5,10 +5,16 @@ scanning). Branch `fix/event-walk-12-sept` in both repos; PRs BE #180 and FE #19
 stay open and take these commits. Nothing is deployed from this session.
 
 Written mid-walk, in the same turn as the work, and extended as sections land.
-State at the end of the second session: sections A to I DONE. 80 faults fixed,
-gates/41 MET 30 of 30, BE fd90f43d and FE aaab7a3 pushed to the branch, PR
-bodies updated. If this file and the walk log are all you have, you can pick
-it up.
+State at the end of the second session: sections A to I DONE, then section J
+(the CEO's refund rule) built the same afternoon. 80 walk faults fixed plus the
+refunds; gates/41 MET 30 of 30; branch `fix/event-walk-12-sept` in both repos:
+BE fd90f43d, d837f60c, eaed03fb and FE aaab7a3, 5c5cc50 pushed; PR #180 / #190
+bodies carry every section. Nothing merged, nothing deployed. If this file and
+the walk log are all you have, you can pick it up.
+
+Read in this order: the deploy list below, section J (refunds), section 4
+(open), then the walk sections. The one thing still owed to the CEO's rule is
+inbox 273 (the ledger's all-or-nothing reversal on a partial void).
 
 - The walk log, one line per control pressed, in order:
   `scratchpad/walk-results.log` of this session (copied into
@@ -21,8 +27,14 @@ it up.
 On top of the 14 and 17 September notes:
 
 1. **Migrations**: `vent_event` 0049 (`Event.is_listed`), 0050 (`Ticket.promo`),
-   0051 (`VendorSlotPurchase.refunded_at`); `vent_tournament` 0053 (blanks every
-   run sheet name that was a copy of its owner's name). All additive.
+   0051 (`VendorSlotPurchase.refunded_at`), **0052** (`Ticket.refunded_at`,
+   `Ticket.refund_reference`); `vent_tournament` 0053 (blanks every run sheet
+   name that was a copy of its owner's name). All additive.
+0. **A cancel refunds everybody who paid** (section J): the admin's cancel, the
+   organiser's new `POST /event/<ref>/cancel/`, and the admin retry
+   `POST /auth/admin/events/<ref>/refunds/`. A guest's card is refunded through
+   `paystack.refund`, with the PAYSTACK_SECRET_KEY the box already has; a
+   refusal leaves the ticket live and named for the retry door.
 2. **Frontend dependency**: `jsqr` 1.4.0 (`pnpm add jsqr` done; lockfile updated).
    The VPS build needs `pnpm install --frozen-lockfile` before `pnpm build`.
 3. **A service worker now ships** at `/door-sw.js`, registered ONLY by the
