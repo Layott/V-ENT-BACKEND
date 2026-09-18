@@ -84,6 +84,7 @@ urlpatterns = [
     # Deleting an event, which had no path at all, and putting it back. Same
     # rules and the same refusals as the tournament twin.
     path("<str:event_id>/delete/", views_delete.delete_event, name="delete_event"),
+    path("<str:event_id>/cancel/", views_delete.cancel_event, name="cancel_event"),
     path("<str:event_id>/restore/", views_delete.restore_event, name="restore_event"),
 
     # Running a stall. Nothing on the site called ANY of the vendor endpoints

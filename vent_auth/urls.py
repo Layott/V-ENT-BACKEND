@@ -187,6 +187,8 @@ urlpatterns = [
          name="admin_event_sent"),
     path("admin/events/<str:event_ref>/state/", admin_events.admin_event_state,
          name="admin_event_state"),
+    path("admin/events/<str:event_ref>/refunds/", admin_events.admin_event_refunds,
+         name="admin_event_refunds"),
     path("admin/events/<str:event_ref>/", admin_events.admin_event_detail,
          name="admin_event_detail"),
     path("admin/games/", admin_games, name="admin_games"),

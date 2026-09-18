@@ -98,6 +98,53 @@ def delete_event(request, event_id):
 
 
 @api_view(['POST'])
+def cancel_event(request, event_id):
+    """POST /event/<ref>/cancel/ - the organiser calls it off, and everybody
+    who paid is refunded.
+
+    CEO, 18 September 2026: "if an event is cancelled then refunds must
+    happen." The delete refusal has said "Cancel the event first, which
+    refunds the holders" since it was written, and until today no cancel
+    door existed for the organiser and the admin's refunded nobody.
+
+    Same people as delete (the creator, the organisation's owner, an admin
+    with the override), a reason required, told to everybody. The event
+    stops selling and leaves the listing; its page keeps answering with the
+    notice. Delete afterwards if it should leave the organiser's list too.
+    """
+    user, err = actor_from_request(request)
+    if err:
+        return err
+
+    event = _find(event_id)
+    if event is None:
+        return _err('No such event.', 'EVENT_NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    if not _may_delete(user, event):
+        return _err('This is not your event to cancel.', 'NOT_YOURS',
+                    status.HTTP_403_FORBIDDEN)
+    if not event.is_active:
+        return _err('This event is already cancelled.', 'ALREADY_CANCELLED',
+                    status.HTTP_409_CONFLICT)
+    reason = str(request.data.get('reason') or '').strip()
+    if not reason:
+        return _err('Say why it is being cancelled; everybody holding a ticket is told.',
+                    'REASON_REQUIRED', status.HTTP_400_BAD_REQUEST)
+
+    event.is_active = False
+    event.save(update_fields=['is_active'])
+
+    from . import refunds
+    summary = refunds.refund_event(event, 'Event cancelled: %s' % reason[:120], by=user)
+
+    from vent_auth.views_admin_events import _tell_everybody_about_the_state
+    _tell_everybody_about_the_state(event, 'cancel', reason, user, summary)
+
+    return _ok({'event_id': event.pk, 'slug': event.slug, 'is_active': False,
+                'refunds': {k: v for k, v in summary.items() if k != 'outcomes'}},
+               'Event cancelled.')
+
+
+@api_view(['POST'])
 def restore_event(request, event_id):
     """POST /event/<ref>/restore/ - an admin puts it back."""
     user, err = actor_from_request(request)
