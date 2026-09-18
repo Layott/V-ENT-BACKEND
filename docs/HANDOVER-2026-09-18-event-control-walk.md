@@ -5,8 +5,9 @@ scanning). Branch `fix/event-walk-12-sept` in both repos; PRs BE #180 and FE #19
 stay open and take these commits. Nothing is deployed from this session.
 
 Written mid-walk, in the same turn as the work, and extended as sections land.
-State at the moment of writing: sections A to F walked and fixed, G to I open
-(named at the end). If this file and the walk log are all you have, you can pick
+State at the end of the second session: sections A to I DONE. 80 faults fixed,
+gates/41 MET 30 of 30, BE fd90f43d and FE aaab7a3 pushed to the branch, PR
+bodies updated. If this file and the walk log are all you have, you can pick
 it up.
 
 - The walk log, one line per control pressed, in order:
@@ -241,17 +242,30 @@ the tree the previous session left.
   targets) for the scanner; `emu-scan-3.png` (the door), `emu-scan-5.png` (the
   camera stream), `emu-scan-6.png` (offline duplicate, nothing serving).
 
-## 4. Open, in order
+## 4. Open, at the end of the second session
 
-- Section F rest: the influencer's view (`walk_influencer`, referrals and
-  payout), the attendees list (filters, search, check-in, export).
-- Section G: `walk_manager` console limits, `walk_door` limits, an org-run event
-  through OrganizationPicker, the admin events console as `walk_admin`, My events
-  DeleteControl (PAID_ENTRANTS refusal; soft delete on a throwaway).
-- Section H: every signed-in screen on the emulator.
-- Section I: full suites, `tools/check-all.py`, the security checker, the
-  one-press catcher, parity rows, inventory Result column, gates/41, inbox 269
-  done, memory, lessons, commit both repos, push, PR bodies #180 / #190.
+- **For the CEO (inbox 272):** an admin cancel does not refund paid tickets.
+  The organiser's own Delete refuses while PAID_ENTRANTS exist and the
+  tournament admin cancel refunds entry fees; events are the odd one out.
+  Whose wallet pays is a money rule, so the cancelled-event copy promises no
+  refund and nothing was improvised.
+- The admin events list's ORGANIZER column names the creator for an
+  organisation's event; the organisation is on the detail page. Noted, not
+  changed.
+- The security ledger's second batch (R62 to R86, added 17 September) reports
+  18 HIGH in the backend and 5+ in the frontend that predate this walk and
+  are baselined (discord auth and partner SSO reading identity from the body,
+  signup with no bot check, gallery uploads with no sniff, the admin token in
+  localStorage, HSTS/CSP on the dev server). Out of this walk's scope; they
+  are the next security pass.
+- `pnpm build` leaves an empty `.next-dev` beside `.next-dev-3005`
+  (`next.config` picks `.next-dev` when PORT is unset in development);
+  `check-stale-builds --clean` removes it and the pre-commit hook asks for
+  that every time a build has run. Worth a one-line fix in next.config.
+- Neither PR is merged. Merge FE #190 and BE #180 together: the frontend
+  reads `is_active`, `promo`, `answers` keys and `EVENT_CANCELLED` that only
+  this backend sends, and the backend's `X-Client-Timezone` middleware is
+  harmless without the header.
 
 ## 5. How to run it again
 
