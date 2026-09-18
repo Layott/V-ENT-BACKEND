@@ -291,6 +291,14 @@ PAIRS = [
         'the admin void', (BACKEND, 'vent_auth/views_admin_events.py', r'capacity_changed'),
         'the tier editor', (BACKEND, 'vent_event/views_tiers.py', r'capacity_changed'),
     ),
+    (
+        'the organiser can cancel, and cancelling refunds the people who paid',
+        'CEO, 18 September 2026: "if an event is cancelled then refunds must '
+        'happen." A tournament cancel refunded entry fees for weeks while an '
+        'event had no organiser cancel at all and the admin cancel refunded nobody.',
+        'event', (BACKEND, 'vent_event/views_delete.py', r'def cancel_event[\s\S]*refund_event'),
+        'tournament', (BACKEND, 'vent_tournament/views_bracket.py', r'def cancel_tournament[\s\S]*tx_type=.refund.'),
+    ),
 ]
 
 

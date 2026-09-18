@@ -110,3 +110,33 @@ def initialize(payload, timeout=10):
         log.warning('paystack refused an initialize: %s', body.get('message'))
         raise Refused(body.get('message'))
     return body.get('data') or {}
+
+
+def refund(reference, amount_ngn, timeout=10):
+    """POST /refund: send part or all of a card payment back to the card.
+
+    `reference` is the payment's own reference (the one a guest ticket
+    carries in `payment_reference`); `amount_ngn` is what to send back, in
+    naira, and Paystack takes it in kobo. A payment can be refunded in
+    parts, one per ticket, up to what was charged. Paystack answers with a
+    refund record whose status starts as pending; the money reaches the
+    card in its own time. Raises Unreachable / Refused like initialize.
+    """
+    import logging
+
+    import requests as http_requests
+
+    log = logging.getLogger(__name__)
+    payload = {'transaction': reference,
+               'amount': int(round(float(amount_ngn) * 100))}
+    try:
+        res = http_requests.post('%s/refund' % BASE, json=payload,
+                                 headers=headers(), timeout=timeout)
+        body = res.json()
+    except Exception as exc:                                  # noqa: BLE001
+        log.exception('paystack refund failed for %s', reference)
+        raise Unreachable(str(exc))
+    if not body.get('status'):
+        log.warning('paystack refused a refund of %s: %s', reference, body.get('message'))
+        raise Refused(body.get('message'))
+    return body.get('data') or {}

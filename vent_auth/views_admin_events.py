@@ -91,6 +91,11 @@ def _person(user):
     return row
 
 
+def _refunds_owed(event):
+    from vent_event import refunds
+    return refunds.still_owed(event)
+
+
 def _record(admin, action, target_id, reason='', **metadata):
     AdminAction.objects.create(
         admin=admin, action_type=action, target_model='Event',
@@ -151,9 +156,33 @@ def admin_event_detail(request, event_ref):
 
     managers = [
         {'role': m.role, 'added_at': m.created_at,
-         'user': _person(m.user), 'added_by': _person(m.added_by)}
+         'user': _person(m.user), 'added_by': _person(m.added_by), 'through': None}
         for m in EventManager.objects.select_related('user', 'added_by').filter(event=event)
     ]
+    # The organisation's own people run it too (permissions.py, 4 September
+    # 2026): its owner, its admins and its events managers reach every door
+    # with no per-event row. The console said "the organiser runs this one
+    # alone" on an event with three of them (18 September).
+    if event.organization_id:
+        from .models import OrgMember
+        org = event.organization
+        seen = {m['user']['user_id'] for m in managers if m.get('user')}
+        if org.org_owner_id and org.org_owner_id != event.creator_id and org.org_owner_id not in seen:
+            managers.append({'role': 'org_owner', 'added_at': None,
+                             'user': _person(org.org_owner), 'added_by': None,
+                             'through': org.org_name})
+            seen.add(org.org_owner_id)
+        rows = (OrgMember.objects.select_related('user').filter(org=org)
+                .filter(Q(role=OrgMember.ROLE_ADMIN) | Q(role=OrgMember.ROLE_MANAGER)))
+        for row in rows:
+            if row.user_id in seen or row.user_id == event.creator_id:
+                continue
+            if row.role == OrgMember.ROLE_MANAGER and OrgMember.SCOPE_EVENTS not in (row.scopes or []):
+                continue
+            managers.append({'role': 'org_admin' if row.role == OrgMember.ROLE_ADMIN else 'org_events',
+                             'added_at': row.joined_at, 'user': _person(row.user),
+                             'added_by': None, 'through': org.org_name})
+            seen.add(row.user_id)
 
     return _ok({
         'event': {
@@ -178,6 +207,9 @@ def admin_event_detail(request, event_ref):
             'capacity': event.capacity,
             'revenue_vc': counts['revenue_vc'] or 0,
             'revenue_ngn': str(counts['revenue_ngn'] or 0),
+            # Live paid tickets on a cancelled event: what a card network
+            # refused the first time, for the retry door. 0 on a live event.
+            'refunds_owed': 0 if event.is_active else _refunds_owed(event),
         },
         'tiers': tiers,
         'managers': managers,
@@ -232,31 +264,98 @@ def admin_event_state(request, event_ref):
     event.save(update_fields=['is_active'])
     _record(admin, log_name, event.event_id, reason,
             event_name=event.name, slug=event.slug)
+
+    # "If an event is cancelled then refunds must happen" (CEO, 18 September
+    # 2026). Every live ticket: coins back to the wallet that paid, a
+    # Paystack refund for a guest's card, a free one cancelled. A gateway
+    # refusal leaves that ticket live and named in `failed`; the retry door
+    # below asks again. The refunds run AFTER the state is saved, so a
+    # cancelled event never sells while they run.
+    refunds_summary = None
+    if action == 'cancel':
+        from vent_event import refunds
+        refunds_summary = refunds.refund_event(
+            event, 'Event cancelled: %s' % reason, by=admin)
+        _record(admin, 'refund_event', event.event_id, reason,
+                event_name=event.name, slug=event.slug,
+                refunded=refunds_summary['refunded'],
+                coins=refunds_summary['coins'], ngn=refunds_summary['ngn'],
+                failed=refunds_summary['failed'])
+
     # The organiser and everybody holding a ticket are told. Until
     # 18 September only the audit log was, and a ticket holder found out
     # from a page that answered 404. Fire-and-forget: a mail server being
     # down must not undo the cancellation.
-    _tell_everybody_about_the_state(event, action, reason, admin)
+    _tell_everybody_about_the_state(event, action, reason, admin, refunds_summary)
 
-    return _ok({'event': {'id': event.event_id, 'slug': event.slug,
-                          'is_active': event.is_active}},
-               'Event updated.')
+    data = {'event': {'id': event.event_id, 'slug': event.slug,
+                      'is_active': event.is_active}}
+    if refunds_summary is not None:
+        data['refunds'] = {k: v for k, v in refunds_summary.items() if k != 'outcomes'}
+    return _ok(data, 'Event updated.')
 
 
-def _tell_everybody_about_the_state(event, action, reason, admin):
+@api_view(['POST'])
+@admin_role_required(CANCEL_ROLES)
+def admin_event_refunds(request, event_ref):
+    """POST /auth/admin/events/<ref>/refunds/ - refund whatever is still live
+    on a cancelled event.
+
+    The cancel refunds everybody it can; a card network that refused or
+    did not answer leaves that ticket live and named. This asks again, and
+    only about what is still live, so it is safe to press until the list
+    is empty. Refused on an event that is not cancelled: a refund on a
+    live event is a different decision with a different door.
+    """
+    admin = request.admin_user
+    event = _event(event_ref)
+    if event is None:
+        return _err('No event with that address.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    if event.is_active:
+        return _err('This event is not cancelled. Cancel it, and the refunds follow.',
+                    'NOT_CANCELLED', status.HTTP_409_CONFLICT)
+    reason = (request.data.get('reason') or '').strip() or 'Event cancelled'
+    from vent_event import refunds
+    summary = refunds.refund_event(event, reason, by=admin)
+    _record(admin, 'refund_event', event.event_id, reason,
+            event_name=event.name, slug=event.slug,
+            refunded=summary['refunded'], coins=summary['coins'],
+            ngn=summary['ngn'], failed=summary['failed'])
+    return _ok({'refunds': {k: v for k, v in summary.items() if k != 'outcomes'},
+                'still_owed': refunds.still_owed(event)},
+               'Refunds run.')
+
+
+def _tell_everybody_about_the_state(event, action, reason, admin, refunds_summary=None):
     from vent_event.models import Ticket
     from .views_notifications import create_notification
     from . import emails
 
     link = '/events/%s' % event.slug
     if action == 'cancel':
-        organiser_title = '%s was cancelled by V-ENT' % event.name
-        organiser_body = ('%s cancelled it. Reason: %s. It stops selling and '
-                          'leaves the listing; its page keeps answering.'
-                          % (admin.username, reason))
+        money = ''
+        if refunds_summary:
+            money = (' %s paid tickets were refunded (%s VC to wallets, card payments '
+                     'through Paystack).' % (refunds_summary['refunded'], refunds_summary['coins']))
+            if refunds_summary['failed']:
+                money += (' %d card refunds were refused by the gateway and are being '
+                          'retried.' % len(refunds_summary['failed']))
+        # The organiser cancelling their own event is told what came back;
+        # an admin cancelling it is named.
+        if admin is not None and admin.user_id == event.creator_id:
+            organiser_title = 'You cancelled %s' % event.name
+            organiser_body = ('It stops selling and leaves the listing; its page '
+                              'keeps answering with the notice.%s' % money)
+        else:
+            organiser_title = '%s was cancelled by V-ENT' % event.name
+            organiser_body = ('%s cancelled it. Reason: %s. It stops selling and '
+                              'leaves the listing; its page keeps answering.%s'
+                              % (admin.username, reason, money))
         holder_title = '%s was cancelled' % event.name
         holder_body = ('The event you hold a ticket for was cancelled. '
-                       'Reason: %s. Your ticket no longer admits anybody.'
+                       'Reason: %s. Your ticket no longer admits anybody. What you '
+                       'paid is on its way back: to your wallet if you paid from it, '
+                       'or to your card through Paystack within a few days.'
                        % reason)
     else:
         organiser_title = '%s is back on' % event.name
@@ -272,8 +371,15 @@ def _tell_everybody_about_the_state(event, action, reason, admin):
     except Exception:                                   # noqa: BLE001
         logger.exception('could not tell the organiser of %s', event.slug)
 
-    live = (Ticket.objects.filter(event=event, status__in=('valid', 'checked_in'))
-            .select_related('user'))
+    # On a cancel the refunds have already moved every live ticket to
+    # refunded or cancelled, so the people to tell are the ones whose
+    # ticket moved today; on a restore, the ones whose ticket is live again.
+    if action == 'cancel':
+        holders = Ticket.objects.filter(event=event).filter(
+            Q(status__in=('valid', 'checked_in')) | Q(refunded_at__isnull=False))
+    else:
+        holders = Ticket.objects.filter(event=event, status__in=('valid', 'checked_in'))
+    live = holders.select_related('user')
     told = set()
     for ticket in live:
         try:
@@ -469,8 +575,7 @@ def _tell_the_holder(ticket, action, reason):
     event = ticket.event
     if action == 'void':
         title = 'Your ticket for %s was voided' % event.name
-        body = ('Ticket %s no longer admits anybody. Reason: %s. '
-                'If you paid for it, the money has been returned.'
+        body = ('Ticket %s no longer admits anybody. Reason: %s.'
                 % (ticket.code, reason or 'not given'))
     else:
         title = 'Your ticket for %s is valid again' % event.name

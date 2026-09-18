@@ -861,6 +861,13 @@ class Ticket(models.Model):
     # The promo code this ticket was bought with, so the price on the row
     # can be explained and the code's "uses" are counted from the tickets
     # themselves. Nothing wrote a code at purchase until 18 September 2026.
+    # Where the money went when this ticket was refunded. An event that is
+    # cancelled refunds every live paid ticket (CEO, 18 September 2026):
+    # coins back to the buyer's wallet, or a Paystack refund against the
+    # card payment's reference for a guest. "Where did the money go" is
+    # the question support gets, so it is on the row.
+    refunded_at = models.DateTimeField(null=True, blank=True)
+    refund_reference = models.CharField(max_length=64, blank=True, default='')
     promo = models.ForeignKey('EventPromo', on_delete=models.SET_NULL,
                               null=True, blank=True, related_name='tickets')
     purchased_at = models.DateTimeField(auto_now_add=True)

@@ -217,6 +217,38 @@ not a status; it traded only because nothing read the status until the
 approval door (B-16) started deciding. Now `approved`. 19 tests were red on
 the tree the previous session left.
 
+### J. "If an event is cancelled then refunds must happen" (CEO, 18 September, row 272)
+
+Decided by the CEO the same afternoon, answering the open question. Built at
+the model: `vent_event/refunds.py`, one function per ticket and one per event,
+called by every cancel path. A refund is: the ticket's own price plus (once
+per purchase, on the ticket that carries the purchase's ledger line) the fee
+the buyer bore; the ledger reversed (a settled organiser carries the debt on
+their next payout); coins to the wallet that PAID (the original buyer of a
+given-away ticket, not the friend holding it); a guest's card refunded through
+`paystack.refund` against the payment reference, in naira; a free ticket
+cancelled; the tier's sold count down; `Ticket.refunded_at` and
+`refund_reference` say where it went (migration **0052**).
+
+Three doors: the admin's cancel now refunds and answers with the summary; the
+organiser has a cancel door of their own, `POST /event/<ref>/cancel/` (the
+delete refusal has said "cancel the event first, which refunds the holders"
+since it was written, and no such door existed), with a Cancel control on My
+events (reason, two presses, the summary on the card); and a retry door,
+`POST /auth/admin/events/<ref>/refunds/`, for whatever a card network refused
+the first time ("Run the refunds again" on the console, with the count still
+owed). A gateway refusal never undoes the cancellation: the ticket stays live
+and named. Everybody is told what came back; the public notice says so.
+`tests_cancel_refunds.py` 14 (wallet, ledger, free, given away, card through
+Paystack, a refusal and the retry, twice refunds nobody twice, who is told,
+the organiser's door, a manager refused, delete after cancel).
+
+Found on the way and fixed: my void copy promised money that never moved
+(removed); "Who runs it" on the admin console ignored the organisation's
+people. Found and NOT fixed (row 273): voiding ONE ticket of a multi-ticket
+purchase reverses the ledger all or nothing, because a purchase's lines are
+attached to its first ticket. A partial reversal belongs in the ledger.
+
 ## 2. Classes, and what holds them now
 
 | Class, seen more than once today | Held by |
@@ -244,7 +276,7 @@ the tree the previous session left.
 
 ## 4. Open, at the end of the second session
 
-- **For the CEO (inbox 272):** an admin cancel does not refund paid tickets.
+- ~~For the CEO (inbox 272): an admin cancel does not refund paid tickets.~~ Decided and built the same afternoon (section J).
   The organiser's own Delete refuses while PAID_ENTRANTS exist and the
   tournament admin cancel refunds entry fees; events are the odd one out.
   Whose wallet pays is a money rule, so the cancelled-event copy promises no

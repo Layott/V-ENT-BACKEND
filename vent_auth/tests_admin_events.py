@@ -155,6 +155,27 @@ class EventStateTests(AdminEventBase):
         self.assertEqual(row.reason, 'Venue pulled out')
         self.assertEqual(row.target_id, str(self.event.event_id))
 
+    def test_who_runs_it_names_the_organisations_people(self):
+        # The panel read EventManager rows only and said "the organiser runs
+        # this one alone" on an event with an org owner, an admin and an
+        # events manager reaching every door (18 September).
+        from vent_auth.models import Organization, OrgMember
+        owner, _ = a_user('ae_orgowner')
+        events_mgr, _ = a_user('ae_orgevents')
+        teams_mgr, _ = a_user('ae_orgteams')
+        org = Organization.objects.create(org_name='AE Org %s' % uuid.uuid4().hex[:4],
+                                          org_owner=owner, org_creator=owner)
+        OrgMember.objects.create(org=org, user=events_mgr, role='manager', scopes=['events'])
+        OrgMember.objects.create(org=org, user=teams_mgr, role='manager', scopes=['teams'])
+        self.event.organization = org
+        self.event.save(update_fields=['organization'])
+        managers = self._get('/auth/admin/events/%s/' % self.event.slug).json()['data']['managers']
+        by_name = {m['user']['username']: m for m in managers}
+        self.assertEqual(by_name[owner.username]['role'], 'org_owner')
+        self.assertEqual(by_name[events_mgr.username]['role'], 'org_events')
+        self.assertEqual(by_name[events_mgr.username]['through'], org.org_name)
+        self.assertNotIn(teams_mgr.username, by_name)
+
     def test_a_cancel_tells_the_organiser_and_every_ticket_holder(self):
         # Until 18 September only the audit log knew, and a holder found
         # out from a page that answered 404.

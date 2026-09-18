@@ -68,6 +68,7 @@ def fill(route, ref):
 CREATOR_ONLY = {
     ('<str:event_id>/delete/', 'post'),
     ('<str:event_id>/restore/', 'post'),
+    ('<str:event_id>/cancel/', 'post'),
     ('<str:event_id>/managers/', 'post'),
     ('<str:event_id>/managers/<int:manager_id>/', 'delete'),
 }
@@ -161,7 +162,7 @@ class ManagerEveryDoorTests(TestCase):
                 # Deleting the fixture mid-walk would make every door after it
                 # answer 404 for the right reason; those two are walked last,
                 # by hand, in their own test.
-                if route.rstrip('/').endswith(('delete', 'restore')):
+                if route.rstrip('/').endswith(('delete', 'restore', 'cancel')):
                     continue
                 # The first EventManager row in a fresh database is id 1,
                 # which is the manager fixture: the creator's DELETE here
@@ -213,6 +214,10 @@ class ManagerEveryDoorTests(TestCase):
         self.assertEqual(res.status_code, 403, res.content)
         res = self.client.post(fill('<str:event_id>/delete/', self.event.slug),
                                data={}, content_type='application/json',
+                               **self.manager_auth)
+        self.assertEqual(res.status_code, 403, res.content)
+        res = self.client.post(fill('<str:event_id>/cancel/', self.event.slug),
+                               data={'reason': 'x'}, content_type='application/json',
                                **self.manager_auth)
         self.assertEqual(res.status_code, 403, res.content)
         row = EventManager.objects.get(event=self.event, user=self.door)
