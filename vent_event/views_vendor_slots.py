@@ -67,9 +67,12 @@ def _slot_row(slot, viewer=None):
         # Whether the person reading this already holds one. Without it the
         # page offers Buy to somebody who cannot buy again, and the refusal
         # arrives after they have entered their PIN.
+        # A stall turned down (and refunded) is not one they have: the same
+        # rule the purchase applies, or the page says "You have one of
+        # these" over a Buy button that would work (18 September 2026).
         'already_mine': bool(
             viewer and VendorSlotPurchase.objects.filter(
-                slot=slot, buyer=viewer).exists()),
+                slot=slot, buyer=viewer).exclude(vendor__status='closed').exists()),
     }
 
 
@@ -252,7 +255,10 @@ def buy_slot(request, event_id, slot_id):
             return _error(f'{slot.name} is sold out.', 'SOLD_OUT',
                           status.HTTP_409_CONFLICT)
 
-        if VendorSlotPurchase.objects.filter(slot__event=event, buyer=user).exists():
+        # A stall that was turned down or closed does not count: the person
+        # can buy another pitch. Without this a rejection was permanent.
+        if VendorSlotPurchase.objects.filter(slot__event=event, buyer=user).exclude(
+                vendor__status='closed').exists():
             return _error('You already have a stall at this event.',
                           'ALREADY_A_VENDOR', status.HTTP_409_CONFLICT)
 

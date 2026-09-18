@@ -25,7 +25,6 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from vent_auth.models import Users
-from vent_tournament.models import Tournament
 
 from . import formations as formation_catalogue
 from . import windows
@@ -51,11 +50,9 @@ def _viewer(request):
 
 
 def _tournament(key):
-    if str(key).isdigit():
-        found = Tournament.objects.filter(tournament_id=int(key)).first()
-        if found:
-            return found
-    return Tournament.objects.filter(slug=str(key)).first()
+    # The tournament app's own resolver, which reads the slug history.
+    from vent_tournament.lookup import find
+    return find(key)
 
 
 def slugify_name(name):

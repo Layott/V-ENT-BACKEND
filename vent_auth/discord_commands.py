@@ -250,8 +250,8 @@ def _event(term):
     if len(term) < 2:
         return reply('Give me at least two characters to search for.')
 
-    rows = Event.objects.filter(name__icontains=term,
-                                is_active=True).order_by('-event_date')[:5]
+    rows = Event.objects.filter(name__icontains=term, is_active=True,
+                                is_listed=True).order_by('-event_date')[:5]
     if not rows:
         return reply(f'Nothing called "{term}".')
 

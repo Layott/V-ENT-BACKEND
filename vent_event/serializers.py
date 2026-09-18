@@ -43,7 +43,14 @@ def absolute_media_url(request, file_field, fallback_url=None):
 
 
 def event_status(event):
-    """Derive lifecycle status from the canonical start/end datetimes."""
+    """Derive lifecycle status from the canonical start/end datetimes.
+
+    A cancelled event is cancelled whatever the calendar says. The admin
+    console cancels by clearing `is_active`, and until 18 September 2026
+    every reader of that flag treated the event as one that never existed.
+    """
+    if not event.is_active:
+        return 'cancelled'
     now = timezone.now()
     start = event.start_date
     end = event.end_date
@@ -140,6 +147,11 @@ def serialize_event_card(request, event):
         'self_check_in_opens_minutes': event.self_check_in_opens_minutes,
         'entry_fee': str(event.entry_fee) if event.entry_fee is not None else '0',
         'capacity': event.capacity,
+        'is_listed': event.is_listed,
+        # False means cancelled. The page draws the notice from it and the
+        # structured data answers EventCancelled, which it was written to do
+        # and had never been handed the field for.
+        'is_active': event.is_active,
         'banner': _banner(request, event),
         'banner_image': _banner(request, event),
         'logo': absolute_media_url(request, event.logo),

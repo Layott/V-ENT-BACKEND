@@ -157,6 +157,27 @@ class HoldTests(TestCase):
         # their own and then having to explain the revenue.
         self.assertTrue(all(t.price_vc == 0 for t in tickets))
 
+    def test_a_line_with_an_address_gives_the_ticket_to_that_person(self):
+        """"Ada Obi <ada@x.com>" used to become a ticket NAMED that, held
+        by the organiser, with no mail and nothing said."""
+        guest, _ = a_user('hold_guest')
+        hold_id = self.hold(tier=self.tier.id, quantity=5).json()['data']['hold']['id']
+        res = self.client.post(
+            self.url('%s/issue/' % hold_id),
+            data={'names': ['Ada Obi <%s>' % guest.email,
+                            'Bola Ade bola@example.com',
+                            'Just A Name']},
+            content_type='application/json', **self.auth)
+        self.assertEqual(res.status_code, 201, res.content)
+        by_name = {t.attendee_name: t for t in Ticket.objects.filter(event=self.event)}
+        self.assertEqual(set(by_name), {'Ada Obi', 'Bola Ade', 'Just A Name'})
+        self.assertEqual(by_name['Ada Obi'].attendee_email, guest.email)
+        self.assertEqual(by_name['Ada Obi'].user, guest)
+        self.assertEqual(by_name['Bola Ade'].attendee_email, 'bola@example.com')
+        self.assertEqual(by_name['Bola Ade'].user, self.organiser)
+        self.assertEqual(by_name['Just A Name'].attendee_email, '')
+        self.assertEqual(by_name['Just A Name'].user, self.organiser)
+
     def test_issuing_more_than_is_held_is_refused(self):
         hold_id = self.hold(quantity=2).json()['data']['hold']['id']
         res = self.client.post(

@@ -33,6 +33,7 @@ from vent_auth import premium
 
 from . import documents
 from .models import Tournament, TournamentInvite, TournamentRegistration
+from vent_auth.text import count as _count
 
 # No I, O, 0 or 1. These get read off a phone screen and typed by somebody in a
 # hurry, and those four are the pairs that get mistyped.
@@ -82,9 +83,11 @@ def _tournament(ref):
             return found
     except Exception:
         pass
-    if str(ref).isdigit():
-        return Tournament.objects.filter(pk=int(ref)).first()
-    return Tournament.objects.filter(slug=ref).first()
+    from .lookup import find
+
+    # One resolver, in lookup.py, which reads the slug history; this copy
+    # did not (18 September 2026).
+    return find(ref)
 
 
 def _organiser(request, tournament):
@@ -208,7 +211,7 @@ def invites(request, tournament_id):
     return _ok({'invites': [_invite_row(i, base) for i in made],
                 'made': len(made),
                 'total': TournamentInvite.objects.filter(tournament=tournament).count()},
-               '%s code(s) ready.' % len(made), status.HTTP_201_CREATED)
+               '%s ready.' % _count(len(made), 'code'), status.HTTP_201_CREATED)
 
 
 @api_view(['GET'])
@@ -249,7 +252,7 @@ def invites_download(request, tournament_id):
     header = ['Code', 'Label', 'Uses allowed', 'Uses taken', 'Spent']
     table = [[i.code, i.label, i.max_uses, i.used_count,
               'yes' if i.spent else 'no'] for i in rows]
-    note = '%d code(s). Each one lets its holder register.' % len(rows)
+    note = '%s. Each one lets its holder register.' % _count(len(rows), 'code')
 
     if wanted == 'txt':
         # One per line and nothing else, because the usual next step is pasting

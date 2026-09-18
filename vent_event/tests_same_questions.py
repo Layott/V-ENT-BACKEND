@@ -90,6 +90,9 @@ class SameQuestionsBothWaysTests(TestCase):
         # Which field, so the form can point at it rather than making somebody
         # hunt the page for what they missed.
         self.assertEqual(body['field'], self.size.id)
+        # And its label, so the screen can say "Shirt size is needed" in the
+        # reader's language rather than "something is missing".
+        self.assertEqual(body['data']['label'], self.size.label)
 
     def test_a_refusal_costs_nothing(self):
         # Refused before the wallet moves. Refusing after it would mean a

@@ -16,7 +16,7 @@ from datetime import timedelta
 from django.test import TestCase
 from django.utils import timezone
 
-from vent_auth.models import AdminAction, Games, Users
+from vent_auth.models import AdminAction, Games, Notification, Users
 
 from .models import Tournament
 
@@ -86,6 +86,16 @@ class AdminOverrideTests(TestCase):
         self.assertIn('tournament_title', entry.metadata['updated_fields'])
         self.assertEqual(entry.metadata['owner_id'], self.owner.pk)
         self.assertIn('unreachable', entry.reason)
+
+    def test_an_admin_edit_tells_the_organiser(self):
+        # The console's Edit control promises it, and until 18 September
+        # only the audit log knew.
+        self._edit(self.admin_auth, tournament_title='Changed')
+        note = Notification.objects.filter(user=self.owner).order_by('-pk').first()
+        self.assertIsNotNone(note)
+        self.assertIn('admin changed', note.title)
+        self.assertIn('tournament_title', note.body)
+        self.assertIn(self.admin.username, note.body)
 
     def test_the_owner_editing_their_own_is_not_an_admin_action(self):
         self._edit(self.owner_auth, tournament_title='Mine')

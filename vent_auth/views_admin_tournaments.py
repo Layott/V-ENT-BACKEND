@@ -68,12 +68,10 @@ def _err(message, code, http=status.HTTP_400_BAD_REQUEST, extra=None):
 def _tournament(ref):
     """By slug first, by id for anything older. Slugs everywhere, ids nowhere
     that a person can see, but an API path may still carry one."""
-    from vent_tournament.models import Tournament
+    from vent_tournament.lookup import find
 
-    row = Tournament.objects.filter(slug=str(ref)).first()
-    if row is None and str(ref).isdigit():
-        row = Tournament.objects.filter(tournament_id=int(ref)).first()
-    return row
+    # The tournament app's own resolver, which reads the slug history.
+    return find(ref)
 
 
 @api_view(['GET'])

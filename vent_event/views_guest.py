@@ -51,8 +51,21 @@ def _err(message, code, http_status=status.HTTP_400_BAD_REQUEST, field=None,
 
 
 def _event(event_id):
+    # The same door as the signed-in checkout: a cancelled event is refused
+    # by name there, and here it reads as missing. The caller answers the
+    # NOT_FOUND; `_cancelled` below is asked first.
     from .views import _event_by_ref
     return _event_by_ref(event_id, is_active=True)
+
+
+def _cancelled(event_id):
+    """The refusal for a cancelled event, or None when it is live or gone."""
+    from .views import _event_by_ref
+    event = _event_by_ref(event_id)
+    if event is not None and not event.is_active:
+        return _err('This event was cancelled.', 'EVENT_CANCELLED',
+                    status.HTTP_409_CONFLICT)
+    return None
 
 
 def _referral_from(request, event):
@@ -89,7 +102,7 @@ def checkout_fields(request, event_id):
     """
     event = _event(event_id)
     if event is None:
-        return _err('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+        return _cancelled(event_id) or _err('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
     return _ok({
         'fields': [
@@ -163,8 +176,10 @@ def _validate_order(event, request):
             for i in range(quantity)
         ]
     except checkout.CheckoutError as exc:
-        return None, None, None, None, _err(str(exc), 'FIELD_REQUIRED',
-                                            field=getattr(exc, 'field', None))
+        return None, None, None, None, _err(
+            str(exc), getattr(exc, 'code', None) or 'FIELD_REQUIRED',
+            field=getattr(exc, 'field', None),
+            data={'label': getattr(exc, 'label', None) or ''})
 
     return tier, quantity, email, (order_answers, per_person, attendees), None
 
@@ -205,23 +220,25 @@ def _email_limit_or_error(event, email, quantity, tier=None):
         ('event', False): 'EMAIL_LIMIT',
     }
 
+    # No noun after a number, so the sentence is finished whatever the
+    # number is ("ticket(s)" was a sentence nobody finished writing).
     if scope == 'tier':
         message = (
-            'That email address already has %s %s ticket(s), and the organiser '
-            'allows %s.' % (already, name, limit) if held else
-            'The organiser allows %s %s ticket(s) per email address.'
-            % (limit, name))
+            'That email address already holds %s of %s; the organiser\'s limit '
+            'is %s per address.' % (already, name, limit) if held else
+            'The organiser\'s limit for %s is %s per email address.'
+            % (name, limit))
     elif scope == 'day':
         message = (
-            'That email address already has %s ticket(s) for %s, and the '
-            'organiser allows %s that day.' % (already, name, limit) if held else
-            'The organiser allows %s ticket(s) per email address on %s.'
-            % (limit, name))
+            'That email address already holds %s for %s; the organiser\'s limit '
+            'that day is %s.' % (already, name, limit) if held else
+            'The organiser\'s limit on %s is %s per email address.'
+            % (name, limit))
     else:
         message = (
-            'That email address already has %s ticket(s) for this event, and '
-            'the organiser allows %s.' % (already, limit) if held else
-            'The organiser allows %s ticket(s) per email address.' % limit)
+            'That email address already holds %s for this event; the '
+            'organiser\'s limit is %s.' % (already, limit) if held else
+            'The organiser\'s limit is %s per email address.' % limit)
 
     return _err(message, codes[(scope, held)], status.HTTP_409_CONFLICT,
                 field='email',
@@ -235,7 +252,7 @@ def _room_or_error(event, tier, quantity):
         return _err('%s is sold out.' % tier.name, 'SOLD_OUT',
                     status.HTTP_409_CONFLICT)
     if quantity > remaining:
-        return _err('Only %s %s ticket(s) left.' % (remaining, tier.name),
+        return _err('Only %s left of %s.' % (remaining, tier.name),
                     'INSUFFICIENT_STOCK', status.HTTP_409_CONFLICT)
 
     # On the day this type admits, not across the whole engagement. A venue
@@ -247,7 +264,14 @@ def _room_or_error(event, tier, quantity):
         return _err('This event is sold out.', 'EVENT_FULL',
                     status.HTTP_409_CONFLICT)
     if room is not None and quantity > room:
-        return _err('Only %s ticket(s) left for this event.' % room,
+        return _err('Only %s left for this event.' % room,
+                    'EVENT_FULL', status.HTTP_409_CONFLICT)
+    # The seats live waitlist offers are holding for other people. A guest
+    # holds no offer, so every one of them counts.
+    sellable = availability.available(tier)
+    if quantity > sellable:
+        return _err('This event is sold out.' if sellable <= 0
+                    else 'Only %s left for this event.' % sellable,
                     'EVENT_FULL', status.HTTP_409_CONFLICT)
     return None
 
@@ -269,7 +293,7 @@ def _buyer(request):
 
 
 def _issue(event, tier, quantity, email, answers, unit_ngn, unit_vc, reference='',
-           referral=None, buyer=None):
+           referral=None, buyer=None, promo=None):
     """Turn a paid-for or free order into tickets."""
     from .views_tickets import _new_code
 
@@ -282,7 +306,7 @@ def _issue(event, tier, quantity, email, answers, unit_ngn, unit_vc, reference='
             tickets.append(Ticket.objects.create(
                 event=event, tier=tier, user=buyer,
                 code=_new_code(),
-                price_vc=unit_vc, price_ngn=unit_ngn,
+                price_vc=unit_vc, price_ngn=unit_ngn, promo=promo,
                 attendee_name=str(who.get('name') or '').strip()[:120],
                 attendee_email=str(who.get('email') or email).strip()[:254],
                 attendee_phone=(str(who.get('phone') or '').strip()[:40]
@@ -294,15 +318,20 @@ def _issue(event, tier, quantity, email, answers, unit_ngn, unit_vc, reference='
         # Inside the same transaction as the issue, so an influencer link is
         # credited if and only if the tickets it is being credited for exist.
         from . import referrals as _refs
+        if referral is None and promo is not None and promo.referral_id:
+            referral = _refs.resolve(event, promo.referral.code)
         _refs.attribute(tickets, referral)
+        from . import promos as _promos
+        _promos.redeem(promo, quantity)
 
         # Who is owed what. Written HERE rather than in each caller: a guest
         # buys a free ticket down one path and a paid one down another, and a
         # ledger built on one of them is the same feature built for half the
-        # product. Both surfaces, one job.
+        # product. Both surfaces, one job. Priced WITH the promo, because the
+        # organiser is owed what was paid, not the list price.
         from . import ledger as _ledger
         _ledger.record_sale(event, tickets,
-                            _ledger.quote(tier, quantity, event),
+                            _ledger.quote(tier, quantity, event, channel='naira', promo=promo),
                             referral=referral)
     return tickets
 
@@ -328,7 +357,7 @@ def guest_buy(request, event_id):
     """
     event = _event(event_id)
     if event is None:
-        return _err('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+        return _cancelled(event_id) or _err('Event not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
     now = timezone.now()
     if event.end_date and now > event.end_date:
@@ -353,12 +382,23 @@ def guest_buy(request, event_id):
     if err:
         return err
 
+    # A promo code the guest typed. Refused with its reason: they typed it
+    # on purpose, and a full-price charge in silence is the wrong answer.
+    from . import promos as _promos
+    promo = None
+    promo_code = str(request.data.get('promo') or '').strip()
+    if promo_code:
+        promo, promo_error = _promos.resolve(event, promo_code, tier, quantity)
+        if promo is None:
+            return _err('That promo code cannot be used on this purchase.',
+                        promo_error, field='promo')
+
     from . import ledger as _ledger
     # A naira checkout: with the fee on the buyer it is IN the amount the
     # card is charged, exact, not reconciled afterwards. A guest has no wallet
     # to take it from later, and a fee collected from nowhere is a fee nobody
     # paid. The quote knows the channel and puts the fee where it can go.
-    priced = _ledger.quote(tier, quantity, event, channel='naira')
+    priced = _ledger.quote(tier, quantity, event, channel='naira', promo=promo)
     unit_ngn = priced['unit_ngn']
     unit_vc = priced['unit_vc']
     fee_ngn = priced['buyer_fee_ngn']
@@ -386,7 +426,8 @@ def guest_buy(request, event_id):
                 return err
             tickets = _issue(event, tier, quantity, email, answers, unit_ngn, unit_vc,
                              buyer=_buyer(request),
-                             referral=_referral_from(request, event))
+                             referral=_referral_from(request, event),
+                             promo=promo)
         _send_them(tickets)
         return _ok({
             'tickets': [_ticket_row(t) for t in tickets],
@@ -423,22 +464,28 @@ def guest_buy(request, event_id):
             # the link is the whole reason that sale exists.
             'ref': (_referral_from(request, event).code
                     if _referral_from(request, event) else ''),
+            # The promo code, for the same reason: the card was charged the
+            # discounted price, so the tickets are issued at it.
+            'promo': promo.code if promo is not None else '',
         },
     }
 
+    # One initialize for every door. This copy called raise_for_status and
+    # threw Paystack's reason away, so an address it would not take read as
+    # "the gateway could not be reached" (18 September 2026).
     try:
-        response = http_requests.post(
-            '%s/transaction/initialize' % PAYSTACK_BASE,
-            json=payload, headers=_paystack_headers(), timeout=10)
-        response.raise_for_status()
-        body = response.json()
-    except http_requests.RequestException as exc:
-        return _err('The payment gateway could not be reached: %s' % exc,
-                    'PAYMENT_GATEWAY', status.HTTP_502_BAD_GATEWAY)
-
-    if not body.get('status'):
-        return _err(body.get('message') or 'The payment could not be started.',
-                    'PAYMENT_GATEWAY', status.HTTP_502_BAD_GATEWAY)
+        body = {'data': paystack.initialize(payload)}
+    except paystack.Unreachable:
+        return _err('The payment gateway did not answer. Nothing was charged.',
+                    'GATEWAY_ERROR', status.HTTP_502_BAD_GATEWAY)
+    except paystack.Refused as exc:
+        if exc.about_the_email:
+            return _err('That does not look like an email address the card '
+                        'gateway will accept.', 'EMAIL_INVALID',
+                        status.HTTP_400_BAD_REQUEST, field='email')
+        return _err('The payment could not be started: %s' % exc,
+                    'PAYMENT_REFUSED', status.HTTP_502_BAD_GATEWAY,
+                    data={'reason': str(exc)})
 
     # Somebody reached the payment page. The ORDER still lives only in the
     # Paystack metadata, for the reason written above - but the FACT that they
@@ -537,13 +584,19 @@ def guest_verify(request):
             # kept and the organiser can chase the rest.
             per_person.append({})
 
-    unit_ngn = tier.price_for(quantity)
-    from .views_tickets import _ngn_to_coins
+    # Priced by the same quote that priced the card, promo included. This
+    # read the list price, so a ticket bought with a code was recorded at
+    # full price (18 September 2026). A code accepted when the money was
+    # taken is honoured now whatever its limit has done since.
+    from . import ledger as _ledger
+    from . import promos as _promos
+    promo = _promos.honour(event, meta.get('promo'), tier)
+    priced = _ledger.quote(tier, quantity, event, channel='naira', promo=promo)
     tickets = _issue(event, tier, quantity, email,
                      (meta.get('answers') or {}, per_person, attendees),
-                     unit_ngn, _ngn_to_coins(unit_ngn), reference=reference,
+                     priced['unit_ngn'], priced['unit_vc'], reference=reference,
                      referral=_refs_resolve(event, meta.get('ref')),
-                     buyer=_buyer(request))
+                     buyer=_buyer(request), promo=promo)
     _send_them(tickets)
 
     # They came back. The row stops being somebody to chase and becomes a
@@ -578,8 +631,11 @@ def guest_lookup(request):
     if ticket is None:
         # One message for "no such code" and "wrong email", deliberately.
         # Separate messages would say which half was right.
+        # Its own code: the platform-wide NOT_FOUND translates to the two
+        # words "Not found", which says nothing to somebody who mistyped
+        # a ticket code (walk, 18 September 2026).
         return _err('No ticket found for that code and email address.',
-                    'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+                    'TICKET_NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
     from .views_tickets import serialize_ticket
     return _ok({'ticket': serialize_ticket(ticket)}, 'Your ticket')

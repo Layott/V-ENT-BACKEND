@@ -223,7 +223,7 @@ def fee_on(amount_vc, rate=None):
     return int(Decimal(str(amount_vc)) * Decimal(str(rate)) / Decimal('100'))
 
 
-def quote(tier, quantity, event=None, buyer=None, channel='wallet'):
+def quote(tier, quantity, event=None, buyer=None, channel='wallet', promo=None):
     """What the buyer is asked for and what each party is owed, before any sale.
 
     The screen showing a price and the code charging one read this same
@@ -252,7 +252,23 @@ def quote(tier, quantity, event=None, buyer=None, channel='wallet'):
     unit_ngn = _ent.discounted(list_ngn, member_pct) if member_pct else list_ngn
 
     from .views_tickets import _ngn_to_coins
+    # A promo code, on the unit price after the member discount, the same
+    # way that discount lands: in naira, then the whole-coin floor. The
+    # organiser's side of promos existed for a fortnight before any
+    # purchase read one (18 September 2026).
+    before_promo_vc = _ngn_to_coins(unit_ngn)
+    promo_off_ngn = _ngn(0)
+    if promo is not None:
+        promo_off_ngn = _ngn(promo.discount_for(unit_ngn, 1))
+        unit_ngn = max(_ngn(unit_ngn) - promo_off_ngn, _ngn(0))
     unit_vc = _ngn_to_coins(unit_ngn)
+    # The whole-coin floor favours the buyer, as every fraction on the
+    # platform does, but it cannot give the ticket away: a 10% code on a
+    # 1,000 naira ticket floored 900 naira to 0 coins (18 September 2026).
+    # A discounted ticket that still costs naira costs at least one coin;
+    # a card payer pays the exact naira either way.
+    if _ngn(unit_ngn) > 0 and unit_vc < 1:
+        unit_vc = 1
     list_unit_vc = _ngn_to_coins(list_ngn)
     tickets_vc = unit_vc * quantity
     tickets_ngn = _ngn(unit_ngn) * quantity
@@ -289,7 +305,10 @@ def quote(tier, quantity, event=None, buyer=None, channel='wallet'):
         'organiser_ngn': organiser_ngn,
         'organiser_vc': _floor_vc(organiser_ngn),
         'member_discount_pct': member_pct,
-        'member_saving_vc': (list_unit_vc - unit_vc) * quantity,
+        'member_saving_vc': (list_unit_vc - before_promo_vc) * quantity,
+        'promo_code': promo.code if promo is not None else '',
+        'promo_saving_ngn': promo_off_ngn * quantity,
+        'promo_saving_vc': (before_promo_vc - unit_vc) * quantity,
     }
 
 

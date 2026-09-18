@@ -20,6 +20,7 @@ from .models import (Bookmark, ChapterComment, PromoMessage, ReaderSettings,
                      SeriesSubscription)
 from .views_series import (_chapter_row, _err, _find_chapter, _find_series,
                            _ok, _person, _series_row, _viewer)
+from vent_auth.text import count as _count
 
 
 def _need_user(request):
@@ -375,4 +376,4 @@ def series_promo(request, reference):
                                       subject=subject[:140], body=body[:4000],
                                       sent_to=sent)
     return _ok({'sent_to': row.sent_to, 'created_at': row.created_at},
-               'Sent to %s reader(s).' % sent)
+               'Sent to %s.' % _count(sent, 'reader'))

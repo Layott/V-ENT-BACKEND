@@ -33,13 +33,12 @@ def find(key):
     text and could in principle be all digits. Trying the id first and falling
     through costs one query in the rare case and none in the common one.
     """
+    from vent_auth.slugs import find_by_ref
+
     raw = str(key or '').strip()
     if not raw:
         return None
-
-    if raw.isdigit():
-        found = Tournament.objects.filter(tournament_id=int(raw)).first()
-        if found is not None:
-            return found
-
-    return Tournament.objects.filter(slug=raw).first()
+    # Reads the slug history too: a tournament renamed last month still
+    # answers at the address in last month's post (18 September 2026).
+    return find_by_ref(raw, entity_type='tournament', id_field='tournament_id',
+                       model=Tournament)

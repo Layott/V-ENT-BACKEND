@@ -351,24 +351,21 @@ def topup_initiate(request):
         },
     }
 
+    # One initialize for every door (vent_auth.paystack.initialize). This
+    # copy threw Paystack's reason away with raise_for_status.
+    from vent_auth import paystack as _paystack
     try:
-        resp = http_requests.post(
-            f'{PAYSTACK_BASE}/transaction/initialize',
-            json=payload,
-            headers=_paystack_headers(),
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except http_requests.RequestException as e:
+        data = {'status': True, 'data': _paystack.initialize(payload)}
+    except _paystack.Unreachable:
         return Response(
-            {'status': 'error', 'message': f'Payment gateway error: {str(e)}'},
+            {'status': 'error', 'code': 'GATEWAY_ERROR', 'data': {},
+             'message': 'The payment gateway did not answer. Nothing was charged.'},
             status=status.HTTP_502_BAD_GATEWAY,
         )
-
-    if not data.get('status'):
+    except _paystack.Refused as exc:
         return Response(
-            {'status': 'error', 'message': data.get('message', 'Paystack error')},
+            {'status': 'error', 'code': 'PAYMENT_REFUSED', 'data': {'reason': str(exc)},
+             'message': 'The payment could not be started: %s' % exc},
             status=status.HTTP_502_BAD_GATEWAY,
         )
 

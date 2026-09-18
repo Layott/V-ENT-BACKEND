@@ -48,9 +48,11 @@ def _err(message, code, http=status.HTTP_400_BAD_REQUEST, extra=None):
 
 
 def _tournament(ref):
-    if str(ref).isdigit():
-        return Tournament.objects.filter(pk=int(ref)).first()
-    return Tournament.objects.filter(slug=ref).first()
+    from .lookup import find
+
+    # One resolver, in lookup.py, which reads the slug history; this copy
+    # did not (18 September 2026).
+    return find(ref)
 
 
 def _organiser(request, tournament):

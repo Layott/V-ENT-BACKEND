@@ -44,14 +44,13 @@ def _find(reference, include_deleted=False):
     if not include_deleted:
         return lookup.find(reference)
 
+    from vent_auth.slugs import find_by_ref
+
     raw = str(reference or '').strip()
     if not raw:
         return None
-    if raw.isdigit():
-        found = Tournament.all_objects.filter(tournament_id=int(raw)).first()
-        if found is not None:
-            return found
-    return Tournament.all_objects.filter(slug=raw).first()
+    return find_by_ref(raw, entity_type='tournament', id_field='tournament_id',
+                       model=Tournament, queryset=Tournament.all_objects.all())
 
 
 def _counts(tournament):

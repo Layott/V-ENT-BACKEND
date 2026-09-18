@@ -301,3 +301,27 @@ class WhoMayAsk(DoorFixture):
         res = self.client.get('/event/%d/door-search/?q=Ginnie'
                               % self.event.event_id, **_auth(self.steward))
         self.assertEqual(res.status_code, 200)
+
+
+class LookupJudgesTheDoorsDay(DoorFixture):
+    """The lookup judged "wrong day" against today while the door was pinned
+    to another day with `?day=`, the same parameter the check-in takes, so
+    Check and Look up only disagreed about one ticket (18 September 2026)."""
+
+    def test_lookup_takes_the_doors_day(self):
+        from datetime import date, timedelta
+        saturday = date.today() + timedelta(days=8)
+        day_tier = TicketTier.objects.create(
+            event=self.event, name='Day 1', price=0, quantity=50, day=saturday)
+        Ticket.objects.create(event=self.event, tier=day_tier, code='VT-DAYONE01',
+                              price_vc=0, attendee_name='Sat')
+        # Judged against today: the wrong day.
+        res = self.client.get('/event/ticket/VT-DAYONE01/lookup/', **_auth(self.steward))
+        self.assertTrue(res.json()['data']['wrong_day'])
+        # Judged against the day the door is pinned to: admissible.
+        res = self.client.get('/event/ticket/VT-DAYONE01/lookup/?day=%s' % saturday.isoformat(),
+                              **_auth(self.steward))
+        body = res.json()['data']
+        self.assertFalse(body['wrong_day'])
+        self.assertTrue(body['admissible'])
+        self.assertEqual(body['for_day'], saturday.isoformat())

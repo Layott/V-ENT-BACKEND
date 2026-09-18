@@ -16,10 +16,14 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+import re
+
 from vent_auth.actors import actor_from_request, may_override
+from vent_auth.models import Users
 
 from . import availability
 from .models import Ticket, TicketHold
+from vent_auth.text import count as _count
 
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
@@ -44,7 +48,12 @@ def _organiser(request, event_id):
     if event is None:
         return None, None, _err('Event not found.', 'NOT_FOUND',
                                 status.HTTP_404_NOT_FOUND)
-    if event.creator_id != user.user_id and not may_override(user, 'manage_events'):
+    # Whoever runs the event (the creator, their named managers, the
+    # organisation's events people), answered by the one rule in
+    # permissions.py. This asked "is this the creator" and refused every
+    # manager the Money and Holds tabs (walk, 18 September).
+    from .permissions import may_run_event
+    if not may_run_event(user, event) and not may_override(user, 'manage_events'):
         return None, None, _err('Only the event organizer can do that.',
                                 'ONLY_EVENT_ORGANIZER_CAN',
                                 status.HTTP_403_FORBIDDEN)
@@ -116,7 +125,7 @@ def holds(request, event_id):
              else availability.event_room(event))
     if spare is not None and quantity > spare:
         return _err(
-            'Only %s ticket(s) are available to hold.' % spare,
+            'Only %s available to hold.' % spare,
             'NOT_ENOUGH_TO_HOLD', status.HTTP_409_CONFLICT, field='quantity')
 
     hold = TicketHold.objects.create(
@@ -128,7 +137,7 @@ def holds(request, event_id):
     )
     return _ok({'hold': _hold_row(hold),
                 'availability': availability.snapshot(event)},
-               'Held %s ticket(s).' % quantity, status.HTTP_201_CREATED)
+               'Held %s.' % _count(quantity, 'ticket'), status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])
@@ -154,10 +163,13 @@ def release_hold(request, event_id, hold_id):
     returned = hold.outstanding
     hold.released_at = timezone.now()
     hold.save(update_fields=['released_at'])
+    # Released tickets are back on sale, so the queue is offered them.
+    from .views_waitlist import capacity_changed
+    capacity_changed(event, how_many=returned)
     return _ok({'hold': _hold_row(hold),
                 'returned': returned,
                 'availability': availability.snapshot(event)},
-               '%s ticket(s) back on sale.' % returned)
+               '%s back on sale.' % _count(returned, 'ticket'))
 
 
 @api_view(['POST'])
@@ -189,7 +201,7 @@ def issue_hold(request, event_id, hold_id):
                     field='names')
     if len(names) > hold.outstanding:
         return _err(
-            'Only %s ticket(s) are still held. Asked for %s.'
+            'Only %s still held. Asked for %s.'
             % (hold.outstanding, len(names)),
             'NOT_ENOUGH_HELD', status.HTTP_409_CONFLICT, field='names')
 
@@ -200,22 +212,51 @@ def issue_hold(request, event_id, hold_id):
 
     from .views_tickets import _new_code
 
+    # A line is a name, or a name with an address: "Ada Obi <ada@x.com>",
+    # "Ada Obi ada@x.com" or just the address. With an address the ticket
+    # is theirs (mailed, and on My Tickets where the address has an
+    # account), the way a comp is. Without one it is a name on the door
+    # list held under the organiser, which is what a guest list at the gate
+    # is. Before this the whole line went into the name, address and all,
+    # and nobody was told (walk, 18 September 2026).
     issued = []
-    for name in names:
+    created = []
+    for line in names:
+        found = re.search(r'[\w.+-]+@[\w-]+(?:\.[\w-]+)+', line)
+        address = found.group(0).lower() if found else ''
+        name = re.sub(r'[<(]?\s*' + re.escape(found.group(0)) + r'\s*[>)]?', '', line).strip(' ,;-') if found else line
+        holder = Users.objects.filter(email__iexact=address).first() if address else None
+        if not name and holder:
+            name = holder.full_name or holder.username
         ticket = Ticket.objects.create(
-            event=event, tier=tier, user=user,
+            event=event, tier=tier, user=holder or user,
             code=_new_code(),
             price_vc=0, price_ngn=0,
-            attendee_name=name[:120],
+            attendee_name=(name or address)[:120],
+            attendee_email=address,
         )
-        issued.append({'code': ticket.code, 'name': name})
+        created.append(ticket)
+        issued.append({'code': ticket.code, 'name': ticket.attendee_name,
+                       'email': address})
 
     hold.issued += len(names)
     hold.save(update_fields=['issued'])
 
-    return _ok({'hold': _hold_row(hold), 'issued': issued,
+    # After the rows exist: a mail that fails must not undo a ticket.
+    mailed = 0
+    for ticket in created:
+        if not ticket.attendee_email:
+            continue
+        try:
+            from vent_auth import emails
+            emails.send_ticket_purchased(ticket)
+            mailed += 1
+        except Exception:                                   # noqa: BLE001
+            pass
+
+    return _ok({'hold': _hold_row(hold), 'issued': issued, 'mailed': mailed,
                 'availability': availability.snapshot(event)},
-               'Issued %s ticket(s).' % len(names), status.HTTP_201_CREATED)
+               'Issued %s.' % _count(len(names), 'ticket'), status.HTTP_201_CREATED)
 
 
 # ---------------------------------------------------------------------------

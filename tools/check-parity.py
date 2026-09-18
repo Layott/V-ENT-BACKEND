@@ -265,6 +265,32 @@ PAIRS = [
         'tournament', (FRONTEND, 'src/app/tournaments/edit-tournament/page.js',
                        r"set\('organization'"),
     ),
+
+    # Three rows from the control-level walk of 18 September 2026, each a
+    # WRITER built without its READER: the organiser's side existed and the
+    # side that has to obey it did not. The pair is organiser vs the door
+    # that reads what they set.
+    (
+        'promo codes reach the till',
+        'The organiser created, scoped and limited codes for two weeks and no '
+        'purchase ever read one: a code printed on a flyer did nothing.',
+        'organiser', (BACKEND, 'vent_event/views_promos.py', r'def event_promos'),
+        'the till', (BACKEND, 'vent_event/views_tickets.py', r'promos\.resolve|_promos\.resolve'),
+    ),
+    (
+        'stall approval decides something',
+        'The pitch said "the organiser approves each one" and a pending stall '
+        'was listed and took orders; the approval decided nothing.',
+        'organiser', (BACKEND, 'vent_event/views_vendor_review.py', r'def decide_stall'),
+        'the public list', (BACKEND, 'vent_event/views_vendors.py', r'OPEN_STATUSES'),
+    ),
+    (
+        'a returned seat is offered to the queue at every door',
+        'The queue was offered a place only when somebody LEFT the queue; a '
+        'voided ticket, a released hold, a raised allocation offered nobody.',
+        'the admin void', (BACKEND, 'vent_auth/views_admin_events.py', r'capacity_changed'),
+        'the tier editor', (BACKEND, 'vent_event/views_tiers.py', r'capacity_changed'),
+    ),
 ]
 
 
@@ -297,7 +323,7 @@ def main():
         print('  looked in %s' % p['where'].replace(os.sep, '/'))
         print('')
 
-    print('%d capability pair(s) checked, %d built on one side only'
+    print('%d capability pairs checked, %d built on one side only'
           % (checked, len(problems)))
     return 1 if problems else 0
 

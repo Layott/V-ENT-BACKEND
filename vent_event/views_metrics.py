@@ -66,9 +66,11 @@ def _authenticate(request):
 
 
 def _event(event_id):
-    if str(event_id).isdigit():
-        return Event.objects.filter(event_id=int(event_id)).first()
-    return Event.objects.filter(slug=str(event_id)).first()
+    # One resolver for the whole app, in refs.py: it reads the slug
+    # history, which this copy did not (18 September 2026).
+    from .refs import event_by_ref
+
+    return event_by_ref(event_id)
 
 
 def _may_read(user, event):
@@ -326,6 +328,11 @@ def export_metrics(request, event_id):
         rows = (Ticket.objects.filter(event=event)
                 .select_related('tier', 'user', 'checked_in_by')
                 .order_by('purchased_at'))
+        # What the organiser asked at checkout, one column per question,
+        # headed by their own label. This sheet is the one they order the
+        # shirts from, and it carried no shirt sizes (walk, 18 September).
+        from . import checkout
+        columns = checkout.sheet_columns(event)
         out = []
         for t in rows:
             out.append([
@@ -343,12 +350,12 @@ def export_metrics(request, event_id):
                 t.checked_in_at.isoformat() if t.checked_in_at else '',
                 t.checked_in_gate,
                 t.checked_in_by.username if t.checked_in_by_id else '',
-            ])
+            ] + checkout.sheet_cells(t.answers, columns))
         return _csv(out, [
             'code', 'tier', 'name', 'email', 'phone', 'username', 'kind',
             'status', 'price_vc', 'price_ngn', 'purchased_at', 'checked_in_at',
             'gate', 'checked_in_by',
-        ], '%s-attendees.csv' % stem)
+        ] + [label for _key, label in columns], '%s-attendees.csv' % stem)
 
     if sheet == 'tiers':
         data = compute(event)

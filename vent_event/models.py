@@ -87,6 +87,12 @@ class Event(models.Model):
     banner = models.ImageField(upload_to='event_banners/', null=True, blank=True)  # Event banner upload path
     banner_url = models.URLField(max_length=500, null=True, blank=True)  # External banner URL (used when no file upload)
     is_active = models.BooleanField(default=True)  # To mark if the event is active or not
+    # Off the public listing, the sitemap, the partner feed and the Discord
+    # search, and still open at its own address: a private launch, a test
+    # run, an invitation-only night. The edit page's "Listed publicly"
+    # switch flipped `is_active` until 18 September 2026, which killed the
+    # page, the checkout and the stalls too, the opposite of what it said.
+    is_listed = models.BooleanField(default=True)
     is_featured = models.BooleanField(default=False)  # Manually spotlight an event on the listing
     interaction_count = models.PositiveIntegerField(default=0)
 
@@ -852,6 +858,11 @@ class Ticket(models.Model):
     # EventReferral.sold stays as well, but only as the allocation guard.
     referral = models.ForeignKey('EventReferral', on_delete=models.SET_NULL,
                                  null=True, blank=True, related_name='tickets')
+    # The promo code this ticket was bought with, so the price on the row
+    # can be explained and the code's "uses" are counted from the tickets
+    # themselves. Nothing wrote a code at purchase until 18 September 2026.
+    promo = models.ForeignKey('EventPromo', on_delete=models.SET_NULL,
+                              null=True, blank=True, related_name='tickets')
     purchased_at = models.DateTimeField(auto_now_add=True)
     # When anything on this row last moved, which is what lets a door ask for
     # only what changed.
@@ -1016,6 +1027,9 @@ class VendorSlotPurchase(models.Model):
     rules_accepted = models.TextField(blank=True, default='')
     rules_version_accepted = models.PositiveIntegerField(default=1)
     accepted_at = models.DateTimeField(null=True, blank=True)
+    # When the organiser turned the stall down and the coins went back. A
+    # refunded purchase is not a stall that can be reopened for free.
+    refunded_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -1040,6 +1054,11 @@ class Vendor(models.Model):
         ('live', 'Live'),
         ('closed', 'Closed'),
     ]
+    # The statuses in which a stall is on the event page and can sell. A
+    # pending stall was listed and took orders until 18 September 2026, so
+    # the organiser's approval decided nothing. Every door reads this one
+    # tuple rather than its own idea of "open".
+    OPEN_STATUSES = ('approved', 'live')
 
     id = models.AutoField(primary_key=True)
     # A stall has a name, so it has an address made of that name. It was linked
@@ -1096,6 +1115,10 @@ class Vendor(models.Model):
         if not self.slug:
             sync_slug(self, self.name, entity_type='vendor', id_attr='id')
             super().save(update_fields=['slug'])
+
+    @property
+    def is_open(self):
+        return self.status in self.OPEN_STATUSES
 
     def __str__(self):
         return f"{self.name} @ {self.event.name}"

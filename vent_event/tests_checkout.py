@@ -269,6 +269,35 @@ class GuestBuyTests(TestCase):
             self.buy(tier_id=self.paid.id)
         self.assertEqual(Ticket.objects.count(), 0)
 
+    def test_the_gateways_reason_reaches_the_guest(self):
+        """Paystack refused the address (a .test domain). The guest was told
+        the gateway could not be reached and went looking at their network
+        (walk, 18 September 2026)."""
+        with patch.dict('os.environ', {'PAYSTACK_SECRET_KEY': 'sk_test'}), \
+             patch('vent_event.views_guest.http_requests.post') as post:
+            post.return_value.json = lambda: {
+                'status': False, 'message': '"email" must be a valid email'}
+            res = self.buy(tier_id=self.paid.id, email='amara@example.test')
+        self.assertEqual(res.status_code, 400, res.content)
+        body = res.json()
+        self.assertEqual((body['code'], body['field']), ('EMAIL_INVALID', 'email'))
+
+        with patch.dict('os.environ', {'PAYSTACK_SECRET_KEY': 'sk_test'}), \
+             patch('vent_event.views_guest.http_requests.post') as post:
+            post.return_value.json = lambda: {
+                'status': False, 'message': 'Amount is below the minimum'}
+            res = self.buy(tier_id=self.paid.id)
+        self.assertEqual(res.status_code, 502, res.content)
+        body = res.json()
+        self.assertEqual(body['code'], 'PAYMENT_REFUSED')
+        self.assertEqual(body['data']['reason'], 'Amount is below the minimum')
+
+        with patch.dict('os.environ', {'PAYSTACK_SECRET_KEY': 'sk_test'}), \
+             patch('vent_event.views_guest.http_requests.post', side_effect=OSError('down')):
+            res = self.buy(tier_id=self.paid.id)
+        self.assertEqual(res.status_code, 502, res.content)
+        self.assertEqual(res.json()['code'], 'GATEWAY_ERROR')
+
     def test_a_paid_ticket_says_so_plainly_when_cards_are_not_set_up(self):
         with patch.dict('os.environ', {'PAYSTACK_SECRET_KEY': ''}):
             res = self.buy(tier_id=self.paid.id)
@@ -344,6 +373,9 @@ class GuestBuyTests(TestCase):
                                data={'email': 'someone@else.test', 'code': code},
                                content_type='application/json')
         self.assertEqual(res.status_code, 404, res.content)
+        # Its own code, so the screen can say "no ticket matches" rather than
+        # the platform-wide "Not found".
+        self.assertEqual(res.json()['code'], 'TICKET_NOT_FOUND')
 
     def test_signing_up_later_with_that_address_gets_the_tickets(self):
         """Asking somebody to forward themselves a code is not a flow."""

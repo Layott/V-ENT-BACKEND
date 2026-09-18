@@ -198,9 +198,9 @@ def self_check_in_settings(request, event_id):
     except Exception:
         event = None
     if event is None:
-        event = (Event.objects.filter(pk=int(event_id)).first()
-                 if str(event_id).isdigit()
-                 else Event.objects.filter(slug=event_id).first())
+        from .refs import event_by_ref
+
+        event = event_by_ref(event_id)
     if event is None:
         return _error('Event not found', 'EVENT_NOT_FOUND',
                       status.HTTP_404_NOT_FOUND)

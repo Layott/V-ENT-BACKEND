@@ -169,6 +169,11 @@
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
+  "one press": {
+    "count": 0,
+    "first_seen": "2026-09-18",
+    "since": "2026-09-18"
+  },
   "overlay runtime": {
     "count": 0,
     "first_seen": "2026-09-12",
@@ -178,6 +183,11 @@
     "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
+  },
+  "plurals": {
+    "count": 0,
+    "first_seen": "2026-09-18",
+    "since": "2026-09-18"
   },
   "pnpm store": {
     "count": 0,
@@ -258,6 +268,11 @@
     "count": 0,
     "first_seen": "2026-09-12",
     "since": "2026-09-12"
+  },
+  "structured data": {
+    "count": 0,
+    "first_seen": "2026-09-18",
+    "since": "2026-09-18"
   },
   "tab strips": {
     "count": 0,

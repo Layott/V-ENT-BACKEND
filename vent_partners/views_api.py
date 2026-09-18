@@ -137,6 +137,8 @@ def whoami(request):
 def _event_row(request, e):
     return {
         'id': e.event_id,
+        # The address, so a partner can link to the page rather than guess it.
+        'slug': e.slug,
         'name': e.name,
         'game': e.game.game_title if e.game_id else None,
         'type': e.event_type,
@@ -157,7 +159,7 @@ def _event_row(request, e):
 @api_view(['GET'])
 @requires_scope('events:read')
 def events_list(request):
-    qs = Event.objects.filter(is_active=True).select_related('game').order_by('-event_date')
+    qs = Event.objects.filter(is_active=True, is_listed=True).select_related('game').order_by('-event_date')
     game = request.GET.get('game')
     if game:
         qs = qs.filter(game__game_title__iexact=game)

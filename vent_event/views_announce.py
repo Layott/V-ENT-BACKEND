@@ -63,9 +63,11 @@ def _authenticate(request):
 
 
 def _event(event_id):
-    if str(event_id).isdigit():
-        return Event.objects.filter(event_id=int(event_id)).first()
-    return Event.objects.filter(slug=str(event_id)).first()
+    # One resolver for the whole app, in refs.py: it reads the slug
+    # history, which this copy did not (18 September 2026).
+    from .refs import event_by_ref
+
+    return event_by_ref(event_id)
 
 
 def _may_send(user, event):

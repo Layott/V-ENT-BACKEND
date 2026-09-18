@@ -70,6 +70,23 @@ class TierManagementTests(TestCase):
         self.assertEqual(tier['remaining'], 20)
         self.assertEqual(tier['perks'], ['Front row', 'Meet the players'])
 
+    def test_a_tier_created_with_a_day_answers_with_that_day(self):
+        """A day typed from the console went into the row as a string and
+        the answer was a 500, with the row created behind it."""
+        day = (self.event.start_date).date().isoformat()
+        res = self.post({'name': 'Saturday', 'price': '1000', 'quantity': 5,
+                         'day': day, 'day_label': 'Day 1'})
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(res.json()['data']['tier']['day'], day)
+        self.assertEqual(res.json()['data']['tier']['day_label'], 'Day 1')
+
+    def test_a_day_that_is_not_a_date_is_refused(self):
+        res = self.post({'name': 'Someday', 'price': '1000', 'quantity': 5,
+                         'day': 'next saturday'})
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()['code'], 'INVALID_DATE')
+        self.assertEqual(self.event.ticket_tiers.count(), 1)
+
     def test_it_appears_on_the_public_ticket_list_immediately(self):
         """The endpoint the buy screen reads, not the one that wrote it."""
         self.post({'name': 'VIP', 'price': '20000', 'quantity': 20})

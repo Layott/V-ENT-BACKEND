@@ -146,7 +146,7 @@ def upload_gallery(request):
     if held + len(images) > limit:
         left = max(0, limit - held)
         return _error(
-            'You can hold %d %s picture(s), and you have room for %d more.'
+            'You can hold %d of the %s kind, and you have room for %d more.'
             % (limit, kind, left),
             'LIMIT_EXCEEDED', status.HTTP_400_BAD_REQUEST)
 

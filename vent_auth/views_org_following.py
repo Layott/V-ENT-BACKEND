@@ -111,7 +111,7 @@ def following_feed(request):
     items = []
 
     for event in (Event.objects
-                  .filter(organization_id__in=org_ids, is_active=True)
+                  .filter(organization_id__in=org_ids, is_active=True, is_listed=True)
                   .select_related('organization')
                   .order_by('-start_date')[:limit]):
         items.append({

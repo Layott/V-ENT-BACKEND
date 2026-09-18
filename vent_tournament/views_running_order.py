@@ -46,9 +46,11 @@ def _tournament(tournament_id):
             return tournament
     except Exception:
         pass
-    if str(tournament_id).isdigit():
-        return Tournament.objects.filter(pk=int(tournament_id)).first()
-    return Tournament.objects.filter(slug=tournament_id).first()
+    from .lookup import find
+
+    # One resolver, in lookup.py, which reads the slug history; this copy
+    # did not (18 September 2026).
+    return find(tournament_id)
 
 
 def _organiser_or_admin(request, tournament):

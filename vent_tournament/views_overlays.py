@@ -59,11 +59,11 @@ def _viewer(request):
 
 
 def _tournament(key):
-    if str(key).isdigit():
-        found = Tournament.objects.filter(tournament_id=int(key)).first()
-        if found:
-            return found
-    return Tournament.objects.filter(slug=str(key)).first()
+    from .lookup import find
+
+    # One resolver, in lookup.py, which reads the slug history; this copy
+    # did not (18 September 2026).
+    return find(key)
 
 
 def _may_manage(user, tournament):
@@ -869,12 +869,9 @@ def new_overlay_token():
 # `tools/check-parity.py` has a row for this pair.
 
 def _event(key):
-    from vent_event.models import Event
-    if str(key).isdigit():
-        found = Event.objects.filter(event_id=int(key)).first()
-        if found:
-            return found
-    return Event.objects.filter(slug=str(key)).first()
+    # The event app's own resolver, which reads the slug history.
+    from vent_event.refs import event_by_ref
+    return event_by_ref(key)
 
 
 def _may_manage_event(user, event):
