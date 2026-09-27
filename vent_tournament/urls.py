@@ -33,6 +33,7 @@ from . import views_reminders
 from . import views_scheduled
 from . import views_requirements
 from . import views_stages
+from . import views_match_day
 from . import views_prizes
 from . import views_money
 from . import views_rules
@@ -108,6 +109,8 @@ urlpatterns = [
     path('<str:tournament_id>/stages/', views_stages.tournament_stages, name='tournament_stages'),
     path('<str:tournament_id>/stages/set/', views_stages.set_stages, name='set_stages'),
     path('<str:tournament_id>/stages/<int:stage_id>/advance/', views_stages.advance_stage, name='advance_stage'),
+    path('<str:tournament_id>/stages/<int:stage_id>/advance/preview/', views_stages.advance_preview, name='advance_preview'),
+    path('<str:tournament_id>/stages/<int:stage_id>/draw/', views_stages.draw_stage, name='draw_stage'),
     # Short addresses for a tournament, the same mechanism the events side
     # uses. By slug as well as id, because this is reached from the share
     # dialog on a page addressed by name.
@@ -171,6 +174,8 @@ urlpatterns = [
     path("<str:tournament_id>/cancel/", cancel_tournament, name="cancel_tournament"),
     path("match/<int:match_id>/", match_detail, name="match_detail"),
     path("match/<int:match_id>/report-score/", report_match_score, name="report_match_score"),
+    path("match/<int:match_id>/check-in/", views_match_day.check_in, name="match_check_in"),
+    path("match/<int:match_id>/room/", views_match_day.set_room, name="match_room"),
     path("match/<int:match_id>/confirm-score/", confirm_match_score, name="confirm_match_score"),
     path("match/<int:match_id>/raise-dispute/", raise_dispute, name="raise_dispute"),
     path("match/<int:match_id>/dispute/", raise_dispute, name="raise_dispute_alias"),  # contract-table alias

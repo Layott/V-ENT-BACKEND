@@ -758,6 +758,53 @@ class BracketMatch(models.Model):
     loser_to_slot = models.PositiveSmallIntegerField(null=True, blank=True)  # 1 or 2
     is_final = models.BooleanField(default=False)  # decides tournament completion
 
+    # Which stage this match belongs to, when the tournament runs in stages.
+    #
+    # Null is the tournament that runs as one format start to finish, which is
+    # most of them and which keeps working exactly as it did. A stage used to be
+    # a line in a plan with nowhere to put its matches, so "groups then a
+    # playoff" was two tournaments with the names copied across by hand.
+    stage = models.ForeignKey(
+        'TournamentStage', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='matches')
+    # Which group inside the stage, 1 upward. Null outside a group stage.
+    group_number = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    # How the match is played, fixed when it is drawn so a rule changed later
+    # cannot rewrite a match already in progress. `best_of` counts games; 2 is
+    # a real value (a two-game group match that can end level), which is why
+    # this is not "odd numbers only".
+    best_of = models.PositiveSmallIntegerField(default=1)
+    # Two legs on aggregate, home and away, which is how a football knockout
+    # is played when it is not one game.
+    legs = models.PositiveSmallIntegerField(default=1)
+    # Whether this match may end level. Group and league matches may; a
+    # knockout needs a winner, and a level score there needs a decider.
+    draw_allowed = models.BooleanField(default=False)
+    # The per-game or per-leg scores behind the headline, [{"p1": 2, "p2": 1}].
+    games = models.JSONField(default=list, blank=True)
+    # A penalty shoot-out, when a knockout was level after play. Recorded as
+    # its own score because "2-2, won 4-3 on penalties" is two facts and a
+    # result of 3-2 would be a lie about the goals.
+    penalties_p1 = models.PositiveSmallIntegerField(null=True, blank=True)
+    penalties_p2 = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    # Match day. The two players need a room to meet in: eFootball's Friend
+    # Match room, FC Mobile's quick match code. Shown only to the two sides and
+    # to staff, because a room code on a public page is an invitation to
+    # anybody to walk into a tournament match.
+    room_code = models.CharField(max_length=64, blank=True, default='')
+    room_password = models.CharField(max_length=64, blank=True, default='')
+    # Per-match check-in. Somebody who has not checked in by the deadline loses
+    # by forfeit when their opponent did; the deadline is fixed when the match
+    # becomes playable, from the stage's check-in minutes.
+    checked_in_p1_at = models.DateTimeField(null=True, blank=True)
+    checked_in_p2_at = models.DateTimeField(null=True, blank=True)
+    check_in_deadline = models.DateTimeField(null=True, blank=True)
+    # Why a match ended without being played: 'no_show' when the check-in
+    # timer ran out, 'withdrawn' when a side left. Blank for a played match.
+    forfeit_reason = models.CharField(max_length=16, blank=True, default='')
+
     class Meta:
         ordering = ['round_number', 'match_number']
 
@@ -811,6 +858,12 @@ class MatchScore(models.Model):
     submitted_by = models.ForeignKey(Users, on_delete=models.PROTECT, related_name='match_scores_submitted')
     score_p1 = models.IntegerField()
     score_p2 = models.IntegerField()
+    # What a football result needs beside the goals: a shoot-out when a
+    # knockout was level, and the games or legs behind a series. Carried on
+    # the submission so what the opponent confirms is the whole result.
+    penalties_p1 = models.PositiveSmallIntegerField(null=True, blank=True)
+    penalties_p2 = models.PositiveSmallIntegerField(null=True, blank=True)
+    games = models.JSONField(default=list, blank=True)
     evidence_url = models.CharField(max_length=500, blank=True)
     confirmed = models.BooleanField(default=False)
     confirmed_by = models.ForeignKey(
@@ -1069,6 +1122,32 @@ class TournamentStage(models.Model):
                                   default='')
     location = models.CharField(max_length=255, blank=True, default='')
     virtual_link = models.URLField(max_length=400, blank=True, default='')
+
+    # Everything particular to this stage's format and how its matches are
+    # played: third place, grand final reset, Swiss rounds and targets, home and
+    # away, best-of per round, draws, check-in minutes. Cleaned by
+    # `stage_settings.clean`, which is the one place the shape is decided.
+    settings = models.JSONField(default=dict, blank=True)
+
+    # How the people coming out of the previous stage are placed into this
+    # one. 'cross' puts group winners against runners-up from another group
+    # (1A v 2B), which is how every football competition does it and which
+    # keeps two sides from one group apart in the first round.
+    PLACEMENTS = (
+        ('cross', 'Group winners against runners-up of another group'),
+        ('by_record', 'By record across the whole stage'),
+        ('random', 'Drawn at random'),
+        ('manual', 'In the order the organiser sets'),
+    )
+    placement = models.CharField(max_length=12, choices=PLACEMENTS,
+                                 default='cross')
+    # Entrants who skip earlier stages and start here: an invited side, last
+    # year's champion. Registration ids.
+    direct_entrants = models.JSONField(default=list, blank=True)
+    # Who actually entered this stage and in what seed order, frozen when it
+    # was drawn, so the draw can be explained after the fact.
+    entrants = models.JSONField(default=list, blank=True)
+    drawn_at = models.DateTimeField(null=True, blank=True)
 
     def effective_when(self):
         """(starts_at, ends_at, is_its_own), falling back to the tournament."""

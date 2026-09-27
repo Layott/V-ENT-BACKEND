@@ -928,20 +928,32 @@ def admin_override_match_score(request, match_id):
     winner_registration_id = request.data.get('winner_registration_id')
     reason = request.data.get('reason', '')
 
-    if score_p1 is None or score_p2 is None or not winner_registration_id:
+    if score_p1 is None or score_p2 is None:
         return Response(
-            { 'code': 'SCORE_P_SCORE_P','status': 'error', 'message': 'score_p1, score_p2, and winner_registration_id are required'},
+            { 'code': 'SCORE_P_SCORE_P','status': 'error', 'message': 'score_p1 and score_p2 are required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    winner = get_object_or_404(TournamentRegistration, id=winner_registration_id)
-
-    match.score_p1 = int(score_p1)
-    match.score_p2 = int(score_p2)
-    match.winner = winner
-    match.status = 'completed'
-    match.completed_at = timezone.now()
-    match.save(update_fields=['score_p1', 'score_p2', 'winner', 'status', 'completed_at'])
+    # The same rule as every other door. This one used to take ANY
+    # registration id as the winner, including one from another match, and
+    # could not record a draw at all.
+    from vent_tournament import results
+    try:
+        with transaction.atomic():
+            locked = BracketMatch.objects.select_for_update().get(pk=match.pk)
+            decision = results.decide(
+                locked, score_p1, score_p2,
+                penalties_p1=request.data.get('penalties_p1'),
+                penalties_p2=request.data.get('penalties_p2'),
+                games=request.data.get('games'),
+                winner_id=winner_registration_id)
+            results.apply(locked, decision, recorded_by=admin)
+    except results.ResultError as exc:
+        return Response(
+            {'code': exc.code, 'status': 'error',
+             'message': 'That result cannot stand for this match.',
+             'data': {'field': exc.field}},
+            status=status.HTTP_400_BAD_REQUEST)
 
     _log_action(admin, 'override_score', 'BracketMatch', match_id, reason=reason,
                 metadata={'score_p1': score_p1, 'score_p2': score_p2, 'winner_id': winner_registration_id})
