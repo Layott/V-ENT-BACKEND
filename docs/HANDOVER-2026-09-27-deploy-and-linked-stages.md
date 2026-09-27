@@ -96,8 +96,8 @@ Faults that matter beyond this feature, all fixed and on the branch:
 
 ## 5. Open, for the CEO
 
-- `match_interval_minutes` is still saved and read by nothing.
-- Inbox 273 (partial-void ledger reversal) is still open from 18 Sept.
+- Nothing from this list: `match_interval_minutes` and inbox 273 are built in
+  section 7, waiting for merge and deploy.
 
 ## 6. The three decisions, and the deploy (rows 282 to 284, CEO 27 Sept)
 
@@ -124,3 +124,54 @@ both 3. Merge and deploy #181 and #191 ... - yes go".
   Chrome (bracket, match room, wizard select) and emulator; LIVE: v-ent.co
   pubg-mobile-naija-open bracket shows 30 handles under full names, no console
   errors, and the same page on the Android emulator signed out.
+
+## 7. One ticket's share, and the break between matches (rows 286, 287)
+
+CEO, 27 Sept, after the fix was explained: "go", taking the recommended choice
+for both. Branch `fix/partial-reversal-and-breaks`: **BE #183, FE #192, open,
+not merged, not deployed.** gates/43.
+
+**286, the ledger (was 273).** A purchase's lines hang off its first ticket with
+the count on them. Voiding ticket 1 of 3 reversed the organiser's whole take;
+voiding 2 or 3 reversed nothing; reinstating restored nothing.
+- `Ticket.purchase` (one key per purchase, written by `record_sale`), migration
+  `vent_event 0053_ticket_purchase` backfills: same event, tier, price, card
+  reference (or none), created within seconds of the first ticket, in id order.
+- `ledger.reverse_sale(ticket)` takes back that ticket's share of every line:
+  share k of q is the difference of two cumulative roundings, so the q shares
+  add to the line exactly. The line gets `reversed_by` only when all q are back.
+- `ledger.fee_share` / `refunds.paid_for`: the buyer gets their share of the
+  service fee back with each ticket (the CEO's choice).
+- `ledger.reinstate_sale`: the console's Reinstate writes the share back as
+  lines of the ticket's own (note `Reinstated`), which a later void reverses.
+- Verified: OneTicketOfAPurchaseTests 9 (8 fail on the old code), an admin
+  console test; Chrome as walk_stage_admin on `break-walk-night`: void of the
+  2nd ticket took organiser owed 16800 -> 11200 and platform 1200 -> 800,
+  Reinstate put both back.
+
+**287, the break.** `match_interval_minutes` was saved and read by nothing.
+- `stage_engine.schedule(match)`: once both sides are known, a match with no
+  time gets the later of its two sides' last `completed_at` plus the break,
+  rounded up to the minute, never before now, never before a stage's OWN
+  `starts_at`. Called from `arm_check_in` and `advance._arm` (so one-format
+  brackets too). Check-in now runs from the match's own time; before, it was
+  floored to the tournament start even for a timed match.
+- `POST /tournament/match/<id>/time/` (staff only, `MATCH_TIME_INVALID` for a
+  missing or zoneless time): moves the match, re-arms check-in, notifies both
+  sides ("Your match time has changed", English only, like every notification
+  title on the platform).
+- Frontend: "Starts ..." on fixtures and on the public fixture sheet; the match
+  room shows the start and the break, and staff get a Match time control.
+  Wizard label "Break between matches, in minutes", tip rewritten, en/fr/pt.
+- Verified: BreakBetweenRoundsTests 7; Chrome as organiser (moved the final to
+  29 Sept 7:30 PM, check-in followed, both players notified) and as player
+  walk_brk_01 (start, break, no control); Android emulator signed out (fixture
+  time, sheet, no overflow). NOT walked on the device: the organiser's control
+  (signing in on the emulator is the known hard part).
+
+**Found on the way.** On the emulator a dev bundle was served stale by
+`door-sw.js` (stale-while-revalidate on `/_next/static`). Dev only: production
+chunk names carry a hash, so a deploy is never pinned. Cleared by unregistering.
+
+**Deploy:** merge BE #183 + FE #192 (rebase), `deploy.sh`, migration 0053.
+Suite 4355 OK; check-all clean on both commits.
