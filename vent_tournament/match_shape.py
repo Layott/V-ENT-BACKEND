@@ -12,14 +12,31 @@ invitation to walk into somebody else's match.
 """
 
 
+def names(reg):
+    """(display name, handle) for an entrant.
+
+    CEO, 27 September 2026, on brackets showing the username and the
+    participants tab the full name: "both". A person shows their full name with
+    their @username beside it; a team or squad has one name and no handle.
+    """
+    if reg is None:
+        return None, None
+    if reg.user_id and reg.user is not None:
+        handle = reg.user.username
+        return (reg.user.full_name or handle), handle
+    return (reg.entrant_name or None), None
+
+
 def entrant(reg):
     if reg is None:
         return None
+    display, handle = names(reg)
     return {
         'registration_id': reg.id,
         'type': reg.entrant_kind,
         'id': reg.entrant_id,
-        'name': reg.entrant_name or None,
+        'name': display,
+        'handle': handle,
         'seed': reg.seed,
     }
 
