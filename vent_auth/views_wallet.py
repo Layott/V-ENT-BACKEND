@@ -82,7 +82,7 @@ def _get_user_from_token(request):
     if not header or not header.startswith('Bearer '):
         return None, Response(
             { 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'},
-            status=status.HTTP_400_BAD_REQUEST,
+            status=status.HTTP_401_UNAUTHORIZED,
         )
 
     token = header.split(' ', 1)[1].strip()

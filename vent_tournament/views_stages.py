@@ -270,6 +270,21 @@ def draw_stage(request, tournament_id, stage_id):
                     status.HTTP_409_CONFLICT)
 
     from . import options as tournament_options
+
+    # The first stage takes the same check-in guard the one-format draw has:
+    # entrants who never checked in are not drawn over while the window says
+    # they forfeit. This door skipped it (27 September 2026).
+    if stage.order == 0 or not tournament.stages.filter(order__lt=stage.order).exists():
+        window = tournament_options.check_in_state(tournament, timezone.now())
+        if window and window['closed'] and window['forfeit_without_check_in']:
+            missing = tournament.registrations.filter(
+                status__in=('pending', 'confirmed'), checked_in_at__isnull=True).count()
+            if missing and not request.data.get('ignore_check_in'):
+                return _err('Some entrants never checked in. Close check-in first so '
+                            'they are forfeited, or send ignore_check_in.',
+                            'CHECK_IN_OPEN', status.HTTP_409_CONFLICT,
+                            detail={'missing': missing})
+
     strategy = request.data.get('seed_strategy') or \
         tournament_options.clean(tournament.options)['seeding_method']
     if strategy == 'seed_field':
