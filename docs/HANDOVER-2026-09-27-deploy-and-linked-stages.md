@@ -56,5 +56,50 @@ Built so far (not committed yet):
   check-in armed when a match fills, a staged tournament completes only when
   its last stage is drawn and played.
 
-State at this line: tournament suite 1423 run, 4 failing, all double
-elimination (the reset now on by default changes the match count), being fixed.
+State at the end of the session: BUILT, WALKED, PR'D, NOT MERGED.
+
+- Branch `feature/linked-stages` in both repos, rebased on main. BE commits
+  6502b5f3 (the engine) + e26cb3e0 (walk fixes); FE 292b895 (screens) +
+  45c54a8 (walk fixes). PRs **BE #181, FE #191**, open.
+- Full backend suite 4335 OK; tests_stage_engine 31; check-all "Every blocking
+  catcher is clean"; FE pnpm build OK (112 pages); gates/42 16 of 16.
+
+## 3. The walk (row 280)
+
+`V-ENT/tasks/audit/linked-stages-walk-2026-09-27.md`, one line per press, and
+the 13 faults. Seeded with `tools/walk_stages.py --setup` (walk_* accounts,
+local sqlite only; `--fill <stage> [--leave N]` records results so the later
+states can be reached). Roles: signed out, signed-in stranger, two players,
+scorekeeper, organiser, admin (API door). Desktop Chrome, 390px iframe, and the
+Android emulator (bracket, match room, room posted, 2-2 reported).
+
+Faults that matter beyond this feature, all fixed and on the branch:
+- **W-2 production**: signing in with the USERNAME of a passwordless account
+  (Google/waitlist, 100 of 173 live) was a 500. `Users.check_password` guard.
+- **W-13 class**: 16 doors answered 400 to a missing Authorization header; now 401.
+- **Players could never report or confirm a result**: the old match dialog's
+  player half sat inside an organiser-only block. Replaced by MatchRoom.
+- **W-9**: Match Control sent every round-robin match to the aggregate seat screen.
+
+## 4. What deploying BE #181 + FE #191 changes
+
+1. Migration `vent_tournament 0054` (additive).
+2. Cron line for the no-show sweep:
+   `* * * * * cd /srv/vent/backend && ./venv/bin/python manage.py settle_no_shows >> /srv/vent/logs/no-shows.log 2>&1`
+3. Draws are results everywhere a table is played (confirm, organiser, admin);
+   a level knockout needs penalties. The admin override refuses a winner who is
+   not in the match.
+4. A double elimination drawn as ONE format keeps a single decisive grand final
+   (unchanged); a stage offers the reset (default on).
+5. Login by username of a passwordless account answers 401 instead of 500.
+6. Missing-header 400 -> 401 at 16 doors (frontend reads codes, not the 400).
+
+## 5. Open, for the CEO
+
+- `dispute_window_minutes`: the wizard stores 30 with no control; the views
+  keep 24 hours. Reading the option would cut every player's window to half an
+  hour. Decide the default, then give it a control.
+- `match_interval_minutes` is still saved and read by nothing.
+- Names: the bracket shows the entrant's username (walk_fcm_01), the
+  participants tab the full name. Consistent within each; worth one decision.
+- Inbox 273 (partial-void ledger reversal) is still open from 18 Sept.
