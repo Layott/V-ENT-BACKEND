@@ -120,6 +120,12 @@ def decide(match, score_p1, score_p2, *, penalties_p1=None, penalties_p2=None,
         if (sum1, sum2) != (s1, s2):
             raise ResultError('GAMES_DO_NOT_ADD_UP', 'games')
 
+    # A two-game match holds two games: 2-0, 1-1, 1-0 with a draw in the
+    # other. Three games won in it is a typing mistake, and it was accepted
+    # (found on the walk, 27 September 2026).
+    if best_of == 2 and legs == 1 and s1 + s2 > 2:
+        raise ResultError('SERIES_OVER_ITS_LENGTH', 'score_p1')
+
     # A best-of series (not a two-game group match, which may end 1-1) cannot
     # go past the number of wins that ends it.
     if best_of > 2 and legs == 1:

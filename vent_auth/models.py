@@ -120,6 +120,19 @@ class Users(AbstractUser, PremiumMixin):
         if self.role == 'admin' and not self.admin_role:
             raise ValidationError({'admin_role': 'admin_role is required when role is admin.'})
 
+    def check_password(self, raw_password):
+        # An account made through Google, or claimed from the waitlist, has no
+        # password at all: the column is null. Django's own check_password
+        # hands that null to identify_hasher, which raises TypeError, and
+        # every authentication backend in the list calls it (ours was guarded
+        # on 17 September; the stock ModelBackend and allauth's, asked next,
+        # were not). So signing in with the USERNAME of any such account was a
+        # 500, and 100 of 173 production accounts have no password
+        # (27 September 2026). No password means no password matches it.
+        if not self.password:
+            return False
+        return super().check_password(raw_password)
+
     def __str__(self):
         return f"{self.username} ({self.signup_type})"
 

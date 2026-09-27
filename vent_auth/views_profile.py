@@ -35,7 +35,7 @@ def _user_from_bearer(request):
     if not session_token:
         return None, Response(
             { 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'},
-            status=status.HTTP_400_BAD_REQUEST,
+            status=status.HTTP_401_UNAUTHORIZED,
         )
     if not session_token.startswith('Bearer '):
         return None, Response(
@@ -329,7 +329,7 @@ def get_user_informations(request):
         session_token = request.headers.get('Authorization')
 
         if not session_token:
-            return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_401_UNAUTHORIZED)
 
         if not session_token.startswith("Bearer "):
             return Response({ 'code': 'INVALID_TOKEN_FORMAT','status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
@@ -444,7 +444,7 @@ def update_web_and_social_links(request):
     session_token = request.headers.get('Authorization')
 
     if not session_token:
-        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_401_UNAUTHORIZED)
 
     if not session_token.startswith("Bearer "):
         return Response({ 'code': 'INVALID_TOKEN_FORMAT','status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
@@ -524,7 +524,7 @@ def edit_profile_info(request):
         session_token = request.headers.get('Authorization')
 
         if not session_token:
-            return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_401_UNAUTHORIZED)
 
         if not session_token.startswith("Bearer "):
             return Response({ 'code': 'INVALID_TOKEN_FORMAT','status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)

@@ -303,6 +303,24 @@ class EndpointTests(TestCase):
             content_type='application/json', **self.owner_auth)
         self.assertEqual(forced.status_code, 200, forced.content)
 
+    def test_drawing_stage_one_honours_the_check_in_window(self):
+        """The one-format draw refuses while people who never checked in
+        would be drawn; the stage door skipped that (27 September 2026)."""
+        from . import options as tournament_options
+        self._field(8)
+        self.set_plan(SWISS_THEN_CUT)
+        first = self.t.stages.first()
+        self.t.options = tournament_options.clean({'check_in_minutes': 15,
+                                                   'forfeit_without_check_in': True})
+        self.t.start_date_and_time = timezone.now() - timedelta(minutes=5)
+        self.t.save(update_fields=['options', 'start_date_and_time'])
+        res = self._draw(first)
+        self.assertEqual(res.status_code, 409, res.content)
+        self.assertEqual(res.json()['code'], 'CHECK_IN_OPEN')
+        forced = self.client.post(self.url('%s/draw/' % first.id), data={'ignore_check_in': True},
+                                  content_type='application/json', **self.owner_auth)
+        self.assertEqual(forced.status_code, 201, forced.content)
+
     def test_a_stranger_cannot_draw_or_advance(self):
         self._field(8)
         self.set_plan(SWISS_THEN_CUT)

@@ -245,7 +245,7 @@ def resolve_admin(request):
     if not header or not header.startswith('Bearer '):
         return None, Response(
             { 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'},
-            status=status.HTTP_400_BAD_REQUEST,
+            status=status.HTTP_401_UNAUTHORIZED,
         )
     token = header.split(' ', 1)[1].strip()
     user = Users.objects.filter(login_session_token=token).first() if token else None

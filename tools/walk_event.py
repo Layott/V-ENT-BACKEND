@@ -94,7 +94,8 @@ def person(handle, coins=0, admin_role=None):
             user.save(update_fields=['login_session_2fa_at'])
     # A password, so the same account can be signed into on the local site
     # for the Chrome walk of each role. Local sqlite only; never production.
-    if not user.has_usable_password():
+    # A null password counts as usable to Django, so test the column too.
+    if not user.password or not user.has_usable_password():
         user.set_password(WALK_PASSWORD)
         user.save(update_fields=['password'])
     # A fresh session token when the last one was cleared (a sign-out on the

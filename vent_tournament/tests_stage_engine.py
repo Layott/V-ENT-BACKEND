@@ -379,6 +379,17 @@ class ResultRuleTests(TestCase):
             results.decide(m, 1, 0)
         self.assertEqual(results.decide(m, 2, 1).winner.id, m.participant_1_id)
 
+    def test_a_best_of_two_holds_two_games(self):
+        stage = add_stage(self.t, 0, 'round_robin', groups=2, settings={'best_of': 2})
+        draw(stage, self.creator)
+        m = stage.matches.first()
+        self.assertEqual(m.best_of, 2)
+        with self.assertRaises(results.ResultError) as caught:
+            results.decide(m, 2, 1)
+        self.assertEqual(caught.exception.code, 'SERIES_OVER_ITS_LENGTH')
+        self.assertIsNone(results.decide(m, 1, 1).winner)
+        self.assertEqual(results.decide(m, 2, 0).winner.id, m.participant_1_id)
+
     def test_the_games_must_add_up_to_the_headline(self):
         m = self._knockout_match(best_of=3)
         with self.assertRaises(results.ResultError) as caught:

@@ -327,7 +327,7 @@ def join_tournament(request):
     """Register a user or team for a tournament."""
     session_token = request.headers.get('Authorization')
     if not session_token or not session_token.startswith('Bearer '):
-        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_401_UNAUTHORIZED)
 
     login_session_token = session_token.split(' ', 1)[1]
 
@@ -837,7 +837,7 @@ def create_tournament(request):
             session_token = request.headers.get('Authorization')
 
             if not session_token:
-                return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_401_UNAUTHORIZED)
 
             # Ensure the token is in the correct format (e.g., 'Bearer <token>')
             if not session_token.startswith("Bearer "):
@@ -1604,6 +1604,14 @@ def view_tournament(request, tournament_id):
             "rules_document": tournament.rules_document.url if tournament.rules_document else None,
             "bracket_type": tournament.bracket_type,
             "format_label": bracket_label(tournament.bracket_type),
+            # A tournament that runs in stages is not its bracket_type: the
+            # overview said "Round robin" for groups into a playoff. The plan
+            # travels with the record, so every screen can name it.
+            "stages": [
+                {"label": st.label, "format": st.format,
+                 "format_label": bracket_label(st.format), "status": st.status}
+                for st in tournament.stages.all()
+            ],
             "start_date_and_time": tournament.start_date_and_time,
             "end_date_and_time": tournament.end_date_and_time,
             # When entries open and close, and which edition it is played on.
@@ -1684,7 +1692,7 @@ def view_user_drafted_tournaments(request):
             # Step 1: Get Authorization token
             session_header = request.headers.get("Authorization")
             if not session_header:
-                return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED',"status": "error", "message": "Authorization header is required"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED',"status": "error", "message": "Authorization header is required"}, status=status.HTTP_401_UNAUTHORIZED)
             
             if not session_header.startswith("Bearer "):
                 return Response({ 'code': 'INVALID_TOKEN_FORMAT',"status": "error", "message": "Invalid token format"}, status=status.HTTP_400_BAD_REQUEST)
@@ -1901,7 +1909,7 @@ def update_bracket(request, tournament_id):
     """POST /tournament/update-bracket/{id}/ - organizer updates match score / advances bracket."""
     session_token = request.headers.get('Authorization')
     if not session_token or not session_token.startswith('Bearer '):
-        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_401_UNAUTHORIZED)
 
     login_session_token = session_token.split(' ', 1)[1]
 
@@ -1989,7 +1997,7 @@ def get_organizer_tournaments(request):
     """GET /tournament/get-organizer-tournaments/ - organizer's published + draft tournaments."""
     session_token = request.headers.get('Authorization')
     if not session_token or not session_token.startswith('Bearer '):
-        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_401_UNAUTHORIZED)
 
     login_session_token = session_token.split(' ', 1)[1]
 
@@ -2044,7 +2052,7 @@ def delete_draft(request, tournament_id):
     """DELETE /tournament/delete-draft/{id}/ - delete a draft tournament."""
     session_token = request.headers.get('Authorization')
     if not session_token or not session_token.startswith('Bearer '):
-        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_401_UNAUTHORIZED)
 
     login_session_token = session_token.split(' ', 1)[1]
 

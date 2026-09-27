@@ -72,3 +72,4 @@ tools/.futbin-state.json
 
 # The event walk keeps its state beside itself; never committed.
 tools/.walk-event-*.json
+tools/.walk-stages-*.json

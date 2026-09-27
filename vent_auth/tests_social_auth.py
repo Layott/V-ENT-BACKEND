@@ -133,3 +133,21 @@ class PasswordLoginOnAGoogleAccountTests(TestCase):
         self.assertNotEqual(res.status_code, 500)
         self.assertIn(res.status_code, (400, 401))
         self.assertNotIn('session_token', str(res.data))
+
+    def test_the_same_by_username_is_refused_not_a_crash(self):
+        """27 September 2026: the guard above lived in our backend, which
+        returned None, and Django then asked the NEXT backend in the list, the
+        stock ModelBackend, which looks accounts up by username and called
+        check_password on the null hash itself. By email it found nobody, which
+        is why the test above passed; by username it was still a 500, and 100
+        of 173 accounts on production have no password."""
+        Users.objects.create(username='gina2', email='gina2@example.com',
+                             signup_type='google', provider_id='10', is_active=True,
+                             password=None)
+        for blank in (None, ''):
+            Users.objects.filter(username='gina2').update(password=blank)
+            res = APIClient().post('/auth/login/', {
+                'username_or_email': 'gina2', 'password': 'anything',
+            }, format='json')
+            self.assertNotEqual(res.status_code, 500, blank)
+            self.assertIn(res.status_code, (400, 401))
