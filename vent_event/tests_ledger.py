@@ -329,6 +329,139 @@ class ReversalTests(LedgerBase):
             EventLedgerEntry.objects.filter(kind='reversal').count(), 1)
 
 
+class OneTicketOfAPurchaseTests(LedgerBase):
+    """Inbox 273. A purchase's lines hang off its first ticket with the count
+    on them. Voiding ONE ticket of three must take back one third of every
+    line, whichever ticket it is, and voiding all three must bring every
+    line to exactly zero."""
+
+    def buy(self, n=3, fee=10, flat=0, link=None, bearer='organiser'):
+        set_fee(fee, flat)
+        self.event.fee_bearer = bearer
+        self.event.save(update_fields=['fee_bearer'])
+        tickets = [self.a_ticket('LDP%04d' % i) for i in range(n)]
+        ledger.record_sale(self.event, tickets,
+                           ledger.quote(self.tier, n, self.event), referral=link)
+        return tickets
+
+    def owed(self):
+        return ledger.balances(self.event)
+
+    def link(self):
+        return EventReferral.objects.create(
+            event=self.event, name='Ada', code='ADAP', commission_pct=20,
+            payee=self.stranger)
+
+    def test_every_ticket_of_the_purchase_shares_one_key(self):
+        tickets = self.buy()
+        keys = set(Ticket.objects.filter(pk__in=[t.pk for t in tickets])
+                   .values_list('purchase', flat=True))
+        self.assertEqual(len(keys), 1)
+        self.assertNotIn('', keys)
+
+    def test_voiding_the_second_ticket_takes_back_a_third(self):
+        tickets = self.buy(link=self.link())
+        before = self.owed()
+        ledger.reverse_sale(tickets[1], reason='Voided')
+        after = self.owed()
+        for key in ('organiser_owed_ngn', 'platform_fee_ngn', 'affiliates_owed_ngn'):
+            self.assertEqual(after[key], before[key] - before[key] / 3, key)
+        # The lines are still standing: two tickets are still sold.
+        self.assertFalse(EventLedgerEntry.objects.exclude(kind='reversal')
+                         .filter(reversed_by__isnull=False).exists())
+
+    def test_voiding_the_first_ticket_takes_back_a_third_not_the_whole(self):
+        tickets = self.buy()
+        before = self.owed()['organiser_owed_ngn']
+        ledger.reverse_sale(tickets[0], reason='Voided')
+        self.assertEqual(self.owed()['organiser_owed_ngn'], before * 2 / 3)
+
+    def test_voiding_all_three_in_any_order_comes_to_exactly_zero(self):
+        # 5 per cent and 100 naira on 20,000 naira, commission 20 per cent:
+        # amounts that do not divide by three, so the last share takes the
+        # kobo the other two could not.
+        tickets = self.buy(fee=7, flat=100, link=self.link())
+        for t in (tickets[2], tickets[0], tickets[1]):
+            ledger.reverse_sale(t, reason='Voided')
+        owed = self.owed()
+        for key in ('organiser_owed_ngn', 'platform_fee_ngn', 'affiliates_owed_ngn'):
+            self.assertEqual(owed[key], 0, key)
+        originals = EventLedgerEntry.objects.exclude(kind='reversal')
+        self.assertFalse(originals.filter(reversed_by__isnull=True).exists())
+        for line in originals:
+            back = sum(r.amount_ngn for r in EventLedgerEntry.objects.filter(reverses=line))
+            self.assertEqual(back, -line.amount_ngn)
+
+    def test_the_same_ticket_twice_reverses_once(self):
+        tickets = self.buy()
+        ledger.reverse_sale(tickets[1])
+        ledger.reverse_sale(tickets[1])
+        self.assertEqual(EventLedgerEntry.objects.filter(kind='reversal').count(), 2)
+
+    def test_the_buyer_gets_back_their_share_of_the_fee(self):
+        """CEO, 27 September 2026: a partial refund returns the buyer's share
+        of the service fee, and the three shares add up to what was paid."""
+        from .refunds import paid_for
+        tickets = self.buy(fee=5, flat=100, bearer='buyer')
+        line = EventLedgerEntry.objects.get(kind='organiser')
+        self.assertGreater(line.buyer_fee_ngn, 0)
+        naira = []
+        coins = []
+        for t in tickets:
+            c, n = paid_for(t)
+            coins.append(c - t.price_vc)
+            naira.append(n - t.price_ngn)
+            ledger.reverse_sale(t, reason='Refunded')
+        self.assertEqual(sum(naira), line.buyer_fee_ngn)
+        self.assertEqual(sum(coins), ledger._floor_vc(line.buyer_fee_ngn))
+        self.assertTrue(all(n > 0 for n in naira))
+        # And nothing more once it is back.
+        self.assertEqual(paid_for(tickets[0]), (20, Decimal('20000')))
+
+    def test_a_reinstated_ticket_is_paid_again_and_can_be_voided_again(self):
+        tickets = self.buy()
+        full = self.owed()['organiser_owed_ngn']
+        ledger.reverse_sale(tickets[1], reason='Voided')
+        ledger.reinstate_sale(tickets[1])
+        self.assertEqual(self.owed()['organiser_owed_ngn'], full)
+        ledger.reverse_sale(tickets[1], reason='Voided again')
+        self.assertEqual(self.owed()['organiser_owed_ngn'], full * 2 / 3)
+        ledger.reinstate_sale(tickets[1])
+        ledger.reinstate_sale(tickets[1])
+        self.assertEqual(self.owed()['organiser_owed_ngn'], full)
+        # The other two still reverse their own thirds.
+        ledger.reverse_sale(tickets[0])
+        ledger.reverse_sale(tickets[2])
+        self.assertEqual(self.owed()['organiser_owed_ngn'], full / 3)
+
+    def test_a_void_after_settlement_is_carried_not_clawed_back(self):
+        tickets = self.buy()
+        ledger.settle(self.event)
+        paid = UserWallet.objects.get(user=self.organiser).wallet_balance
+        self.assertGreater(paid, 0)
+        ledger.reverse_sale(tickets[1], reason='Chargeback')
+        self.assertLess(self.owed()['organiser_owed_ngn'], 0)
+        ledger.settle(self.event)
+        self.assertEqual(UserWallet.objects.get(user=self.organiser).wallet_balance, paid)
+        # The next sale is worth one ticket, which is exactly the debt, so
+        # the next run pays nothing and leaves nothing owed either way.
+        more = [self.a_ticket('LDQ0001')]
+        ledger.record_sale(self.event, more, ledger.quote(self.tier, 1, self.event))
+        self.assertEqual(self.owed()['organiser_owed_ngn'], 0)
+        ledger.settle(self.event)
+        self.assertEqual(UserWallet.objects.get(user=self.organiser).wallet_balance, paid)
+
+    def test_a_ticket_with_no_purchase_key_reverses_only_its_own_share(self):
+        """A purchase the backfill could not match: the first ticket still
+        takes back one share, never the whole."""
+        tickets = self.buy()
+        Ticket.objects.update(purchase='')
+        tickets[0].refresh_from_db()
+        full = self.owed()['organiser_owed_ngn']
+        ledger.reverse_sale(tickets[0])
+        self.assertEqual(self.owed()['organiser_owed_ngn'], full * 2 / 3)
+
+
 class SettlementTests(LedgerBase):
     def sell(self, code, referral=None):
         priced = ledger.quote(self.tier, 1, self.event)

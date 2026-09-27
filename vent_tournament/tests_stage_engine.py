@@ -479,6 +479,124 @@ class DisputeWindowTests(TestCase):
         self.assertEqual(self._completed_match(45, window=120).status_code, 201)
 
 
+class BreakBetweenRoundsTests(TestCase):
+    """CEO, 27 September 2026: `match_interval_minutes` was saved and read by
+    nothing. A next-round match now starts the break after its two sides' own
+    last matches, and players see it."""
+
+    def setup_field(self, n=4, interval=15, check_in=0):
+        from . import options as tournament_options
+        t, creator, regs = field(n)
+        t.options = tournament_options.clean({'match_interval_minutes': interval})
+        t.save(update_fields=['options'])
+        stage = add_stage(t, 0, 'single_elimination',
+                          settings={'check_in_minutes': check_in} if check_in else None)
+        draw(stage, creator)
+        return t, creator, regs, stage
+
+    def client_for(self, user):
+        from rest_framework.test import APIClient
+        c = APIClient()
+        c.credentials(HTTP_AUTHORIZATION='Bearer %s' % user.login_session_token)
+        return c
+
+    def test_the_final_starts_the_break_after_the_later_semi_final(self):
+        t, creator, regs, stage = self.setup_field()
+        semis = list(stage.matches.filter(round_number=1).order_by('match_number'))
+        final = stage.matches.get(round_number=2)
+        self.assertIsNone(final.scheduled_at)
+        play(semis[0], 2, 0)
+        final.refresh_from_db()
+        self.assertIsNone(final.scheduled_at)       # one side still unknown
+        play(semis[1], 2, 0)
+        final.refresh_from_db()
+        latest = max(m.completed_at for m in stage.matches.filter(round_number=1))
+        self.assertIsNotNone(final.scheduled_at)
+        self.assertGreaterEqual(final.scheduled_at, latest + timedelta(minutes=15))
+        self.assertLess(final.scheduled_at, latest + timedelta(minutes=17))
+        self.assertEqual(final.scheduled_at.second, 0)
+
+    def test_each_match_counts_from_its_own_players_not_the_whole_round(self):
+        """Eight players: the first quarter-final pair to finish gets its
+        semi-final time while the other quarter-finals are still being played."""
+        t, creator, regs, stage = self.setup_field(n=8, interval=20)
+        quarters = list(stage.matches.filter(round_number=1).order_by('match_number'))
+        play(quarters[0], 2, 0)
+        play(quarters[1], 2, 0)
+        semi = BracketMatch.objects.get(pk=quarters[0].winner_to_match_id)
+        self.assertIsNotNone(semi.scheduled_at)
+        self.assertTrue(stage.matches.filter(round_number=1, status='scheduled').exists())
+
+    def test_a_result_recorded_late_never_makes_a_time_in_the_past(self):
+        t, creator, regs, stage = self.setup_field(interval=15, check_in=10)
+        semis = list(stage.matches.filter(round_number=1).order_by('match_number'))
+        play(semis[0], 2, 0)
+        BracketMatch.objects.filter(pk=semis[0].pk).update(
+            completed_at=timezone.now() - timedelta(hours=3))
+        play(semis[1], 2, 0)
+        BracketMatch.objects.filter(pk=semis[1].pk).update(
+            completed_at=timezone.now() - timedelta(hours=3))
+        final = stage.matches.get(round_number=2)
+        self.assertGreaterEqual(final.scheduled_at, timezone.now() - timedelta(minutes=1))
+        # And the check-in window runs from that time, so nobody is ruled a
+        # no-show for a match whose time had passed before it existed.
+        self.assertEqual(final.check_in_deadline, final.scheduled_at + timedelta(minutes=10))
+        self.assertEqual(stage_engine.sweep_no_shows(), 0)
+
+    def test_a_time_set_by_the_organiser_is_kept_and_moves_the_check_in(self):
+        t, creator, regs, stage = self.setup_field(check_in=10)
+        final = stage.matches.get(round_number=2)
+        when = (timezone.now() + timedelta(days=1)).replace(microsecond=0)
+        res = self.client_for(creator).post('/tournament/match/%s/time/' % final.pk,
+                                            {'scheduled_at': when.isoformat()}, format='json')
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        for m in stage.matches.filter(round_number=1):
+            play(m, 2, 0)
+        final.refresh_from_db()
+        self.assertEqual(final.scheduled_at, when)
+        self.assertEqual(final.check_in_deadline, when + timedelta(minutes=10))
+
+    def test_only_the_people_running_it_may_move_a_match(self):
+        t, creator, regs, stage = self.setup_field()
+        semi = stage.matches.filter(round_number=1).first()
+        when = (timezone.now() + timedelta(hours=2)).isoformat()
+        player = semi.participant_1.user
+        res = self.client_for(player).post('/tournament/match/%s/time/' % semi.pk,
+                                           {'scheduled_at': when}, format='json')
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.json()['code'], 'FORBIDDEN')
+        res = self.client_for(creator).post('/tournament/match/%s/time/' % semi.pk,
+                                            {'scheduled_at': 'tomorrow'}, format='json')
+        self.assertEqual(res.json()['code'], 'MATCH_TIME_INVALID')
+        res = self.client_for(creator).post('/tournament/match/%s/time/' % semi.pk,
+                                            {'scheduled_at': '2026-10-01T18:00'}, format='json')
+        self.assertEqual(res.json()['code'], 'MATCH_TIME_INVALID')   # no zone on it
+        from rest_framework.test import APIClient
+        self.assertEqual(APIClient().post('/tournament/match/%s/time/' % semi.pk,
+                                          {'scheduled_at': when}, format='json').status_code, 401)
+
+    def test_the_match_says_how_long_the_break_is(self):
+        t, creator, regs, stage = self.setup_field(interval=25)
+        semi = stage.matches.filter(round_number=1).first()
+        body = self.client_for(creator).get('/tournament/match/%s/' % semi.pk).json()['data']
+        self.assertEqual(body['break_minutes'], 25)
+        self.assertTrue(body['can_record'])
+
+    def test_a_one_format_bracket_is_timed_too(self):
+        """No stages: the tournament's own single elimination."""
+        from .services import advance as adv
+        t, creator, regs = field(4)
+        from . import options as tournament_options
+        t.options = tournament_options.clean({'match_interval_minutes': 10})
+        t.save(update_fields=['options'])
+        bracket_service.generate(t, creator)
+        semis = list(BracketMatch.objects.filter(tournament=t, round_number=1))
+        for m in semis:
+            play(m, 2, 0)
+        final = BracketMatch.objects.get(tournament=t, round_number=2)
+        self.assertIsNotNone(final.scheduled_at)
+
+
 class SettingsTests(TestCase):
     def test_a_knockout_cannot_allow_draws(self):
         with self.assertRaises(stage_settings.SettingsError) as caught:

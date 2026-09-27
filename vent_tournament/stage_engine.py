@@ -590,8 +590,52 @@ def on_match_resolved(match):
 # Match day: check-in and no-shows
 # ---------------------------------------------------------------------------
 
+def schedule(match):
+    """Give a next-round match its start time: the break after the later of
+    its two sides' last matches.
+
+    CEO, 27 September 2026, on `match_interval_minutes` ("Minutes between
+    rounds"), which was saved and read by nothing: players should see the
+    break they get. The break counts from the end of each player's OWN last
+    match rather than from the end of the whole round, so a quick match does
+    not wait on a slow one. Never earlier than now, so a result recorded late
+    does not open a check-in window that has already closed, and never
+    earlier than the stage's own start.
+
+    Only fills an empty time: a time the organiser set by hand is theirs, and
+    a first-round match (nobody has played yet) keeps the stage's start.
+    """
+    from django.db.models import Max, Q
+    from . import options as tournament_options
+    if match.scheduled_at or match.status != 'scheduled':
+        return None
+    sides = [s for s in (match.participant_1_id, match.participant_2_id) if s]
+    if len(sides) != 2:
+        return None
+    last = (type(match).objects
+            .filter(tournament_id=match.tournament_id, completed_at__isnull=False,
+                    status__in=('completed', 'bye'))
+            .filter(Q(participant_1_id__in=sides) | Q(participant_2_id__in=sides))
+            .exclude(pk=match.pk)
+            .aggregate(at=Max('completed_at'))['at'])
+    if last is None:
+        return None
+    minutes = tournament_options.clean(match.tournament.options)['match_interval_minutes']
+    start = max(last + timedelta(minutes=minutes), timezone.now())
+    # A stage with a start of its own (a playoff on Sunday) waits for it. The
+    # tournament's start is not a floor: matches are already being played.
+    if match.stage_id and match.stage.starts_at and match.stage.starts_at > start:
+        start = match.stage.starts_at
+    start = start.replace(second=0, microsecond=0) + timedelta(
+        minutes=1 if start.second or start.microsecond else 0)
+    match.scheduled_at = start
+    type(match).objects.filter(pk=match.pk).update(scheduled_at=start)
+    return start
+
+
 def arm_check_in(match):
     """Fix the check-in deadline once both sides are known."""
+    schedule(match)
     settings = stage_settings.of_match(match)
     minutes = int(settings.get('check_in_minutes') or 0)
     if not minutes or match.check_in_deadline or match.status != 'scheduled':
@@ -599,7 +643,10 @@ def arm_check_in(match):
     if not (match.participant_1_id and match.participant_2_id):
         return
     start = match.scheduled_at or timezone.now()
-    if match.stage_id:
+    # A match with a time of its own (the break after its players' last
+    # matches, or one the organiser set) checks in against that time. Only a
+    # match with no time waits for the stage, or the tournament, to start.
+    if match.stage_id and not match.scheduled_at:
         stage_start = match.stage.effective_when()[0]
         if stage_start and stage_start > start:
             start = stage_start

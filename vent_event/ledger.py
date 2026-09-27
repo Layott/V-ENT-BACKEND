@@ -448,6 +448,104 @@ def pool_ngn(tournament):
     return balances(tournament)['organiser_owed_ngn']
 
 
+REINSTATED_NOTE = 'Reinstated'
+
+
+def _share(total, k, q, whole=False):
+    """The k-th of q equal shares of `total`, cut so the q shares add up to
+    exactly `total`: each share is the difference between two cumulative
+    roundings, so whatever kobo (or coin) does not divide lands on a share
+    rather than vanishing. Three tickets of a 1,000 naira fee come back as
+    333.33, 333.33 and 333.34, never three times 333.33."""
+    if whole:
+        t = int(total or 0)
+        return t * k // q - t * (k - 1) // q
+    t = Decimal(str(total or 0))
+    return _ngn(t * k / q) - _ngn(t * (k - 1) / q)
+
+
+def _shares_back(line):
+    """How many of this line's tickets have already been reversed."""
+    return int(EventLedgerEntry.objects.filter(reverses=line)
+               .aggregate(n=Sum('quantity'))['n'] or 0)
+
+
+def lines_for(ticket):
+    """The open lines one ticket's money sits on, and whether they are its
+    own (True) or its purchase's, of which it holds one share (False).
+
+    A ticket put back after a void carries its own lines (REINSTATED_NOTE);
+    otherwise its money is a share of the lines its purchase wrote, which hang
+    off the purchase's first ticket.
+    """
+    own = list(EventLedgerEntry.objects
+               .filter(ticket=ticket, note=REINSTATED_NOTE, reversed_by__isnull=True)
+               .exclude(kind=EventLedgerEntry.KIND_REVERSAL))
+    if own:
+        return own, True
+    q = (EventLedgerEntry.objects
+         .filter(registration__isnull=True, prize__isnull=True, quantity__gt=0)
+         .exclude(kind=EventLedgerEntry.KIND_REVERSAL)
+         .exclude(note=REINSTATED_NOTE))
+    if ticket.purchase:
+        q = q.filter(ticket__purchase=ticket.purchase)
+    else:
+        q = q.filter(ticket=ticket)
+    return list(q.order_by('id')), False
+
+
+def _reverse_share(line, ticket, reason):
+    """Reverse one ticket's share of a purchase line. The line is marked
+    reversed only once every one of its tickets has been."""
+    if line.reversed_by_id:
+        return None
+    if EventLedgerEntry.objects.filter(reverses=line, ticket=ticket).exists():
+        return None
+    q = max(int(line.quantity or 1), 1)
+    k = _shares_back(line) + 1
+    if k > q:
+        return None
+    reversal = EventLedgerEntry.objects.create(
+        event=line.event, tournament=line.tournament,
+        kind=EventLedgerEntry.KIND_REVERSAL, user=line.user,
+        amount_ngn=-_share(line.amount_ngn, k, q),
+        amount_vc=-_share(line.amount_vc, k, q, whole=True),
+        gross_ngn=-_share(line.gross_ngn, k, q),
+        gross_vc=-_share(line.gross_vc, k, q, whole=True),
+        fee_ngn=-_share(line.fee_ngn, k, q),
+        fee_vc=-_share(line.fee_vc, k, q, whole=True),
+        fee_pct=line.fee_pct, fee_flat_ngn=line.fee_flat_ngn,
+        fee_bearer=line.fee_bearer,
+        buyer_fee_ngn=-_share(line.buyer_fee_ngn, k, q),
+        ticket=ticket, quantity=1,
+        referral=line.referral, note=reason[:200], reverses=line)
+    if k == q:
+        EventLedgerEntry.objects.filter(pk=line.pk).update(reversed_by=reversal)
+    return reversal
+
+
+def fee_share(ticket):
+    """(coins, naira) of the service fee this ticket's buyer paid and would
+    get back with it: one ticket's share of what the purchase paid, the same
+    share `reverse_sale` is about to take off the ledger. Nothing once the
+    ticket's money is already off it."""
+    lines, own = lines_for(ticket)
+    line = next((l for l in lines if l.kind == EventLedgerEntry.KIND_ORGANISER), None)
+    if line is None or not line.buyer_fee_ngn:
+        return 0, Decimal('0')
+    if own:
+        return _floor_vc(line.buyer_fee_ngn), Decimal(line.buyer_fee_ngn)
+    if line.reversed_by_id or EventLedgerEntry.objects.filter(
+            reverses=line, ticket=ticket).exists():
+        return 0, Decimal('0')
+    q = max(int(line.quantity or 1), 1)
+    k = _shares_back(line) + 1
+    if k > q:
+        return 0, Decimal('0')
+    return (_share(_floor_vc(line.buyer_fee_ngn), k, q, whole=True),
+            _share(line.buyer_fee_ngn, k, q))
+
+
 def record_sale(event, tickets, priced, referral=None):
     """Write the lines one purchase created. Returns them.
 
@@ -458,6 +556,15 @@ def record_sale(event, tickets, priced, referral=None):
     """
     if not tickets:
         return []
+
+    # One key for every ticket of this purchase, so a single ticket can find
+    # the lines below and take back only its own share of them.
+    import uuid
+    from .models import Ticket
+    key = uuid.uuid4().hex
+    Ticket.objects.filter(pk__in=[t.pk for t in tickets]).update(purchase=key)
+    for t in tickets:
+        t.purchase = key
 
     gross = _ngn(priced['tickets_ngn'])
     fee = _ngn(priced['fee_ngn'])
@@ -501,16 +608,58 @@ def record_sale(event, tickets, priced, referral=None):
 
 
 def reverse_sale(ticket, reason=''):
-    """Undo the lines one ticket created, when it is refunded or cancelled.
+    """Undo what one ticket is worth to everybody, when it is refunded,
+    cancelled or voided: its share of every line its purchase wrote.
 
     A reversal is a NEW line with the opposite sign, never an edit to the
     original. Editing a settled line would rewrite a payment that has already
     been made, and editing an unsettled one would erase the fact that a sale
     happened at all.
+
+    Until 27 September 2026 this reversed the lines hanging off the ticket
+    itself, and a purchase's lines hang off its FIRST ticket: voiding ticket 1
+    of 3 took back the organiser's whole take, voiding 2 or 3 took back
+    nothing (inbox 273). Calling it twice for one ticket reverses once.
     """
-    originals = EventLedgerEntry.objects.filter(ticket=ticket).exclude(
-        kind=EventLedgerEntry.KIND_REVERSAL)
-    return _reverse_lines(originals, reason)
+    lines, own = lines_for(ticket)
+    if own:
+        return _reverse_lines(lines, reason)
+    out = []
+    for line in lines:
+        reversal = _reverse_share(line, ticket, reason)
+        if reversal is not None:
+            out.append(reversal)
+    return out
+
+
+def reinstate_sale(ticket):
+    """Put a voided ticket's money back: undo each reversal written for it.
+
+    The ticket gets lines of its own (REINSTATED_NOTE), each pointing at the
+    reversal it undoes, so voiding it again reverses exactly those. Until 27
+    September 2026 a reinstated ticket admitted somebody and paid nobody.
+    """
+    out = []
+    reversals = (EventLedgerEntry.objects
+                 .filter(ticket=ticket, kind=EventLedgerEntry.KIND_REVERSAL,
+                         reversed_by__isnull=True, reverses__isnull=False)
+                 .select_related('reverses').order_by('id'))
+    for rev in reversals:
+        orig = rev.reverses
+        if orig.kind == EventLedgerEntry.KIND_REVERSAL:
+            continue
+        line = EventLedgerEntry.objects.create(
+            event=rev.event, tournament=rev.tournament, kind=orig.kind,
+            user=orig.user, referral=orig.referral,
+            amount_ngn=-rev.amount_ngn, amount_vc=-rev.amount_vc,
+            gross_ngn=-rev.gross_ngn, gross_vc=-rev.gross_vc,
+            fee_ngn=-rev.fee_ngn, fee_vc=-rev.fee_vc,
+            fee_pct=rev.fee_pct, fee_flat_ngn=rev.fee_flat_ngn,
+            fee_bearer=rev.fee_bearer, buyer_fee_ngn=-rev.buyer_fee_ngn,
+            ticket=ticket, quantity=1, note=REINSTATED_NOTE, reverses=rev)
+        EventLedgerEntry.objects.filter(pk=rev.pk).update(reversed_by=line)
+        out.append(line)
+    return out
 
 
 def balances(record):

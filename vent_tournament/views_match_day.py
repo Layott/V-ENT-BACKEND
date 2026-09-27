@@ -14,6 +14,7 @@ organiser's word against a player's. Now:
 """
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.utils.dateparse import parse_datetime
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -59,6 +60,52 @@ def check_in(request, match_id):
     match.refresh_from_db()
     return _ok({'slot': slot,
                 'match': match_shape.match_row(match, private=True)}, 'Checked in.')
+
+
+@api_view(['POST'])
+def set_time(request, match_id):
+    """POST /tournament/match/<id>/time/ - staff move one match.
+
+    Body: {"scheduled_at": ISO instant}. The automatic time (the break after
+    the players' last matches) only ever fills an empty time, so a time set
+    here stays. The check-in window moves with it, and both sides are told.
+    """
+    user, err = actor_from_request(request)
+    if err:
+        return err
+    match = _match(match_id)
+    if not may_record_results(user, match.tournament):
+        return _err('Only the people running this tournament can move a match.',
+                    'FORBIDDEN', status.HTTP_403_FORBIDDEN)
+    if match.status not in ('scheduled', 'in_progress'):
+        return _err('This match is not open.', 'MATCH_NOT_OPEN', status.HTTP_409_CONFLICT)
+    raw = str(request.data.get('scheduled_at') or '').strip()
+    when = parse_datetime(raw) if raw else None
+    if when is None or when.tzinfo is None:
+        return _err('Say when the match starts.', 'MATCH_TIME_INVALID', field='scheduled_at')
+
+    with transaction.atomic():
+        locked = BracketMatch.objects.select_for_update().get(pk=match.pk)
+        locked.scheduled_at = when
+        locked.check_in_deadline = None
+        locked.save(update_fields=['scheduled_at', 'check_in_deadline'])
+        stage_engine.arm_check_in(locked)
+    match.refresh_from_db()
+
+    try:
+        from vent_auth.views_notifications import create_notification
+        for side in (match.participant_1, match.participant_2):
+            person = side.acting_user if side else None
+            if person is not None and person.user_id != user.user_id:
+                create_notification(
+                    person.user_id, 'match', 'Your match time has changed',
+                    body=match.tournament.tournament_title,
+                    link='/tournaments/%s' % (match.tournament.slug or match.tournament_id),
+                    metadata={'match_id': match.id,
+                              'scheduled_at': match.scheduled_at.isoformat()})
+    except Exception:                                           # noqa: BLE001
+        pass
+    return _ok({'match': match_shape.match_row(match, private=True)}, 'Match moved.')
 
 
 @api_view(['POST'])
