@@ -91,6 +91,15 @@ class LimitedEndpointsTests(TestCase):
     def setUp(self):
         cache.clear()
         self.client = APIClient()
+        # The bucket is keyed by the minute. Twenty sign-ins with real password
+        # hashing can cross a minute boundary on a slow run, which splits the
+        # count and the (n + 1)th request is not refused: this failed in a
+        # serial run on 27 September 2026 and passed alone. Hold the clock.
+        from django.utils import timezone
+        frozen = timezone.now().replace(second=5, microsecond=0)
+        clock = patch('vent_auth.throttle.timezone.now', return_value=frozen)
+        clock.start()
+        self.addCleanup(clock.stop)
 
     def burst(self, path, body, times):
         last = None

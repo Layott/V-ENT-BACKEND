@@ -115,9 +115,13 @@ class DescribeTests(TestCase):
             struct.describe('round_robin', participants=12)['shape']['problem'])
 
     def test_it_says_when_the_bracket_drawn_is_not_the_format_named(self):
-        """Swiss and GSL are drawn as knockouts today, and it says so."""
-        self.assertTrue(struct.describe('swiss')['drawn_as_differs'])
-        self.assertEqual(struct.describe('swiss')['drawn_as'], 'single_elimination')
+        """Swiss and GSL were drawn as knockouts until 27 September 2026. They
+        are drawn as themselves now; a ladder is still scheduled as a table and
+        battle royale is not drawn at all, and it says so."""
+        self.assertFalse(struct.describe('swiss')['drawn_as_differs'])
+        self.assertEqual(struct.describe('swiss')['drawn_as'], 'swiss')
+        self.assertEqual(struct.describe('gsl')['drawn_as'], 'gsl')
+        self.assertIsNone(struct.describe('battle_royale')['drawn_as'])
         self.assertTrue(struct.describe('ladder')['drawn_as_differs'])
         self.assertEqual(struct.describe('ladder')['drawn_as'], 'round_robin')
         self.assertFalse(struct.describe('round_robin')['drawn_as_differs'])
@@ -187,10 +191,18 @@ class AgreesWithTheGeneratorTests(TestCase):
         self.assertEqual(summary['matches_created'], 6)     # a table: 4*3/2
         self.assertEqual(summary['rounds_count'], 3)
 
+        # Swiss draws its FIRST round only, paired top half against bottom
+        # half; the rest are paired on record as each round completes.
         summary = self._build('swiss', 8)
-        self.assertEqual(struct.drawn_as('swiss'), 'single_elimination')
-        self.assertEqual(summary['matches_created'], 7)     # a knockout of 8
+        self.assertEqual(struct.drawn_as('swiss'), 'swiss')
+        self.assertEqual(summary['matches_created'], 4)
         self.assertEqual(summary['rounds_count'], 3)
+        self.assertEqual(struct.describe('swiss', participants=8)['shape']['matches'], 12)
+
+        summary = self._build('gsl', 8)
+        shape = struct.describe('gsl', participants=8)['shape']
+        self.assertEqual(summary['matches_created'], shape['matches'])   # 2 groups x 5
+        self.assertEqual(summary['rounds_count'], shape['rounds'])
 
 
 class CatalogueEndpointTests(TestCase):

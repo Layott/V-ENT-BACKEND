@@ -66,6 +66,11 @@ INCLUDE = re.compile(r"""\bpath\(\s*['"]([^'"]*)['"]\s*,\s*include\(\s*['"]([^'"
 # here is a decision, not an oversight, which is the whole difference.
 DELIBERATE = {
     'admin/': 'Django admin',
+    # The screen does call it, but through a URL the API hands over in the
+    # KYC payload (`kyc_document_url` builds it), so no fetch string in the
+    # frontend names the path. An <img src> of an absolute URL from the server
+    # is invisible to a scan of source. Found 27 September 2026.
+    'kyc/document/': 'called through the absolute URL kyc_document_url puts in the admin KYC payload',
     # Superseded by `team/kick-member/`, which is what every screen calls
     # and which takes ids rather than names. Kept rather than deleted
     # because it is a public API shape somebody outside this repo may

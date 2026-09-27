@@ -93,15 +93,17 @@ class PlanTests(TestCase):
             ])
         self.assertIn('at least', str(caught.exception))
 
-    def test_an_odd_number_into_a_format_that_needs_pairs_is_refused(self):
-        """Single elimination pairs everybody in round one, so an odd field
-        leaves somebody with no opponent."""
-        with self.assertRaises(stages.StageError) as caught:
-            stages.plan([
-                {'format': 'swiss', 'label': 'Swiss', 'advances': 5},
-                {'format': 'single_elimination', 'label': 'Top cut'},
-            ])
-        self.assertIn('even', str(caught.exception))
+    def test_an_odd_number_into_a_knockout_is_drawn_with_byes(self):
+        """This used to be refused as "leaves somebody with no opponent". The
+        generator has always padded to a power of two and given the byes to
+        the top seeds, so five into a top cut is three byes, not a fault, and
+        an invited side seeded straight into a playoff depends on it
+        (27 September 2026)."""
+        planned = stages.plan([
+            {'format': 'swiss', 'label': 'Swiss', 'advances': 5},
+            {'format': 'single_elimination', 'label': 'Top cut'},
+        ])
+        self.assertEqual(len(planned), 2)
 
     def test_an_unknown_format_is_refused(self):
         with self.assertRaises(stages.StageError) as caught:
@@ -194,13 +196,40 @@ class EndpointTests(TestCase):
         res = self.set_plan(GROUPS_THEN_PLAYOFF, auth=self.stranger_auth)
         self.assertEqual(res.status_code, 403, res.content)
 
+    # Advancing used to take the standings the BROWSER sent, so whichever page
+    # was open decided the draw. It reads the stage's own matches now
+    # (27 September 2026), so these tests draw a real stage and play it.
+
+    def _field(self, n):
+        from .models import TournamentRegistration
+        regs = []
+        for i in range(n):
+            user, _auth = a_user('stage_p%s' % i)
+            regs.append(TournamentRegistration.objects.create(
+                tournament=self.t, user=user, status='confirmed', seed=i + 1))
+        return regs
+
+    def _draw(self, stage):
+        return self.client.post(self.url('%s/draw/' % stage.id), data={},
+                                content_type='application/json', **self.owner_auth)
+
+    def _play_out(self, stage):
+        from .tests_stage_engine import play_out
+        play_out(stage)
+
     def test_advancing_carries_the_survivors_into_the_next_stage(self):
+        self._field(16)
         self.set_plan(SWISS_THEN_CUT)
         first, second = list(self.t.stages.all())
-        standings = [{'name': 'p%s' % i, 'position': i + 1} for i in range(16)]
+        self.assertEqual(self._draw(first).status_code, 201)
+        self._play_out(first)
+
+        preview = self.client.get(self.url('%s/advance/preview/' % first.id), **self.owner_auth)
+        self.assertEqual(preview.status_code, 200, preview.content)
+        self.assertEqual(len(preview.json()['data']['advancing']), 8)
 
         res = self.client.post(
-            self.url('%s/advance/' % first.id), data={'standings': standings},
+            self.url('%s/advance/' % first.id), data={},
             content_type='application/json', **self.owner_auth)
         self.assertEqual(res.status_code, 200, res.content)
         self.assertEqual(len(res.json()['data']['advanced']), 8)
@@ -209,25 +238,43 @@ class EndpointTests(TestCase):
         second.refresh_from_db()
         self.assertEqual(first.status, 'complete')
         self.assertEqual(second.status, 'running')
-        self.assertEqual(len(first.advanced), 8)
+        self.assertIsNotNone(second.drawn_at, 'the next stage was not drawn')
+        self.assertEqual(second.matches.filter(round_number=1).count(), 4)
 
-    def test_advancing_twice_is_refused(self):
+    def test_standings_sent_by_a_browser_are_not_what_is_used(self):
+        """Whatever the page sends, who goes through comes from the matches."""
+        regs = self._field(16)
         self.set_plan(SWISS_THEN_CUT)
         first = self.t.stages.first()
-        standings = [{'name': 'p%s' % i, 'position': i + 1} for i in range(16)]
-        body = {'standings': standings}
-        self.client.post(self.url('%s/advance/' % first.id), data=body,
+        self._draw(first)
+        self._play_out(first)
+        lies = [{'registration_id': r.id, 'position': i + 1}
+                for i, r in enumerate(reversed(regs))]
+        res = self.client.post(self.url('%s/advance/' % first.id),
+                               data={'standings': lies},
+                               content_type='application/json', **self.owner_auth)
+        self.assertEqual(res.status_code, 200, res.content)
+        went = {row['registration_id'] for row in res.json()['data']['advanced']}
+        self.assertIn(regs[0].id, went)          # the top seed won everything
+
+    def test_advancing_twice_is_refused(self):
+        self._field(16)
+        self.set_plan(SWISS_THEN_CUT)
+        first = self.t.stages.first()
+        self._draw(first)
+        self._play_out(first)
+        self.client.post(self.url('%s/advance/' % first.id), data={},
                          content_type='application/json', **self.owner_auth)
-        again = self.client.post(self.url('%s/advance/' % first.id), data=body,
+        again = self.client.post(self.url('%s/advance/' % first.id), data={},
                                  content_type='application/json', **self.owner_auth)
         self.assertEqual(again.status_code, 409, again.content)
+        self.assertEqual(again.json()['code'], 'ALREADY_ADVANCED')
 
     def test_the_last_stage_has_nowhere_to_advance_to(self):
         self.set_plan(SWISS_THEN_CUT)
         last = self.t.stages.last()
         res = self.client.post(
-            self.url('%s/advance/' % last.id),
-            data={'standings': [{'name': 'p1', 'position': 1}]},
+            self.url('%s/advance/' % last.id), data={},
             content_type='application/json', **self.owner_auth)
         self.assertEqual(res.status_code, 400, res.content)
         self.assertEqual(res.json()['code'], 'LAST_STAGE')
@@ -236,24 +283,55 @@ class EndpointTests(TestCase):
         """A bracket that reseeds while a dispute is open is far worse than one
         that waits."""
         from .models import TournamentDispute
+        self._field(16)
         self.set_plan(SWISS_THEN_CUT)
         first = self.t.stages.first()
+        self._draw(first)
+        self._play_out(first)
         TournamentDispute.objects.create(
             tournament=self.t, raised_by=self.owner, description='Wrong score',
-            status='open')
+            match=first.matches.first(), status='open')
 
-        standings = [{'name': 'p%s' % i, 'position': i + 1} for i in range(16)]
         res = self.client.post(
-            self.url('%s/advance/' % first.id), data={'standings': standings},
+            self.url('%s/advance/' % first.id), data={},
             content_type='application/json', **self.owner_auth)
         self.assertEqual(res.status_code, 409, res.content)
         self.assertEqual(res.json()['code'], 'DISPUTES_OPEN')
 
         forced = self.client.post(
-            self.url('%s/advance/' % first.id),
-            data={'standings': standings, 'ignore_disputes': True},
+            self.url('%s/advance/' % first.id), data={'ignore_disputes': True},
             content_type='application/json', **self.owner_auth)
         self.assertEqual(forced.status_code, 200, forced.content)
+
+    def test_a_stranger_cannot_draw_or_advance(self):
+        self._field(8)
+        self.set_plan(SWISS_THEN_CUT)
+        first = self.t.stages.first()
+        drew = self.client.post(self.url('%s/draw/' % first.id), data={},
+                                content_type='application/json', **self.stranger_auth)
+        self.assertEqual(drew.status_code, 403)
+        moved = self.client.post(self.url('%s/advance/' % first.id), data={},
+                                 content_type='application/json', **self.stranger_auth)
+        self.assertEqual(moved.status_code, 403)
+        anon = self.client.post(self.url('%s/draw/' % first.id), data={},
+                                content_type='application/json')
+        self.assertEqual(anon.status_code, 401)
+
+    def test_anybody_can_read_a_stage_bracket_but_not_its_room_codes(self):
+        regs = self._field(8)
+        self.set_plan(SWISS_THEN_CUT)
+        first = self.t.stages.first()
+        self._draw(first)
+        m = first.matches.filter(status='scheduled').first()
+        m.room_code, m.room_password = 'ROOM42', 'pw'
+        m.save(update_fields=['room_code', 'room_password'])
+        # One door for a bracket: the tournament's, asked for this stage.
+        res = self.client.get('/tournament/get-tournament-brackets/%s/?stage=%s'
+                              % (self.t.tournament_id, first.id))
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertNotIn('ROOM42', res.content.decode())
+        rows = [x for r in res.json()['data']['rounds'] for x in r['matches']]
+        self.assertTrue(any(x['has_room'] for x in rows))
 
     def test_the_plan_is_fixed_once_a_stage_has_been_played(self):
         """Re-planning around a completed stage would change what it was."""
@@ -266,10 +344,13 @@ class EndpointTests(TestCase):
         self.assertEqual(res.status_code, 409, res.content)
         self.assertEqual(res.json()['code'], 'STAGES_LOCKED')
 
-    def test_advancing_without_standings_is_refused(self):
-        """What was recorded has to be what was used."""
+    def test_advancing_before_the_stage_is_played_is_refused(self):
+        """What was recorded has to be what was used, so it has to be recorded."""
+        self._field(8)
         self.set_plan(SWISS_THEN_CUT)
         first = self.t.stages.first()
+        self._draw(first)
         res = self.client.post(self.url('%s/advance/' % first.id), data={},
                                content_type='application/json', **self.owner_auth)
-        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.status_code, 409, res.content)
+        self.assertEqual(res.json()['code'], 'STAGE_NOT_FINISHED')

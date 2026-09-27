@@ -1796,22 +1796,37 @@ def get_tournament_participants(request, tournament_id):
 
         registrations = (
             tournament.registrations
-            .select_related('team', 'team__team_owner', 'user')
+            .select_related('team', 'team__team_owner', 'user', 'squad')
             .order_by('seed', 'registered_at')
         )
 
         # Played / won counts for this tournament, so the participants table can
         # show a real record instead of a column that is 0% for everybody.
-        played, won = {}, {}
+        played, won, drawn = {}, {}, {}
         finished = tournament.bracket_matches.filter(status='completed')
         for match in finished:
+            if not (match.participant_1_id and match.participant_2_id):
+                continue
             for reg_id in (match.participant_1_id, match.participant_2_id):
-                if reg_id:
-                    played[reg_id] = played.get(reg_id, 0) + 1
+                played[reg_id] = played.get(reg_id, 0) + 1
+                if match.winner_id is None:
+                    # A group-stage draw. Counting it as a loss (played minus
+                    # won) is how a drawn match turned into a defeat here.
+                    drawn[reg_id] = drawn.get(reg_id, 0) + 1
             if match.winner_id:
                 won[match.winner_id] = won.get(match.winner_id, 0) + 1
 
         def entrant(r):
+            if r.squad_id:
+                # A squad has neither a team nor a user, and this branch did
+                # not exist, so one squad entry 500ed the whole tab.
+                return {
+                    'id': r.entrant_id,
+                    'name': r.entrant_name,
+                    'logo': None,
+                    'captain': None,
+                    'country': None,
+                }
             if r.team:
                 owner = r.team.team_owner
                 return {
@@ -1834,14 +1849,16 @@ def get_tournament_participants(request, tournament_id):
         for index, r in enumerate(registrations, start=1):
             matches = played.get(r.id, 0)
             wins = won.get(r.id, 0)
+            draws = drawn.get(r.id, 0)
             data.append({
                 'registration_id': r.id,
-                'type': 'team' if r.team else 'individual',
+                'type': 'squad' if r.squad_id else 'team' if r.team else 'individual',
                 'seed': r.seed or index,
                 'participant': entrant(r),
                 'matches_played': matches,
                 'wins': wins,
-                'losses': matches - wins,
+                'draws': draws,
+                'losses': matches - wins - draws,
                 'win_rate': round(wins * 100 / matches) if matches else None,
                 'final_position': r.final_position,
                 'status': r.status,
@@ -1911,24 +1928,35 @@ def update_bracket(request, tournament_id):
         score_p2 = request.data.get('score_p2')
         winner_registration_id = request.data.get('winner_registration_id')
 
-        if not match_id or score_p1 is None or score_p2 is None or not winner_registration_id:
+        if not match_id or score_p1 is None or score_p2 is None:
             return Response(
-                { 'code': 'MATCH_ID_SCORE_P','status': 'error', 'message': 'match_id, score_p1, score_p2, and winner_registration_id are required'},
+                { 'code': 'MATCH_ID_SCORE_P','status': 'error', 'message': 'match_id, score_p1 and score_p2 are required'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         match = get_object_or_404(BracketMatch, id=match_id, tournament=tournament)
-        winner_reg = get_object_or_404(TournamentRegistration, id=winner_registration_id, tournament=tournament)
 
-        match.score_p1 = int(score_p1)
-        match.score_p2 = int(score_p2)
-        match.winner = winner_reg
-        match.status = 'completed'
-        match.completed_at = timezone.now()
-        match.recorded_by = user
-        match.recorded_at = timezone.now()
-        match.save(update_fields=['score_p1', 'score_p2', 'winner', 'status', 'completed_at',
-                                  'recorded_by', 'recorded_at'])
+        # One rule for a result, the same at every door (results.py). The
+        # winner used to be required here, so a group-stage draw could not be
+        # recorded by the organiser either; it is now worked out from the score
+        # and only needed where nothing on the scoreboard settles it.
+        from . import results
+        try:
+            with transaction.atomic():
+                locked = BracketMatch.objects.select_for_update().get(pk=match.pk)
+                decision = results.decide(
+                    locked, score_p1, score_p2,
+                    penalties_p1=request.data.get('penalties_p1'),
+                    penalties_p2=request.data.get('penalties_p2'),
+                    games=request.data.get('games'),
+                    winner_id=winner_registration_id)
+                match = results.apply(locked, decision, recorded_by=user)
+        except results.ResultError as exc:
+            return Response(
+                {'code': exc.code, 'status': 'error',
+                 'message': 'That result cannot stand for this match.',
+                 'data': {'field': exc.field}},
+                status=status.HTTP_400_BAD_REQUEST)
 
         # Tell any Discord channel watching this tournament. One of the three
         # the CEO named on 7 September. Off-thread and swallowed, so Discord
@@ -2599,57 +2627,66 @@ def get_tournament_brackets(request, tournament_id):
         if tournament is None or tournament.is_draft:
             raise Http404('No such tournament.')
 
-        matches = (
-            tournament.bracket_matches
-            .select_related(
-                'participant_1__team', 'participant_1__user',
-                'participant_2__team', 'participant_2__user',
-                'winner__team', 'winner__user',
-            )
-            .order_by('round_number', 'match_number')
-        )
+        # One description of a match for every screen (match_shape.py). The
+        # hand-built one here knew teams and lone players only, so a squad came
+        # back as nothing, and it dropped `bracket_side`, so a double
+        # elimination's losers bracket was drawn as more of the winners.
+        from . import match_shape, stage_engine
 
-        def participant_label(reg):
-            if reg is None:
-                return None
-            if reg.team:
-                return {'type': 'team', 'id': reg.team.team_id, 'name': reg.team.team_name}
-            if reg.user:
-                return {'type': 'user', 'id': reg.user.user_id, 'name': reg.user.username}
-            return None
+        stages_here = list(tournament.stages.all())
+        chosen = None
+        if stages_here:
+            wanted = request.GET.get('stage')
+            if wanted:
+                chosen = next((s for s in stages_here if str(s.id) == str(wanted)), None)
+            if chosen is None:
+                # The stage being played, else the last one drawn, else the first.
+                drawn = [s for s in stages_here if s.drawn_at]
+                running = [s for s in drawn if s.status == 'running']
+                chosen = (running[-1] if running else drawn[-1] if drawn
+                          else stages_here[0])
+            qs = chosen.matches.all()
+        else:
+            qs = tournament.bracket_matches.all()
 
-        # Group by round
-        rounds = {}
-        for m in matches:
-            r = m.round_number
-            if r not in rounds:
-                rounds[r] = []
-            rounds[r].append({
-                'match_id': m.id,
-                'match_number': m.match_number,
-                'participant_1': participant_label(m.participant_1),
-                'participant_2': participant_label(m.participant_2),
-                'score_p1': m.score_p1,
-                'score_p2': m.score_p2,
-                'winner': participant_label(m.winner),
-                'status': m.status,
-                'scheduled_at': m.scheduled_at,
-                'completed_at': m.completed_at,
-            })
+        stage_engine.sweep_no_shows(tournament)
+        from vent_auth.actors import actor_from_request
+        from .access import may_record_results
+        viewer = None
+        if (request.headers.get('Authorization') or '').startswith('Bearer '):
+            viewer, _ignored = actor_from_request(request)
+        staff = bool(viewer and may_record_results(viewer, tournament))
 
-        bracket_data = [
-            {'round': r, 'matches': rounds[r]}
-            for r in sorted(rounds.keys())
-        ]
+        def private_for(m):
+            return staff or (viewer is not None and m.participant_owned_by(viewer) is not None)
 
+        matches = list(match_shape.select_related(qs).order_by('round_number', 'match_number'))
         return Response({
             'status': 'success',
             'data': {
                 'tournament_id': tournament.tournament_id,
                 'tournament_title': tournament.tournament_title,
-                'bracket_type': tournament.bracket_type,
-                'format_label': bracket_label(tournament.bracket_type),
-                'rounds': bracket_data,
+                'bracket_type': chosen.format if chosen else tournament.bracket_type,
+                'format_label': bracket_label(chosen.format if chosen else tournament.bracket_type),
+                'stage_id': chosen.id if chosen else None,
+                'stages': [{'id': s.id, 'order': s.order, 'label': s.label,
+                            'format': s.format, 'status': s.status,
+                            'drawn': s.drawn_at is not None} for s in stages_here],
+                'rounds': match_shape.rounds_of(matches, private_for=private_for),
+                'standings': stage_engine.standings(chosen) if chosen else None,
+                # What the viewer may do here, so the page draws one set of
+                # controls for everybody: the entries they play for (their
+                # own matches open the match room), and whether they record
+                # results. Empty and false for a stranger.
+                'you': {
+                    'registration_ids': [
+                        r.id for r in tournament.registrations
+                        .select_related('user', 'team__team_owner', 'squad')
+                        if viewer is not None and r.acting_user is not None
+                        and r.acting_user.user_id == viewer.user_id
+                    ] if viewer is not None else [],
+                    'can_record': staff,
+                },
             }
         }, status=status.HTTP_200_OK)
 

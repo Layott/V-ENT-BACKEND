@@ -25,7 +25,7 @@ organiser presses it when the last match is in. Nothing here watches for a stage
 to complete and moves on by itself, because a bracket that reseeds while a
 dispute is open is far worse than one that waits.
 """
-from . import formats
+from . import formats, stage_settings
 
 
 class StageError(ValueError):
@@ -97,6 +97,26 @@ def clean(raw):
     if starts_at and ends_at and ends_at < starts_at:
         raise StageError('A stage cannot end before it starts.', 'ends_at')
 
+    # How the format is played and how its matches run. Cleaned by the one
+    # module that owns the shape; its codes travel up as the message so the
+    # screen can translate them.
+    try:
+        settings = stage_settings.clean(fmt.key, raw.get('settings'))
+    except stage_settings.SettingsError as exc:
+        raise StageError(exc.code, 'settings.%s' % exc.field)
+
+    placement = str(raw.get('placement') or 'cross').strip().lower()
+    if placement not in ('cross', 'by_record', 'random', 'manual'):
+        raise StageError('UNKNOWN_PLACEMENT', 'placement')
+
+    direct = raw.get('direct_entrants') or []
+    if not isinstance(direct, list):
+        raise StageError('NOT_A_LIST', 'direct_entrants')
+    try:
+        direct = [int(i) for i in direct]
+    except (TypeError, ValueError):
+        raise StageError('NOT_A_NUMBER', 'direct_entrants')
+
     return {
         'format': fmt.key,
         'label': label,
@@ -111,6 +131,9 @@ def clean(raw):
         # The stage's own scoring. Absent means the format's standard rules,
         # which is what most stages want.
         'rules': raw.get('rules') if isinstance(raw.get('rules'), dict) else None,
+        'settings': settings,
+        'placement': placement,
+        'direct_entrants': direct,
     }
 
 
@@ -152,6 +175,9 @@ def plan(raw_stages, *, participants=None):
             raise StageError(
                 'Say how many come out of "%s" and into the next stage.'
                 % stage['label'], 'advances', index)
+        if fmt.key == 'gsl' and stage['advances'] != 2:
+            # Two leave every GSL group; the format fixes it.
+            raise StageError('GSL_SENDS_TWO_PER_GROUP', 'advances', index)
 
         nxt = cleaned[index + 1]
         if fmt.can_feed_into and nxt['format'] not in fmt.can_feed_into:
@@ -168,16 +194,16 @@ def plan(raw_stages, *, participants=None):
         # A stage cannot send more people on than it will hold, and the stage
         # after it cannot run on fewer than its own minimum.
         nxt_fmt = formats.get(nxt['format'])
-        if stage['advances'] < nxt_fmt.min_participants:
+        # With groups the number is per group, so what reaches the next stage
+        # is that times the number of groups, plus anybody seeded straight in.
+        per = stage['advances']
+        reaching = per * (stage['groups'] if stage['groups'] > 1 else 1) \
+            + len(nxt.get('direct_entrants') or [])
+        if reaching < nxt_fmt.min_participants:
             raise StageError(
                 '%s needs at least %s, and only %s come out of "%s".'
                 % (nxt_fmt.label, nxt_fmt.min_participants,
-                   stage['advances'], stage['label']),
-                'advances', index)
-        if nxt_fmt.even_only and stage['advances'] % 2:
-            raise StageError(
-                '%s needs an even number, and %s come out of "%s".'
-                % (nxt_fmt.label, stage['advances'], stage['label']),
+                   reaching, stage['label']),
                 'advances', index)
 
     first = formats.get(cleaned[0]['format'])

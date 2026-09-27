@@ -23,7 +23,7 @@ from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
-TERMINAL_STATUSES = ('completed', 'bye')
+TERMINAL_STATUSES = ('completed', 'bye', 'walkover_p1', 'walkover_p2')
 NON_TERMINAL_STATUSES = ('scheduled', 'in_progress', 'pending_opponent_confirm', 'disputed')
 
 # Re-entrancy guard. While a cascade runs we suspend the post_save signal so the
@@ -53,6 +53,14 @@ def handle_match_saved(sender, instance, created, **kwargs):
         return
     if instance.status not in TERMINAL_STATUSES:
         return
+    # A walkover names its winner in the status. Written without one, which is
+    # how the league desk writes it, the side that turned up was never sent on
+    # in a bracket: the walkover statuses were not terminal here at all.
+    if instance.status in ('walkover_p1', 'walkover_p2') and instance.winner_id is None:
+        side = instance.participant_1 if instance.status == 'walkover_p1' else instance.participant_2
+        if side is not None:
+            instance.winner = side
+            type(instance).objects.filter(pk=instance.pk).update(winner=side)
     # A completed match must have a winner; a bye may be a dead walkover (no winner).
     with suspend_advance():
         with transaction.atomic():
@@ -63,6 +71,11 @@ def cascade(match):
     """Route a freshly-resolved match forward and check for tournament completion."""
     _route(match)
     _award_reward_tickets(match)
+    if match.stage_id:
+        # A Swiss stage draws its next round when the last match of this one
+        # is in; nothing else in a stage moves on by itself.
+        from .. import stage_engine
+        stage_engine.on_match_resolved(match)
     _maybe_complete(match.tournament_id)
 
 
@@ -138,8 +151,45 @@ def _loser_of(match):
     return None
 
 
+def _grand_final_reset(match, target):
+    """The first grand final of a double elimination with a reset.
+
+    Slot 1 is the winners' champion, who has not lost. If they win, it is over
+    and the reset is not played. If the losers' champion wins, both have lost
+    once and the reset decides it. Routing the winner into slot 1 like any
+    other match would have put one player in a final against nobody.
+    """
+    if match.winner_id is None:
+        return
+    if match.winner_id == match.participant_1_id:
+        target.participant_1 = match.winner
+        target.winner = match.winner
+        target.status = 'bye'
+        target.completed_at = timezone.now()
+        target.save(update_fields=['participant_1', 'winner', 'status', 'completed_at'])
+        cascade(target)
+    else:
+        target.participant_1 = match.participant_1
+        target.participant_2 = match.participant_2
+        target.save(update_fields=['participant_1', 'participant_2'])
+        _arm(target)
+
+
+def _arm(match):
+    """Start a match's check-in clock once both sides are known."""
+    if match.stage_id and match.participant_1_id and match.participant_2_id:
+        from .. import stage_engine
+        stage_engine.arm_check_in(match)
+
+
 def _route(match):
     from ..models import BracketMatch
+
+    if (match.bracket_side == 'grand_final' and match.winner_to_match_id):
+        tgt = BracketMatch.objects.select_for_update().get(pk=match.winner_to_match_id)
+        if tgt.bracket_side == 'grand_final':
+            _grand_final_reset(match, tgt)
+            return
 
     # Winner advances.
     if match.winner_id and match.winner_to_match_id:
@@ -163,6 +213,7 @@ def _place(match, slot, registration):
         return
     setattr(match, field, registration)
     match.save(update_fields=[field])
+    _arm(match)
 
 
 def _feeders(match):
@@ -219,6 +270,27 @@ def _maybe_complete(tournament_id):
     if still_open:
         return
     if not tournament.bracket_matches.exists():
+        return
+
+    # A tournament in stages is over when its LAST stage has been drawn and
+    # played, not when the matches that exist so far are finished. Without
+    # this the group stage finishing would have ended the whole tournament
+    # before the playoff was drawn.
+    stages = list(tournament.stages.all())
+    if stages:
+        last = stages[-1]
+        if last.drawn_at is None:
+            return
+        from .. import stage_engine
+        if last.format == 'swiss' and not stage_engine.swiss_finished(last):
+            return
+        stage_engine.assign_final_positions(tournament)
+        last.status = 'complete'
+        last.completed_at = timezone.now()
+        last.save(update_fields=['status', 'completed_at'])
+        tournament.status = 'completed'
+        tournament.completed_at = timezone.now()
+        tournament.save(update_fields=['status', 'completed_at'])
         return
 
     assign_final_positions(tournament)

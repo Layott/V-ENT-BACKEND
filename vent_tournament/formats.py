@@ -137,7 +137,11 @@ FORMATS = {
         advancement='table',
         scoring='points_3_1_0',
         tiebreakers=('head_to_head', 'goal_difference', 'goals_for', 'wins'),
-        can_feed_into=('single_elimination', 'double_elimination'),
+        # Groups feed a playoff, a GSL or Swiss second phase, or a second
+        # group round (27 September 2026: the chains toornament and EA's FC Pro
+        # circuit actually run).
+        can_feed_into=('single_elimination', 'double_elimination', 'swiss',
+                       'gsl', 'round_robin'),
         notes=(
             'Matches grow with the square of the field: eight teams is 28 '
             'matches, sixteen is 120. Past about twelve it wants splitting into '
@@ -157,7 +161,8 @@ FORMATS = {
         # Buchholz is the strength of the opponents you were given, and it is
         # what Counter-Strike majors seed the next round by.
         tiebreakers=('buchholz', 'head_to_head', 'rounds_difference'),
-        can_feed_into=('single_elimination', 'double_elimination'),
+        can_feed_into=('single_elimination', 'double_elimination', 'gsl',
+                       'round_robin'),
         notes=(
             'Rounds are usually enough to separate the field: 5 rounds for 16, '
             '6 for 32. Teams reaching three wins advance and three losses are '
@@ -177,7 +182,7 @@ FORMATS = {
         advancement='knockout',
         scoring='match_win',
         tiebreakers=('head_to_head', 'rounds_difference'),
-        can_feed_into=('single_elimination',),
+        can_feed_into=('single_elimination', 'double_elimination'),
         notes=(
             'Five matches per group of four: two openers, a winners match, a '
             'losers match, and a decider. It feeds a knockout stage.'
@@ -235,6 +240,7 @@ FORMATS = {
         advancement='table',
         scoring='points_3_1_0',
         tiebreakers=('wins', 'head_to_head', 'goal_difference'),
+        can_feed_into=('single_elimination', 'double_elimination', 'swiss'),
         notes='Good for a season that runs for weeks rather than an afternoon.',
     ),
 }

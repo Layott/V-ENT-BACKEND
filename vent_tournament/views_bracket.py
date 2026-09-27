@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from .models import (
     Tournament, TournamentRegistration, BracketMatch, TournamentDispute, MatchScore,
 )
+from . import results
 from .services import bracket as bracket_service
 from .services import prizes as prize_service
 from .services import wallet as wallet_service
@@ -67,6 +68,15 @@ def _authenticate(request):
 def _match_number_label(match):
     return {'round_number': match.round_number, 'match_number': match.match_number,
             'bracket_side': match.bracket_side}
+
+
+def _screenshot_required(tournament):
+    """The tournament's mode, or the `require_screenshot` option the wizard
+    saves, which nothing read before 27 September 2026."""
+    if tournament.score_confirmation_mode == 'screenshot_required':
+        return True
+    from . import options as tournament_options
+    return bool(tournament_options.clean(tournament.options).get('require_screenshot'))
 
 
 def _participant_brief(reg):
@@ -171,6 +181,25 @@ def generate_bracket(request, tournament_id):
         seed_strategy = 'ranked'
     manual_order = request.data.get('manual_order')
 
+    # A tournament in stages draws its FIRST stage here; the rest are drawn as
+    # each one is advanced. Drawing the whole tournament as one format when it
+    # had a plan would have thrown the plan away.
+    first = tournament.stages.order_by('order').first()
+    if first is not None:
+        from . import stage_engine
+        try:
+            with transaction.atomic():
+                locked = Tournament.objects.select_for_update().get(pk=tournament.pk)
+                locked.status = 'registration_closed'
+                locked.save(update_fields=['status'])
+                summary = stage_engine.draw(first, user, seed_strategy, manual_order)
+        except stage_engine.StageEngineError as e:
+            code_map = {'STAGE_ALREADY_DRAWN': http.HTTP_409_CONFLICT,
+                        'NOT_ENOUGH_ENTRANTS': http.HTTP_422_UNPROCESSABLE_ENTITY}
+            return _err('The first stage cannot be drawn.', e.code,
+                        code_map.get(e.code, http.HTTP_400_BAD_REQUEST))
+        return _ok(summary, 'First stage drawn.', http_status=http.HTTP_201_CREATED)
+
     try:
         with transaction.atomic():
             locked = Tournament.objects.select_for_update().get(pk=tournament.pk)
@@ -232,16 +261,22 @@ def report_match_score(request, match_id):
                         field_errors={'screenshot': [problem]})
         evidence_url = _store_evidence(upload)
 
-    if score_p1 is None or score_p2 is None:
-        return _err('score_p1 and score_p2 are required', 'VALIDATION_FAILED', http.HTTP_400_BAD_REQUEST)
+    # The whole result, checked by the one rule every door uses: a level
+    # knockout needs penalties, a best-of cannot run past its length, the
+    # games must add up. Checked here as well as on confirm, so a player is
+    # told before the opponent is asked to agree to something impossible.
     try:
-        score_p1, score_p2 = int(score_p1), int(score_p2)
-    except (TypeError, ValueError):
-        return _err('Scores must be integers', 'VALIDATION_FAILED', http.HTTP_400_BAD_REQUEST)
-    if score_p1 < 0 or score_p2 < 0:
-        return _err('Scores cannot be negative', 'VALIDATION_FAILED', http.HTTP_400_BAD_REQUEST)
-    if tournament.score_confirmation_mode == 'screenshot_required' and not evidence_url:
-        return _err('A screenshot URL is required for this tournament', 'VALIDATION_FAILED', http.HTTP_400_BAD_REQUEST,
+        decision = results.decide(
+            match, score_p1, score_p2,
+            penalties_p1=request.data.get('penalties_p1'),
+            penalties_p2=request.data.get('penalties_p2'),
+            games=request.data.get('games'))
+    except results.ResultError as exc:
+        return _err('That result cannot stand for this match.', exc.code,
+                    http.HTTP_400_BAD_REQUEST,
+                    field_errors={exc.field or 'score_p1': [exc.code]})
+    if _screenshot_required(tournament) and not evidence_url:
+        return _err('A screenshot URL is required for this tournament', 'SCREENSHOT_REQUIRED', http.HTTP_400_BAD_REQUEST,
                     field_errors={'screenshot_url': ['required']})
 
     with transaction.atomic():
@@ -249,17 +284,23 @@ def report_match_score(request, match_id):
         # Supersede any of this reporter's earlier unconfirmed submissions.
         submission = MatchScore.objects.create(
             match=locked, submitted_by=user,
-            score_p1=score_p1, score_p2=score_p2, evidence_url=evidence_url,
+            score_p1=decision.score_p1, score_p2=decision.score_p2,
+            penalties_p1=decision.penalties_p1, penalties_p2=decision.penalties_p2,
+            games=decision.games, evidence_url=evidence_url,
         )
         (MatchScore.objects
             .filter(match=locked, confirmed=False, superseded_by__isnull=True)
             .exclude(pk=submission.pk)
             .update(superseded_by=submission))
 
-        locked.score_p1 = score_p1
-        locked.score_p2 = score_p2
+        locked.score_p1 = decision.score_p1
+        locked.score_p2 = decision.score_p2
+        locked.penalties_p1 = decision.penalties_p1
+        locked.penalties_p2 = decision.penalties_p2
+        locked.games = decision.games
         locked.status = 'pending_opponent_confirm'
-        locked.save(update_fields=['score_p1', 'score_p2', 'status'])
+        locked.save(update_fields=['score_p1', 'score_p2', 'penalties_p1', 'penalties_p2',
+                                   'games', 'status'])
 
     return _ok({
         'match_id': locked.id,
@@ -324,22 +365,25 @@ def confirm_match_score(request, match_id):
         return _ok({'match_id': match.id, 'status': 'disputed', 'dispute_id': dispute.id},
                    'Score rejected - dispute opened.')
 
-    # Agree: decide the winner from the reported score.
-    if submission.score_p1 == submission.score_p2:
-        return _err('A tie cannot be confirmed for a bracket match', 'VALIDATION_FAILED', http.HTTP_422_UNPROCESSABLE_ENTITY)
-    winner = match.participant_1 if submission.score_p1 > submission.score_p2 else match.participant_2
-    if winner is None:
-        return _err('Match participants are not fully set', 'STATE_CONFLICT', http.HTTP_409_CONFLICT)
+    # Agree: the same rule every door uses. A level score is a draw where the
+    # match allows one (a group, a league) and needs penalties where it does
+    # not. This used to refuse every level score, so a group-stage football
+    # draw, the most ordinary result there is, could never be confirmed.
+    try:
+        decision = results.decide(
+            match, submission.score_p1, submission.score_p2,
+            penalties_p1=submission.penalties_p1,
+            penalties_p2=submission.penalties_p2, games=submission.games)
+    except results.ResultError as exc:
+        status_for = (http.HTTP_409_CONFLICT if exc.code == 'PARTICIPANTS_NOT_SET'
+                      else http.HTTP_422_UNPROCESSABLE_ENTITY)
+        return _err('That result cannot stand for this match.', exc.code, status_for)
+    winner = decision.winner
 
     with transaction.atomic():
         locked = BracketMatch.objects.select_for_update().get(pk=match.pk)
-        locked.score_p1 = submission.score_p1
-        locked.score_p2 = submission.score_p2
-        locked.winner = winner
-        locked.status = 'completed'
-        locked.completed_at = timezone.now()
         # Saving to 'completed' fires the post_save signal -> auto-advance cascade.
-        locked.save(update_fields=['score_p1', 'score_p2', 'winner', 'status', 'completed_at'])
+        results.apply(locked, decision)
 
         submission.confirmed = True
         submission.confirmed_by = user
@@ -356,7 +400,8 @@ def confirm_match_score(request, match_id):
     return _ok({
         'match_id': locked.id,
         'status': 'completed',
-        'winner_registration_id': winner.id,
+        'winner_registration_id': winner.id if winner else None,
+        'draw': winner is None,
         'advanced_to': advanced_to,
         'tournament_completed': tournament.completed_at is not None,
     }, 'Score confirmed.')
@@ -382,6 +427,10 @@ def raise_dispute(request, match_id):
 
     if match.status == 'bye':
         return _err('A walkover match cannot be disputed', 'STATE_CONFLICT', http.HTTP_409_CONFLICT)
+    # 24 hours. The options carry `dispute_window_minutes`, but the wizard has
+    # no control for it and stores 30 unseen, so reading it would cut every
+    # player's window to half an hour without anybody choosing that. Left for
+    # the CEO to decide (handover 27 September 2026).
     if match.status == 'completed' and match.completed_at and timezone.now() - match.completed_at > timedelta(hours=24):
         return _err('The dispute window (24h) has closed for this match', 'STATE_CONFLICT', http.HTTP_409_CONFLICT)
 
@@ -436,38 +485,44 @@ def match_detail(request, match_id):
         ),
         id=match_id,
     )
-    is_creator = match.tournament.tournament_creator_id == user.user_id
-    if match.participant_owned_by(user) is None and not is_creator:
+    from .access import may_record_results
+    is_staff = may_record_results(user, match.tournament)
+    if match.participant_owned_by(user) is None and not is_staff:
         return _err('You cannot view this match', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
 
     submissions = [
         {
             'id': s.id,
             'submitted_by': s.submitted_by_id,
+            # Whether the viewer sent it: the side that sent a score waits,
+            # the other side confirms, and the dialog needs only this.
+            'mine': s.submitted_by_id == user.user_id,
             'score_p1': s.score_p1,
             'score_p2': s.score_p2,
+            'penalties_p1': s.penalties_p1,
+            'penalties_p2': s.penalties_p2,
+            'games': s.games or [],
             'evidence_url': s.evidence_url,
             'confirmed': s.confirmed,
             'submitted_at': s.submitted_at,
         }
-        for s in match.score_submissions.all()
+        for s in match.score_submissions.filter(superseded_by__isnull=True)
     ]
 
-    return _ok({
-        'match_id': match.id,
-        'round_number': match.round_number,
-        'match_number': match.match_number,
-        'bracket_side': match.bracket_side,
-        'status': match.status,
-        'score_p1': match.score_p1,
-        'score_p2': match.score_p2,
-        'participant_1': _participant_brief(match.participant_1),
-        'participant_2': _participant_brief(match.participant_2),
-        'winner_registration_id': match.winner_id,
-        'scheduled_at': match.scheduled_at,
-        'completed_at': match.completed_at,
+    from . import match_shape, stage_engine, stage_settings
+    if stage_engine.settle_no_show(match):
+        match.refresh_from_db()
+    body = match_shape.match_row(match, private=True)
+    settings = stage_settings.of_match(match)
+    body.update({
         'score_submissions': submissions,
+        'your_slot': match.participant_owned_by(user),
+        'room_host': settings.get('room_host', 'p1'),
+        'room_settings': settings.get('room_settings', ''),
+        'check_in_minutes': settings.get('check_in_minutes', 0),
+        'draws': settings.get('draws'),
     })
+    return _ok(body)
 
 
 # ---------------------------------------------------------------------------

@@ -14,11 +14,12 @@ the wizard and the number of matches that appear when the bracket is built come
 from one place, and `tests_structure.py` builds real brackets and asserts they
 agree. A promise of 15 matches followed by 16 matches is worse than no promise.
 
-**It reports what will REALLY be drawn.** `services/bracket.generate` has three
-shapes: a table, double elimination, and single elimination for everything
-else. So choosing Swiss today produces a single elimination bracket, and the
-wizard says so rather than describing a Swiss draw that will not be built.
-`drawn_as` is that answer, from the same branch the generator takes.
+**It reports what will REALLY be drawn.** Until 27 September 2026 the
+generator had three shapes and drew Swiss and GSL as single elimination; this
+module said so honestly. It now draws each format as itself (`bracket.draw_into`)
+and battle royale not at all, so `drawn_as` names the format, or None for a
+points table. It still mirrors the generator's dispatch, and the agreement test
+still fails the day the two part.
 
 **It returns codes and numbers, never sentences.** The organiser may be reading
 in French. Words built in Python cannot be translated, so the caller gets
@@ -47,10 +48,12 @@ def drawn_as(key):
     definition = fmt.get(key)
     if definition is None:
         return 'single_elimination'
+    if definition.plays_all_at_once:
+        return None
     if definition.advancement == 'table':
         return 'round_robin'
-    if definition.key == 'double_elimination':
-        return 'double_elimination'
+    if definition.key in ('double_elimination', 'swiss', 'gsl'):
+        return definition.key
     return 'single_elimination'
 
 
@@ -76,10 +79,10 @@ def _knockout_shape(n, seats):
     }
 
 
-def _double_elimination_shape(n, seats):
+def _double_elimination_shape(n, seats, reset=False):
     slots = _next_power_of_two(n)
     winners_rounds = int(math.log2(slots))
-    return {
+    shape = {
         'kind': 'knockout',
         'slots': slots,
         'byes': slots - n,
@@ -95,6 +98,64 @@ def _double_elimination_shape(n, seats):
         # which is the single match of slack in the number.
         'games': max(2 * n - 2, 0),
         'games_on_the_floor': max(2 * n - 2, 0),
+        'grand_final_reset': reset,
+    }
+    if reset:
+        # The reset is a row that exists from the start and is played only
+        # when the losers' champion wins the first grand final.
+        shape['rounds'] += 1
+        shape['matches'] += 1
+        shape['games_at_most'] = shape['games'] + 1
+    return shape
+
+
+def _swiss_shape(n, seats, rounds=0):
+    rounds = rounds or max(1, math.ceil(math.log2(max(2, n))))
+    per_round = n // 2 + (n % 2)          # the bye is a row too
+    return {
+        'kind': 'swiss',
+        'slots': n,
+        'byes': rounds if n % 2 else 0,
+        'rounds': rounds,
+        'matches': per_round * rounds,
+        'games': (n // 2) * rounds,
+        'games_on_the_floor': (n // 2) * rounds,
+        'sits_out_each_round': n % 2,
+    }
+
+
+def _gsl_shape(n, seats):
+    groups = n // 4
+    return {
+        'kind': 'gsl',
+        'slots': n,
+        'byes': 0,
+        'groups': groups,
+        'rounds': 3,
+        'matches': 5 * groups,
+        'games': 5 * groups,
+        'games_on_the_floor': 5 * groups,
+        'advance_per_group': 2,
+    }
+
+
+def _groups_shape(n, seats, groups):
+    """A round robin split into groups, dealt the way `split_into_groups` deals."""
+    sizes = [0] * groups
+    for i in range(n):
+        pot, pos = divmod(i, groups)
+        sizes[pos if pot % 2 == 0 else groups - 1 - pos] += 1
+    parts = [_table_shape(size, seats) for size in sizes]
+    return {
+        'kind': 'table',
+        'slots': n,
+        'byes': 0,
+        'groups': groups,
+        'group_sizes': sizes,
+        'rounds': max(p['rounds'] for p in parts),
+        'matches': sum(p['matches'] for p in parts),
+        'games': sum(p['games'] for p in parts),
+        'games_on_the_floor': sum(p['games_on_the_floor'] for p in parts),
     }
 
 
@@ -132,17 +193,34 @@ def _points_shape(n, seats):
     }
 
 
-def _shape_for(definition, drawn, n, seats):
+def _shape_for(definition, drawn, n, seats, settings=None, groups=0):
+    settings = settings or {}
     if definition.plays_all_at_once:
         return _points_shape(n, seats)
     if drawn == 'round_robin':
-        return _table_shape(n, seats)
+        legs = int(settings.get('legs') or 1)
+        shape = (_groups_shape(n, seats, groups) if groups and groups > 1
+                 else _table_shape(n, seats))
+        if legs > 1:
+            for k in ('rounds', 'matches', 'games', 'games_on_the_floor'):
+                shape[k] *= legs
+        return shape
     if drawn == 'double_elimination':
-        return _double_elimination_shape(n, seats)
-    return _knockout_shape(n, seats)
+        return _double_elimination_shape(
+            n, seats, reset=settings.get('grand_final') == 'reset')
+    if drawn == 'swiss':
+        return _swiss_shape(n, seats, int(settings.get('rounds') or 0))
+    if drawn == 'gsl':
+        return _gsl_shape(n, seats)
+    shape = _knockout_shape(n, seats)
+    if settings.get('third_place') and shape['rounds'] >= 2:
+        shape['matches'] += 1
+        shape['games'] += 1
+        shape['games_on_the_floor'] += 1
+    return shape
 
 
-def describe(raw, participants=None, seats=1):
+def describe(raw, participants=None, seats=1, settings=None, groups=0):
     """The structure of `raw`, for `participants` entrants, or None.
 
     `raw` is however the format was written: a catalogue key, a wizard's
@@ -179,9 +257,9 @@ def describe(raw, participants=None, seats=1):
             'power_of_two_preferred': definition.power_of_two_preferred,
         },
         'drawn_as': drawn,
-        # True when the bracket built is not the shape the format names. Swiss
-        # and GSL are drawn as knockouts today, and somebody choosing them
-        # should be told that on the screen where they choose.
+        # True when the bracket built is not the shape the format names: a
+        # ladder or aggregate league scheduled as a round robin, a points
+        # table that is not drawn at all.
         'drawn_as_differs': drawn != definition.key,
         'shape': None,
     }
@@ -193,7 +271,7 @@ def describe(raw, participants=None, seats=1):
     if n < 2:
         return out
 
-    shape = _shape_for(definition, drawn, n, seats)
+    shape = _shape_for(definition, drawn, n, seats, settings, groups)
     shape['participants'] = n
     # Why this count will be refused, in the catalogue's own words, so the
     # screen does not need a second opinion about what is valid.
