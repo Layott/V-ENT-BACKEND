@@ -128,8 +128,13 @@ both 3. Merge and deploy #181 and #191 ... - yes go".
 ## 7. One ticket's share, and the break between matches (rows 286, 287)
 
 CEO, 27 Sept, after the fix was explained: "go", taking the recommended choice
-for both. Branch `fix/partial-reversal-and-breaks`: **BE #183, FE #192, open,
-not merged, not deployed.** gates/43.
+for both. **DEPLOYED 28 Sept** (CEO: "DEPLOY"): BE #183 + FE #192 rebase-merged,
+main BE 6abda261, FE 8206ba2, `deploy.sh` applied `vent_event 0053`, "the live
+site is serving this build". Production held 0 ticket ledger lines (1427
+tickets), so the backfill linked nothing and needed to; every sale from now on
+writes the purchase key. Live: bracket and create form ("Break between matches,
+in minutes") in Chrome, `/tournament/match/<id>/time/` answers 401 signed out,
+the bracket on the emulator. gates/43.
 
 **286, the ledger (was 273).** A purchase's lines hang off its first ticket with
 the count on them. Voiding ticket 1 of 3 reversed the organiser's whole take;
