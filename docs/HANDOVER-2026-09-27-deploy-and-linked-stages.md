@@ -96,10 +96,31 @@ Faults that matter beyond this feature, all fixed and on the branch:
 
 ## 5. Open, for the CEO
 
-- `dispute_window_minutes`: the wizard stores 30 with no control; the views
-  keep 24 hours. Reading the option would cut every player's window to half an
-  hour. Decide the default, then give it a control.
 - `match_interval_minutes` is still saved and read by nothing.
-- Names: the bracket shows the entrant's username (walk_fcm_01), the
-  participants tab the full name. Consistent within each; worth one decision.
 - Inbox 273 (partial-void ledger reversal) is still open from 18 Sept.
+
+## 6. The three decisions, and the deploy (rows 282 to 284, CEO 27 Sept)
+
+CEO: "1. Dispute window - The on you think its better 2. Names on brackets -
+both 3. Merge and deploy #181 and #191 ... - yes go".
+
+- **Dispute window (282).** Default 24 hours, which is what players always
+  had. `options.dispute_window_minutes` default 1440, range 30 to 2880;
+  `raise_dispute` reads it and refuses with `DISPUTE_WINDOW_CLOSED` (409).
+  Migration 0055 moves every stored 30 (saved unseen by the wizard) to 1440;
+  on production afterwards "still 30: 0". The wizard's Matches block has a
+  "Time to dispute a result" select: 30 minutes, 2, 12, 24 (default), 48 hours.
+  `DisputeWindowTests` (a day by default; the organiser's choice read).
+- **Names (283).** `match_shape.names(reg)` gives (full name, username); every
+  entrant carries `name` and `handle`, and stage standings and advanced rows
+  carry `handle`. Fixtures, standings, the match room and the close-stage list
+  show "Tobi Balogun" with "@demo_tobi" under it. A team has one name, no handle.
+- **Deploy (284).** BE #181 and FE #191 rebase-merged; main BE a1416b25,
+  FE e734d46. `deploy.sh`: 0054 and 0055 applied, "the live site is serving
+  this build". Cron installed for user `vent` (old crontab backed up by
+  crontab to ~/.cache/crontab/crontab.bak), and the log shows it firing each
+  minute: "0 settled at 2026-09-27T22:27:01".
+- **Verified.** Backend 4338 tests OK; check-all clean on both commits; local
+  Chrome (bracket, match room, wizard select) and emulator; LIVE: v-ent.co
+  pubg-mobile-naija-open bracket shows 30 handles under full names, no console
+  errors, and the same page on the Android emulator signed out.
