@@ -329,6 +329,22 @@ class EventTicketTests(AdminEventBase):
         self.assertEqual(ticket.status, 'valid')
         self.assertEqual(self.tier.sold, 1)
 
+    def test_voiding_one_ticket_of_three_takes_back_its_third_and_reinstating_returns_it(self):
+        """Inbox 273: the purchase's lines hang off its first ticket. The
+        console void must take back the voided ticket's share, whichever
+        ticket it is, and a reinstate must put that share back."""
+        from vent_event import ledger
+        tickets = [self._ticket() for _ in range(3)]
+        ledger.record_sale(self.event, tickets, ledger.quote(self.tier, 3, self.event))
+        full = ledger.balances(self.event)['organiser_owed_ngn']
+        self.assertGreater(full, 0)
+        self._post('/auth/admin/tickets/%s/action/' % tickets[1].code,
+                   {'action': 'void', 'reason': 'Chargeback'})
+        self.assertEqual(ledger.balances(self.event)['organiser_owed_ngn'], full * 2 / 3)
+        self._post('/auth/admin/tickets/%s/action/' % tickets[1].code,
+                   {'action': 'reinstate'})
+        self.assertEqual(ledger.balances(self.event)['organiser_owed_ngn'], full)
+
     def test_reinstating_somebody_who_had_already_arrived_keeps_that(self):
         ticket = self._ticket(status='checked_in', checked_in_at=timezone.now())
         self._post('/auth/admin/tickets/%s/action/' % ticket.code,

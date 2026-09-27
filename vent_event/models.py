@@ -868,6 +868,13 @@ class Ticket(models.Model):
     # the question support gets, so it is on the row.
     refunded_at = models.DateTimeField(null=True, blank=True)
     refund_reference = models.CharField(max_length=64, blank=True, default='')
+    # The purchase this ticket was bought in, shared by every ticket of it.
+    # A purchase's ledger lines hang off its first ticket with the count on
+    # them, so without this a voided third ticket could not find the money it
+    # was part of and reversed nothing, while voiding the first reversed the
+    # whole purchase (inbox 273, fixed 27 September 2026). Empty for a ticket
+    # that no ledger line was ever written for (a comp).
+    purchase = models.CharField(max_length=32, blank=True, default='', db_index=True)
     promo = models.ForeignKey('EventPromo', on_delete=models.SET_NULL,
                               null=True, blank=True, related_name='tickets')
     purchased_at = models.DateTimeField(auto_now_add=True)

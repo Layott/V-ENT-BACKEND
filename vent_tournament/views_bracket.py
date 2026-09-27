@@ -513,6 +513,7 @@ def match_detail(request, match_id):
     ]
 
     from . import match_shape, stage_engine, stage_settings
+    from . import options as tournament_options
     if stage_engine.settle_no_show(match):
         match.refresh_from_db()
     body = match_shape.match_row(match, private=True)
@@ -524,6 +525,10 @@ def match_detail(request, match_id):
         'room_settings': settings.get('room_settings', ''),
         'check_in_minutes': settings.get('check_in_minutes', 0),
         'draws': settings.get('draws'),
+        # The break a player gets after their last match, which is how this
+        # match's time was worked out.
+        'break_minutes': tournament_options.clean(match.tournament.options)['match_interval_minutes'],
+        'can_record': is_staff,
     })
     return _ok(body)
 

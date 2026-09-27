@@ -39,7 +39,7 @@ from vent_auth import paystack
 from vent_auth.models import Transaction, UserWallet
 
 from . import ledger
-from .models import EventLedgerEntry, Ticket, TicketTier, TicketTransfer
+from .models import Ticket, TicketTier, TicketTransfer
 
 logger = logging.getLogger(__name__)
 
@@ -51,20 +51,13 @@ def paid_for(ticket):
 
     The ticket's own price is what it cost (`price_vc` is the whole coins
     the wallet gave for it, `price_ngn` the naira). The service fee a buyer
-    bore was paid once per PURCHASE, and the ledger attaches a purchase's
-    lines to its first ticket, so that ticket carries the fee back too:
-    over the whole purchase the buyer gets exactly what they paid.
+    bore was paid once per PURCHASE, so each ticket carries back its share
+    of it (CEO, 27 September 2026: a partial refund returns the buyer's share
+    of the fee), cut so the shares add up to exactly what was paid.
     """
-    coins = int(ticket.price_vc or 0)
-    naira = Decimal(ticket.price_ngn or 0)
-    line = (EventLedgerEntry.objects
-            .filter(ticket=ticket, kind=EventLedgerEntry.KIND_ORGANISER,
-                    reversed_by__isnull=True)
-            .order_by('id').first())
-    if line is not None and line.buyer_fee_ngn:
-        coins += ledger._floor_vc(line.buyer_fee_ngn)
-        naira += Decimal(line.buyer_fee_ngn)
-    return coins, naira
+    fee_coins, fee_naira = ledger.fee_share(ticket)
+    return (int(ticket.price_vc or 0) + fee_coins,
+            Decimal(ticket.price_ngn or 0) + fee_naira)
 
 
 def payer_of(ticket):

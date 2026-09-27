@@ -554,6 +554,10 @@ def admin_ticket_action(request, code):
             ticket.save(update_fields=['status'])
             if tier:
                 TicketTier.objects.filter(pk=tier.pk).update(sold=F('sold') + 1)
+            # And its money, which the void took off the ledger. Without this a
+            # reinstated ticket admitted somebody and paid nobody.
+            from vent_event import ledger as _ledger
+            _ledger.reinstate_sale(ticket)
 
     AdminAction.objects.create(
         admin=admin, action_type='void_ticket' if action == 'void' else 'reinstate_ticket',

@@ -176,6 +176,7 @@ urlpatterns = [
     path("match/<int:match_id>/report-score/", report_match_score, name="report_match_score"),
     path("match/<int:match_id>/check-in/", views_match_day.check_in, name="match_check_in"),
     path("match/<int:match_id>/room/", views_match_day.set_room, name="match_room"),
+    path("match/<int:match_id>/time/", views_match_day.set_time, name="match_time"),
     path("match/<int:match_id>/confirm-score/", confirm_match_score, name="confirm_match_score"),
     path("match/<int:match_id>/raise-dispute/", raise_dispute, name="raise_dispute"),
     path("match/<int:match_id>/dispute/", raise_dispute, name="raise_dispute_alias"),  # contract-table alias

@@ -176,10 +176,14 @@ def _grand_final_reset(match, target):
 
 
 def _arm(match):
-    """Start a match's check-in clock once both sides are known."""
-    if match.stage_id and match.participant_1_id and match.participant_2_id:
+    """Once both sides are known: give the match its time (the break after
+    their last matches) and start its check-in clock."""
+    if match.participant_1_id and match.participant_2_id:
         from .. import stage_engine
-        stage_engine.arm_check_in(match)
+        if match.stage_id:
+            stage_engine.arm_check_in(match)
+        else:
+            stage_engine.schedule(match)
 
 
 def _route(match):
