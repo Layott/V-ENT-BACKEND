@@ -449,6 +449,36 @@ class NoShowTests(TestCase):
         self.assertEqual(caught.exception.code, 'NOT_IN_THIS_MATCH')
 
 
+class DisputeWindowTests(TestCase):
+    """The organiser's dispute window is read, 24 hours by default."""
+
+    def _completed_match(self, minutes_ago, window=None):
+        from rest_framework.test import APIClient
+        from . import options as tournament_options
+        t, creator, regs = field(4)
+        if window is not None:
+            t.options = tournament_options.clean({'dispute_window_minutes': window})
+            t.save(update_fields=['options'])
+        stage = add_stage(t, 0, 'single_elimination')
+        draw(stage, creator)
+        m = play(stage.matches.filter(round_number=1).first(), 1, 0)
+        BracketMatch.objects.filter(pk=m.pk).update(
+            completed_at=timezone.now() - timedelta(minutes=minutes_ago))
+        c = APIClient()
+        user = m.participant_2.user
+        c.credentials(HTTP_AUTHORIZATION='Bearer %s' % user.login_session_token)
+        return c.post('/tournament/match/%s/raise-dispute/' % m.pk,
+                      {'description': 'wrong score'}, format='json')
+
+    def test_the_default_is_a_day(self):
+        self.assertEqual(self._completed_match(23 * 60).status_code, 201)
+        self.assertEqual(self._completed_match(25 * 60).json()['code'], 'DISPUTE_WINDOW_CLOSED')
+
+    def test_the_organisers_choice_is_read(self):
+        self.assertEqual(self._completed_match(45, window=30).json()['code'], 'DISPUTE_WINDOW_CLOSED')
+        self.assertEqual(self._completed_match(45, window=120).status_code, 201)
+
+
 class SettingsTests(TestCase):
     def test_a_knockout_cannot_allow_draws(self):
         with self.assertRaises(stage_settings.SettingsError) as caught:

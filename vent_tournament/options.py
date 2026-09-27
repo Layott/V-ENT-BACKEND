@@ -59,7 +59,11 @@ DEFAULTS = {
 
     # Conduct
     'require_screenshot': False,
-    'dispute_window_minutes': 30,
+    # 24 hours, which is what players have always had (the views hard-coded
+    # it). The wizard saved 30 here with no control, so reading it would have
+    # cut every window to half an hour without anybody choosing that. The
+    # CEO chose 24 hours as the default on 27 September 2026, with a control.
+    'dispute_window_minutes': 1440,
     'rules_acknowledgement': True,
 }
 
@@ -78,7 +82,7 @@ INTEGERS = {
     'best_of': (1, 9),
     'best_of_final': (1, 9),
     'match_interval_minutes': (5, 600),
-    'dispute_window_minutes': (5, 1440),
+    'dispute_window_minutes': (30, 2880),
 }
 
 

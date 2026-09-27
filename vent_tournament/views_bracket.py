@@ -427,12 +427,15 @@ def raise_dispute(request, match_id):
 
     if match.status == 'bye':
         return _err('A walkover match cannot be disputed', 'STATE_CONFLICT', http.HTTP_409_CONFLICT)
-    # 24 hours. The options carry `dispute_window_minutes`, but the wizard has
-    # no control for it and stores 30 unseen, so reading it would cut every
-    # player's window to half an hour without anybody choosing that. Left for
-    # the CEO to decide (handover 27 September 2026).
-    if match.status == 'completed' and match.completed_at and timezone.now() - match.completed_at > timedelta(hours=24):
-        return _err('The dispute window (24h) has closed for this match', 'STATE_CONFLICT', http.HTTP_409_CONFLICT)
+    # The window the organiser chose (`dispute_window_minutes`, 24 hours by
+    # default). It was hard-coded to 24 hours while the wizard saved a number
+    # nobody could see; the CEO settled it on 27 September 2026: 24 hours by
+    # default, a real control, and this reads it.
+    from . import options as tournament_options
+    window = timedelta(minutes=tournament_options.clean(tournament.options)['dispute_window_minutes'])
+    if match.status == 'completed' and match.completed_at and timezone.now() - match.completed_at > window:
+        return _err('The time to dispute this result has passed.', 'DISPUTE_WINDOW_CLOSED',
+                    http.HTTP_409_CONFLICT)
 
     description = (request.data.get('description') or '').strip()
     if not description:

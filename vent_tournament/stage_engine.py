@@ -165,12 +165,15 @@ def draw(stage, user, seed_strategy='registration', manual_order=None):
 # ---------------------------------------------------------------------------
 
 def _name(reg):
-    return (getattr(reg, 'entrant_name', '') or '') if reg else ''
+    from .match_shape import names
+    return names(reg)[0] or ''
 
 
 def _blank(reg, group=None):
+    from .match_shape import names
     return {
-        'registration_id': reg.id, 'name': _name(reg), 'group': group,
+        'registration_id': reg.id, 'name': _name(reg), 'handle': names(reg)[1],
+        'group': group,
         'seed': reg.seed, 'played': 0, 'wins': 0, 'draws': 0, 'losses': 0,
         'goals_for': 0, 'goals_against': 0, 'goal_difference': 0, 'points': 0,
         'buchholz': 0, 'rank': None, 'status': 'playing', 'decided_by': None,
@@ -256,7 +259,7 @@ def _table_standings(stage):
     from .models import TournamentRegistration
 
     pts = _points(stage)
-    regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or [])}
+    regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or []).select_related('user', 'team', 'squad')}
     groups = {}
     for m in stage.matches.all():
         g = m.group_number or 0
@@ -278,7 +281,7 @@ def _swiss_standings(stage):
     from .models import TournamentRegistration
 
     settings = stage.settings or {}
-    regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or [])}
+    regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or []).select_related('user', 'team', 'squad')}
     rows = {i: _blank(r) for i, r in regs.items()}
     opponents = {i: [] for i in regs}
     for m in stage.matches.all():
@@ -329,7 +332,7 @@ def _knockout_standings(stage):
     from .models import TournamentRegistration
 
     matches = list(stage.matches.all())
-    regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or [])}
+    regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or []).select_related('user', 'team', 'squad')}
     place = {}
     final = next((m for m in matches if m.is_final), None)
     done = final is not None and final.status in TERMINAL and final.winner_id
@@ -376,7 +379,7 @@ def _knockout_standings(stage):
 def _gsl_standings(stage):
     from .models import TournamentRegistration
 
-    regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or [])}
+    regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or []).select_related('user', 'team', 'squad')}
     out = []
     for g in sorted({m.group_number for m in stage.matches.all() if m.group_number}):
         ms = {(m.round_number, m.match_number): m for m in stage.matches.filter(group_number=g)}
@@ -505,6 +508,7 @@ def advance(stage, user, order=None, ignore_disputes=False, draw_next=True):
         raise StageEngineError('NOBODY_ADVANCES')
 
     stage.advanced = [{'registration_id': r['registration_id'], 'name': r['name'],
+                       'handle': r.get('handle'),
                        'group': r['group'], 'rank': r['rank'], 'points': r['points']}
                       for r in chosen]
     stage.status = 'complete'
