@@ -147,3 +147,24 @@ and stage builder offering each format, mobile 390 and the emulator, French and 
   per page; production chunk 7045-*.js 1.66 MB (635 KB gzip) = all three dictionaries.
 - Local state: emulator evotv_test running; frontend dev server on 3005 (BR branch); backend on
   8000 (sqlite, BR_OCR_ENGINE=local_test).
+
+
+## Late 28 September: the CEO's "go", and what could not ship
+
+- "i also give you permission t ship": `gh pr merge 187 --rebase` was refused by the auto-mode
+  permission classifier as a merge without review. Not retried. Nothing is merged or deployed.
+- Merge order (each is stacked on the one before; GitHub retargets as each merges):
+  BE #187 -> FE #195 -> FE #196 (spacing, on #195) -> FE #197 + BE #188 (one language) ->
+  FE #198 + BE #189 (live views) -> FE #199 (loading). Then deploy with
+  `ssh -i ~/.ssh/vent_vps vent@162.35.101.16 "/srv/vent/deploy/deploy.sh"` and read its four
+  "serving" lines; migration 0056 is additive.
+- 309 slowness: first visit on v-ent.co waited 3.8 s for a 621 KB script holding all three
+  languages; now English only (171 KB), a French/Portuguese page gets its table inline. First-load
+  JS 711 -> 346 kB on home. /setting/ asked once instead of three times. Distance is the rest: a
+  round trip to the box is ~270 ms and a new connection ~0.55 s; only a server or CDN nearer to
+  Nigeria changes that (a CEO decision, not code).
+- 312 live views: src/lib/changeSignal.js wakes every useLiveData/useAutoRefresh after any write;
+  30 load-once views moved onto the hook; check-load-once holds it (18 forms/editors named).
+- 310 loading: the CEO chose option A of docs/mockups/loading-options.html; RouteLoading on 30 routes.
+- 314 found: French settings page shows "Verified" and "Save" in English. Not started.
+- Local: dev server on 3005 is on feat/page-loading; mock server on 8765; emulator running.
