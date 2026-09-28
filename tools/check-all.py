@@ -150,6 +150,14 @@ CATCHERS = [
     # Every page shipped all three languages, 621 KB gzipped, before it could
     # do anything (28 September 2026). The browser now loads generated
     # per-language files; a stale copy would show last week's wording.
+    # Thirty views fetched once on mount and never again (28 September 2026,
+    # inbox 312). Each is on useAutoRefresh now, which also wakes on any write.
+    ('load once',
+     'a view refreshes by itself; only named forms and editors do not',
+     FRONTEND, ['node', 'scripts/check-load-once.mjs'], True),
+    ('load once self-test',
+     'the load-once catcher still catches a view that never refreshes',
+     FRONTEND, ['node', 'scripts/check-load-once.mjs', '--self-test'], True),
     ('dictionary split',
      'the per-language files match dictionaries.js',
      FRONTEND, ['node', 'scripts/split-dictionaries.mjs', '--check'], True),
