@@ -241,3 +241,24 @@ Merge order grows by one: ... FE #200, then BE #190, then BE #191 (on #190).
 - Explained, not faults: local production build refuses 127.0.0.1 images in /_next/image (dev
   only allows loopback); org manage endpoints 403 every non-member, admins included (admins use
   the admin console); run of show 404 = none made yet; placeholder token routes.
+
+### Early 29 September: the walk re-run on the fixed build, and the gutted install explained
+
+- Full walk on the rebuilt site, seven roles x desktop and mobile, 142 routes each, dynamic routes
+  as real records (AUDIT_SAMPLES): every run's findings are the explained set only (refusals on
+  records the role does not run, placeholder tokens, the closed-marketplace 503 the finance page
+  shows as closed). The map ring was the last visual finding; fixed with a three-class selector
+  and confirmed in Chrome (border 0px).
+- The map's zoom "doing nothing" was the automation tab, not the site: the tab reports hidden, so
+  requestAnimationFrame never fires and Leaflet's animated zoom never completes. With animation off
+  the same press zoomed 14 -> 15. Recorded in the browser-walking memory.
+- Inbox 328 CLOSED, cause proven: .next/standalone/node_modules holds symlinks into
+  node_modules/.pnpm, and Next's recursiveDelete on Windows follows them when a rebuild clears .next,
+  emptying next, react and react-dom. scripts/unlink-standalone.mjs runs first in prebuild (FE #200),
+  its self-test is a check-all row (BE #191). Two builds back to back: install intact.
+- Backend full suite on BE #191: 4451 tests OK (1 skipped).
+- Android emulator (412px): /fr/login dark surface, French with accents; /fr/settings Save buttons
+  at x=258-379, no horizontal scroll, "Vérifiée", no English. Serve local standalone with
+  HOSTNAME=0.0.0.0 for the emulator.
+- Still waiting on the CEO: every PR in the chain is unmerged (the merge command is refused as a
+  merge without review), so nothing from 28-29 September is deployed.
