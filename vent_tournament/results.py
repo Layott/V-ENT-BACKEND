@@ -178,8 +178,53 @@ def decide(match, score_p1, score_p2, *, penalties_p1=None, penalties_p2=None,
         elif winner is not None and winner.id != wanted:
             raise ResultError('WINNER_DISAGREES_WITH_SCORE', 'winner_registration_id')
 
+    _still_free_to_change(match, winner)
+
     return Decision(winner=winner, score_p1=s1, score_p2=s2,
                     penalties_p1=p1, penalties_p2=p2, games=game_rows)
+
+
+PLAYED_STATUSES = ('completed', 'walkover_p1', 'walkover_p2', 'in_progress',
+                   'pending_opponent_confirm', 'disputed')
+
+
+def _still_free_to_change(match, winner):
+    """Refuse changing a finished result that something later was built on.
+
+    Found on the second bracket walk, 28 September 2026: a round-one result
+    changed after the final was played put the new winner into a semi-final
+    the old winner had already won, and left the old winner recorded as that
+    semi's winner. A Swiss result changed after the next round was paired
+    from it did the same to the pairing. The organiser corrects the later
+    match first, then this one; nothing is rewritten underneath a result
+    somebody has already played.
+
+    A new result for an unfinished match, or a corrected score that keeps
+    the same outcome, is always free.
+    """
+    if match.status not in ('completed', 'walkover_p1', 'walkover_p2'):
+        return
+    from . import stage_settings
+    from .models import BracketMatch
+    stage = match.stage if match.stage_id else None
+    closed = stage is not None and stage.status == 'complete'
+    new_winner_id = winner.id if winner is not None else None
+    if (match.winner_id or None) == new_winner_id:
+        # A corrected score, same outcome. Harmless in a knockout; in a table
+        # the goals ARE the standings, and a closed stage's table has been
+        # read and its qualifiers or final places set from it.
+        if closed and (stage_settings.is_table(stage.format)
+                       or stage.format in ('swiss', 'gsl')):
+            raise ResultError('STAGE_CLOSED')
+        return
+    later = [pk for pk in (match.winner_to_match_id, match.loser_to_match_id) if pk]
+    if later and BracketMatch.objects.filter(pk__in=later, status__in=PLAYED_STATUSES).exists():
+        raise ResultError('NEXT_MATCH_ALREADY_PLAYED')
+    if (stage is not None and stage.format == 'swiss'
+            and stage.matches.filter(round_number__gt=match.round_number).exists()):
+        raise ResultError('NEXT_ROUND_ALREADY_DRAWN')
+    if closed:
+        raise ResultError('STAGE_CLOSED')
 
 
 def apply(match, decision, *, recorded_by=None, forfeit_reason=''):
@@ -206,7 +251,23 @@ def apply(match, decision, *, recorded_by=None, forfeit_reason=''):
         match.recorded_at = now
         fields += ['recorded_by', 'recorded_at']
     match.save(update_fields=fields)
+    _settle_open_disputes(match, recorded_by, now)
     return match
+
+
+def _settle_open_disputes(match, recorded_by, now):
+    """A result recorded by somebody running the tournament settles the open
+    disputes on that match. Recording over a dispute IS the organiser's
+    decision; leaving the dispute open kept it in the admin queue for good
+    (second bracket walk, 28 September 2026). A player confirming their own
+    match settles nothing here: that is not a ruling on anybody's dispute."""
+    if recorded_by is None or match.participant_owned_by(recorded_by) is not None:
+        return
+    from .models import TournamentDispute
+    TournamentDispute.objects.filter(match=match, status__in=('open', 'under_review')).update(
+        status='resolved', resolved_at=now,
+        resolution_note='Settled by the result %s recorded: %s.' % (
+            recorded_by.username, describe(match)))
 
 
 def describe(match):

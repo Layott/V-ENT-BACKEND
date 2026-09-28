@@ -245,8 +245,23 @@ def _check_walkover(match):
         return  # seeded (round-1) matches are handled at generation time
     if any(f.status not in TERMINAL_STATUSES for f in feeders):
         return  # still waiting on a real match upstream
+    # A feeder that is finished can still have somebody on the way here. At a
+    # draw every round-one bye is settled first and routed one at a time, so
+    # when seed 2's bye arrives, seed 3's bye is already terminal but seed 3
+    # has not been placed yet. Reading that as "one player, a walkover" sent
+    # seed 2 to the next round without playing (found on the second bracket
+    # walk, 28 September 2026: any knockout with 5, 10, 11 or 13 entrants).
+    for f in feeders:
+        if f.winner_to_match_id == match.id and f.winner_id:
+            if getattr(match, 'participant_%d_id' % (f.winner_to_slot or 1)) is None:
+                return
+        if f.loser_to_match_id == match.id:
+            loser = _loser_of(f)
+            if loser is not None and getattr(
+                    match, 'participant_%d_id' % (f.loser_to_slot or 1)) is None:
+                return
 
-    present = [p for p in (match.participant_1, match.participant_2) if p is not None]
+    present =[p for p in (match.participant_1, match.participant_2) if p is not None]
     if len(present) >= 2:
         return  # playable - leave it scheduled
     if len(present) == 1:

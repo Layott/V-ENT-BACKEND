@@ -741,6 +741,14 @@ def _tournament_status(t, now):
         return 'cancelled'
     if t.is_draft:
         return 'draft'
+    # What the tournament has actually done beats what its dates predicted.
+    # A bracket finished on the day read "ongoing" until the end date passed,
+    # and one started early read "active" (second bracket walk, 28 September
+    # 2026). The dates remain the answer only where nothing was recorded.
+    if getattr(t, 'status', None) == 'completed' or getattr(t, 'completed_at', None):
+        return 'completed'
+    if getattr(t, 'status', None) == 'live':
+        return 'ongoing'
     if t.start_date_and_time and now < t.start_date_and_time:
         return 'active'
     if t.end_date_and_time and now > t.end_date_and_time:
@@ -780,14 +788,22 @@ def admin_list_tournaments(request):
         qs = qs.filter(tournament_title__icontains=search)
 
     status_filter = request.GET.get('status')
+    # The same rule as `_tournament_status`, as a query: recorded status
+    # first, dates only where nothing was recorded. A tab and the badge in it
+    # must never disagree.
+    from django.db.models import Q
+    finished = Q(status='completed') | Q(completed_at__isnull=False)
+    open_ = ~finished & ~Q(status='cancelled')
     if status_filter == 'draft':
         qs = qs.filter(is_draft=True)
     elif status_filter == 'active':
-        qs = qs.filter(is_draft=False, start_date_and_time__gt=now)
+        qs = qs.filter(open_, is_draft=False, start_date_and_time__gt=now).exclude(status='live')
     elif status_filter == 'ongoing':
-        qs = qs.filter(is_draft=False, start_date_and_time__lte=now, end_date_and_time__gte=now)
+        qs = qs.filter(open_, is_draft=False).filter(
+            Q(status='live') | Q(start_date_and_time__lte=now, end_date_and_time__gte=now))
     elif status_filter == 'completed':
-        qs = qs.filter(is_draft=False, end_date_and_time__lt=now)
+        qs = qs.filter(is_draft=False).exclude(status='cancelled').filter(
+            finished | Q(end_date_and_time__lt=now))
     elif status_filter == 'cancelled':
         # Was `qs.none()`, with a comment saying cancelled is not tracked. The
         # column has existed since the lifecycle work; nothing here read it, so

@@ -62,8 +62,9 @@ def admin_tournament_matches(request, tournament_id):
         BracketMatch.objects
         .filter(tournament=tournament)
         .select_related('participant_1__team', 'participant_1__user',
-                        'participant_2__team', 'participant_2__user', 'winner')
-        .order_by('round_number', 'match_number')
+                        'participant_2__team', 'participant_2__user', 'winner',
+                        'stage')
+        .order_by('stage__order', 'group_number', 'round_number', 'match_number')
     )
 
     rows = [
@@ -75,6 +76,17 @@ def admin_tournament_matches(request, tournament_id):
             # Said the way a bracket says it, so an admin can find the same row
             # on the bracket they are looking at.
             'label': 'Round %s, match %s' % (m.round_number, m.match_number),
+            # Which stage, group and side of the bracket, so two "Round 1,
+            # match 1" rows in different groups can be told apart (second
+            # bracket walk, 28 September 2026). The screen writes the words.
+            'stage_label': m.stage.label if m.stage_id else None,
+            'group_number': m.group_number,
+            'bracket_side': m.bracket_side,
+            # What a result for it may be: a table takes a draw, a knockout
+            # needs a decider, and the override offers exactly that.
+            'draw_allowed': m.draw_allowed,
+            'best_of': m.best_of,
+            'legs': m.legs,
             'side_1': _side(m.participant_1),
             'side_2': _side(m.participant_2),
             'score_1': m.score_p1,

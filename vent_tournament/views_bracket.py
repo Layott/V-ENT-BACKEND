@@ -9,6 +9,7 @@ from datetime import timedelta
 from vent_auth.views_helpers import session_timeout_minutes
 
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status as http
@@ -451,7 +452,8 @@ def raise_dispute(request, match_id):
     evidence_urls = [str(u) for u in evidence_urls[:5]]
 
     if TournamentDispute.objects.filter(match=match, raised_by=user, status__in=('open', 'under_review')).exists():
-        return _err('You already have an open dispute on this match', 'STATE_CONFLICT', http.HTTP_409_CONFLICT)
+        return _err('You already have an open dispute on this match', 'DISPUTE_ALREADY_OPEN',
+                    http.HTTP_409_CONFLICT)
 
     with transaction.atomic():
         locked = BracketMatch.objects.select_for_update().get(pk=match.pk)
@@ -490,7 +492,7 @@ def match_detail(request, match_id):
     )
     from .access import may_record_results
     is_staff = may_record_results(user, match.tournament)
-    if match.participant_owned_by(user) is None and not is_staff:
+    if match.side_of(user) is None and not is_staff:
         return _err('You cannot view this match', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
 
     submissions = [
@@ -520,7 +522,16 @@ def match_detail(request, match_id):
     settings = stage_settings.of_match(match)
     body.update({
         'score_submissions': submissions,
+        # Acts for a side (reports, confirms, disputes).
         'your_slot': match.participant_owned_by(user),
+        # Plays on a side without acting for it: a club's member.
+        'your_side': match.side_of(user),
+        # The viewer's own latest dispute on this match, so the room says it
+        # is with the organiser, or what they decided, instead of offering
+        # the same button again.
+        'my_dispute': (lambda d: {'status': d.status, 'note': d.resolution_note,
+                                  'at': d.created_at} if d else None)(
+            match.disputes.filter(raised_by=user).order_by('-created_at').first()),
         'room_host': settings.get('room_host', 'p1'),
         'room_settings': settings.get('room_settings', ''),
         'check_in_minutes': settings.get('check_in_minutes', 0),
@@ -528,6 +539,14 @@ def match_detail(request, match_id):
         # The break a player gets after their last match, which is how this
         # match's time was worked out.
         'break_minutes': tournament_options.clean(match.tournament.options)['match_interval_minutes'],
+        # Whether either side has played before this one, which is when a
+        # break means anything. A first match has no break to explain.
+        'after_a_break': BracketMatch.objects.filter(
+            tournament_id=match.tournament_id, status='completed',
+            completed_at__isnull=False).filter(
+            Q(participant_1_id__in=[p for p in (match.participant_1_id, match.participant_2_id) if p])
+            | Q(participant_2_id__in=[p for p in (match.participant_1_id, match.participant_2_id) if p])
+        ).exclude(pk=match.pk).exists(),
         'can_record': is_staff,
     })
     return _ok(body)

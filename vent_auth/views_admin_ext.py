@@ -358,6 +358,9 @@ def _dispute_row(d):
         'match_id': d.match_id,
         'round_number': d.match.round_number if d.match else None,
         'match_number': d.match.match_number if d.match else None,
+        'stage_label': d.match.stage.label if d.match and d.match.stage_id else None,
+        'group_number': d.match.group_number if d.match else None,
+        'bracket_side': d.match.bracket_side if d.match else None,
         'raised_by': d.raised_by.username if d.raised_by else None,
         'raised_by_id': d.raised_by_id,
         'description': d.description,
@@ -381,7 +384,7 @@ def admin_disputes_list(request):
 
     qs = (
         TournamentDispute.objects
-        .select_related('tournament', 'match', 'raised_by')
+        .select_related('tournament', 'match__stage', 'raised_by')
         .order_by('-created_at')
     )
 
