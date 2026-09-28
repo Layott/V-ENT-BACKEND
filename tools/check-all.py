@@ -190,6 +190,12 @@ CATCHERS = [
     ('tx text self-test',
      'the tx text catcher still catches an untranslated text',
      FRONTEND, ['node', 'scripts/check-tx-text.mjs', '--self-test'], True),
+    # On Windows a rebuild deleted .next through its standalone symlinks and
+    # emptied next, react and react-dom (28 September 2026, four times).
+    # prebuild now unlinks them first; this keeps the unlinker honest.
+    ('standalone unlink self-test',
+     'removing a standalone link never touches the package it points at',
+     FRONTEND, ['node', 'scripts/unlink-standalone.mjs', '--self-test'], True),
     ('date inputs self-test',
      'the date input catcher still catches a native control',
      FRONTEND, ['node', 'scripts/check-date-inputs.mjs', '--self-test'], True),
