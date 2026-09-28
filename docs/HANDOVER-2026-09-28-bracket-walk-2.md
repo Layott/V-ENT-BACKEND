@@ -8,6 +8,28 @@ The CEO said "Go". Gates: `V-ENT/gates/44-bracket-walk-2.md`. Walk log:
 `V-ENT/tasks/audit/bracket-walk-2-2026-09-28.md`. Branch `fix/bracket-walk-2`
 in both repos. Walk data: `tools/walk_brackets_2.py --setup` (local sqlite).
 
+## Status, 28 Sept after the usage-limit reset
+
+COMMITTED AND PUSHED, NOT MERGED, NOT DEPLOYED: BE #185 (79e281ea), FE #193
+(b63ebd1), both on `fix/bracket-walk-2`. W2-34 (running order both names)
+done. Full backend suite 4374 OK; check-all clean on both commits.
+
+The relay continuation could not edit the shared checkout (background-session
+isolation), so the work was copied byte for byte into worktrees at
+`LAYO/CLAUDE/V-ENT-WT/V-ENT-BACKEND` and `.../V-ENT-FRONTEND` (branch
+`wt/bracket-walk-2`) and committed there. The shared checkouts still hold the
+same changes uncommitted on their local `fix/bracket-walk-2`; once the PRs
+merge, `git switch main && git pull` there after discarding those (they are
+identical to what merged), and `git worktree remove` the two worktrees.
+
+Memory: an orphaned frontend dev server (node, 9.5 GB) was the memory hog;
+stopped. Stale dev builds (5.1 GB) cleaned by check-stale-builds --clean.
+
+Still open: P13 production walk (after deploy, so it walks the fixed code);
+CEO decisions: deploy, and D-1 (a paid no-show keeps no refund today). Also
+seen: an event page answers 500 while the API is down (links-embed check,
+`/events/v-ent-lagos-meetup-2026`), not bracket work, recorded for later.
+
 ## Status as of writing (usage limit hit, 28 Sept ~02:30)
 
 P1 to P12 walked; every fault W2-1 to W2-32 fixed in the working tree of both
