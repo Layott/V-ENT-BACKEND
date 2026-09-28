@@ -164,6 +164,23 @@ CATCHERS = [
     ('dictionary split self-test',
      'the split still notices an edited string',
      FRONTEND, ['node', 'scripts/split-dictionaries.mjs', '--self-test'], True),
+    # French and Portuguese typed without accents: 939 strings ("equipe",
+    # "evenement", "nao", "possivel"), found 28 September 2026, inbox 315.
+    ('accents',
+     'French and Portuguese carry their accents',
+     FRONTEND, ['node', 'scripts/check-accents.mjs'], True),
+    ('accents self-test',
+     'the accent catcher still catches a bare word and leaves a verb alone',
+     FRONTEND, ['node', 'scripts/check-accents.mjs', '--self-test'], True),
+    # A key written twice in one language: the first copy is dropped without
+    # a word. 31 per language on 28 September 2026 (inbox 316), several with
+    # two meanings, so one screen of each pair showed the other's words.
+    ('duplicate translation keys',
+     'no key is written twice in one language',
+     FRONTEND, ['node', 'scripts/check-dict-duplicates.mjs'], True),
+    ('duplicate translation keys self-test',
+     'the duplicate key catcher still catches a key written twice',
+     FRONTEND, ['node', 'scripts/check-dict-duplicates.mjs', '--self-test'], True),
     ('date inputs self-test',
      'the date input catcher still catches a native control',
      FRONTEND, ['node', 'scripts/check-date-inputs.mjs', '--self-test'], True),
