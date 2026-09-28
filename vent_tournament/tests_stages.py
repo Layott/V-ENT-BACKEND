@@ -61,7 +61,9 @@ class PlanTests(TestCase):
     def test_a_format_that_decides_on_its_own_cannot_be_followed(self):
         with self.assertRaises(stages.StageError) as caught:
             stages.plan([
-                {'format': 'battle_royale', 'label': 'Lobbies', 'advances': 8},
+                # Battle royale feeds a final since 28 September 2026; an
+                # aggregate league still decides the thing on its own.
+                {'format': 'aggregate_2v2', 'label': 'League', 'advances': 4},
                 {'format': 'single_elimination', 'label': 'Final'},
             ])
         self.assertIn('on its own', str(caught.exception))

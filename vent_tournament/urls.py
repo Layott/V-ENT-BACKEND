@@ -12,6 +12,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 from . import views_formats
+from . import views_br
 from . import views_delete
 from . import views_standings as standings_views
 from vent_event import views_short_links as short_link_views
@@ -111,6 +112,20 @@ urlpatterns = [
     path('<str:tournament_id>/stages/<int:stage_id>/advance/', views_stages.advance_stage, name='advance_stage'),
     path('<str:tournament_id>/stages/<int:stage_id>/advance/preview/', views_stages.advance_preview, name='advance_preview'),
     path('<str:tournament_id>/stages/<int:stage_id>/draw/', views_stages.draw_stage, name='draw_stage'),
+    # Battle royale: lobbies, matches, results by hand and by screenshot.
+    path('<str:tournament_id>/br/', views_br.battle_royale, name='br'),
+    path('<str:tournament_id>/br/ensure/', views_br.ensure_stage, name='br_ensure'),
+    path('<str:tournament_id>/br/<int:stage_id>/settings/', views_br.set_settings, name='br_settings'),
+    path('<str:tournament_id>/br/<int:stage_id>/seats/move/', views_br.move_seat, name='br_move_seat'),
+    path('<str:tournament_id>/br/<int:stage_id>/lobbies/<int:lobby_id>/', views_br.rename_lobby, name='br_lobby'),
+    path('<str:tournament_id>/br/<int:stage_id>/lobbies/<int:lobby_id>/matches/', views_br.add_match, name='br_add_match'),
+    path('<str:tournament_id>/br/<int:stage_id>/finish/', views_br.finish, name='br_finish'),
+    path('<str:tournament_id>/br/matches/<int:map_id>/', views_br.match_detail, name='br_match'),
+    path('<str:tournament_id>/br/matches/<int:map_id>/results/', views_br.match_results, name='br_results'),
+    path('<str:tournament_id>/br/matches/<int:map_id>/read/', views_br.ocr_upload, name='br_read'),
+    path('<str:tournament_id>/br/reads/<int:job_id>/', views_br.ocr_job, name='br_read_job'),
+    path('<str:tournament_id>/br/reads/<int:job_id>/images/<int:index>/', views_br.ocr_image, name='br_read_image'),
+    path('<str:tournament_id>/br/reads/<int:job_id>/commit/', views_br.ocr_commit, name='br_read_commit'),
     # Short addresses for a tournament, the same mechanism the events side
     # uses. By slug as well as id, because this is reached from the share
     # dialog on a page addressed by name.

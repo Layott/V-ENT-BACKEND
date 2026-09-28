@@ -1552,6 +1552,13 @@ DEFAULT_ADMIN_SETTINGS = {
         'enabled': False,
         'message': '',
     },
+    'ocr': {
+        # How many battle royale result screenshots one person may have read
+        # in a day. Every read is a paid call to the reading service (owner
+        # rule R75: a per-user cap on every paid AI feature, checked before
+        # the call). Read by vent_tournament.br_ocr.daily_cap.
+        'reads_per_person_per_day': 40,
+    },
 }
 
 

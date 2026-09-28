@@ -65,6 +65,8 @@ VALUES = {
     # comparison "higher is better" and stop one rule reading backwards.
     'best_placement': lambda row, o, t: -(row.best_placement or 999),
     'placement_count': lambda row, o, t: row.firsts,
+    # Where they finished in the last match played; lower is better, negated.
+    'last_map_placement': lambda row, o, t: -(row.placements[-1] if row.placements else 999),
     'coin_toss': lambda row, o, t: 0,
 }
 

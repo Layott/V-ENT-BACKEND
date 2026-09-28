@@ -23,6 +23,10 @@ WIZARD_VALUES = [
     'gsl',
     'aggregate_2v2',
     'ladder',
+    # 28 September 2026. The wizard saves the catalogue key itself.
+    'stepladder',
+    'page_playoff',
+    'winner_stays_on',
 ]
 
 

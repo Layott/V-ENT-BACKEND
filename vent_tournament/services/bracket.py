@@ -185,7 +185,8 @@ class BracketError(Exception):
 #: than drawn as something else. Swiss and GSL used to fall through to single
 #: elimination silently, which is the fault this list exists to prevent.
 DRAWABLE = ('single_elimination', 'double_elimination', 'round_robin', 'ladder',
-            'aggregate_2v2', 'swiss', 'gsl')
+            'aggregate_2v2', 'swiss', 'gsl', 'stepladder', 'page_playoff',
+            'winner_stays_on')
 
 
 def generate(tournament, generated_by, seed_strategy='random', manual_order=None):
@@ -256,7 +257,24 @@ def draw_into(tournament, stage, btype, ordered, settings, groups=0):
     if btype not in DRAWABLE:
         raise BracketError('format_has_no_bracket',
                            'This format is scored as a table, not drawn as a bracket.')
+    from .. import formats
+    definition = formats.get(btype)
+    problem = definition.count_problem(len(ordered)) if definition else None
+    if problem == 'at_most':
+        raise BracketError('too_many_entrants',
+                           'This format holds at most %s.' % definition.max_participants)
+    if problem == 'at_least':
+        raise BracketError('not_enough_entrants',
+                           'This format needs at least %s.' % definition.min_participants)
     with advance.suspend_advance():
+        if btype == 'stepladder':
+            return _generate_stepladder(tournament, stage, ordered, settings)
+        if btype == 'page_playoff':
+            return _generate_page_playoff(tournament, stage, ordered, settings)
+        if btype == 'winner_stays_on':
+            return _generate_winner_stays_on(tournament, stage, ordered, settings)
+        if btype == 'single_elimination' and (settings or {}).get('every_place'):
+            return _generate_every_place(tournament, stage, ordered, settings)
         if btype == 'gsl':
             return _generate_gsl(tournament, stage, ordered, settings)
         if btype == 'swiss':
@@ -819,3 +837,240 @@ def _generate_double_elimination(tournament, ordered, stage=None, settings=None)
             {'bracket': 'grand_final', 'matches': 2 if reset else 1},
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Matches for every place
+# ---------------------------------------------------------------------------
+# CEO, 28 September 2026: "Finish up the matches for every place". A knockout
+# where the losers keep playing: the four quarter-final losers play for fifth
+# to eighth, their winners for fifth, their losers for seventh, and so on down,
+# so every entrant finishes in a place of their own and a prize table with
+# eight rows has eight names to pay. Each match states the place it settles
+# (`winner_place`, `loser_place`), so final positions are read off matches.
+
+def _generate_every_place(tournament, stage, ordered, settings):
+    settings = settings or {}
+    bracket_size = next_power_of_2(len(ordered))
+    rounds = int(math.log2(bracket_size))
+    slots = _seed_slots(ordered, bracket_size)
+    numbers = {}
+    created = []
+
+    def mk(round_number, first_place, last):
+        numbers[round_number] = numbers.get(round_number, 0) + 1
+        title = first_place == 1
+        match = _new_match(tournament, stage, settings, round_number,
+                           numbers[round_number], 'winners' if title else 'placement',
+                           rounds_total=rounds, is_final=title and last)
+        created.append(match)
+        return match
+
+    def build(size, first_place, round_number):
+        """`size` sides play for places first_place .. first_place+size-1."""
+        last = size == 2
+        matches = [mk(round_number, first_place, last) for _ in range(size // 2)]
+        if last:
+            m = matches[0]
+            m.winner_place, m.loser_place = first_place, first_place + 1
+            m.save(update_fields=['winner_place', 'loser_place'])
+            return matches
+        upper = build(size // 2, first_place, round_number + 1)
+        lower = build(size // 2, first_place + size // 2, round_number + 1)
+        for i, m in enumerate(matches):
+            slot = 1 if i % 2 == 0 else 2
+            m.winner_to_match, m.winner_to_slot = upper[i // 2], slot
+            m.loser_to_match, m.loser_to_slot = lower[i // 2], slot
+            m.save(update_fields=['winner_to_match', 'winner_to_slot',
+                                  'loser_to_match', 'loser_to_slot'])
+        return matches
+
+    first_round = build(bracket_size, 1, 1)
+    for match in _seat_round_one(first_round, slots):
+        advance.cascade(match)
+    return {
+        'rounds_count': rounds,
+        'matches_created': len(created),
+        'structure_summary': [{'round_number': r, 'match_count': numbers[r]}
+                              for r in sorted(numbers)],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Stepladder
+# ---------------------------------------------------------------------------
+# The two lowest seeds play; the winner meets the next seed up; and so on until
+# the top seed, who waits in the final. Round r is the r-th rung. The loser of
+# every rung finishes in a known place: the first rung's loser last.
+
+def _generate_stepladder(tournament, stage, ordered, settings):
+    settings = settings or {}
+    n = len(ordered)
+    rungs = n - 1
+    matches = []
+    for r in range(1, rungs + 1):
+        m = _new_match(tournament, stage, settings, r, 1, 'winners',
+                       rounds_total=rungs, is_final=(r == rungs))
+        m.loser_place = n - r + 1
+        if r == rungs:
+            m.winner_place = 1
+        # The waiting seed takes slot 1: the higher seed is the home side.
+        m.participant_1 = ordered[n - 1 - r]
+        if r == 1:
+            m.participant_2 = ordered[n - 1]
+        m.save(update_fields=['loser_place', 'winner_place', 'participant_1',
+                              'participant_2'])
+        matches.append(m)
+    for prev, nxt in zip(matches, matches[1:]):
+        prev.winner_to_match, prev.winner_to_slot = nxt, 2
+        prev.save(update_fields=['winner_to_match', 'winner_to_slot'])
+    return {
+        'rounds_count': rungs,
+        'matches_created': rungs,
+        'structure_summary': [{'round_number': r, 'match_count': 1}
+                              for r in range(1, rungs + 1)],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Page playoff
+# ---------------------------------------------------------------------------
+# Four sides, four matches. 1 v 2: the winner goes to the final, the loser gets
+# a second chance. 3 v 4: the loser is out in fourth. The loser of 1 v 2 meets
+# the winner of 3 v 4 for the other place in the final; its loser is third.
+
+def _generate_page_playoff(tournament, stage, ordered, settings):
+    settings = settings or {}
+    s1, s2, s3, s4 = ordered[:4]
+    top = _new_match(tournament, stage, settings, 1, 1, 'winners', rounds_total=3,
+                     participant_1=s1, participant_2=s2)
+    bottom = _new_match(tournament, stage, settings, 1, 2, 'losers', rounds_total=3,
+                        participant_1=s3, participant_2=s4)
+    semi = _new_match(tournament, stage, settings, 2, 1, 'losers', rounds_total=3)
+    final = _new_match(tournament, stage, settings, 3, 1, 'winners', rounds_total=3,
+                       is_final=True)
+    top.winner_to_match, top.winner_to_slot = final, 1
+    top.loser_to_match, top.loser_to_slot = semi, 1
+    top.save(update_fields=['winner_to_match', 'winner_to_slot',
+                            'loser_to_match', 'loser_to_slot'])
+    bottom.winner_to_match, bottom.winner_to_slot = semi, 2
+    bottom.loser_place = 4
+    bottom.save(update_fields=['winner_to_match', 'winner_to_slot', 'loser_place'])
+    semi.winner_to_match, semi.winner_to_slot = final, 2
+    semi.loser_place = 3
+    semi.save(update_fields=['winner_to_match', 'winner_to_slot', 'loser_place'])
+    final.winner_place, final.loser_place = 1, 2
+    final.save(update_fields=['winner_place', 'loser_place'])
+    return {
+        'rounds_count': 3,
+        'matches_created': 4,
+        'structure_summary': [{'round_number': 1, 'match_count': 2},
+                              {'round_number': 2, 'match_count': 1},
+                              {'round_number': 3, 'match_count': 1}],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Winner stays on
+# ---------------------------------------------------------------------------
+# Seeds 1 and 2 open; the winner stays on and meets the next in the queue.
+# With no streak target it is one pass: every challenger gets one go. With a
+# target, a loser goes to the back of the queue and it runs until somebody wins
+# that many in a row, or the match limit is reached. One match exists at a
+# time; the next is drawn when the last is decided (`next_challenge`).
+
+def _generate_winner_stays_on(tournament, stage, ordered, settings):
+    settings = settings or {}
+    _new_match(tournament, stage, settings, 1, 1, 'winners', rounds_total=1,
+               participant_1=ordered[0], participant_2=ordered[1])
+    return {'rounds_count': 1, 'matches_created': 1,
+            'structure_summary': [{'round_number': 1, 'match_count': 1}]}
+
+
+def match_limit(settings, entrants):
+    settings = settings or {}
+    if not settings.get('streak_target'):
+        return max(1, entrants - 1)
+    return int(settings.get('max_matches') or 0) or min(200, 3 * entrants)
+
+
+def streak_state(matches, seeds, settings):
+    """Replay a winner-stays-on run: who holds the spot, their streak, who is
+    queueing, everybody's wins and longest streak, and whether it is over."""
+    settings = settings or {}
+    target = int(settings.get('streak_target') or 0)
+    queue = list(seeds[2:])
+    holder, streak = None, 0
+    wins = {i: 0 for i in seeds}
+    losses = {i: 0 for i in seeds}
+    best = {i: 0 for i in seeds}
+    played = {i: 0 for i in seeds}
+    current = None
+    decided = 0
+    for m in sorted(matches, key=lambda x: (x.round_number, x.match_number)):
+        sides = [x for x in (m.participant_1_id, m.participant_2_id) if x]
+        # The challenger has left the queue to play. Without this the same
+        # challenger was drawn again and again (found by the streak test on
+        # 28 September 2026: seed 3 was drawn against itself).
+        for x in sides:
+            if x != holder and x in queue:
+                queue.remove(x)
+        if m.status not in ('completed', 'walkover_p1', 'walkover_p2', 'bye', 'cancelled'):
+            current = m
+            break
+        decided += 1
+        if m.winner_id is None:
+            continue
+        loser = next((x for x in sides if x != m.winner_id), None)
+        streak = streak + 1 if m.winner_id == holder else 1
+        holder = m.winner_id
+        for x in sides:
+            played[x] = played.get(x, 0) + 1
+        wins[holder] = wins.get(holder, 0) + 1
+        best[holder] = max(best.get(holder, 0), streak)
+        if loser is not None:
+            losses[loser] = losses.get(loser, 0) + 1
+            if target:
+                queue.append(loser)
+    limit = match_limit(settings, len(seeds))
+    over = current is None and (
+        (target and streak >= target) or not queue or decided >= limit)
+    return {'holder': holder, 'streak': streak, 'queue': queue, 'wins': wins,
+            'losses': losses, 'best_streak': best, 'played': played,
+            'current': current, 'finished': bool(over), 'target': target,
+            'match_limit': limit, 'decided': decided}
+
+
+def next_challenge(tournament, stage, settings, seeds, matches):
+    """Draw the next winner-stays-on match, if the run is not over."""
+    state = streak_state(matches, seeds, settings)
+    if state['current'] is not None or state['finished'] or state['holder'] is None:
+        return None
+    from ..models import TournamentRegistration
+    regs = TournamentRegistration.objects.in_bulk([state['holder'], state['queue'][0]])
+    round_number = max((m.round_number for m in matches), default=0) + 1
+    with advance.suspend_advance():
+        m = _new_match(tournament, stage, settings, round_number, 1, 'winners',
+                       rounds_total=round_number,
+                       participant_1=regs[state['holder']],
+                       participant_2=regs[state['queue'][0]])
+    return m
+
+
+def places_from_matches(matches):
+    """Final places read off matches that state them, compacted to 1, 2, 3 ...
+    None when no match states a place (a plain knockout)."""
+    stated = [m for m in matches if m.winner_place or m.loser_place]
+    if not stated:
+        return None
+    place = {}
+    for m in stated:
+        if m.winner_id and m.winner_place and m.status in (
+                'completed', 'bye', 'walkover_p1', 'walkover_p2'):
+            place.setdefault(m.winner_id, m.winner_place)
+        if m.loser_place and m.winner_id and m.status in ('completed', 'walkover_p1', 'walkover_p2'):
+            loser = m.participant_2_id if m.winner_id == m.participant_1_id else m.participant_1_id
+            if loser:
+                place.setdefault(loser, m.loser_place)
+    ranked = sorted(place.items(), key=lambda kv: kv[1])
+    return {rid: i + 1 for i, (rid, _p) in enumerate(ranked)}

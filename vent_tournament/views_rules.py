@@ -60,13 +60,18 @@ def _sync_league_rules(tournament, cleaned):
     return row
 
 
+def _game(tournament):
+    game = getattr(tournament, 'tournament_game', None)
+    return getattr(game, 'game_title', '') if game else ''
+
+
 def _ruleset_for(tournament):
     """The tournament's rules, built from its format the first time they are
     asked for. A tournament created before any of this existed still answers."""
     existing = TournamentRuleset.objects.filter(tournament=tournament).first()
     if existing is not None and existing.data:
         return existing
-    data = rules_mod.preset_for(tournament.bracket_type)
+    data = rules_mod.preset_for(tournament.bracket_type, _game(tournament))
     if existing is None:
         existing = TournamentRuleset.objects.create(tournament=tournament, data=data)
     else:
@@ -117,8 +122,10 @@ def _payload(ruleset, tournament):
 def _has_results(tournament):
     """Whether anything has been played. Changing the points table after that
     restates every standing without touching a single result."""
+    from .models import BRMap
     return BracketMatch.objects.filter(
-        tournament=tournament, status='completed').exists()
+        tournament=tournament, status='completed').exists() or \
+        BRMap.objects.filter(lobby__stage__tournament=tournament, status='entered').exists()
 
 
 @api_view(['GET'])
@@ -172,6 +179,9 @@ def set_tournament_rules(request, tournament_id):
     ruleset.updated_by = user
     ruleset.save(update_fields=['data', 'updated_by', 'updated_at'])
     _sync_league_rules(tournament, cleaned)
+    # A one-format battle royale is scored by its stage; keep the two equal.
+    from . import br_engine
+    br_engine.sync_from_ruleset(tournament)
 
     # The format on the tournament follows the rules, so the two cannot disagree
     # about what is being played.
@@ -201,7 +211,7 @@ def reset_tournament_rules(request, tournament_id):
 
     wanted = request.data.get('format') or tournament.bracket_type
     ruleset = _ruleset_for(tournament)
-    ruleset.data = rules_mod.preset_for(wanted)
+    ruleset.data = rules_mod.preset_for(wanted, _game(tournament))
     ruleset.updated_by = user
     ruleset.save(update_fields=['data', 'updated_by', 'updated_at'])
     _sync_league_rules(tournament, ruleset.data)

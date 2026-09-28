@@ -56,6 +56,142 @@ def _bool(raw, default):
     return bool(raw)
 
 
+def _num(raw, field, low, high, default):
+    """A number that may carry decimals: points for 1000 damage is 0.5."""
+    if raw in (None, ''):
+        return default
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        raise SettingsError('NOT_A_NUMBER', field)
+    if value != value or value < low or value > high:
+        raise SettingsError('OUT_OF_RANGE', field)
+    return int(value) if value == int(value) else round(value, 2)
+
+
+# ---------------------------------------------------------------------------
+# Battle royale
+# ---------------------------------------------------------------------------
+# AFC's scoring, read on 28 September 2026 (`afc_tournament_and_scrims/
+# scoring.py`) and written again here rather than copied: placement points from
+# the organiser's table, plus points a kill, plus optional points an assist and
+# a thousand damage, plus a bonus, minus a penalty. The lobby size is the
+# organiser's to choose (CEO: "you don't hardcode what number of squads can be
+# in a lobby"); the game only suggests a starting number.
+
+BR_PLACEMENT_PRESETS = {
+    'free_fire': {1: 12, 2: 9, 3: 8, 4: 7, 5: 6, 6: 5, 7: 4, 8: 3, 9: 2, 10: 1},
+    'pubg_mobile': {1: 10, 2: 6, 3: 5, 4: 4, 5: 3, 6: 2, 7: 1, 8: 1},
+}
+
+# The tiebreakers a battle royale table can be ordered by. `placement_count` is
+# booyahs, `total_kills` is kills: the catalogue's names, so the rules screen
+# and this stage use one vocabulary.
+BR_TIEBREAKERS = ('placement_count', 'total_kills', 'last_map_placement',
+                  'placement_points', 'kill_points', 'best_placement',
+                  'mvp_count', 'bonus', 'fewest_penalties', 'maps_played')
+BR_DEFAULT_TIEBREAKERS = ['placement_count', 'total_kills', 'last_map_placement']
+
+BR_MVP_CRITERIA = ('kills', 'damage', 'assists')
+BR_MVP_SCOPES = ('overall', 'winning_team')
+BR_ADVANCE_BY = ('overall', 'lobby')
+
+# Where a game starts, when the organiser has said nothing. Only a start.
+BR_GAME_DEFAULTS = (
+    ('free fire', {'placement_preset': 'free_fire', 'lobby_size': 12}),
+    ('pubg', {'placement_preset': 'pubg_mobile', 'lobby_size': 16}),
+)
+
+
+def br_game_defaults(game_title):
+    needle = str(game_title or '').strip().lower()
+    for key, defaults in BR_GAME_DEFAULTS:
+        if key in needle:
+            return dict(defaults)
+    return {'placement_preset': 'free_fire', 'lobby_size': 12}
+
+
+def _placement_table(raw, preset):
+    """{"1": 12, "2": 9, ...} from a table the organiser typed, or a preset."""
+    if raw in (None, '', {}):
+        raw = BR_PLACEMENT_PRESETS.get(preset) or BR_PLACEMENT_PRESETS['free_fire']
+    if not isinstance(raw, dict):
+        raise SettingsError('NOT_A_MAP', 'placement_points')
+    out = {}
+    for place, points in raw.items():
+        place_no = _int(place, 'placement_points', 1, 100, None)
+        out[str(place_no)] = _num(points, 'placement_points', 0, 1000, 0)
+    if not out:
+        raise SettingsError('EMPTY_TABLE', 'placement_points')
+    return dict(sorted(out.items(), key=lambda kv: int(kv[0])))
+
+
+def _ordered_choice(raw, allowed, field, default):
+    if raw in (None, ''):
+        return list(default)
+    if not isinstance(raw, list):
+        raise SettingsError('NOT_A_LIST', field)
+    out = []
+    for item in raw:
+        key = str(item or '').strip().lower()
+        if key not in allowed:
+            raise SettingsError('UNKNOWN_CHOICE', field)
+        if key in out:
+            raise SettingsError('DUPLICATE', field)
+        out.append(key)
+    return out
+
+
+def clean_battle_royale(raw):
+    raw = raw if isinstance(raw, dict) else {}
+    preset = str(raw.get('placement_preset') or 'free_fire').strip().lower()
+    if preset not in BR_PLACEMENT_PRESETS and preset != 'custom':
+        raise SettingsError('UNKNOWN_CHOICE', 'placement_preset')
+    table_raw = raw.get('placement_points') if preset == 'custom' else None
+    out = {
+        # How many squads drop together. The organiser's number, any number a
+        # game can hold.
+        'lobby_size': _int(raw.get('lobby_size'), 'lobby_size', 2, 100, 12),
+        # How many matches each lobby plays. More can be added on the day.
+        'maps': _int(raw.get('maps'), 'maps', 1, 30, 6),
+        'placement_preset': preset,
+        'placement_points': _placement_table(table_raw, preset),
+        'per_kill': _num(raw.get('per_kill'), 'per_kill', 0, 100, 1),
+        'per_assist': _num(raw.get('per_assist'), 'per_assist', 0, 100, 0),
+        'per_1000_damage': _num(raw.get('per_1000_damage'), 'per_1000_damage',
+                                0, 100, 0),
+        'tiebreakers': _ordered_choice(raw.get('tiebreakers'), BR_TIEBREAKERS,
+                                       'tiebreakers', BR_DEFAULT_TIEBREAKERS),
+        'mvp_criteria': _ordered_choice(raw.get('mvp_criteria'), BR_MVP_CRITERIA,
+                                        'mvp_criteria', BR_MVP_CRITERIA),
+        'mvp_scope': str(raw.get('mvp_scope') or 'overall').strip().lower(),
+        # Match point: once a squad is at or over this total, the first match
+        # it wins takes the stage. 0 is off.
+        'match_point': _int(raw.get('match_point'), 'match_point', 0, 10000, 0),
+        'advance_by': str(raw.get('advance_by') or 'overall').strip().lower(),
+        # A head start for the next stage by finishing place (AFC's Point
+        # Rush): {"1": 10, "2": 6}. Read per lobby or overall, as advance_by.
+        'carry_over': {},
+        'check_in_minutes': _int(raw.get('check_in_minutes'), 'check_in_minutes',
+                                 0, 120, 0),
+        'room_settings': str(raw.get('room_settings') or '').strip()[:400],
+    }
+    if out['mvp_scope'] not in BR_MVP_SCOPES:
+        raise SettingsError('UNKNOWN_CHOICE', 'mvp_scope')
+    if out['advance_by'] not in BR_ADVANCE_BY:
+        raise SettingsError('UNKNOWN_CHOICE', 'advance_by')
+    carry = raw.get('carry_over') or {}
+    if not isinstance(carry, dict):
+        raise SettingsError('NOT_A_MAP', 'carry_over')
+    for place, points in carry.items():
+        place_no = _int(place, 'carry_over', 1, 100, None)
+        value = _num(points, 'carry_over', 0, 1000, 0)
+        if value:
+            out['carry_over'][str(place_no)] = value
+    out['carry_over'] = dict(sorted(out['carry_over'].items(), key=lambda kv: int(kv[0])))
+    return out
+
+
 def is_table(format_key):
     fmt = formats.get(format_key)
     return bool(fmt and fmt.advancement in ('table', 'swiss'))
@@ -72,11 +208,26 @@ def clean(format_key, raw):
     key = fmt.key if fmt else str(format_key or '')
     table = is_table(key)
 
+    if key == 'battle_royale':
+        return clean_battle_royale(raw)
+
     out = {}
 
     # ---- the format's own switches ---------------------------------------
     if key == 'single_elimination':
         out['third_place'] = _bool(raw.get('third_place'), False)
+        # Losers play on for fifth, seventh and every place below, so every
+        # entrant finishes somewhere distinct. Supersedes the third-place match,
+        # which is the smallest case of it.
+        out['every_place'] = _bool(raw.get('every_place'), False)
+        if out['every_place']:
+            out['third_place'] = False
+    if key == 'winner_stays_on':
+        # 0: one pass, every challenger gets one go at whoever holds the spot.
+        # Above 0: a loser goes to the back of the queue and it runs until
+        # somebody wins that many in a row (or `max_matches` is reached).
+        out['streak_target'] = _int(raw.get('streak_target'), 'streak_target', 0, 20, 0)
+        out['max_matches'] = _int(raw.get('max_matches'), 'max_matches', 0, 200, 0)
     if key == 'double_elimination':
         gf = str(raw.get('grand_final') or 'reset').strip().lower()
         if gf not in GRAND_FINALS:
@@ -163,6 +314,8 @@ def for_tournament(tournament):
         # A single-format double elimination keeps the decisive grand final it
         # has always had; a reset is chosen on a stage, where it is offered.
         'grand_final': opts.get('grand_final') or 'single',
+        'every_place': opts.get('every_place'),
+        'streak_target': opts.get('streak_target'),
     }
     if opts.get('best_of_mode') in ('escalating', 'custom') and opts.get('best_of_final'):
         raw['final_best_of'] = opts['best_of_final']

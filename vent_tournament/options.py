@@ -47,6 +47,10 @@ DEFAULTS = {
     # Bracket shape
     'seeding_method': 'registration',
     'third_place_match': False,
+    # Losers keep playing for every place below first (single elimination).
+    'every_place': False,
+    # Winner stays on: wins in a row that end it. 0 is one pass.
+    'streak_target': 0,
     'group_stage': False,
     'group_size': 4,
     'advance_per_group': 2,
@@ -69,7 +73,7 @@ DEFAULTS = {
 
 BOOLEANS = {
     'require_verified_email', 'require_kyc', 'allow_roster_changes_between_rounds',
-    'forfeit_without_check_in', 'third_place_match', 'group_stage',
+    'forfeit_without_check_in', 'third_place_match', 'every_place', 'group_stage',
     'require_screenshot', 'rules_acknowledgement',
 }
 
@@ -83,6 +87,7 @@ INTEGERS = {
     'best_of_final': (1, 9),
     'match_interval_minutes': (5, 600),
     'dispute_window_minutes': (30, 2880),
+    'streak_target': (0, 20),
 }
 
 

@@ -2681,7 +2681,8 @@ def get_tournament_brackets(request, tournament_id):
                             'format': s.format, 'status': s.status,
                             'drawn': s.drawn_at is not None} for s in stages_here],
                 'rounds': match_shape.rounds_of(matches, private_for=private_for),
-                'standings': stage_engine.standings(chosen) if chosen else None,
+                'standings': (stage_engine.standings(chosen) if chosen
+                              else stage_engine.tournament_standings(tournament)),
                 # What the viewer may do here, so the page draws one set of
                 # controls for everybody: the entries they play for (their
                 # own matches open the match room), and whether they record

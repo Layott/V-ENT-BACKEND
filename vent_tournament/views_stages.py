@@ -326,7 +326,7 @@ def advance_preview(request, tournament_id, stage_id):
         'stage': _row(stage),
         'next': _row(nxt) if nxt else None,
         'finished': stage_engine.stage_finished(stage),
-        'open_matches': stage.matches.exclude(status__in=stage_engine.TERMINAL).count(),
+        'open_matches': stage_engine.open_count(stage),
         'open_disputes': tournament.disputes.filter(
             status__in=('open', 'under_review'), match__stage=stage).count(),
         'advancing': stage_engine.advancing(stage) if stage.drawn_at else [],
