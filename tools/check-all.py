@@ -181,6 +181,15 @@ CATCHERS = [
     ('duplicate translation keys self-test',
      'the duplicate key catcher still catches a key written twice',
      FRONTEND, ['node', 'scripts/check-dict-duplicates.mjs', '--self-test'], True),
+    # Text handed to tx() with no dictionary entry comes back in English on
+    # a French or Portuguese page, silently (28 September 2026: seven, among
+    # them the whole blurb of /tournaments/overlay).
+    ('tx text',
+     'every text passed to tx() has a dictionary entry',
+     FRONTEND, ['node', 'scripts/check-tx-text.mjs'], True),
+    ('tx text self-test',
+     'the tx text catcher still catches an untranslated text',
+     FRONTEND, ['node', 'scripts/check-tx-text.mjs', '--self-test'], True),
     ('date inputs self-test',
      'the date input catcher still catches a native control',
      FRONTEND, ['node', 'scripts/check-date-inputs.mjs', '--self-test'], True),
