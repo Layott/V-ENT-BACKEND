@@ -8,7 +8,39 @@ The CEO said "Go". Gates: `V-ENT/gates/44-bracket-walk-2.md`. Walk log:
 `V-ENT/tasks/audit/bracket-walk-2-2026-09-28.md`. Branch `fix/bracket-walk-2`
 in both repos. Walk data: `tools/walk_brackets_2.py --setup` (local sqlite).
 
-## Status, 28 Sept after the usage-limit reset
+## Status, 28 Sept: DONE AND DEPLOYED
+
+CEO "Deploy." (inbox 290): BE #185 and FE #193 rebase-merged and deployed,
+"the live site is serving this build" (BE b8b0a3fa, FE bde1ac9). The production
+walk (P13) then found W2-35: a one-stage plan could not be saved (the disabled
+"how many go through" showed 0 while the save sent round robin's 2), fixed in
+FE #194 (651e8c3) and deployed. P13 walked on v-ent.co as naijagameevo: a
+private "V-ENT Walk Test (remove)" with 5 demo entrants, one-stage plan saved,
+drawn (seeds 2 v 3 a real match, W2-3 holding live), a 2-1 result recorded and
+routed with a start time, no console errors, then deleted (deleted_at set,
+API 404). Production: 0 skipped matches.
+
+CEO decision D-1 (inbox 291, "Keep that"): a paid entrant removed for not
+checking in keeps no refund; the close-check-in confirmation already says so.
+
+Checked again 28 Sept (a later session): the box serves BE b8b0a3fa and FE
+651e8c3, the no-show cron fires every minute, the test tournament is deleted.
+
+Left over:
+- The shared checkouts `V-ENT-BACKEND` and `V-ENT-FRONTEND` still sit on the
+  local `fix/bracket-walk-2` with an OLDER uncommitted copy of this work (it
+  lacks W2-34, W2-35 and `src/lib/tournamentStatus.js`'s final form). Nothing
+  in them is missing from main; they need discarding and `git switch main`,
+  which waits for the CEO's yes because it throws away local edits.
+- The worktrees at `LAYO/CLAUDE/V-ENT-WT/V-ENT-BACKEND` and `.../V-ENT-FRONTEND`
+  (branch `wt/bracket-walk-2`) are clean and fully merged; `git worktree remove`
+  both. The same folder holds the relay session's logs and patches.
+- Not bracket work: an event page answers 500 while the API is down (seen by
+  the link-embeds check on `/events/v-ent-lagos-meetup-2026`).
+- Relay (inbox 292): continue inside the armed window instead of opening a
+  new chat; cause and options given, awaiting the CEO.
+
+## Status, 28 Sept after the usage-limit reset (superseded, kept as history)
 
 COMMITTED AND PUSHED, NOT MERGED, NOT DEPLOYED: BE #185 (79e281ea), FE #193
 (b63ebd1), both on `fix/bracket-walk-2`. W2-34 (running order both names)
