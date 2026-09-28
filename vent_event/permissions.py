@@ -78,8 +78,14 @@ def org_may_run_events(event, user):
     return OrgMember.SCOPE_EVENTS in scopes
 
 
-def may_run_event(user, event):
-    """Everything except deleting the event."""
+def runs_event_itself(user, event):
+    """The event is this person's to run: the creator, a named manager, or the
+    organisation's events people. No admin override.
+
+    Asked only where it matters WHO is acting, not whether they may: an admin
+    correcting somebody else's event is written to the audit log and the
+    organiser is told, and telling the two apart needs this question.
+    """
     if user is None or event is None:
         return False
     if event.creator_id == getattr(user, 'user_id', None):
@@ -90,6 +96,24 @@ def may_run_event(user, event):
     from .models import EventManager
     return EventManager.objects.filter(
         event=event, user=user, role='manager').exists()
+
+
+def may_run_event(user, event):
+    """Everything except deleting the event.
+
+    The people who run it, or an admin whose role carries manage_events on a
+    session that met the authenticator. Seven doors asked the admin half beside
+    this call and twenty-five did not, so a super admin opening an event's
+    console got Money and Tiers and was refused Numbers, Earnings and Attendees
+    on the same screen (seven-role walk, 28 September). Asked here, every door
+    gives one answer.
+    """
+    if runs_event_itself(user, event):
+        return True
+    if user is None or event is None:
+        return False
+    from vent_auth.actors import may_override
+    return may_override(user, 'manage_events')
 
 
 def may_work_the_door(user, event):

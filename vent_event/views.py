@@ -594,8 +594,8 @@ def edit_event(request, event_id):
     # organisation's events people (permissions.py). An admin who runs it
     # through the override alone is acting as an admin, and the organiser
     # is told; a manager is the organiser's own team and is not.
-    from .permissions import may_run_event
-    is_owner = may_run_event(user, event)
+    from .permissions import runs_event_itself
+    is_owner = runs_event_itself(user, event)
     acting_as_admin = (not is_owner) and may_override(user, 'manage_events')
     if not is_owner and not acting_as_admin:
         return _error('Only the event organizer can edit this event.',
