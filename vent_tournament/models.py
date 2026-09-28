@@ -582,6 +582,28 @@ class TournamentRegistration(models.Model):
             return member.user if member else None
         return None
 
+    def plays_for(self, user):
+        """Whether `user` is part of this side: the lone entrant, the one who
+        acts for it, or any member of the club or squad.
+
+        Only `acting_user` acts (reports, confirms, disputes, pays). Everybody
+        on the side SEES their own match and its room code: in a team game the
+        members are the ones in the room (second bracket walk, 28 September
+        2026: a club member was shown the stranger's view of their own match).
+        """
+        if user is None:
+            return False
+        person = self.acting_user
+        if person is not None and person.user_id == user.user_id:
+            return True
+        if self.team_id:
+            from vent_auth.models import TeamMembers
+            if TeamMembers.objects.filter(team_id=self.team_id, user_id=user.user_id).exists():
+                return True
+        if self.squad_id and self.squad.members.filter(user_id=user.user_id).exists():
+            return True
+        return False
+
     @property
     def entrant_name(self):
         side = self.entrant
@@ -810,6 +832,14 @@ class BracketMatch(models.Model):
 
     def __str__(self):
         return f"{self.tournament.tournament_title} R{self.round_number} M{self.match_number}"
+
+    def side_of(self, user):
+        """1 or 2 if `user` plays on that side (see `plays_for`), else None.
+        For seeing a match; `participant_owned_by` is for acting in it."""
+        for slot, reg in ((1, self.participant_1), (2, self.participant_2)):
+            if reg is not None and reg.plays_for(user):
+                return slot
+        return None
 
     def participant_owned_by(self, user):
         """Return 1 or 2 if `user` controls that participant slot, else None.

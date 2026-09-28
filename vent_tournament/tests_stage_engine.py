@@ -314,6 +314,254 @@ class DirectEntrantTests(TestCase):
         self.assertEqual(len(playoff.entrants), 5)
 
 
+class ByesNeverSkipAMatchTests(TestCase):
+    """Second bracket walk, 28 September 2026: a playoff of five put seeds 2
+    and 3 (both through on byes) into the same round-two match, and it was
+    settled as a walkover the moment seed 2 arrived, because seed 3's bye was
+    already terminal. Every entrant count, both knockouts, staged and not."""
+
+    def assert_no_skipped_match(self, t, label):
+        for m in BracketMatch.objects.filter(tournament=t):
+            if m.status == 'bye':
+                self.assertFalse(m.participant_1_id and m.participant_2_id,
+                                 '%s: round %s match %s has two players and was a walkover'
+                                 % (label, m.round_number, m.match_number))
+
+    def test_single_and_double_elimination_for_every_count(self):
+        from . import formats
+        for fmt in ('single_elimination', 'double_elimination'):
+            for n in range(max(formats.get(fmt).min_participants, 2), 18):
+                t, creator, regs = field(n)
+                stage = add_stage(t, 0, fmt)
+                draw(stage, creator)
+                self.assert_no_skipped_match(t, '%s of %d' % (fmt, n))
+
+    def test_a_one_format_bracket_of_five(self):
+        t, creator, regs = field(5)
+        bracket_service.generate(t, creator)
+        self.assert_no_skipped_match(t, 'one format of 5')
+        second = BracketMatch.objects.get(tournament=t, round_number=2, match_number=2)
+        self.assertEqual(second.status, 'scheduled')
+        self.assertEqual({second.participant_1.seed, second.participant_2.seed}, {2, 3})
+
+    def test_the_bye_players_then_play_and_the_winner_goes_on(self):
+        t, creator, regs = field(5)
+        stage = add_stage(t, 0, 'single_elimination')
+        draw(stage, creator)
+        second = stage.matches.get(round_number=2, match_number=2)
+        play(second, 0, 1)
+        final = stage.matches.get(round_number=3)
+        self.assertIn(second.participant_2_id, (final.participant_1_id, final.participant_2_id))
+
+
+class ChangingAFinishedResultTests(TestCase):
+    """Second bracket walk, 28 September 2026: a round-one result changed after
+    the final had been played rewrote the semi-final underneath its own
+    result. A result something later was built on cannot change outcome."""
+
+    def knockout(self, n=4):
+        t, creator, regs = field(n)
+        stage = add_stage(t, 0, 'single_elimination')
+        draw(stage, creator)
+        return t, creator, stage
+
+    def test_a_winner_cannot_change_after_the_next_match_is_played(self):
+        t, creator, stage = self.knockout()
+        semi = stage.matches.get(round_number=1, match_number=1)
+        play(semi, 2, 0)
+        for m in stage.matches.filter(round_number=1).exclude(pk=semi.pk):
+            play(m, 2, 0)
+        final = stage.matches.get(round_number=2)
+        play(final, 1, 0)
+        semi.refresh_from_db()
+        with self.assertRaises(results.ResultError) as err:
+            results.decide(semi, 0, 2)
+        self.assertEqual(err.exception.code, 'NEXT_MATCH_ALREADY_PLAYED')
+
+    def test_the_same_outcome_can_still_be_corrected(self):
+        t, creator, stage = self.knockout()
+        for m in stage.matches.filter(round_number=1):
+            play(m, 2, 0)
+        play(stage.matches.get(round_number=2), 1, 0)
+        semi = stage.matches.get(round_number=1, match_number=1)
+        play(semi, 3, 1)
+        semi.refresh_from_db()
+        self.assertEqual((semi.score_p1, semi.score_p2), (3, 1))
+
+    def test_before_the_next_match_the_new_winner_moves_on_instead(self):
+        t, creator, stage = self.knockout()
+        semi = stage.matches.get(round_number=1, match_number=1)
+        play(semi, 2, 0)
+        final = stage.matches.get(round_number=2)
+        self.assertEqual(final.participant_1_id, semi.participant_1_id)
+        play(semi, 0, 2)
+        final.refresh_from_db()
+        self.assertEqual(final.participant_1_id, semi.participant_2_id)
+
+    def test_a_swiss_result_cannot_change_once_the_next_round_is_paired(self):
+        t, creator, regs = field(8)
+        stage = add_stage(t, 0, 'swiss', settings={'rounds': 3})
+        draw(stage, creator)
+        first = list(stage.matches.filter(round_number=1))
+        for m in first:
+            play(m, 1, 0)
+        self.assertTrue(stage.matches.filter(round_number=2).exists())
+        m = first[0]
+        m.refresh_from_db()
+        with self.assertRaises(results.ResultError) as err:
+            results.decide(m, 0, 1)
+        self.assertEqual(err.exception.code, 'NEXT_ROUND_ALREADY_DRAWN')
+        results.decide(m, 2, 0)   # same outcome, a corrected score
+
+    def test_nothing_in_a_closed_stage_changes(self):
+        t, creator, regs = field(8)
+        groups = add_stage(t, 0, 'round_robin', advances=1, groups=2)
+        add_stage(t, 1, 'single_elimination')
+        draw(groups, creator)
+        play_out(groups)
+        with transaction.atomic():
+            stage_engine.advance(groups, creator)
+        m = groups.matches.first()
+        m.refresh_from_db()
+        with self.assertRaises(results.ResultError) as err:
+            results.decide(m, m.score_p1 + 1, m.score_p2)
+        self.assertEqual(err.exception.code, 'STAGE_CLOSED')
+
+    def test_the_door_says_why(self):
+        from rest_framework.test import APIClient
+        t, creator, stage = self.knockout()
+        for m in stage.matches.filter(round_number=1):
+            play(m, 2, 0)
+        play(stage.matches.get(round_number=2), 1, 0)
+        semi = stage.matches.get(round_number=1, match_number=1)
+        c = APIClient()
+        c.credentials(HTTP_AUTHORIZATION='Bearer %s' % creator.login_session_token)
+        res = c.post('/tournament/update-bracket/%s/' % t.slug,
+                     {'match_id': semi.pk, 'score_p1': 0, 'score_p2': 2}, format='json')
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()['code'], 'NEXT_MATCH_ALREADY_PLAYED')
+
+
+class ClubSideTests(TestCase):
+    """Second bracket walk, 28 September 2026: a club member saw the
+    stranger's view of their own club's match. Members see their match and
+    its room; only the one who acts for the club reports, confirms, disputes."""
+
+    def setUp(self):
+        from rest_framework.test import APIClient
+        from vent_auth.models import Games, TeamMembers, Teams
+        from .models import TournamentRegistration
+        _block[0] += 1
+        base = 50000 + 1000 * _block[0]
+        self.org = make_user(base)
+        game = Games.objects.get_or_create(game_title='EA FC Clubs')[0]
+        self.t = make_tournament(self.org)
+        self.t.tournament_access = 'team'
+        self.t.save(update_fields=['tournament_access'])
+        self.owners, self.members, regs = [], [], []
+        for i in range(4):
+            owner, member = make_user(base + 10 + i), make_user(base + 20 + i)
+            team = Teams.objects.create(team_name='Club %s %s' % (base, i), team_owner=owner,
+                                        team_creator=owner, game=game)
+            TeamMembers.objects.create(team=team, user=owner, is_captain=True)
+            TeamMembers.objects.create(team=team, user=member)
+            regs.append(TournamentRegistration.objects.create(
+                tournament=self.t, team=team, status='confirmed', seed=i + 1))
+            self.owners.append(owner)
+            self.members.append(member)
+        self.stranger = make_user(base + 99)
+        stage = add_stage(self.t, 0, 'single_elimination')
+        draw(stage, self.org)
+        self.match = stage.matches.get(round_number=1, match_number=1)
+        self.match.room_code = 'ROOM-1'
+        self.match.save(update_fields=['room_code'])
+        self.client_for = lambda u: (lambda c: (c.credentials(
+            HTTP_AUTHORIZATION='Bearer %s' % u.login_session_token), c)[1])(APIClient())
+
+    def side_member(self):
+        reg = self.match.participant_1
+        return self.members[[o.user_id for o in self.owners].index(reg.team.team_owner_id)]
+
+    def test_a_member_sees_their_match_and_its_room(self):
+        body = self.client_for(self.side_member()).get(
+            '/tournament/match/%s/' % self.match.pk).json()['data']
+        self.assertEqual(body['room_code'], 'ROOM-1')
+        self.assertIsNone(body['your_slot'])
+        self.assertEqual(body['your_side'], 1)
+
+    def test_the_bracket_marks_it_as_theirs_and_shows_the_room(self):
+        data = self.client_for(self.side_member()).get(
+            '/tournament/get-tournament-brackets/%s/' % self.t.slug).json()['data']
+        self.assertIn(self.match.participant_1_id, data['you']['registration_ids'])
+        row = next(m for r in data['rounds'] for m in r['matches'] if m['match_id'] == self.match.pk)
+        self.assertEqual(row['room_code'], 'ROOM-1')
+
+    def test_a_member_cannot_report_but_the_owner_can(self):
+        member = self.side_member()
+        res = self.client_for(member).post('/tournament/match/%s/report-score/' % self.match.pk,
+                                           {'score_p1': 1, 'score_p2': 0}, format='json')
+        self.assertIn(res.status_code, (400, 403))
+        owner = self.match.participant_1.team.team_owner
+        res = self.client_for(owner).post('/tournament/match/%s/report-score/' % self.match.pk,
+                                          {'score_p1': 1, 'score_p2': 0}, format='json')
+        self.assertIn(res.status_code, (200, 201), res.content[:200])
+
+    def test_a_stranger_sees_neither(self):
+        res = self.client_for(self.stranger).get('/tournament/match/%s/' % self.match.pk)
+        self.assertEqual(res.status_code, 403)
+        data = self.client_for(self.stranger).get(
+            '/tournament/get-tournament-brackets/%s/' % self.t.slug).json()['data']
+        row = next(m for r in data['rounds'] for m in r['matches'] if m['match_id'] == self.match.pk)
+        self.assertNotIn('room_code', row)
+
+
+class DisputeStateTests(TestCase):
+    """Second bracket walk: a disputed finished match still said "Finished" and
+    offered the dispute button again; recording over a dispute left it open in
+    the admin queue for good."""
+
+    def setUp(self):
+        from rest_framework.test import APIClient
+        self.t, self.creator, regs = field(4)
+        stage = add_stage(self.t, 0, 'single_elimination')
+        draw(stage, self.creator)
+        self.m = play(stage.matches.get(round_number=1, match_number=1), 2, 0)
+        self.loser = self.m.participant_2.user
+        self.client_for = lambda u: (lambda c: (c.credentials(
+            HTTP_AUTHORIZATION='Bearer %s' % u.login_session_token), c)[1])(APIClient())
+
+    def dispute(self):
+        return self.client_for(self.loser).post('/tournament/match/%s/raise-dispute/' % self.m.pk,
+                                                {'description': 'offside'}, format='json')
+
+    def test_the_room_knows_about_my_dispute_and_a_second_is_refused_by_name(self):
+        self.assertEqual(self.dispute().status_code, 201)
+        body = self.client_for(self.loser).get('/tournament/match/%s/' % self.m.pk).json()['data']
+        self.assertEqual(body['my_dispute']['status'], 'open')
+        self.assertEqual(self.dispute().json()['code'], 'DISPUTE_ALREADY_OPEN')
+
+    def test_a_result_recorded_by_the_organiser_settles_the_dispute(self):
+        from .models import TournamentDispute
+        self.dispute()
+        with transaction.atomic():
+            locked = BracketMatch.objects.select_for_update().get(pk=self.m.pk)
+            results.apply(locked, results.decide(locked, 2, 1), recorded_by=self.creator)
+        d = TournamentDispute.objects.get(match=self.m)
+        self.assertEqual(d.status, 'resolved')
+        self.assertIn('2-1', d.resolution_note)
+        body = self.client_for(self.loser).get('/tournament/match/%s/' % self.m.pk).json()['data']
+        self.assertEqual(body['my_dispute']['status'], 'resolved')
+
+    def test_a_player_confirming_settles_nothing(self):
+        from .models import TournamentDispute
+        self.dispute()
+        winner = self.m.participant_1.user
+        with transaction.atomic():
+            locked = BracketMatch.objects.select_for_update().get(pk=self.m.pk)
+            results.apply(locked, results.decide(locked, 2, 0), recorded_by=winner)
+        self.assertEqual(TournamentDispute.objects.get(match=self.m).status, 'open')
+
+
 class ThirdPlaceTests(TestCase):
     def test_a_stage_third_place_match_decides_third_and_fourth(self):
         t, creator, regs = field(4)

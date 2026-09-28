@@ -2666,7 +2666,7 @@ def get_tournament_brackets(request, tournament_id):
         staff = bool(viewer and may_record_results(viewer, tournament))
 
         def private_for(m):
-            return staff or (viewer is not None and m.participant_owned_by(viewer) is not None)
+            return staff or (viewer is not None and m.side_of(viewer) is not None)
 
         matches = list(match_shape.select_related(qs).order_by('round_number', 'match_number'))
         return Response({
@@ -2687,11 +2687,12 @@ def get_tournament_brackets(request, tournament_id):
                 # own matches open the match room), and whether they record
                 # results. Empty and false for a stranger.
                 'you': {
+                    # Every entry the viewer plays for, a club member's
+                    # included, so their own match is marked as theirs.
                     'registration_ids': [
                         r.id for r in tournament.registrations
                         .select_related('user', 'team__team_owner', 'squad')
-                        if viewer is not None and r.acting_user is not None
-                        and r.acting_user.user_id == viewer.user_id
+                        if r.plays_for(viewer)
                     ] if viewer is not None else [],
                     'can_record': staff,
                 },

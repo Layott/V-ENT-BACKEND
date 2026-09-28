@@ -772,6 +772,33 @@ class TournamentConsoleTests(ConsoleBase):
         self.assertEqual(rows[self.tournament.tournament_title]['status'],
                          'cancelled')
 
+    def row_and_tabs(self):
+        listing = self.get('/auth/admin/tournaments/', self.as_super)
+        rows = {row['name']: row for row in listing.json()['data']['results']}
+        tabs = {}
+        for tab in ('active', 'ongoing', 'completed'):
+            got = self.get('/auth/admin/tournaments/', self.as_super, status=tab)
+            tabs[tab] = [r['name'] for r in got.json()['data']['results']]
+        title = self.tournament.tournament_title
+        return rows[title]['status'], [t for t, names in tabs.items() if title in names]
+
+    def test_a_bracket_finished_before_its_end_date_reads_completed(self):
+        """Second bracket walk, 28 September 2026: every tournament finished on
+        the day read "ongoing" in the console until its end date passed."""
+        self.tournament.status = 'completed'
+        self.tournament.completed_at = timezone.now()
+        self.tournament.start_date_and_time = timezone.now() - timedelta(hours=2)
+        self.tournament.save(update_fields=['status', 'completed_at', 'start_date_and_time'])
+        self.assertEqual(self.row_and_tabs(), ('completed', ['completed']))
+
+    def test_a_tournament_started_early_reads_ongoing(self):
+        self.tournament.status = 'live'
+        self.tournament.save(update_fields=['status'])   # start date still tomorrow
+        self.assertEqual(self.row_and_tabs(), ('ongoing', ['ongoing']))
+
+    def test_with_nothing_recorded_the_dates_still_decide(self):
+        self.assertEqual(self.row_and_tabs(), ('active', ['active']))
+
 
 # ---------------------------------------------------------------------------
 # Events

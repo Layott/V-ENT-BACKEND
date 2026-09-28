@@ -50,7 +50,15 @@ def _registration_for(tournament, user):
 
 
 def _label(registration):
-    return registration.entrant_name or 'Unknown entrant'
+    # The same two names the bracket shows (CEO, 27 September 2026: "both"):
+    # the full name, with the @username beside a person's. `entrant_name`
+    # alone is the username, so "Removed: walk_ci_03" named nobody a reader
+    # would recognise (second bracket walk, 28 September 2026).
+    from .match_shape import names
+    display, handle = names(registration)
+    if not display:
+        return 'Unknown entrant'
+    return '%s (@%s)' % (display, handle) if handle and handle != display else display
 
 
 def _window(tournament):
@@ -93,6 +101,11 @@ def check_in_status(request, tournament_id):
         'closed_by_organiser': window['closed_by_organiser'],
         'seconds_remaining': max(0, seconds_left),
         'forfeit_without_check_in': window['forfeit_without_check_in'],
+        # Once the bracket is drawn, check-in is history: closing it is
+        # refused (BRACKET_EXISTS), so the strip must not offer it (second
+        # bracket walk, 28 September 2026: "Close check-in" on a finished
+        # tournament).
+        'bracket_drawn': tournament.bracket_matches.exists(),
         'checked_in_count': tournament.registrations.filter(
             status__in=('pending', 'confirmed'), checked_in_at__isnull=False,
         ).count(),

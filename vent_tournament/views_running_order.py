@@ -68,10 +68,12 @@ def _organiser_or_admin(request, tournament):
 def _side(registration):
     # Through the shared accessors: a hand-built branch here knew teams and
     # lone players only, so a squad came back as 'unknown' with no name.
-    if registration is None:
-        return None
-    return {'type': registration.entrant_kind, 'id': registration.entrant_id,
-            'name': registration.entrant_name}
+    # And the same two names the bracket shows (CEO, 27 September 2026:
+    # "both"): `entrant_name` alone is a person's username, so the running
+    # order read "walk_ha_01" beside a bracket reading "Ha 01" (second bracket
+    # walk, 28 September 2026).
+    from .match_shape import entrant
+    return entrant(registration)
 
 
 def _row(match):

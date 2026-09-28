@@ -18,9 +18,9 @@ from rest_framework.response import Response
 
 from vent_auth.actors import actor_from_request
 
-from . import formats, stage_engine, stage_settings, stages
+from . import formats, match_shape, stage_engine, stage_settings, stages
 from .access import may_manage
-from .models import TournamentStage
+from .models import TournamentRegistration, TournamentStage
 
 from . import lookup
 
@@ -78,6 +78,14 @@ def _row(stage):
         'settings': stage.settings or stage_settings.clean(stage.format, {}),
         'placement': stage.placement,
         'direct_entrants': stage.direct_entrants or [],
+        # The invited entrants by name, so the saved plan and the close list
+        # can say who joins here (second bracket walk, 28 September 2026: the
+        # organiser could not see an invite once the plan was saved).
+        'direct_entrants_named': [
+            match_shape.entrant(r) for r in TournamentRegistration.objects
+            .filter(id__in=stage.direct_entrants or [])
+            .select_related('user', 'team', 'squad')
+        ],
         'entrant_count': len(stage.entrants or []),
         'drawn_at': stage.drawn_at,
         'finished': stage_engine.stage_finished(stage),
