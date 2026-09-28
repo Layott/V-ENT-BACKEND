@@ -215,3 +215,29 @@ BEFORE BE #190, or #190's check-all fails on a tree without the two new scripts.
 - Still open: 404 page title reads "V-ENT | V-ENT"; /tournaments cards request banners from the
   FRONTEND origin (404); login page background may be pure black (design ban E); the full
   seven-role walk (desktop + mobile, real records) is running and its findings are next.
+
+### Later that night: what the full seven-role walk found (inbox 324 to 328)
+
+Merge order grows by one: ... FE #200, then BE #190, then BE #191 (on #190).
+
+- 324: the retired /tournaments/my-tournaments/manage?id=N rendered the old Actions page with no
+  ownership guard: a plain player got another person's tournament with Edit, codes and exports.
+  It forwards to /tournaments/<slug>/manage now, and the console swaps a numeric address for the
+  slug. Chrome: player refused, owner lands in the full console.
+- 325 (BE #191): a super admin was answered by Money and Tiers and refused by Numbers, Earnings,
+  Attendees and door summary on the same event console. may_run_event now includes the
+  manage_events override; runs_event_itself (no override) is what the edit view asks, so admin
+  edits stay audited and the organiser told. tests_admin_every_door fails on the old rule at
+  exactly the four doors. Chrome: the admin's Numbers tab loads.
+- 326: seven texts handed to tx() had no dictionary entry and showed English on fr/pt pages;
+  check-tx-text is a blocking check-all row now.
+- 327: 165 more bare accents the first word list did not know ("Creer des codes").
+- Also: map zoom control ring (needed a three-class selector; Leaflet loads after the module),
+  partners/authorize no longer asks the API with empty params.
+- 328 OPEN: the pnpm install was gutted three times tonight (jest-worker; then next, react and
+  react-dom emptied) with no V-ENT dev server running. Four-step recipe repairs it
+  (store prune, rm next/react/react-dom, install --force). The rebuild script keeps a copy of
+  jest-worker and retries. Cause unknown; something on this machine deletes node_modules files.
+- Explained, not faults: local production build refuses 127.0.0.1 images in /_next/image (dev
+  only allows loopback); org manage endpoints 403 every non-member, admins included (admins use
+  the admin console); run of show 404 = none made yet; placeholder token routes.
