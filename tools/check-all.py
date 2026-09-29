@@ -199,6 +199,24 @@ CATCHERS = [
     ('literal text self-test',
      'the literal text catcher still catches a literal hint and a label',
      FRONTEND, ['node', 'scripts/check-literal-text.mjs', '--self-test'], True),
+    # A name a screen calls that nothing defines: the Money tab and both
+    # vendor-stall panels crashed on production (useAutoRefresh never imported),
+    # 29 September 2026. ESLint no-undef over every reachable file.
+    ('undefined names',
+     'every name a reachable screen calls is defined or imported',
+     FRONTEND, ['node', 'scripts/check-undefined.mjs'], True),
+    ('undefined names self-test',
+     'the undefined-name catcher still catches a missing import',
+     FRONTEND, ['node', 'scripts/check-undefined.mjs', '--self-test'], True),
+    # A page that loads a record by address and ignores a rename: the console
+    # told its own organiser 'not yours', the register page failed, the draft
+    # wizard stopped (29 September 2026).
+    ('renames followed',
+     'every page that loads a tournament or event by address follows a rename',
+     FRONTEND, ['node', 'scripts/check-renames.mjs'], True),
+    ('renames followed self-test',
+     'the rename catcher still catches a loader that ignores a move',
+     FRONTEND, ['node', 'scripts/check-renames.mjs', '--self-test'], True),
     # On Windows a rebuild deleted .next through its standalone symlinks and
     # emptied next, react and react-dom (28 September 2026, four times).
     # prebuild now unlinks them first; this keeps the unlinker honest.

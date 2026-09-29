@@ -103,6 +103,7 @@ def api_index(request):
             'tournament': '/api/v1/tournaments/<id>/',
             'participants': '/api/v1/tournaments/<id>/participants/',
             'bracket': '/api/v1/tournaments/<id>/bracket/',
+            'stats': '/api/v1/tournaments/<id>/stats/',
             'teams': '/api/v1/teams/',
             'team': '/api/v1/teams/<id>/',
             'player': '/api/v1/players/<username>/',
@@ -315,6 +316,20 @@ def tournament_bracket(request, tournament_id):
         'format': t.bracket_type,
         'rounds': [{'round': r, 'matches': rounds[r]} for r in sorted(rounds)],
     }, 'Bracket')
+
+
+@api_view(['GET'])
+@requires_scope('tournaments:brackets:read')
+def tournament_stats(request, tournament_id):
+    """Leaders, each entrant's record and the tournament's records, derived
+    from the results the bracket scope already opens (inbox 306)."""
+    from vent_tournament import stats
+
+    t = _public_tournaments().filter(pk=tournament_id).first()
+    if t is None:
+        return Response({'status': 'error', 'code': 'TOURNAMENT_NOT_FOUND', 'message': 'No such tournament.',
+                         'data': None}, status=status.HTTP_404_NOT_FOUND)
+    return _ok(dict(stats.compute(t), tournament=t.tournament_id), 'Stats')
 
 
 # ---------------------------------------------------------------------------
