@@ -133,11 +133,16 @@ def refund_ticket(ticket, reason, *, by=None):
         # The network call first and outside any transaction: a slow gateway
         # must not hold a lock, and a refusal must leave the ticket live and
         # named rather than half-refunded.
+        # Back through the gateway that took it: an FLW- reference was taken by
+        # Flutterwave and can only be refunded there.
+        from vent_auth import flutterwave
+        gateway = flutterwave if flutterwave.owns(ticket.payment_reference) else paystack
         try:
-            data = paystack.refund(ticket.payment_reference, naira)
-        except (paystack.Unreachable, paystack.Refused) as exc:
+            data = gateway.refund(ticket.payment_reference, naira)
+        except (gateway.Unreachable, gateway.Refused) as exc:
             out['outcome'] = 'card_failed'
-            out['error'] = str(exc)[:200]
+            # The gateway's words are logged below; the console shows ours.
+            out['error'] = 'The card gateway did not accept the refund. It can be tried again.'
             logger.warning('refund of %s refused by the gateway: %s', ticket.code, exc)
             return out
         reference = str(data.get('id') or data.get('reference') or ticket.payment_reference)[:64]

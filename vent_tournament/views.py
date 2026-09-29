@@ -700,7 +700,7 @@ def join_tournament(request):
     except Http404:
         return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error(e)
     
 
 @api_view(['GET'])
@@ -765,7 +765,7 @@ def search_tournament(request):
     except Http404:
         return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error(e)
 
 
 def _wants_league(bracket_type):
@@ -1156,13 +1156,11 @@ def create_tournament(request):
                             status=status.HTTP_201_CREATED)
 
     except ValueError as e:
-        return Response({"status": "error", "message": str(e)},
-                        status=status.HTTP_400_BAD_REQUEST)
+        return bad_input(e)
     except Http404:
         return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({"status": "error", "message": f"An error occurred: {str(e)}"},
-                        status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error(e)
 
 
 
@@ -1791,7 +1789,7 @@ def view_user_drafted_tournaments(request):
     except Http404:
         return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error(e)
 
 
 @api_view(['GET'])
@@ -1886,7 +1884,7 @@ def get_tournament_participants(request, tournament_id):
     except Http404:
         return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error(e)
 
 
 def _side_name(reg):
@@ -1989,7 +1987,7 @@ def update_bracket(request, tournament_id):
     except Http404:
         return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error(e)
 
 
 @api_view(['GET'])
@@ -2044,7 +2042,7 @@ def get_organizer_tournaments(request):
     except Http404:
         return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error(e)
 
 
 @api_view(['DELETE'])
@@ -2084,7 +2082,7 @@ def delete_draft(request, tournament_id):
     except Http404:
         return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error(e)
 
 
 # Both helpers now live in vent_auth.actors, because events need the same two
@@ -2094,6 +2092,7 @@ def delete_draft(request, tournament_id):
 from vent_auth.actors import actor_from_request as _actor_from_request
 
 from . import lookup
+from vent_auth.errors import bad_input, server_error
 
 
 def _may_override(user):
@@ -2624,7 +2623,7 @@ def edit_tournament(request, tournament_id):
     except Http404:
         return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error(e)
 
 
 @api_view(['GET'])
@@ -2703,7 +2702,7 @@ def get_tournament_brackets(request, tournament_id):
     except Http404:
         return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error(e)
 
 @api_view(['GET'])
 @permission_classes([AllowAny])

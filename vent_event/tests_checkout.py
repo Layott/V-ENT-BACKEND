@@ -269,10 +269,13 @@ class GuestBuyTests(TestCase):
             self.buy(tier_id=self.paid.id)
         self.assertEqual(Ticket.objects.count(), 0)
 
-    def test_the_gateways_reason_reaches_the_guest(self):
+    def test_a_refusal_is_told_plainly_and_the_gateways_words_stay_in_the_log(self):
         """Paystack refused the address (a .test domain). The guest was told
         the gateway could not be reached and went looking at their network
-        (walk, 18 September 2026)."""
+        (walk, 18 September 2026). An email Paystack rejects is still named as
+        the email; any other refusal is our sentence and a code, never
+        Paystack's own words (CEO, 29 September 2026: "Format is
+        Authorization Bearer [secret key]" reached a person)."""
         with patch.dict('os.environ', {'PAYSTACK_SECRET_KEY': 'sk_test'}), \
              patch('vent_event.views_guest.http_requests.post') as post:
             post.return_value.json = lambda: {
@@ -290,7 +293,8 @@ class GuestBuyTests(TestCase):
         self.assertEqual(res.status_code, 502, res.content)
         body = res.json()
         self.assertEqual(body['code'], 'PAYMENT_REFUSED')
-        self.assertEqual(body['data']['reason'], 'Amount is below the minimum')
+        self.assertNotIn('reason', body['data'])
+        self.assertNotIn('minimum', body['message'])
 
         with patch.dict('os.environ', {'PAYSTACK_SECRET_KEY': 'sk_test'}), \
              patch('vent_event.views_guest.http_requests.post', side_effect=OSError('down')):

@@ -15,6 +15,7 @@ from . import windows
 from . import squad_rules as rules_engine
 from .models import GameCard, Lineup, LineupRules, LineupSlot, SquadRules
 from .views import _err, _ok, _tournament, _viewer, serialize_lineup
+from vent_auth.errors import server_error
 
 
 def _rules_payload(rules, window):
@@ -103,7 +104,7 @@ def lineup_rules(request, tournament_id):
     try:
         rules.full_clean(exclude=['tournament'])
     except Exception as caught:                              # noqa: BLE001
-        return _err('That did not look right: %s' % caught, 'VALIDATION_ERROR')
+        return server_error(caught)
 
     rules.save()
     return _ok({'rules': _rules_payload(rules, windows.window_for(tournament))},

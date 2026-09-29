@@ -686,7 +686,8 @@ This backend integrates with or is planned to integrate with the following servi
 | **AWS SES** | Transactional email (replaces Gmail SMTP) | Planned |
 | **AWS ElastiCache (Redis)** | Celery broker + Django cache backend | Planned |
 | **AWS EC2** | Hosting — t3.small, runs Django + Celery + Daphne | Planned |
-| **Paystack** | All payment flows — Nigerian gateway. Never simulate payments. Never add a second payment provider. | Planned |
+| **Paystack** | Payment flows, Nigerian gateway. Never simulate payments. | **Wired** |
+| **Flutterwave** | Beside Paystack at every door that takes money (CEO, 29 September 2026: "lets take all options available"). Hosted checkout with every method on the account; `vent_auth/flutterwave.py`; webhook `/auth/flutterwave/webhook/` with `FLW_SECRET_HASH`; env `FLW_SECRET_KEY`, `FLW_PUBLIC_KEY`, `FLW_SECRET_HASH`. Test keys never take money in production. | **Wired** |
 | **Firebase Admin SDK** | Push notifications (FCM) | Planned |
 | **ipinfo.io** | IP geolocation, consulted before the local DB-IP file when `IPINFO_TOKEN` is set. Answers cached per address for 30 days, so the 50k/month free tier is 50k distinct addresses. Never used to write a city onto a profile - see `vent_auth/ipinfo.py` | **Wired** |
 | **Sentry** | Error tracking | Planned |

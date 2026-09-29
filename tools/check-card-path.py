@@ -236,5 +236,5 @@ if __name__ == '__main__':
     if '--self-test' in sys.argv:
         sys.exit(self_test())
     root = _workspace_root()
-    sys.exit(report(check(os.path.join(root, 'V-ENT-BACKEND'),
+    sys.exit(report(check((os.environ.get('VENT_BACKEND') or os.path.join(root, 'V-ENT-BACKEND')),
                           os.path.join(root, 'V-ENT-FRONTEND'))))

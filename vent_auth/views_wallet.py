@@ -10,7 +10,8 @@ from django.db import transaction
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from django.contrib.auth.hashers import make_password
@@ -19,6 +20,7 @@ from . import payouts
 from . import wallets
 from .models import (Users, UserWallet, TeamWallet, OrgWallet, Transaction,
                      WithdrawalRequest, KYCDocument, PayoutAddress)
+from vent_auth.errors import gateway_down, gateway_refused
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +238,20 @@ def pay_methods(request):
                     status=status.HTTP_200_OK)
 
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def pay_providers(request):
+    """GET /auth/wallet/pay/providers/ - which gateways can take a payment now.
+
+    Public, because a guest buying a ticket has no account and still chooses
+    between Paystack and Flutterwave. Names and a test flag only; never a key.
+    """
+    from . import pay
+    return Response({'status': 'success', 'code': 'OK',
+                     'data': {'providers': pay.providers()}, 'message': 'Providers'},
+                    status=status.HTTP_200_OK)
+
+
 @api_view(['POST'])
 def pay_shortfall(request):
     """Cover what a purchase is short, with a card. `{coins}` or `{coins_ngn}`.
@@ -276,7 +292,9 @@ def pay_shortfall(request):
             wallet.user, short,
             str(request.data.get('callback_url') or ''),
             purpose=str(request.data.get('purpose') or 'purchase')[:40],
-            card_id=request.data.get('card_id'))
+            card_id=request.data.get('card_id'),
+            provider='flutterwave' if str(request.data.get('provider') or '').lower() == 'flutterwave'
+            else 'paystack')
     except pay.PayError as exc:
         http = (status.HTTP_503_SERVICE_UNAVAILABLE
                 if exc.code == pay.CARDS_UNAVAILABLE else
@@ -337,6 +355,49 @@ def topup_initiate(request):
                         status=status.HTTP_400_BAD_REQUEST)
 
     vent_coins = _ngn_to_coins(amount_ngn)
+
+    # Flutterwave, when the person chose it (CEO, 29 September 2026). Same
+    # pending row, same verify door; the reference's FLW- prefix is what tells
+    # the verify step where to ask.
+    if str(request.data.get('provider') or '').lower() == 'flutterwave':
+        from vent_auth import flutterwave as _flw
+        if not _flw.configured():
+            return Response({'status': 'error', 'code': 'PROVIDER_UNAVAILABLE', 'data': {},
+                             'message': 'Flutterwave is not set up on this platform yet.'},
+                            status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        reference = _flw.new_reference('TOP')
+        try:
+            started = _flw.start(
+                reference=reference, amount_ngn=amount_ngn, email=wallet.user.email,
+                name=wallet.user.full_name or wallet.user.username,
+                callback_url=str(request.data.get('callback_url') or '') or _topup_return_url(),
+                title='V-ENT', description='%s VENT COINS' % vent_coins,
+                meta={'user_id': wallet.user.user_id, 'vent_coins': vent_coins})
+        except _flw.Unreachable:
+            return Response({'status': 'error', 'code': 'GATEWAY_ERROR', 'data': {},
+                             'message': 'The payment gateway did not answer. Nothing was charged.'},
+                            status=status.HTTP_502_BAD_GATEWAY)
+        except _flw.Refused as exc:
+            return gateway_refused(exc)
+        Transaction.objects.create(
+            wallet=wallet, type='top_up', amount=vent_coins,
+            description=f'Top up via Flutterwave - {amount_ngn} NGN',
+            status='pending', reference=reference)
+        return Response({'status': 'success', 'data': {
+            'authorization_url': started['authorization_url'], 'reference': reference,
+            'vent_coins': vent_coins, 'amount_ngn': amount_ngn,
+            'provider': 'flutterwave', 'test_mode': _flw.is_test(),
+        }}, status=status.HTTP_200_OK)
+
+    # No key on this box: say so plainly, before anybody is sent anywhere.
+    # Production had none on 29 September 2026 and people read Paystack's
+    # own "Format is Authorization Bearer [secret key]" instead.
+    from vent_auth import paystack as _ps
+    if not _ps.configured():
+        return Response({'status': 'error', 'code': 'PROVIDER_UNAVAILABLE', 'data': {},
+                         'message': 'Card payments are not available right now. Choose another way to pay.'},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
     reference = f"VENT-{uuid.uuid4().hex[:16].upper()}"
 
     # Initialize Paystack transaction (amount in kobo = NGN * 100)
@@ -350,6 +411,11 @@ def topup_initiate(request):
             'vent_coins': vent_coins,
         },
     }
+    # Back to the page that verifies it. Without this Paystack used the
+    # dashboard's default, and the top-up page never sent anybody to pay at
+    # all (29 September 2026, inbox 352).
+    if request.data.get('callback_url'):
+        payload['callback_url'] = str(request.data.get('callback_url'))
 
     # One initialize for every door (vent_auth.paystack.initialize). This
     # copy threw Paystack's reason away with raise_for_status.
@@ -363,11 +429,7 @@ def topup_initiate(request):
             status=status.HTTP_502_BAD_GATEWAY,
         )
     except _paystack.Refused as exc:
-        return Response(
-            {'status': 'error', 'code': 'PAYMENT_REFUSED', 'data': {'reason': str(exc)},
-             'message': 'The payment could not be started: %s' % exc},
-            status=status.HTTP_502_BAD_GATEWAY,
-        )
+        return gateway_refused(exc)
 
     # Create a pending transaction record
     Transaction.objects.create(
@@ -394,6 +456,46 @@ def topup_initiate(request):
 # W4 - POST /auth/wallet/topup/verify/
 # ---------------------------------------------------------------------------
 
+def _topup_return_url():
+    site = os.environ.get('FRONTEND_PUBLIC_URL', 'https://v-ent.co').rstrip('/')
+    return '%s/wallet-topup-callback' % site
+
+
+def settle_flutterwave_topup(reference):
+    """Confirm a Flutterwave top-up and credit it, once.
+
+    The one path for both arrivals: the payer's browser coming back and the
+    webhook. Locked on the pending row, so the second arrival reads
+    `completed` and credits nothing. Returns (code, txn, balance): code is
+    'credited', 'already', 'not_paid', 'not_found' or 'unreachable'.
+    """
+    from vent_auth import flutterwave as _flw
+    with transaction.atomic():
+        txn = (Transaction.objects.select_for_update()
+               .filter(reference=reference, type='top_up').select_related('wallet').first())
+        if txn is None:
+            return 'not_found', None, None
+        if txn.status == 'completed':
+            return 'already', txn, txn.wallet.wallet_balance
+        if txn.status in ('failed', 'cancelled'):
+            return 'not_paid', txn, None
+        try:
+            found = _flw.verify(reference, expected_ngn=coins_to_ngn(txn.amount))
+        except _flw.Unreachable:
+            return 'unreachable', txn, None
+        if not found['ok']:
+            if found['status'] in ('failed', 'cancelled'):
+                txn.status = 'failed'
+                txn.save(update_fields=['status'])
+            return 'not_paid', txn, None
+        locked = UserWallet.objects.select_for_update().get(pk=txn.wallet_id)
+        locked.wallet_balance += txn.amount
+        locked.save(update_fields=['wallet_balance'])
+        txn.status = 'completed'
+        txn.save(update_fields=['status'])
+        return 'credited', txn, locked.wallet_balance
+
+
 @api_view(['POST'])
 def topup_verify(request):
     wallet, err = _get_user_from_token(request)
@@ -406,6 +508,27 @@ def topup_verify(request):
             { 'code': 'REFERENCE_REQUIRED','status': 'error', 'message': 'reference is required'},
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+    from vent_auth import flutterwave as _flw
+    if _flw.owns(reference):
+        if not Transaction.objects.filter(wallet=wallet, reference=reference, type='top_up').exists():
+            return Response({'code': 'TRANSACTION_NOT_FOUND', 'status': 'error',
+                             'message': 'Transaction not found'}, status=status.HTTP_404_NOT_FOUND)
+        code, txn, balance = settle_flutterwave_topup(reference)
+        if code == 'unreachable':
+            return Response({'code': 'PAYMENT_GATEWAY', 'status': 'error',
+                             'message': 'The payment gateway could not be reached.'},
+                            status=status.HTTP_502_BAD_GATEWAY)
+        if code == 'not_paid':
+            return Response({'code': 'PAYMENT_NOT_SUCCESSFUL', 'status': 'error',
+                             'message': 'Payment not successful'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'status': 'success', 'data': {
+            'message': 'Top-up successful' if code == 'credited' else 'Already verified',
+            'credited': code == 'credited', 'idempotent': code == 'already',
+            'coins_added': txn.amount if code == 'credited' else 0,
+            'new_balance': balance, 'balance': balance,
+            'card_saved': False, 'card': None,
+        }}, status=status.HTTP_200_OK)
 
     # Idempotency + concurrency (F5 / F12): lock the transaction row for this
     # reference before doing anything. A concurrent verify (or the Paystack
@@ -453,10 +576,7 @@ def topup_verify(request):
             resp.raise_for_status()
             data = resp.json()
         except http_requests.RequestException as e:
-            return Response(
-                {'status': 'error', 'message': f'Payment gateway error: {str(e)}'},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
+            return gateway_down(e)
 
         if not data.get('status') or data['data']['status'] != 'success':
             txn.status = 'failed'
@@ -1111,6 +1231,18 @@ def kyc_submit(request):
     if not document_image:
         return Response(
             { 'code': 'DOCUMENT_IMAGE_REQUIRED','status': 'error', 'message': 'document_image is required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # What the file really is, from its bytes, and how big (owner rule R70).
+    # An identity document went to storage unchecked until 29 September 2026.
+    from .uploads import image_refusal
+    refused = image_refusal(document_image, 8 * 1024 * 1024)
+    if refused:
+        return Response(
+            {'code': refused, 'status': 'error', 'data': {'limit_mb': 8},
+             'message': ('The photo must be 8 MB or smaller.' if refused == 'IMAGE_TOO_LARGE'
+                         else 'The document must be a photo: PNG, JPG or WebP.')},
             status=status.HTTP_400_BAD_REQUEST,
         )
 

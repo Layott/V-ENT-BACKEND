@@ -20,6 +20,7 @@ from rest_framework import status
 from .models import Users, UserProfile, Teams, Organization, FavoriteGames
 from . import ranking_core
 from . import regions
+from vent_auth.errors import server_error
 
 
 WIN_POINTS = ranking_core.WIN_POINTS
@@ -225,10 +226,7 @@ def rankings(request):
         }, status=status.HTTP_200_OK)
 
     except Exception as e:  # pragma: no cover - defensive
-        return Response(
-            {'status': 'error', 'message': f'Failed to build rankings: {e}'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
+        return server_error(e)
 
 
 @api_view(['GET'])

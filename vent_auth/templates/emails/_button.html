@@ -1,8 +1,12 @@
-{% comment %}Bulletproof button. VML for Outlook, table cell everywhere else.{% endcomment %}
+{% comment %}Bulletproof button. VML for Outlook, table cell everywhere else. Its own space above and below, so it never touches the paragraph before it (CEO, 29 September 2026, the sign-in alert). Padding on a cell, because Outlook ignores margins on tables.{% endcomment %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+<tr><td data-spacer="1" style="padding:16px 0 8px;">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0">
   <tr>
     <td bgcolor="{{ color|default:'#ED1C24' }}" style="background-color:{{ color|default:'#ED1C24' }}; border-radius:10px;">
       <a href="{{ url }}" style="display:inline-block; padding:15px 34px; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:16px; font-weight:600; color:{{ text_color|default:'#FFFFFF' }}; text-decoration:none; border-radius:10px;">{{ label }}</a>
     </td>
   </tr>
+</table>
+</td></tr>
 </table>

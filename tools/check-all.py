@@ -50,7 +50,41 @@ def _workspace_root():
 ROOT = _workspace_root()
 
 FRONTEND = os.path.join(ROOT, 'V-ENT-FRONTEND')
-BACKEND = os.path.join(ROOT, 'V-ENT-BACKEND')
+# The backend this file belongs to. A git worktree (V-ENT-BACKEND-flw, say)
+# is a second copy of the repo beside the first; checking the first from the
+# second judged code that was not being committed (29 September 2026).
+_OWN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = (_OWN if os.path.isfile(os.path.join(_OWN, 'manage.py'))
+           else os.path.join(ROOT, 'V-ENT-BACKEND'))
+
+def _django_python():
+    """A python that can import Django: the backend's virtualenv, or the main
+    checkout's when this is a worktree (which has none)."""
+    pythons = [os.path.join(BACKEND, 'venv', 'Scripts', 'python.exe'),
+               os.path.join(BACKEND, 'venv', 'bin', 'python'),
+               os.path.join(ROOT, 'V-ENT-BACKEND', 'venv', 'Scripts', 'python.exe'),
+               os.path.join(ROOT, 'V-ENT-BACKEND', 'venv', 'bin', 'python'),
+               sys.executable]
+    return next(p for p in pythons if os.path.exists(p))
+
+
+DJANGO_PY = _django_python()
+
+
+def _fresh_routes():
+    """Every route of THIS backend, dumped now, for the api-paths row.
+
+    Written by tools/dump-routes.py with the backend's own virtualenv (a
+    worktree has none, so the main checkout's is used to import this code).
+    """
+    import tempfile
+    out = os.path.join(tempfile.gettempdir(), 'vent-routes-%d.txt' % (abs(hash(BACKEND)) % 10 ** 8))
+    subprocess.run([DJANGO_PY, os.path.join(BACKEND, 'tools', 'dump-routes.py'), '--out', out],
+                   cwd=BACKEND, capture_output=True, text=True, timeout=300)
+    return out
+
+
+ROUTES = _fresh_routes()
 
 # (name, rule it enforces, working directory, command, blocking)
 CATCHERS = [
@@ -317,7 +351,7 @@ CATCHERS = [
 
     ('api paths',
      'every path the frontend fetches is one the backend serves',
-     FRONTEND, ['node', 'scripts/check-api-paths.mjs'], True),
+     FRONTEND, ['node', 'scripts/check-api-paths.mjs', '--routes', ROUTES], True),
 
     ('timezone picker',
      'every zone is offered, and every date format value resolves',
@@ -476,7 +510,23 @@ CATCHERS = [
     # machine that builds a link ever fetches it.
     ('frontend url',
      'links built here carry a host that exists',
-     os.path.join(ROOT, 'V-ENT-BACKEND'), [sys.executable, 'tools/check-frontend-url.py'], True),
+     BACKEND, [sys.executable, 'tools/check-frontend-url.py'], True),
+    # A gateway's or an exception's own words shown to a person (CEO, 29
+    # September 2026: "Format is Authorization Bearer [secret key]"; inbox 354).
+    ('gateway text',
+     'no view sends exception or gateway text to a person',
+     BACKEND, [sys.executable, 'tools/check-raw-errors.py'], True),
+    ('gateway text self-test',
+     'the raw-error catcher still catches str(exc) in a response',
+     BACKEND, [sys.executable, 'tools/check-raw-errors.py', '--self-test'], True),
+    # Two blocks in an email with no space between them (CEO, 29 September
+    # 2026, the sign-in alert's button touching its paragraph; inbox 355).
+    ('email spacing',
+     'no two blocks in any email touch',
+     BACKEND, [DJANGO_PY, 'tools/check-email-spacing.py'], True),
+    ('email spacing self-test',
+     'the email spacing catcher still catches a button against its paragraph',
+     BACKEND, [sys.executable, 'tools/check-email-spacing.py', '--self-test'], True),
 
     # Backend code with no screen in front of it.
     #
@@ -741,6 +791,19 @@ def compare(tracked, ledger, today):
                 stuck.append((name, now, days, last))
     return risen, stuck, fell, ledger
 
+
+# Every catcher judges the backend being committed. The workspace tools/*.py
+# are forwarders to the MAIN checkout, so a row that ran them from a worktree
+# checked other code (29 September 2026); run this backend's own copy, and
+# tell every script which backend that is.
+os.environ['VENT_BACKEND'] = BACKEND
+CATCHERS = [
+    (row[0], row[1], BACKEND, [row[3][0], os.path.join(BACKEND, row[3][1])] + list(row[3][2:]), row[4])
+    if (row[2] == ROOT and len(row[3]) > 1 and str(row[3][1]).startswith('tools/')
+        and os.path.isfile(os.path.join(BACKEND, row[3][1])))
+    else row
+    for row in CATCHERS
+]
 
 def run(cwd, command):
     try:

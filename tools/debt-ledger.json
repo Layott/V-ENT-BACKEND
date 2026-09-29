@@ -1,4 +1,14 @@
 {
+  "accents": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
+  "accents self-test": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
   "admin nav": {
     "count": 0,
     "first_seen": "2026-09-08",
@@ -84,10 +94,40 @@
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
+  "dictionary split": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
+  "dictionary split self-test": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
   "duplicate checkers": {
     "count": 0,
     "first_seen": "2026-09-12",
     "since": "2026-09-12"
+  },
+  "duplicate translation keys": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
+  "duplicate translation keys self-test": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
+  "email spacing": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
+  "email spacing self-test": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
   },
   "endpoints with no screen": {
     "count": 0,
@@ -118,6 +158,16 @@
     "count": 0,
     "first_seen": "2026-09-09",
     "since": "2026-09-09"
+  },
+  "gateway text": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
+  "gateway text self-test": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
   },
   "guides": {
     "count": 0,
@@ -163,6 +213,16 @@
     "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
+  },
+  "load once": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
+  "load once self-test": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
   },
   "metadata outage": {
     "count": 0,
@@ -229,6 +289,11 @@
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
+  "raw errors self-test": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
   "required fields": {
     "count": 0,
     "first_seen": "2026-09-12",
@@ -289,6 +354,11 @@
     "first_seen": "2026-09-08",
     "since": "2026-09-08"
   },
+  "standalone unlink self-test": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
   "status buckets": {
     "count": 0,
     "first_seen": "2026-09-12",
@@ -323,6 +393,16 @@
     "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
+  },
+  "tx text": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
+  "tx text self-test": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
   },
   "unbounded await": {
     "count": 0,

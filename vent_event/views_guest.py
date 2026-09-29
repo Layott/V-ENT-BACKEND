@@ -31,6 +31,7 @@ from rest_framework.response import Response
 
 from . import availability, checkout
 from .models import AbandonedCheckout, Event, Ticket, TicketTier
+from vent_auth.errors import gateway_down, gateway_refused
 
 PAYSTACK_BASE = 'https://api.paystack.co'
 MAX_PER_PURCHASE = 10
@@ -437,6 +438,10 @@ def guest_buy(request, event_id):
             status.HTTP_201_CREATED)
 
     # ------------------------------------------------------------------ paid
+    if str(request.data.get('provider') or '').lower() == 'flutterwave':
+        return _start_flutterwave(request, event, tier, quantity, email, answers,
+                                  promo, total_ngn, fee_ngn, priced)
+
     from vent_auth import paystack
     if not paystack.configured():
         return _err('Card payment is not set up for this platform yet, so only '
@@ -483,9 +488,7 @@ def guest_buy(request, event_id):
             return _err('That does not look like an email address the card '
                         'gateway will accept.', 'EMAIL_INVALID',
                         status.HTTP_400_BAD_REQUEST, field='email')
-        return _err('The payment could not be started: %s' % exc,
-                    'PAYMENT_REFUSED', status.HTTP_502_BAD_GATEWAY,
-                    data={'reason': str(exc)})
+        return gateway_refused(exc)
 
     # Somebody reached the payment page. The ORDER still lives only in the
     # Paystack metadata, for the reason written above - but the FACT that they
@@ -517,6 +520,106 @@ def guest_buy(request, event_id):
     }, 'Continue to payment.')
 
 
+def _start_flutterwave(request, event, tier, quantity, email, answers, promo, total_ngn,
+                       fee_ngn, priced):
+    """A guest paying through Flutterwave. The order is kept against the
+    reference (AbandonedCheckout.order) because Flutterwave does not carry it
+    back; the tickets are issued by `fulfil_flutterwave` when the money is
+    confirmed, by the browser returning or by the webhook, whichever is first."""
+    from vent_auth import flutterwave
+    if not flutterwave.configured():
+        return _err('Flutterwave is not set up on this platform yet.',
+                    'PROVIDER_UNAVAILABLE', status.HTTP_503_SERVICE_UNAVAILABLE)
+    reference = flutterwave.new_reference('TKT')
+    referral = _referral_from(request, event)
+    buyer = _buyer(request)
+    order = {
+        'event_id': event.event_id, 'tier_id': tier.id, 'quantity': quantity,
+        'email': email, 'answers': answers[0], 'attendees': answers[2],
+        'ref': referral.code if referral else '',
+        'promo': promo.code if promo is not None else '',
+        'buyer_id': buyer.user_id if buyer else None,
+    }
+    try:
+        started = flutterwave.start(
+            reference=reference, amount_ngn=float(total_ngn), email=email,
+            callback_url=request.data.get('callback_url') or '',
+            title=event.name[:60], description='%s x %s' % (quantity, tier.name),
+            meta={'event_id': event.event_id, 'tier_id': tier.id})
+    except flutterwave.Unreachable:
+        return _err('The payment gateway did not answer. Nothing was charged.',
+                    'GATEWAY_ERROR', status.HTTP_502_BAD_GATEWAY)
+    except flutterwave.Refused as exc:
+        return gateway_refused(exc)
+    AbandonedCheckout.objects.create(
+        event=event, tier=tier, email=email, quantity=quantity,
+        reference=reference, total_ngn=total_ngn, order=order)
+    return _ok({
+        'authorization_url': started['authorization_url'], 'reference': reference,
+        'paid': True, 'fee_ngn': fee_ngn, 'fee_bearer': priced['fee_bearer'],
+        'total_ngn': total_ngn, 'test_mode': flutterwave.is_test(),
+        'amount_ngn': float(total_ngn), 'email': email, 'provider': 'flutterwave',
+    }, 'Continue to payment.')
+
+
+def fulfil_flutterwave(reference, request=None):
+    """Confirm a Flutterwave ticket payment and issue the tickets, once.
+
+    Returns (code, tickets): code is 'issued', 'already', 'not_paid',
+    'not_found' or 'unreachable'. The pending checkout row is locked, so the
+    browser returning and the webhook arriving together issue one set.
+    """
+    from django.db import transaction as _tx
+    from vent_auth import flutterwave
+    from vent_auth.models import Users as _Users
+    from . import ledger as _ledger
+    from . import promos as _promos
+
+    with _tx.atomic():
+        pending = AbandonedCheckout.objects.select_for_update().filter(reference=reference).first()
+        existing = list(Ticket.objects.filter(payment_reference=reference))
+        if existing:
+            return 'already', existing
+        if pending is None or not pending.order:
+            return 'not_found', []
+        try:
+            found = flutterwave.verify(reference, expected_ngn=float(pending.total_ngn))
+        except flutterwave.Unreachable:
+            return 'unreachable', []
+        if not found['ok']:
+            return 'not_paid', []
+        order = pending.order
+        event = Event.objects.filter(pk=order.get('event_id')).first()
+        tier = TicketTier.objects.filter(pk=order.get('tier_id'), event=event).first() if event else None
+        if event is None or tier is None:
+            return 'not_found', []
+        quantity = int(order.get('quantity') or 1)
+        attendees = order.get('attendees') or [{} for _ in range(quantity)]
+        while len(attendees) < quantity:
+            attendees.append({})
+        per_person = []
+        for index in range(quantity):
+            try:
+                per_person.append(checkout.collect(
+                    event, (attendees[index] or {}).get('answers'), per_ticket_index=index))
+            except checkout.CheckoutError:
+                per_person.append({})
+        promo = _promos.honour(event, order.get('promo'), tier)
+        priced = _ledger.quote(tier, quantity, event, channel='naira', promo=promo)
+        buyer = _buyer(request) if request is not None else None
+        if buyer is None and order.get('buyer_id'):
+            buyer = _Users.objects.filter(pk=order['buyer_id']).first()
+        tickets = _issue(event, tier, quantity, order.get('email') or found['email'],
+                         (order.get('answers') or {}, per_person, attendees),
+                         priced['unit_ngn'], priced['unit_vc'], reference=reference,
+                         referral=_refs_resolve(event, order.get('ref')),
+                         buyer=buyer, promo=promo)
+        pending.converted_at = timezone.now()
+        pending.save(update_fields=['converted_at'])
+    _send_them(tickets)
+    return 'issued', tickets
+
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def guest_verify(request):
@@ -534,6 +637,24 @@ def guest_verify(request):
         return _err('Send the payment reference.', 'VALIDATION_ERROR',
                     field='reference')
 
+    from vent_auth import flutterwave as _flw
+    if _flw.owns(reference):
+        code, tickets = fulfil_flutterwave(reference, request)
+        if code == 'unreachable':
+            return _err('The payment gateway could not be reached.', 'PAYMENT_GATEWAY',
+                        status.HTTP_502_BAD_GATEWAY)
+        if code == 'not_found':
+            return _err('That payment does not match an event we can find.', 'NOT_FOUND',
+                        status.HTTP_404_NOT_FOUND)
+        if code == 'not_paid':
+            return _err('That payment has not gone through.', 'PAYMENT_NOT_COMPLETE',
+                        status.HTTP_402_PAYMENT_REQUIRED)
+        return _ok({'tickets': [_ticket_row(t) for t in tickets],
+                    'already_issued': code == 'already'},
+                   'Your tickets are ready.' if code == 'already'
+                   else 'Paid. Your tickets are on their way.',
+                   status.HTTP_200_OK if code == 'already' else status.HTTP_201_CREATED)
+
     existing = list(Ticket.objects.filter(payment_reference=reference))
     if existing:
         AbandonedCheckout.objects.filter(
@@ -550,8 +671,7 @@ def guest_verify(request):
         response.raise_for_status()
         body = response.json()
     except http_requests.RequestException as exc:
-        return _err('The payment gateway could not be reached: %s' % exc,
-                    'PAYMENT_GATEWAY', status.HTTP_502_BAD_GATEWAY)
+        return gateway_down(exc)
 
     data = (body or {}).get('data') or {}
     if not body.get('status') or data.get('status') != 'success':
