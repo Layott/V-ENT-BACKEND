@@ -192,7 +192,8 @@ def announcements(request, event_id):
         create_notification(user_id, 'event', subject, body=body[:500],
                             link=link,
                             metadata={'event_id': event.event_id,
-                                      'announcement_id': row.id})
+                                      'announcement_id': row.id},
+                            email=False)
 
     # And any Discord channel this event announces into. After the inbox,
     # which is the write that must not be at the mercy of a third party.
@@ -201,6 +202,16 @@ def announcements(request, event_id):
         discord_announce(event, 'announcement', subject, body[:1500], path=link)
     except Exception:                                           # noqa: BLE001
         logger.exception('discord announcement failed')
+
+    # An account holder's email switch for events decides whether this goes
+    # to them by email (CEO, 30 September 2026). A guest has no switches and
+    # no inbox, so the email is the only way to reach them.
+    from vent_auth.notify_prefs import wants
+    for address, ticket in list(addresses.items()):
+        holder = ticket.user if ticket.user_id else None
+        own_address = holder is not None and (holder.email or '').strip().lower() == address
+        if own_address and not wants(holder, 'event', 'email'):
+            addresses.pop(address)
 
     failures = 0
     for address in addresses:

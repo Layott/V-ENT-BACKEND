@@ -165,7 +165,51 @@ def update_settings(request):
 
 @api_view(['POST'])
 def update_notifications(request):
-    return _update_section(request, 'notifications')
+    """Save notification switches: `<row>__<channel>` booleans only.
+
+    Every switch is read at delivery now (CEO, 30 September 2026), so what is
+    stored is exactly what the grid offers: known rows, the four channels, and
+    never a locked one (account notices always reach the inbox and email).
+    Anything else is dropped rather than stored to be misread later.
+    """
+    from . import notify_prefs
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+    incoming = request.data if isinstance(request.data, dict) else {}
+    clean = {}
+    locked = {r['id']: set(r.get('locked', ())) for r in notify_prefs.ROWS}
+    for key, value in incoming.items():
+        row_id, _, channel = str(key).partition('__')
+        if (row_id in locked and channel in notify_prefs.CHANNELS
+                and channel not in locked[row_id] and isinstance(value, bool)):
+            clean[key] = value
+    obj = _get_or_create(user)
+    data = dict(obj.data or {})
+    data['notifications'] = {**(data.get('notifications') or {}), **clean}
+    obj.data = data
+    obj.save(update_fields=['data', 'updated_at'])
+    return Response({
+        'status': 'success',
+        'code': 'OK',
+        'data': {'notifications': data['notifications'],
+                 'grid': notify_prefs.matrix_for(user),
+                 'ignored': sorted(set(map(str, incoming)) - set(clean))},
+        'message': 'Settings updated.',
+    })
+
+
+@api_view(['GET'])
+def notification_grid(request):
+    """The rows and channels this person sees on Settings > Notifications, as set."""
+    from . import notify_prefs, push
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+    grid = notify_prefs.matrix_for(user)
+    grid['push'] = {'configured': push.configured(), 'public_key': push.public_key(),
+                    'devices': user.push_subscriptions.count()}
+    return Response({'status': 'success', 'code': 'OK', 'data': grid, 'message': 'Notification grid'})
 
 
 @api_view(['POST'])

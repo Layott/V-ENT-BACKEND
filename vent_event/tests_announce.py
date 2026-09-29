@@ -210,3 +210,22 @@ class AnnounceRefusalTests(AnnounceBase):
                                {'subject': 'a', 'body': 'b'},
                                content_type='application/json', **self.auth)
         self.assertEqual(res.status_code, 404)
+
+
+class AnnouncementsObeyTheEmailSwitchTests(AnnounceBase):
+    """CEO, 30 September 2026: every switch works as each person set it."""
+
+    def test_a_member_who_switched_event_email_off_gets_the_inbox_not_the_email(self):
+        from vent_auth.models import UserSetting
+        UserSetting.objects.update_or_create(
+            user=self.member, defaults={'data': {'notifications': {'events__email': False}}})
+        self.send()
+        recipients = {to for m in mail.outbox for to in m.to}
+        self.assertNotIn(self.member.email, recipients)
+        self.assertIn('guest.a@example.com', recipients)
+        self.assertEqual(Notification.objects.filter(user=self.member, category='event').count(), 1)
+
+    def test_a_member_with_email_on_gets_exactly_one_email(self):
+        self.send()
+        mine = [m for m in mail.outbox if self.member.email in m.to]
+        self.assertEqual(len(mine), 1)

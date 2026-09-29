@@ -553,6 +553,14 @@ CATCHERS = [
      BACKEND, [DJANGO_PY, 'tools/check-email-spacing.py'], True),
     # Coins exist only when somebody buys them (CEO, 29 September 2026;
     # inbox 366). Every place that adds to a balance names the payment.
+    # Every notification kind has a row a person can switch (CEO, 30
+    # September 2026; inbox 374, 377).
+    ('notification rows',
+     'every notification category belongs to a switchable row',
+     BACKEND, [sys.executable, 'tools/check-notification-rows.py'], True),
+    ('notification rows self-test',
+     'the notification catcher still catches a category with no row',
+     BACKEND, [sys.executable, 'tools/check-notification-rows.py', '--self-test'], True),
     ('coin sources',
      'every place that adds coins names the payment behind them',
      BACKEND, [sys.executable, 'tools/check-coin-sources.py'], True),

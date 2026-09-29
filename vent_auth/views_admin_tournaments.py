@@ -292,13 +292,17 @@ def admin_tournament_announce(request, tournament_ref):
         create_notification(user, 'tournament', subject, body=body[:500],
                             link=link,
                             metadata={'tournament_id': tournament.tournament_id,
-                                      'announcement': record.id})
+                                      'announcement': record.id}, email=False)
 
     failures = 0
     from . import emails
+    from .notify_prefs import wants
     for user in people.values():
         address = (user.email or '').strip().lower()
         if not address:
+            continue
+        # Their email switch for tournaments decides (CEO, 30 September 2026).
+        if not wants(user, 'tournament', 'email'):
             continue
         try:
             if not emails.send_tournament_announcement(

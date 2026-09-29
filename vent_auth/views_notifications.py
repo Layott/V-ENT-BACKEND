@@ -38,12 +38,16 @@ _CATEGORY_MAX = 40
 # §1.2 - fire-and-forget writer
 # ---------------------------------------------------------------------------
 
-def create_notification(user, category, title, body='', link='', metadata=None):
+def create_notification(user, category, title, body='', link='', metadata=None, email=True):
     """Create a single notification. Fire-and-forget.
 
     `user` may be a Users instance OR an int user_id. Never raises - on any
     failure it logs and returns None. Returns the created Notification on
     success. Title/body/link/category are truncated to their field limits.
+
+    `email=False` is for a site that sends its own, richer email for the same
+    thing (a ticket with its QR code, a registration receipt, a payout
+    decision): the generic copy would be a second email about one event.
     """
     try:
         if not isinstance(user, Users):
@@ -52,28 +56,68 @@ def create_notification(user, category, title, body='', link='', metadata=None):
                 logger.warning('create_notification: no user for id %r', user)
                 return None
 
+        # Every channel is a switch the person set (CEO, 30 September 2026:
+        # "If they put on or off something for discord or push or email or in
+        # app, it must work as each user set it"). One read of their settings,
+        # then each channel asks the same question of it.
+        from . import notify_prefs
+        category = (category or 'system')[:_CATEGORY_MAX]
+        stored = notify_prefs._stored(user)
+        wants = {c: notify_prefs.wants(user, category, c, stored) for c in notify_prefs.CHANNELS}
+
+        # The row is always written: the other channels send from it, and a
+        # caller can tell "delivered elsewhere" from "failed". Switched off for
+        # the inbox, it is kept out of the inbox and the bell.
         row = Notification.objects.create(
             user=user,
-            category=(category or 'system')[:_CATEGORY_MAX],
+            category=category,
             title=(title or '')[:_TITLE_MAX],
             body=(body or '')[:_BODY_MAX],
             link=(link or '')[:_LINK_MAX],
             metadata=metadata if isinstance(metadata, dict) else {},
+            in_inbox=wants['in_app'],
         )
 
-        # Discord is a DELIVERY CHANNEL on this notification, never a second
-        # notification system. Every one of the 31 sites that already calls
-        # create_notification gets Discord for free, and a new site cannot
-        # accidentally support the inbox and not Discord, because there is only
-        # one call to make.
-        #
-        # It is addressed to `user`, so a person can only ever be sent a
-        # message about their own notification.
-        _deliver_to_discord(row)
+        # Delivery channels on this one notification, never second systems:
+        # every site that calls create_notification gets all of them, and a new
+        # site cannot support the inbox and forget the rest.
+        if wants['discord']:
+            _deliver_to_discord(row)
+        if wants['email'] and email:
+            _deliver_by_email(row, notify_prefs.row_for(category))
+        if wants['push']:
+            _deliver_by_push(row)
         return row
     except Exception:
         logger.exception('create_notification failed (category=%s)', category)
         return None
+
+
+def _deliver_by_email(row, row_id):
+    """Email this notification, on its own thread. Never raises, never blocks."""
+    import threading
+
+    def run():
+        try:
+            from .emails import send_notification
+            send_notification(row, row_id)
+        except Exception:                                       # noqa: BLE001
+            logger.exception('email delivery failed for notification %s', row.pk)
+
+    from django.conf import settings
+    if getattr(settings, 'NOTIFY_IN_BACKGROUND', True):
+        threading.Thread(target=run, daemon=True).start()
+    else:
+        run()
+
+
+def _deliver_by_push(row):
+    """Browser push to every device this person subscribed. Never raises."""
+    try:
+        from . import push
+        push.deliver(row, FRONTEND_URL)
+    except Exception:                                           # noqa: BLE001
+        logger.exception('push delivery failed for notification %s', row.pk)
 
 
 def _deliver_to_discord(row):
@@ -125,7 +169,7 @@ def _row(n):
 
 
 def _unread_count(user):
-    return Notification.objects.filter(user=user, is_read=False).count()
+    return Notification.objects.filter(user=user, is_read=False, in_inbox=True).count()
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +189,7 @@ def list_notifications(request):
 
     filter_arg = (request.GET.get('filter') or 'all').lower()
 
-    qs = Notification.objects.filter(user=user)
+    qs = Notification.objects.filter(user=user, in_inbox=True)
     if filter_arg == 'unread':
         qs = qs.filter(is_read=False)
 
@@ -222,7 +266,7 @@ def mark_all_notifications_read(request):
     if err:
         return err
 
-    updated = Notification.objects.filter(user=user, is_read=False).update(
+    updated = Notification.objects.filter(user=user, is_read=False, in_inbox=True).update(
         is_read=True, read_at=timezone.now(),
     )
 
