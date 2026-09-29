@@ -221,8 +221,10 @@ class TiebreakTests(SimpleTestCase):
             {'participant': 2, 'placement': 1, 'kills': 4},   # 10 + 4 = 14
         ], 'pubg_mobile')
         rows = tiebreak.for_format('battle_royale', table)
-        self.assertEqual(rows[0]['participant_id'], 1)
-        self.assertEqual(rows[0]['separated_by'], 'total_kills')
+        # AFC's chain since 28 September 2026 (CEO: "a similar system used in
+        # AFC"): level on points, the booyah comes before the kills.
+        self.assertEqual(rows[0]['participant_id'], 2)
+        self.assertEqual(rows[0]['separated_by'], 'placement_count')
 
     def test_head_to_head_is_read_among_the_tied_only(self):
         """With three level, "who beat whom" is a mini-table between those three,

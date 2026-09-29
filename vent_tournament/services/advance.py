@@ -71,11 +71,11 @@ def cascade(match):
     """Route a freshly-resolved match forward and check for tournament completion."""
     _route(match)
     _award_reward_tickets(match)
-    if match.stage_id:
-        # A Swiss stage draws its next round when the last match of this one
-        # is in; nothing else in a stage moves on by itself.
-        from .. import stage_engine
-        stage_engine.on_match_resolved(match)
+    # A Swiss stage draws its next round when the last match of this one is
+    # in, and winner stays on draws the next challenger; nothing else moves on
+    # by itself.
+    from .. import stage_engine
+    stage_engine.on_match_resolved(match)
     _maybe_complete(match.tournament_id)
 
 
@@ -303,6 +303,9 @@ def _maybe_complete(tournament_id):
         from .. import stage_engine
         if last.format == 'swiss' and not stage_engine.swiss_finished(last):
             return
+        if last.format == 'battle_royale':
+            # A battle royale has no final match; the organiser finishes it.
+            return
         stage_engine.assign_final_positions(tournament)
         last.status = 'complete'
         last.completed_at = timezone.now()
@@ -322,11 +325,24 @@ def assign_final_positions(tournament):
     """Write TournamentRegistration.final_position (1 = winner) for a finished bracket."""
     from ..services.bracket import decided_by_table, normalize_bracket_type
 
+    from ..services.bracket import places_from_matches
+
     btype = normalize_bracket_type(tournament.bracket_type)
+    if btype == 'winner_stays_on':
+        from .. import stage_engine, stage_settings
+        rows, _state = stage_engine.streak_rows(
+            tournament, None, list(tournament.bracket_matches.all()),
+            stage_settings.for_tournament(tournament))
+        _write_positions(tournament, {r['registration_id']: r['rank'] for r in rows})
+        return
     if decided_by_table(btype):
         _positions_round_robin(tournament)
-    else:
-        _positions_elimination(tournament)
+        return
+    stated = places_from_matches(list(tournament.bracket_matches.all()))
+    if stated is not None:
+        _write_positions(tournament, stated)
+        return
+    _positions_elimination(tournament)
 
 
 def _positions_elimination(tournament):

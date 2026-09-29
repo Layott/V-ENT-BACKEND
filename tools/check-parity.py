@@ -184,7 +184,7 @@ PAIRS = [
         'event', (FRONTEND, 'src/app/events/manage/page.js',
                   r"tab === 'run-of-show'"),
         'tournament', (FRONTEND, 'src/app/tournaments/manage/page.js',
-                       r"tab === 'run-of-show'"),
+                       r"(?:tab|shown) === 'run-of-show'"),
     ),
     (
         'the run of show has a public page on both',

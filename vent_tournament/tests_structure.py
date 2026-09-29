@@ -213,7 +213,8 @@ class CatalogueEndpointTests(TestCase):
     def test_it_answers_without_an_account(self):
         res = self.client.get('/tournament/formats/')
         self.assertEqual(res.status_code, 200)
-        self.assertEqual(len(res.data['data']['formats']), 8)
+        # Eleven since 28 September 2026: stepladder, page playoff, winner stays on.
+        self.assertEqual(len(res.data['data']['formats']), 11)
 
     def test_every_entry_the_edit_screen_reads_is_still_there(self):
         res = self.client.get('/tournament/formats/')

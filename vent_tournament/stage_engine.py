@@ -112,26 +112,43 @@ def draw(stage, user, seed_strategy='registration', manual_order=None):
     from .models import BracketGeneration
     from .services import bracket
 
-    if stage.drawn_at is not None or stage.matches.exists():
+    from . import br_engine
+
+    if stage.drawn_at is not None or stage.matches.exists() or stage.br_lobbies.exists():
         raise StageEngineError('STAGE_ALREADY_DRAWN')
     fmt = formats.get(stage.format)
     if fmt is None:
         raise StageEngineError('UNKNOWN_FORMAT', 'format')
     key = fmt.key
-    if key not in bracket.DRAWABLE:
+    if key not in bracket.DRAWABLE and key != 'battle_royale':
         raise StageEngineError('FORMAT_HAS_NO_BRACKET', 'format')
 
     ordered = entrants_for(stage, seed_strategy, manual_order)
     if len(ordered) < fmt.min_participants:
         raise StageEngineError('NOT_ENOUGH_ENTRANTS', need=fmt.min_participants,
                                have=len(ordered))
+    if fmt.max_participants and len(ordered) > fmt.max_participants:
+        raise StageEngineError('TOO_MANY_ENTRANTS', need=fmt.max_participants,
+                               have=len(ordered))
 
     settings = stage.settings or stage_settings.clean(key, {})
-    try:
-        summary = bracket.draw_into(stage.tournament, stage, key, ordered, settings,
-                                    groups=stage.groups)
-    except bracket.BracketError as exc:
-        raise StageEngineError(exc.code.upper())
+    if key == 'battle_royale':
+        # The head start the stage before gave each squad, if it gave one.
+        prev = previous_stage(stage)
+        carried = {int(row['registration_id']): row.get('carry') or 0
+                   for row in ((prev.advanced or []) if prev else [])
+                   if isinstance(row, dict) and row.get('registration_id')}
+        stage.settings = settings
+        try:
+            summary = br_engine.draw(stage, ordered, carried)
+        except br_engine.BRError as exc:
+            raise StageEngineError(exc.code)
+    else:
+        try:
+            summary = bracket.draw_into(stage.tournament, stage, key, ordered, settings,
+                                        groups=stage.groups)
+        except bracket.BracketError as exc:
+            raise StageEngineError(exc.code.upper())
 
     stage.entrants = [r.id for r in ordered]
     stage.drawn_at = timezone.now()
@@ -331,8 +348,24 @@ def _knockout_standings(stage):
     match third and fourth, everybody else by how late they went out."""
     from .models import TournamentRegistration
 
+    from .services.bracket import places_from_matches
+
     matches = list(stage.matches.all())
     regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or []).select_related('user', 'team', 'squad')}
+    stated = places_from_matches(matches)
+    if stated is not None:
+        rows = []
+        for rid, reg in regs.items():
+            row = _blank(reg)
+            row['rank'] = stated.get(rid)
+            row['status'] = 'placed' if rid in stated else 'playing'
+            rows.append(row)
+        by_id = {r['registration_id']: r for r in rows}
+        for m in matches:
+            if m.status == 'completed' and m.participant_1_id in regs and m.participant_2_id in regs:
+                _tally(by_id, m, (1, 0, 0))
+        rows.sort(key=lambda r: (r['rank'] is None, r['rank'] or 0, r['seed'] or 10 ** 6))
+        return rows
     place = {}
     final = next((m for m in matches if m.is_final), None)
     done = final is not None and final.status in TERMINAL and final.winner_id
@@ -376,6 +409,96 @@ def _knockout_standings(stage):
     return rows
 
 
+def seeds_of(tournament, stage):
+    """Registration ids best seed first, as the draw froze them."""
+    if stage is not None:
+        return [int(i) for i in (stage.entrants or [])]
+    regs = tournament.registrations.filter(status='confirmed').order_by('seed', 'id')
+    return [r.id for r in regs]
+
+
+def streak_rows(tournament, stage, matches, settings):
+    """Winner stays on: placed by wins, then the longest streak, then seed."""
+    from .models import TournamentRegistration
+    from .services import bracket
+
+    seeds = seeds_of(tournament, stage)
+    state = bracket.streak_state(matches, seeds, settings)
+    regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=seeds)
+            .select_related('user', 'team', 'squad')}
+    rows = []
+    for rid in seeds:
+        if rid not in regs:
+            continue
+        row = _blank(regs[rid])
+        row['wins'] = state['wins'].get(rid, 0)
+        row['losses'] = state['losses'].get(rid, 0)
+        row['played'] = state['played'].get(rid, 0)
+        row['points'] = row['wins']
+        row['longest_streak'] = state['best_streak'].get(rid, 0)
+        row['holder'] = rid == state['holder'] and not state['finished']
+        cur = state['current']
+        row['challenger'] = bool(cur is not None and rid != state['holder']
+                                 and rid in (cur.participant_1_id, cur.participant_2_id))
+        row['queue_position'] = (state['queue'].index(rid) + 1
+                                 if rid in state['queue'] and not state['finished'] else None)
+        row['status'] = ('holder' if row['holder'] else 'challenger' if row['challenger']
+                         else 'queued' if row['queue_position']
+                         else 'placed' if state['finished'] else 'out'
+                         if row['losses'] and not state['target'] else 'playing')
+        rows.append(row)
+    key = lambda r: (-r['wins'], -r['longest_streak'],
+                     r['seed'] if r['seed'] is not None else 10 ** 6, r['name'].lower())
+    rows.sort(key=key)
+    names = ['wins', 'longest_streak', 'seed']
+    for i, row in enumerate(rows):
+        row['rank'] = i + 1
+        if i:
+            pk, rk = key(rows[i - 1]), key(row)
+            for idx, name in enumerate(names):
+                if pk[idx] != rk[idx]:
+                    row['decided_by'] = name
+                    break
+    return rows, state
+
+
+def tournament_standings(tournament):
+    """Rows for a tournament that runs as ONE format, where a table means
+    something: winner stays on (who holds the spot, the queue, wins and
+    streaks) and any bracket whose matches state places (stepladder, page
+    playoff, every place). None for a plain knockout or a league, whose pages
+    read their own tables."""
+    from .models import TournamentRegistration
+    from .services.bracket import normalize_bracket_type, places_from_matches
+
+    key = normalize_bracket_type(tournament.bracket_type)
+    matches = list(tournament.bracket_matches.all())
+    if not matches:
+        return None
+    if key == 'winner_stays_on':
+        return streak_rows(tournament, None, matches,
+                           stage_settings.for_tournament(tournament))[0]
+    stated = places_from_matches(matches)
+    if stated is None:
+        return None
+    regs = TournamentRegistration.objects.filter(
+        tournament=tournament, status='confirmed').select_related('user', 'team', 'squad')
+    rows = []
+    for reg in regs:
+        row = _blank(reg)
+        row['rank'] = stated.get(reg.id)
+        row['status'] = 'placed' if reg.id in stated else 'playing'
+        rows.append(row)
+    rows.sort(key=lambda r: (r['rank'] is None, r['rank'] or 0, r['seed'] or 10 ** 6))
+    return rows
+
+
+def _streak_standings(stage):
+    rows, _state = streak_rows(stage.tournament, stage, list(stage.matches.all()),
+                               stage.settings or stage_settings.clean(stage.format, {}))
+    return rows
+
+
 def _gsl_standings(stage):
     from .models import TournamentRegistration
 
@@ -414,11 +537,16 @@ def standings(stage):
     key = fmt.key if fmt else stage.format
     if stage.drawn_at is None:
         return []
+    if key == 'battle_royale':
+        from . import br_engine
+        return br_engine.standings(stage)
+    if key == 'winner_stays_on':
+        return _streak_standings(stage)
     if key == 'swiss':
         return _swiss_standings(stage)
     if key == 'gsl':
         return _gsl_standings(stage)
-    if key in ('single_elimination', 'double_elimination'):
+    if key in ('single_elimination', 'double_elimination', 'stepladder', 'page_playoff'):
         return _knockout_standings(stage)
     return _table_standings(stage)
 
@@ -427,10 +555,16 @@ def stage_finished(stage):
     """Every match in the stage is decided, and a Swiss has run its rounds."""
     if stage.drawn_at is None:
         return False
+    if stage.format == 'battle_royale':
+        from . import br_engine
+        return br_engine.finished(stage)
     if stage.matches.exclude(status__in=TERMINAL).exists():
         return False
     if stage.format == 'swiss':
         return swiss_finished(stage)
+    if stage.format == 'winner_stays_on':
+        return streak_rows(stage.tournament, stage, list(stage.matches.all()),
+                           stage.settings or {})[1]['finished']
     return True
 
 
@@ -445,12 +579,15 @@ def advancing(stage):
     ...). Seeded into a knockout that way, standard seeding puts every group
     winner against a runner-up from a different group, which is the cross.
     """
+    fmt = formats.get(stage.format)
+    key = fmt.key if fmt else stage.format
+    if key == 'battle_royale':
+        from . import br_engine
+        return br_engine.advancing(stage) if stage.drawn_at else []
     rows = standings(stage)
     count = stage.advances or 0
     if count <= 0:
         return []
-    fmt = formats.get(stage.format)
-    key = fmt.key if fmt else stage.format
 
     if key == 'swiss' and (stage.settings or {}).get('win_target'):
         chosen = [r for r in rows if r['status'] == 'qualified'][:count]
@@ -485,8 +622,7 @@ def advance(stage, user, order=None, ignore_disputes=False, draw_next=True):
     if nxt is None:
         raise StageEngineError('LAST_STAGE')
     if not stage_finished(stage):
-        raise StageEngineError('STAGE_NOT_FINISHED',
-                               open=stage.matches.exclude(status__in=TERMINAL).count())
+        raise StageEngineError('STAGE_NOT_FINISHED', open=open_count(stage))
     open_disputes = tournament.disputes.filter(
         status__in=('open', 'under_review'), match__stage=stage).count()
     if open_disputes and not ignore_disputes:
@@ -507,9 +643,15 @@ def advance(stage, user, order=None, ignore_disputes=False, draw_next=True):
     if not chosen:
         raise StageEngineError('NOBODY_ADVANCES')
 
+    if order:
+        # A reordered list keeps each squad's own head start.
+        carry = {r['registration_id']: r.get('carry') for r in advancing(stage)}
+        for r in chosen:
+            r.setdefault('carry', carry.get(r['registration_id']) or 0)
     stage.advanced = [{'registration_id': r['registration_id'], 'name': r['name'],
                        'handle': r.get('handle'),
-                       'group': r['group'], 'rank': r['rank'], 'points': r['points']}
+                       'group': r['group'], 'rank': r['rank'], 'points': r['points'],
+                       'carry': r.get('carry') or 0}
                       for r in chosen]
     stage.status = 'complete'
     stage.completed_at = timezone.now()
@@ -519,6 +661,45 @@ def advance(stage, user, order=None, ignore_disputes=False, draw_next=True):
     if draw_next:
         summary = draw(nxt, user)
     return {'advanced': stage.advanced, 'next_stage_id': nxt.id, 'draw': summary}
+
+
+def open_count(stage):
+    """What is still to be played: matches, or battle royale maps."""
+    if stage.format == 'battle_royale':
+        from . import br_engine
+        return br_engine.open_maps(stage)
+    return stage.matches.exclude(status__in=TERMINAL).count()
+
+
+def finish_last_stage(stage, user):
+    """Close the LAST stage of a tournament whose last stage has no bracket to
+    finish it by itself (a battle royale), and write the final places.
+
+    A knockout ends the tournament when its final is played. A battle royale
+    has no final match, and ending it on the last result entered would shut
+    the door on correcting that result, so the organiser presses it.
+    """
+    from django.db.models import Q
+    from .services.advance import NON_TERMINAL_STATUSES
+
+    tournament = stage.tournament
+    if next_stage(stage) is not None:
+        raise StageEngineError('NOT_THE_LAST_STAGE')
+    if stage.status == 'complete' or tournament.completed_at is not None:
+        raise StageEngineError('ALREADY_FINISHED')
+    if not stage_finished(stage):
+        raise StageEngineError('STAGE_NOT_FINISHED', open=open_count(stage))
+    if tournament.bracket_matches.filter(status__in=NON_TERMINAL_STATUSES).exists():
+        raise StageEngineError('STAGE_NOT_FINISHED')
+    assign_final_positions(tournament)
+    now = timezone.now()
+    stage.status = 'complete'
+    stage.completed_at = now
+    stage.save(update_fields=['status', 'completed_at'])
+    tournament.status = 'completed'
+    tournament.completed_at = now
+    tournament.save(update_fields=['status', 'completed_at'])
+    return tournament
 
 
 # ---------------------------------------------------------------------------
@@ -581,9 +762,32 @@ def next_swiss_round(stage):
 def on_match_resolved(match):
     stage = match.stage
     if stage is None:
+        from .services.bracket import normalize_bracket_type
+        if normalize_bracket_type(match.tournament.bracket_type) == 'winner_stays_on':
+            _next_challenge(match.tournament, None)
         return
     if stage.format == 'swiss':
         next_swiss_round(stage)
+    elif stage.format == 'winner_stays_on':
+        _next_challenge(stage.tournament, stage)
+
+
+def _next_challenge(tournament, stage):
+    from .services import bracket
+    if stage is not None:
+        settings = stage.settings or stage_settings.clean(stage.format, {})
+        matches = list(stage.matches.all())
+    else:
+        settings = stage_settings.for_tournament(tournament)
+        matches = list(tournament.bracket_matches.all())
+    created = bracket.next_challenge(tournament, stage, settings,
+                                     seeds_of(tournament, stage), matches)
+    if created is not None:
+        if stage is not None:
+            arm_check_in(created)
+        else:
+            schedule(created)
+    return created
 
 
 # ---------------------------------------------------------------------------

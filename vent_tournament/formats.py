@@ -51,6 +51,17 @@ TIEBREAKERS = {
     'placement_count': 'Number of first places',
     'most_recent': 'The most recent result between them',
     'coin_toss': 'Decided by the organiser',
+    # Battle royale, the chain AFC runs (read 28 September 2026). A booyah is
+    # a first place, so it is `placement_count` above under its own name.
+    'placement_points': 'Points from placements',
+    'kill_points': 'Points from kills',
+    'bonus': 'Bonus points',
+    'fewest_penalties': 'Fewest penalty points',
+    'maps_played': 'Fewest matches played',
+    'mvp_count': 'Most match MVPs',
+    'last_map_placement': 'Placement in the last match',
+    # Winner stays on.
+    'longest_streak': 'Longest winning streak',
 }
 
 
@@ -141,7 +152,8 @@ FORMATS = {
         # group round (27 September 2026: the chains toornament and EA's FC Pro
         # circuit actually run).
         can_feed_into=('single_elimination', 'double_elimination', 'swiss',
-                       'gsl', 'round_robin'),
+                       'gsl', 'round_robin', 'stepladder', 'page_playoff',
+                       'winner_stays_on'),
         notes=(
             'Matches grow with the square of the field: eight teams is 28 '
             'matches, sixteen is 120. Past about twelve it wants splitting into '
@@ -162,7 +174,7 @@ FORMATS = {
         # what Counter-Strike majors seed the next round by.
         tiebreakers=('buchholz', 'head_to_head', 'rounds_difference'),
         can_feed_into=('single_elimination', 'double_elimination', 'gsl',
-                       'round_robin'),
+                       'round_robin', 'stepladder', 'page_playoff'),
         notes=(
             'Rounds are usually enough to separate the field: 5 rounds for 16, '
             '6 for 32. Teams reaching three wins advance and three losses are '
@@ -199,11 +211,76 @@ FORMATS = {
         advancement='points',
         scoring='battle_royale',
         plays_all_at_once=True,
-        tiebreakers=('total_kills', 'best_placement', 'placement_count', 'most_recent'),
+        # AFC's default chain: total, then booyahs, then kills, then where the
+        # squad finished in the last match played.
+        tiebreakers=('placement_count', 'total_kills', 'last_map_placement',
+                     'best_placement'),
+        # Lobbies into a final lobby, or the top squads into a knockout.
+        can_feed_into=('battle_royale', 'single_elimination', 'double_elimination',
+                       'stepladder', 'page_playoff'),
         notes=(
             'The placement table is the argument: PUBG Mobile pays 10 for a win '
             'down to 1 for eighth, Free Fire pays 12 down to 1 for tenth. Both '
-            'pay 1 a kill. Set it to match the game being played.'
+            'pay 1 a kill. Set it to match the game being played. How many '
+            'squads share a lobby is the organiser\'s to set.'
+        ),
+    ),
+    'stepladder': Format(
+        key='stepladder',
+        label='Stepladder',
+        summary=(
+            'The lowest seeds play first and each winner climbs to meet the '
+            'next seed up. The top seed waits in the final.'
+        ),
+        min_participants=3,
+        max_participants=16,
+        seeding='ranked',
+        advancement='knockout',
+        scoring='match_win',
+        tiebreakers=('head_to_head',),
+        notes=(
+            'Rewards a high seed with fewer matches to play, so it usually '
+            'follows a table or a Swiss stage that decided the seeds. Every '
+            'loser finishes in a known place: the first match\'s loser is last.'
+        ),
+    ),
+    'page_playoff': Format(
+        key='page_playoff',
+        label='Page playoff',
+        summary=(
+            'Four sides. First plays second for a place in the final; third '
+            'plays fourth to stay alive; the loser of the first meets the '
+            'winner of the second for the other place in the final.'
+        ),
+        min_participants=4,
+        max_participants=4,
+        seeding='ranked',
+        advancement='knockout',
+        scoring='match_win',
+        tiebreakers=('head_to_head',),
+        notes=(
+            'The top two get a second chance and the bottom two do not, which is '
+            'the reward for finishing high in the stage before. Four matches.'
+        ),
+    ),
+    'winner_stays_on': Format(
+        key='winner_stays_on',
+        label='Winner stays on',
+        summary=(
+            'The winner keeps playing the next challenger in the queue. Ends '
+            'when everybody has had a go, or when somebody reaches the winning '
+            'streak the organiser set.'
+        ),
+        min_participants=3,
+        max_participants=32,
+        advancement='streak',
+        scoring='match_win',
+        # The table itself orders by wins, then the longest streak
+        # (stage_engine.streak_rows); these are what the rules screen offers.
+        tiebreakers=('wins', 'head_to_head', 'most_recent'),
+        notes=(
+            'With a streak target, a loser goes to the back of the queue and '
+            'can come round again. Placed by wins, then the longest streak.'
         ),
     ),
     'aggregate_2v2': Format(
@@ -240,7 +317,8 @@ FORMATS = {
         advancement='table',
         scoring='points_3_1_0',
         tiebreakers=('wins', 'head_to_head', 'goal_difference'),
-        can_feed_into=('single_elimination', 'double_elimination', 'swiss'),
+        can_feed_into=('single_elimination', 'double_elimination', 'swiss',
+                       'stepladder', 'page_playoff'),
         notes='Good for a season that runs for weeks rather than an afternoon.',
     ),
 }
@@ -272,6 +350,12 @@ ALIASES = {
     'aggregate_league': 'aggregate_2v2',
     'free_for_all': 'battle_royale',
     'ffa': 'battle_royale',
+    'step_ladder': 'stepladder',
+    'page': 'page_playoff',
+    'page_system': 'page_playoff',
+    'mcintyre': 'page_playoff',
+    'king_of_the_hill': 'winner_stays_on',
+    'winner_stay_on': 'winner_stays_on',
 }
 
 
@@ -335,10 +419,18 @@ GAME_TIEBREAKERS = {
     'fc mobile': ('goal_difference', 'goals_for', 'aggregate_goals'),
     'pes': ('goal_difference', 'goals_for', 'aggregate_goals'),
     # Battle royale: placement and kills, no goals
-    'free fire': ('total_kills', 'best_placement', 'placement_count'),
-    'pubg': ('total_kills', 'best_placement', 'placement_count'),
-    'fortnite': ('total_kills', 'best_placement', 'placement_count'),
-    'warzone': ('total_kills', 'best_placement', 'placement_count'),
+    'free fire': ('placement_count', 'total_kills', 'last_map_placement',
+                  'placement_points', 'kill_points', 'best_placement',
+                  'mvp_count', 'bonus', 'fewest_penalties', 'maps_played'),
+    'pubg': ('placement_count', 'total_kills', 'last_map_placement',
+                  'placement_points', 'kill_points', 'best_placement',
+                  'mvp_count', 'bonus', 'fewest_penalties', 'maps_played'),
+    'fortnite': ('placement_count', 'total_kills', 'last_map_placement',
+                  'placement_points', 'kill_points', 'best_placement',
+                  'mvp_count', 'bonus', 'fewest_penalties', 'maps_played'),
+    'warzone': ('placement_count', 'total_kills', 'last_map_placement',
+                  'placement_points', 'kill_points', 'best_placement',
+                  'mvp_count', 'bonus', 'fewest_penalties', 'maps_played'),
     # Round-based shooters: rounds and maps
     'valorant': ('rounds_difference', 'maps_won'),
     'counter-strike': ('rounds_difference', 'maps_won'),

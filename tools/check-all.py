@@ -136,6 +136,24 @@ CATCHERS = [
      'no unfinished plural, a bracketed s, in a sentence a person reads',
      FRONTEND, ['node', 'scripts/check-plurals.mjs'], True),
 
+    # "8/-", "8/0" and "8/undefined" for one uncapped tournament on four
+    # screens, 28 September 2026, after "0/32 slots" and "0/64" before it.
+    # Every count against a cap goes through slotsText in src/lib/slots.js.
+    ('slots',
+     'how full a tournament is, said one way, with no limit in words',
+     FRONTEND, ['node', 'scripts/check-slots.mjs'], True),
+    # All 25 native date controls were replaced in August 2026; six were back
+    # by 28 September. Only DateField draws a date, in the page's language.
+    ('date inputs',
+     'no native date control, which draws its text in the browser language',
+     FRONTEND, ['node', 'scripts/check-date-inputs.mjs'], True),
+    ('date inputs self-test',
+     'the date input catcher still catches a native control',
+     FRONTEND, ['node', 'scripts/check-date-inputs.mjs', '--self-test'], True),
+    ('slots self-test',
+     'the slots catcher still catches a hand-written count',
+     FRONTEND, ['node', 'scripts/check-slots.mjs', '--self-test'], True),
+
     # Eight controls deleted, ended, cancelled or refunded something on ONE
     # press on 18 September 2026 (a pitch was deleted mid-walk); four more
     # were found by the catcher once it was calibrated. Two presses, always:

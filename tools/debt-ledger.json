@@ -49,6 +49,16 @@
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
+  "date inputs": {
+    "count": 0,
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
+  },
+  "date inputs self-test": {
+    "count": 0,
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
+  },
   "dead ticket codes": {
     "count": 0,
     "first_seen": "2026-09-07",
@@ -243,6 +253,16 @@
     "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
+  },
+  "slots": {
+    "count": 0,
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
+  },
+  "slots self-test": {
+    "count": 0,
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
   },
   "slugs": {
     "count": 0,

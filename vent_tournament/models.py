@@ -721,6 +721,10 @@ class BracketMatch(models.Model):
         ('winners', 'Winners bracket'),
         ('losers', 'Losers bracket'),
         ('grand_final', 'Grand final'),
+        # A match played for a place below first: fifth against sixth in a
+        # bracket that plays for every place. Kept apart so a bracket view can
+        # draw the title path and the places below it separately.
+        ('placement', 'Placement match'),
     ]
 
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='bracket_matches')
@@ -779,6 +783,15 @@ class BracketMatch(models.Model):
     )
     loser_to_slot = models.PositiveSmallIntegerField(null=True, blank=True)  # 1 or 2
     is_final = models.BooleanField(default=False)  # decides tournament completion
+
+    # The final place this match settles, when it settles one. A stepladder
+    # sends the loser of every match home in a known place (the first match's
+    # loser is last); a bracket that plays for every place ends with a match
+    # for fifth and a match for seventh. The match says so itself, so finishing
+    # places are read off the matches rather than guessed from the round a
+    # side went out in, which only works for a plain knockout.
+    winner_place = models.PositiveSmallIntegerField(null=True, blank=True)
+    loser_place = models.PositiveSmallIntegerField(null=True, blank=True)
 
     # Which stage this match belongs to, when the tournament runs in stages.
     #
@@ -2519,3 +2532,236 @@ class BroadcastSlot(models.Model):
 
     def __str__(self):
         return '%s/%s -> %s' % (self.session_id, self.role, self.holds or 'empty')
+
+
+# ---------------------------------------------------------------------------
+# Battle royale
+# ---------------------------------------------------------------------------
+#
+# CEO, 28 September 2026: "For battle royale, build it end to end ... how they
+# calculate and how point systems, mvps, tie breaker and all of that is set",
+# and "you don't hardcode what number of squads can be in a lobby, leave that
+# for the tournament organizers to decide".
+#
+# A battle royale match is not two-sided, so it does not bend BracketMatch into
+# something it is not. Everything below belongs to a stage: a lobby is drawn
+# inside a stage, a map is played inside a lobby, and a result is one squad's
+# finish on one map. How it is scored (the placement table, points a kill, the
+# tiebreaker order, the MVP rule, match point, carry-over) is ONE organiser
+# choice per stage, so it lives on `TournamentStage.settings`, cleaned by
+# `stage_settings.clean`, rather than as rows.
+
+class BRLobby(models.Model):
+    """One lobby of a battle royale stage: the squads who drop together."""
+
+    stage = models.ForeignKey(TournamentStage, on_delete=models.CASCADE,
+                              related_name='br_lobbies')
+    number = models.PositiveSmallIntegerField()
+    # Optional: "Lobby A", "Group of death". Blank shows as the number.
+    name = models.CharField(max_length=60, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['stage_id', 'number']
+        unique_together = [('stage', 'number')]
+
+    def __str__(self):
+        return 'stage %s lobby %s' % (self.stage_id, self.number)
+
+
+class BRLobbySeat(models.Model):
+    """One entrant seated in a lobby.
+
+    `carried_points` is the head start the previous stage gave them (AFC calls
+    it Point Rush): added to their total here, never to a map.
+    """
+
+    lobby = models.ForeignKey(BRLobby, on_delete=models.CASCADE, related_name='seats')
+    registration = models.ForeignKey(TournamentRegistration, on_delete=models.CASCADE,
+                                     related_name='br_seats')
+    seat = models.PositiveSmallIntegerField(default=0)
+    carried_points = models.FloatField(default=0)
+
+    class Meta:
+        ordering = ['lobby_id', 'seat', 'id']
+        unique_together = [('lobby', 'registration')]
+
+    def __str__(self):
+        return 'lobby %s seat %s: %s' % (self.lobby_id, self.seat, self.registration_id)
+
+
+class BRMap(models.Model):
+    """One map played in a lobby. Labelled MATCH 1, MATCH 2 on every screen."""
+
+    STATUSES = (
+        ('pending', 'Not played yet'),
+        ('entered', 'Results entered'),
+    )
+    ENTERED_VIA = (
+        ('', 'Not entered'),
+        ('manual', 'Typed in'),
+        ('ocr', 'Read from a screenshot'),
+    )
+
+    lobby = models.ForeignKey(BRLobby, on_delete=models.CASCADE, related_name='maps')
+    number = models.PositiveSmallIntegerField()
+    # Bermuda, Erangel, Purgatory. Free text: the organiser's game, the
+    # organiser's map pool.
+    map_name = models.CharField(max_length=60, blank=True, default='')
+    scheduled_at = models.DateTimeField(null=True, blank=True)
+    # The custom room the lobby joins. Shown to the squads seated in this
+    # lobby and to the people running it, never on the public page.
+    room_code = models.CharField(max_length=64, blank=True, default='')
+    room_password = models.CharField(max_length=64, blank=True, default='')
+    status = models.CharField(max_length=10, choices=STATUSES, default='pending')
+    entered_via = models.CharField(max_length=8, choices=ENTERED_VIA, blank=True, default='')
+    entered_by = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='br_maps_entered')
+    entered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['lobby_id', 'number']
+        unique_together = [('lobby', 'number')]
+
+    def __str__(self):
+        return 'lobby %s match %s' % (self.lobby_id, self.number)
+
+
+class BRResult(models.Model):
+    """One squad's finish on one map.
+
+    The point columns are WORKED OUT on save from the stage's scoring settings
+    (`br_engine.score_result`), never typed, so a table and the map it came
+    from can never disagree. A squad that did not play keeps its row with
+    `played` false: no placement points, and it does not count as a map played.
+    """
+
+    map = models.ForeignKey(BRMap, on_delete=models.CASCADE, related_name='results')
+    registration = models.ForeignKey(TournamentRegistration, on_delete=models.CASCADE,
+                                     related_name='br_results')
+    played = models.BooleanField(default=True)
+    placement = models.PositiveSmallIntegerField(null=True, blank=True)
+    kills = models.PositiveIntegerField(default=0)
+    assists = models.PositiveIntegerField(default=0)
+    damage = models.PositiveIntegerField(default=0)
+    # Organiser adjustments, each with the reason somebody will ask for.
+    bonus = models.FloatField(default=0)
+    penalty = models.FloatField(default=0)
+    adjustment_note = models.CharField(max_length=200, blank=True, default='')
+
+    placement_points = models.FloatField(default=0)
+    kill_points = models.FloatField(default=0)
+    total = models.FloatField(default=0)
+
+    class Meta:
+        ordering = ['map_id', 'placement', 'id']
+        unique_together = [('map', 'registration')]
+
+    def __str__(self):
+        return 'map %s: %s #%s' % (self.map_id, self.registration_id, self.placement)
+
+
+class BRPlayerLine(models.Model):
+    """One player's line inside a squad's result, which is what an MVP is
+    decided from. `user` is null when the name on the screen could not be tied
+    to an account; the name is kept either way."""
+
+    result = models.ForeignKey(BRResult, on_delete=models.CASCADE, related_name='players')
+    user = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True,
+                             related_name='br_lines')
+    name = models.CharField(max_length=60, blank=True, default='')
+    kills = models.PositiveIntegerField(default=0)
+    assists = models.PositiveIntegerField(default=0)
+    damage = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['result_id', '-kills', 'id']
+
+    def __str__(self):
+        return '%s: %s kills' % (self.name or self.user_id, self.kills)
+
+
+class BROcrJob(models.Model):
+    """One read of a map's result screenshots.
+
+    A read takes 12 to 26 seconds (AFC measured it), which is longer than a
+    request should hold a worker, so it runs in the background and the page
+    asks how it is going. What the reader saw is kept in `rows` for the
+    organiser to review and correct; nothing reaches the results until they
+    commit it, and the commit goes through the same entry path as typing.
+    """
+
+    STATUSES = (
+        ('queued', 'Waiting to be read'),
+        ('reading', 'Being read'),
+        ('ready', 'Ready to review'),
+        ('failed', 'Could not be read'),
+        ('committed', 'Saved as the results'),
+    )
+
+    map = models.ForeignKey(BRMap, on_delete=models.CASCADE, related_name='ocr_jobs')
+    status = models.CharField(max_length=10, choices=STATUSES, default='queued')
+    engine = models.CharField(max_length=40, blank=True, default='')
+    rows = models.JSONField(default=list, blank=True)
+    # A code the screen translates, never the provider's own sentence.
+    error_code = models.CharField(max_length=40, blank=True, default='')
+    created_by = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='br_ocr_jobs')
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return 'ocr %s for map %s: %s' % (self.pk, self.map_id, self.status)
+
+
+def _br_screenshot_path(instance, filename):
+    """An opaque name. What the uploader called the file never reaches disk."""
+    import uuid
+    return 'br-ocr/%s/%s' % (instance.job.map_id, uuid.uuid4().hex)
+
+
+def _br_private_storage():
+    from vent_auth.storages import private_storage
+    return private_storage()
+
+
+class BROcrImage(models.Model):
+    """One screenshot in a read. Kept outside the public media tree: it is read
+    back only by the people running the tournament."""
+
+    job = models.ForeignKey(BROcrJob, on_delete=models.CASCADE, related_name='images')
+    file = models.FileField(upload_to=_br_screenshot_path, storage=_br_private_storage,
+                            max_length=200)
+    content_type = models.CharField(max_length=20)
+    size = models.PositiveIntegerField(default=0)
+    order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ['job_id', 'order']
+
+
+class BRNameAlias(models.Model):
+    """This name on the screen is this player, learned from a correction.
+
+    Per tournament: an in-game name is stable across a tournament's stages and
+    means nothing in another tournament where the same letters may be somebody
+    else. `screen_name` is stored folded (`br_ocr.fold`), so matching is exact.
+    """
+
+    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE,
+                                   related_name='br_aliases')
+    screen_name = models.CharField(max_length=60)
+    registration = models.ForeignKey(TournamentRegistration, on_delete=models.CASCADE,
+                                     related_name='br_aliases')
+    user = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True,
+                             related_name='br_aliases')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [('tournament', 'screen_name')]
+
+    def __str__(self):
+        return '%s -> %s' % (self.screen_name, self.user_id or self.registration_id)

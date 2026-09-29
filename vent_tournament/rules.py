@@ -89,8 +89,15 @@ PLACEMENT_PRESETS = {
 }
 
 
-def preset_for(format_key):
-    """A fresh, editable ruleset for a format. Never the preset object itself."""
+def preset_for(format_key, game_title=None):
+    """A fresh, editable ruleset for a format. Never the preset object itself.
+
+    A battle royale's placement table is the game's own when the game is known
+    (Free Fire pays twelve places, PUBG Mobile eight), the same table the stage
+    and the public page start from. Without it the rules screen made a PUBG
+    table for a Free Fire tournament the first time anybody opened it, and the
+    stage then read that as the organiser's choice (walk, 28 September 2026).
+    """
     definition = fmt.get(format_key)
     key = definition.key if definition else 'single_elimination'
     base = PRESETS.get(key, PRESETS['single_elimination'])
@@ -109,6 +116,14 @@ def preset_for(format_key):
         if extra in base:
             value = base[extra]
             ruleset[extra] = dict(value) if isinstance(value, dict) else value
+    if key == 'battle_royale':
+        # The stage's own defaults, so the rules screen and the lobbies start
+        # from one answer whichever of them is opened first.
+        from . import stage_settings
+        ruleset['tiebreakers'] = list(stage_settings.BR_DEFAULT_TIEBREAKERS)
+        if game_title:
+            preset = stage_settings.br_game_defaults(game_title)['placement_preset']
+            ruleset['placement_points'] = dict(stage_settings.BR_PLACEMENT_PRESETS[preset])
     return ruleset
 
 

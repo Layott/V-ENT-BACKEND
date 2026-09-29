@@ -516,6 +516,7 @@ def match_detail(request, match_id):
 
     from . import match_shape, stage_engine, stage_settings
     from . import options as tournament_options
+    from .services.bracket import normalize_bracket_type
     if stage_engine.settle_no_show(match):
         match.refresh_from_db()
     body = match_shape.match_row(match, private=True)
@@ -548,6 +549,11 @@ def match_detail(request, match_id):
             | Q(participant_2_id__in=[p for p in (match.participant_1_id, match.participant_2_id) if p])
         ).exclude(pk=match.pk).exists(),
         'can_record': is_staff,
+        # The format this match is played in (its stage's, or the
+        # tournament's), so the room can call it what the bracket calls it:
+        # "Rung 1", "Final", "For places 5 and 6", not "Round 4, match 1".
+        'format': (match.stage.format if match.stage_id
+                   else normalize_bracket_type(match.tournament.bracket_type)),
     })
     return _ok(body)
 

@@ -50,6 +50,10 @@ def match_row(m, *, private=False):
         'match_number': m.match_number,
         'bracket_side': m.bracket_side,
         'is_final': m.is_final,
+        # The final place this match settles, when it settles one (a
+        # stepladder rung, a match for fifth).
+        'winner_place': m.winner_place,
+        'loser_place': m.loser_place,
         'participant_1': entrant(m.participant_1),
         'participant_2': entrant(m.participant_2),
         'winner': entrant(m.winner),
@@ -81,11 +85,45 @@ def match_row(m, *, private=False):
     return row
 
 
+def place_ranges(matches):
+    """{match id: (best, worst)} for every match that leads to stated places.
+
+    A match played for fifth to eighth leads to the match for fifth and the
+    match for seventh; its range is what they settle between them. Worked out
+    by following the pointers, so a screen can title a section "Places 5 to 8"
+    without knowing how the bracket was built. Empty for a plain knockout.
+    """
+    by_id = {m.id: m for m in matches}
+    if not any(m.winner_place or m.loser_place for m in matches):
+        return {}
+    memo = {}
+
+    def reach(m, depth=0):
+        if m.id in memo:
+            return memo[m.id]
+        found = {p for p in (m.winner_place, m.loser_place) if p}
+        if depth < 64:
+            for nxt in (m.winner_to_match_id, m.loser_to_match_id):
+                if nxt in by_id:
+                    found |= reach(by_id[nxt], depth + 1)
+        memo[m.id] = found
+        return found
+
+    out = {}
+    for m in matches:
+        found = reach(m)
+        if found:
+            out[m.id] = (min(found), max(found))
+    return out
+
+
 def rounds_of(matches, *, private_for=None):
     """[{round, bracket_side, group_number, matches}] in playing order."""
+    ranges = place_ranges(matches)
     buckets = {}
     for m in matches:
-        key = (m.group_number or 0, {'winners': 0, 'losers': 1, 'grand_final': 2}
+        key = (m.group_number or 0, {'winners': 0, 'losers': 1, 'grand_final': 2,
+                                     'placement': 3}
                .get(m.bracket_side, 0), m.round_number)
         buckets.setdefault(key, []).append(m)
     out = []
@@ -96,7 +134,8 @@ def rounds_of(matches, *, private_for=None):
             'round': rnd,
             'bracket_side': ms[0].bracket_side,
             'group_number': group or None,
-            'matches': [match_row(x, private=bool(private_for and private_for(x)))
+            'matches': [dict(match_row(x, private=bool(private_for and private_for(x))),
+                             places=list(ranges[x.id]) if x.id in ranges else None)
                         for x in ms],
         })
     return out
