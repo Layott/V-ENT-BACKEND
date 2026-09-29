@@ -168,3 +168,50 @@ and stage builder offering each format, mobile 390 and the emulator, French and 
 - 310 loading: the CEO chose option A of docs/mockups/loading-options.html; RouteLoading on 30 routes.
 - 314 found: French settings page shows "Verified" and "Save" in English. Not started.
 - Local: dev server on 3005 is on feat/page-loading; mock server on 8765; emulator running.
+
+## Night 28 September: translations, the admin token, and the full walk
+
+PRs added on top of the merge order above: FE #200 (on #199) and BE #190 (on #189). Merge FE #200
+BEFORE BE #190, or #190's check-all fails on a tree without the two new scripts.
+
+- 314 done: Settings > Account said "Verified" and "Save" in English in fr and pt. Walked in
+  Chrome at /fr/settings, desktop and a 390px iframe: "Vérifiée", "Enregistrer", no English.
+- 315 done: 939 fr/pt strings had no accents (measured at HEAD with the calibrated checker, 1183
+  words). All rewritten by hand in batches through a scratch applier. scripts/check-accents.mjs
+  holds it (11 self-test cases): "s'enregistre", "supprime", "modifie" are verbs and count only
+  after an auxiliary; an all-capitals token (?ref=CODIGO) is a placeholder, not prose.
+- 316 done: 31 keys written twice in EVERY language; JS keeps the last copy. Where the two meant
+  different things one screen showed the other's words (admin table printed "{name}
+  disqualified.", squad rules panel titled "Mixed squads", lineup panel "How this tournament is
+  scored", ticket day picker "For one day only", membership status the refund toast). First
+  meaning renamed into its own key in the component that reads it; exact copies dropped;
+  NOT_CANCELLED and DUPLICATE are backend codes used in two contexts, so one wording true for
+  both. scripts/check-dict-duplicates.mjs reads the SOURCE (the only place the dropped copy
+  exists): 93 at the parent commit, 0 now. Both checkers are blocking rows in check-all (BE #190).
+- 317 done: the security hook blocked publishing admin/tournaments because all 21 console pages
+  read localStorage.adminToken (R66). The token is in memory now (src/lib/adminToken.js), set by
+  useAdminAuth while rendering; old disk copies are removed on the next visit.
+  WRONG TURN, found in the Chrome walk: on a fresh visit the first render has no session yet, so
+  a page's first load returned early and never ran again. Organisations told a super admin
+  "There are no organisations yet". The disk copy had hidden this for months. Fix: the (admin)
+  layout renders RouteLoading until useAdminAuth resolves, so every section mounts with the
+  token. Retested in Chrome: all 21 console pages load, no 4xx, stale disk copy gone.
+- Also found in Chrome and fixed: /settings crashed ("Cannot read properties of null (reading
+  'email')") when the profile had not loaded; on a phone its Save buttons sat at x=760-890 of a
+  375px screen (grid column was a bare 1fr = minmax(auto,1fr), widened by the tab strip; the
+  wrapper clips overflow so scrollWidth still read 375). Columns are minmax(0,1fr).
+- The walker (scripts/audit-walk.js) was lying in four ways, all fixed:
+  1. every dynamic route was walked with a literal [slug], so it only ever tested not-found;
+     AUDIT_SAMPLES now maps each to a real record (22 routes; generator in the scratchpad);
+  2. /u/demo_organizer was reported dead because [username] was not a wildcard;
+  3. the admin run signed in at /auth/admin/login/, which no longer exists: the admin walk had
+     been failing since the doors merged (last good report August);
+  4. overflow was judged by scrollWidth only; OFFSCREEN now finds controls past the edge that no
+     scroller or drawer reaches (6 on /settings before, 0 after).
+  Git Bash rewrites an env value starting with / into a Windows path: set MSYS_NO_PATHCONV=1 or
+  ONLY=/x matches nothing.
+- next's jest-worker directory vanished mid-build four times today (not Defender, no V-ENT dev
+  server running). Keep a copy in $TEMP/jest-worker-backup and restore it before building.
+- Still open: 404 page title reads "V-ENT | V-ENT"; /tournaments cards request banners from the
+  FRONTEND origin (404); login page background may be pure black (design ban E); the full
+  seven-role walk (desktop + mobile, real records) is running and its findings are next.
