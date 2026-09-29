@@ -24,6 +24,7 @@ from vent_event import ledger
 from vent_event.models import EventLedgerEntry
 
 from . import lookup
+from . import options as tournament_options
 
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
@@ -143,7 +144,23 @@ def earnings(request, tournament_id):
         'entry_vc': int(tournament.entry_fee_price or 0) if tournament.entry_fee == 'Paid' else 0,
         **figures_for(tournament),
         'settlements': runs,
+        'no_shows': _no_show_rule(tournament),
     })
+
+
+def _no_show_rule(tournament):
+    """What happens to the fee of somebody taken out for not checking in.
+
+    `applies` is false when the tournament has no check-in or does not take
+    people out for missing it; there is then nothing to choose.
+    """
+    opts = tournament_options.clean(tournament.options)
+    refund = bool(opts['refund_no_shows'])
+    return {
+        'applies': bool(opts['check_in_minutes'] and opts['forfeit_without_check_in']),
+        'refund': refund,
+        'locked': refund and tournament.registrations.filter(entry_fee_paid=True).exists(),
+    }
 
 
 @api_view(['POST'])

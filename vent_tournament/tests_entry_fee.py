@@ -300,3 +300,138 @@ class OrganiserIsPaidTests(TestCase):
         self.assertEqual(third.data['data']['amount_vc'], 9)
         self.assertEqual(balance(self.org), 37)
         self.assertEqual(third.data['data']['organiser_owed_ngn'], 600.0)
+
+
+class NoShowKeepsTheFeeTests(TestCase):
+    """A paid entrant who never checks in keeps no refund.
+
+    CEO decision D-1, "Keep that" (28 September 2026) and again "they shouldnt
+    get a refund" (29 September 2026). The close confirmation already said so;
+    nothing held it, and a later cancel refunding the no-show too would have
+    quietly undone the rule.
+    """
+
+    def setUp(self):
+        from datetime import timedelta
+        self.org = make_user(950)
+        self.t = make_tournament(self.org, entry_fee='Paid', entry_fee_price=10)
+        # Check-in opens an hour before the start; the start is 30 minutes
+        # away, so the window is open now.
+        self.t.start_date_and_time = timezone.now() + timedelta(minutes=30)
+        self.t.options = {'check_in_minutes': 60, 'forfeit_without_check_in': True}
+        self.t.save(update_fields=['start_date_and_time', 'options'])
+        self.players = [a_player(951 + i, coins=50) for i in range(3)]
+        for p in self.players:
+            self.assertEqual(join(p, self.t).status_code, 201)
+
+    def _check_in(self, user):
+        return client_for(user).post('/tournament/%s/check-in/' % self.t.tournament_id)
+
+    def test_status_tells_a_paid_entrant_the_fee_is_at_stake(self):
+        res = client_for(self.players[0]).get('/tournament/%s/check-in/status/' % self.t.tournament_id)
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertTrue(res.data['data']['entry_fee_paid'])
+        self.assertTrue(res.data['data']['forfeit_without_check_in'])
+
+    def test_closing_check_in_keeps_the_no_shows_fee(self):
+        self._check_in(self.players[0])
+        self._check_in(self.players[1])
+        res = client_for(self.org).post('/tournament/%s/close-check-in/' % self.t.tournament_id)
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(len(res.data['data']['forfeited']), 1)
+
+        no_show = TournamentRegistration.objects.get(tournament=self.t, user=self.players[2])
+        self.assertEqual(no_show.status, 'disqualified')
+        self.assertEqual(balance(self.players[2]), 40, 'the fee stays with the tournament')
+        self.assertFalse(Transaction.objects.filter(
+            wallet__user=self.players[2], type='refund').exists())
+        # The organiser is still owed the no-show's entry.
+        self.assertFalse(EventLedgerEntry.objects.filter(
+            tournament=self.t, registration=no_show, amount_ngn__lt=0).exists())
+
+    def test_a_later_cancel_refunds_those_who_showed_and_not_the_no_show(self):
+        self._check_in(self.players[0])
+        self._check_in(self.players[1])
+        client_for(self.org).post('/tournament/%s/close-check-in/' % self.t.tournament_id)
+        res = client_for(self.org).post('/tournament/%s/cancel/' % self.t.tournament_id,
+                                        {'reason': 'venue lost'}, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data['data']['refunded_count'], 2)
+        self.assertEqual(balance(self.players[0]), 50)
+        self.assertEqual(balance(self.players[1]), 50)
+        self.assertEqual(balance(self.players[2]), 40)
+
+
+class OrganiserRefundsNoShowsTests(NoShowKeepsTheFeeTests):
+    """The organiser may choose to refund no-shows (CEO, 29 September 2026).
+
+    Inherits the setUp; every inherited test is re-stated below for the
+    refunding case, so the class runs only its own.
+    """
+
+    def setUp(self):
+        super().setUp()
+        opts = dict(self.t.options, refund_no_shows=True)
+        self.t.options = opts
+        self.t.save(update_fields=['options'])
+
+    # The parent's assertions are the opposite rule; do not inherit them.
+    test_closing_check_in_keeps_the_no_shows_fee = None
+    test_a_later_cancel_refunds_those_who_showed_and_not_the_no_show = None
+
+    def test_closing_refunds_the_no_show_and_reverses_their_lines(self):
+        self._check_in(self.players[0])
+        self._check_in(self.players[1])
+        res = client_for(self.org).post('/tournament/%s/close-check-in/' % self.t.tournament_id)
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data['data']['refunded_count'], 1)
+        self.assertEqual(res.data['data']['forfeited'][0]['refunded'], 10)
+
+        no_show = TournamentRegistration.objects.get(tournament=self.t, user=self.players[2])
+        self.assertEqual(no_show.status, 'disqualified')
+        self.assertFalse(no_show.entry_fee_paid)
+        self.assertEqual(balance(self.players[2]), 50)
+        self.assertEqual(balance(self.players[0]), 40, 'those who showed still paid')
+        self.assertTrue(Transaction.objects.filter(
+            wallet__user=self.players[2], type='refund').exists())
+
+    def test_the_status_says_refunds_are_on(self):
+        res = client_for(self.players[0]).get('/tournament/%s/check-in/status/' % self.t.tournament_id)
+        self.assertTrue(res.data['data']['refund_no_shows'])
+
+    def _edit_options(self, **opts):
+        return client_for(self.org).put(
+            '/tournament/edit-tournament/%d/' % self.t.tournament_id,
+            {'options': opts}, format='json')
+
+    def test_refunds_cannot_be_switched_off_once_somebody_paid(self):
+        res = self._edit_options(refund_no_shows=False)
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.t.refresh_from_db()
+        self.assertTrue(self.t.options['refund_no_shows'],
+                        'paid entrants were promised a refund; it holds')
+
+    def test_refunds_can_be_switched_off_before_anybody_paid(self):
+        free_of_entries = make_tournament(self.org, entry_fee='Paid', entry_fee_price=10)
+        free_of_entries.options = {'refund_no_shows': True}
+        free_of_entries.save(update_fields=['options'])
+        res = client_for(self.org).put(
+            '/tournament/edit-tournament/%d/' % free_of_entries.tournament_id,
+            {'options': {'refund_no_shows': False}}, format='json')
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        free_of_entries.refresh_from_db()
+        self.assertFalse(free_of_entries.options['refund_no_shows'])
+
+
+class KeepFeeCanBecomeRefundTests(NoShowKeepsTheFeeTests):
+    test_closing_check_in_keeps_the_no_shows_fee = None
+    test_a_later_cancel_refunds_those_who_showed_and_not_the_no_show = None
+    test_status_tells_a_paid_entrant_the_fee_is_at_stake = None
+
+    def test_refunds_can_be_switched_on_after_people_paid(self):
+        res = client_for(self.org).put(
+            '/tournament/edit-tournament/%d/' % self.t.tournament_id,
+            {'options': {'refund_no_shows': True}}, format='json')
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.t.refresh_from_db()
+        self.assertTrue(self.t.options['refund_no_shows'])

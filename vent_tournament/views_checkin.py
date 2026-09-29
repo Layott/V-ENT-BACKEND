@@ -27,6 +27,7 @@ from rest_framework.response import Response
 
 from vent_auth.views_profile import _user_from_bearer
 from . import options as tournament_options
+from .services import wallet as wallet_service
 from .models import Tournament, TournamentRegistration
 
 from . import lookup
@@ -101,6 +102,12 @@ def check_in_status(request, tournament_id):
         'closed_by_organiser': window['closed_by_organiser'],
         'seconds_remaining': max(0, seconds_left),
         'forfeit_without_check_in': window['forfeit_without_check_in'],
+        # A paid entrant who does not check in keeps no refund (CEO D-1,
+        # 28 and 29 September 2026), so the strip says so to the people it
+        # costs, before the window closes rather than after.
+        'entry_fee_paid': bool(registration and registration.entry_fee_paid),
+        'refund_no_shows': window['refund_no_shows'],
+        'entry_fee_charged': tournament.entry_fee == 'Paid' and (tournament.entry_fee_price or 0) > 0,
         # Once the bracket is drawn, check-in is history: closing it is
         # refused (BRACKET_EXISTS), so the strip must not offer it (second
         # bracket walk, 28 September 2026: "Close check-in" on a finished
@@ -158,6 +165,29 @@ def check_in(request, tournament_id):
     registration.checked_in_at = now
     registration.save(update_fields=['checked_in_at'])
     return _ok({'checked_in': True, 'checked_in_at': now}, 'You are checked in.')
+
+
+def _refund_no_show(tournament, registration, locked_wallets):
+    """Give an entrant taken out for not checking in back what they paid.
+
+    Only when the organiser chose to (`refund_no_shows`). What they paid comes
+    from the entry's own ledger lines, which also reverses the organiser's take
+    and the fee, exactly as a cancel does. Returns the coins refunded, or None
+    when there is no wallet to pay into.
+    """
+    from vent_event import ledger as money_ledger
+    wallet = wallet_service.wallet_for_registration(registration, locked_wallets)
+    if wallet is None:
+        return None
+    _reversed, paid = money_ledger.reverse_entry(registration, 'Did not check in')
+    coins = paid if paid is not None else int(tournament.entry_fee_price)
+    wallet_service.credit(
+        wallet, coins,
+        tx_type='refund',
+        description=f'Refund - did not check in: {tournament.tournament_title}',
+        tournament=tournament,
+    )
+    return coins
 
 
 @api_view(['POST'])
@@ -221,12 +251,26 @@ def close_check_in(request, tournament_id):
                 {'checked_in': len(present), 'registered': len(active)},
             )
 
+        refund = window['refund_no_shows'] and tournament.entry_fee == 'Paid'
         with transaction.atomic():
+            if refund:
+                paid_absent = [r for r in absent if r.entry_fee_paid]
+                # Same order as a cancel: every wallet locked up front, in PK
+                # order, so two closes can never deadlock on each other.
+                locked_wallets = wallet_service.lock_wallets_for_registrations(paid_absent)
             for registration in absent:
                 registration.status = 'disqualified'
                 registration.forfeited_reason = 'Did not check in'
-                registration.save(update_fields=['status', 'forfeited_reason'])
-                removed.append({'registration_id': registration.id, 'name': _label(registration)})
+                fields = ['status', 'forfeited_reason']
+                refunded = 0
+                if refund and registration.entry_fee_paid:
+                    refunded = _refund_no_show(tournament, registration, locked_wallets)
+                    if refunded is not None:
+                        registration.entry_fee_paid = False
+                        fields.append('entry_fee_paid')
+                registration.save(update_fields=fields)
+                removed.append({'registration_id': registration.id, 'name': _label(registration),
+                                'refunded': refunded or 0})
 
     with transaction.atomic():
         tournament.status = 'registration_closed'
@@ -238,6 +282,7 @@ def close_check_in(request, tournament_id):
         'forfeited': removed,
         'not_checked_in': [{'registration_id': r.id, 'name': _label(r)} for r in absent],
         'forfeit_applied': bool(forfeit and removed),
+        'refunded_count': sum(1 for r in removed if r['refunded']),
         'remaining': len(present) if forfeit else len(active),
     }, (
         f'Check-in closed. {len(present)} in, {len(removed)} forfeited.' if removed

@@ -190,6 +190,15 @@ CATCHERS = [
     ('tx text self-test',
      'the tx text catcher still catches an untranslated text',
      FRONTEND, ['node', 'scripts/check-tx-text.mjs', '--self-test'], True),
+    # English written straight into a screen as a prop or between tags, where
+    # no dictionary reaches it: four organiser hints, the landing email box and
+    # the registration receipt (29 September 2026). Only files a page reaches.
+    ('literal text',
+     'no English prose written straight into a reachable screen',
+     FRONTEND, ['node', 'scripts/check-literal-text.mjs'], True),
+    ('literal text self-test',
+     'the literal text catcher still catches a literal hint and a label',
+     FRONTEND, ['node', 'scripts/check-literal-text.mjs', '--self-test'], True),
     # On Windows a rebuild deleted .next through its standalone symlinks and
     # emptied next, react and react-dom (28 September 2026, four times).
     # prebuild now unlinks them first; this keeps the unlinker honest.

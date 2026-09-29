@@ -43,6 +43,12 @@ DEFAULTS = {
     # Check-in
     'check_in_minutes': 15,
     'forfeit_without_check_in': True,
+    # Whether an entrant taken out for not checking in gets their entry fee
+    # back. Off by default: a paid no-show keeps no refund (CEO decision D-1,
+    # 28 September 2026). The organiser may choose to refund (CEO, 29 September
+    # 2026). Once anybody has paid it can be switched on, never back off: see
+    # keep_refund_promise.
+    'refund_no_shows': False,
 
     # Bracket shape
     'seeding_method': 'registration',
@@ -73,7 +79,7 @@ DEFAULTS = {
 
 BOOLEANS = {
     'require_verified_email', 'require_kyc', 'allow_roster_changes_between_rounds',
-    'forfeit_without_check_in', 'third_place_match', 'every_place', 'group_stage',
+    'forfeit_without_check_in', 'refund_no_shows', 'third_place_match', 'every_place', 'group_stage',
     'require_screenshot', 'rules_acknowledgement',
 }
 
@@ -135,6 +141,43 @@ def clean(raw):
     return out
 
 
+def merge(tournament, incoming):
+    """What to store when an organiser edits their settings.
+
+    The one writer for `Tournament.options` on an edit. Three things it holds:
+
+    * the organiser settings are merged, never replaced, so a screen that only
+      sends the check-in window cannot wipe the region restriction;
+    * anything else already stored is kept. `league_stats` and
+      `league_adjustments` live in the same dict and are written by their own
+      screens; clean() alone keeps only the organiser settings and threw them
+      away on every edit (found 29 September 2026);
+    * nothing the request invents is stored: an unknown key from the request is
+      dropped, as clean() always did.
+    """
+    stored = tournament.options if isinstance(tournament.options, dict) else {}
+    incoming = incoming if isinstance(incoming, dict) else {}
+    before = clean(stored)
+    after = clean({**before, **{k: v for k, v in incoming.items() if k in DEFAULTS}})
+    after = keep_refund_promise(tournament, before, after)
+    extras = {k: v for k, v in stored.items() if k not in DEFAULTS}
+    return {**extras, **after}
+
+
+def keep_refund_promise(tournament, before, after):
+    """An organiser may start refunding no-shows at any time, but may not stop
+    once somebody has paid on the promise of it.
+
+    `before` and `after` are cleaned option dicts. Returns `after`, with
+    `refund_no_shows` held on when switching it off would take back what paid
+    entrants were told when they paid.
+    """
+    if before.get('refund_no_shows') and not after.get('refund_no_shows'):
+        if tournament.registrations.filter(entry_fee_paid=True).exists():
+            after = dict(after, refund_no_shows=True)
+    return after
+
+
 def check_in_state(tournament, now):
     """Whether check-in is open, and when it closes.
 
@@ -165,6 +208,7 @@ def check_in_state(tournament, now):
         'closed': bool(closed_by_organiser) or now > closes,
         'closed_by_organiser': bool(closed_by_organiser),
         'forfeit_without_check_in': options['forfeit_without_check_in'],
+        'refund_no_shows': options['refund_no_shows'],
     }
 
 

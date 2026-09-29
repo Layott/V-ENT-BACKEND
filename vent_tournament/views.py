@@ -796,6 +796,53 @@ def _typed_amount(raw):
         return None, False
 
 
+def _league_payload(tournament):
+    """The league scoring as stored, or None for a format without a table."""
+    if not _wants_league(tournament.bracket_type):
+        return None
+    row = LeagueRules.objects.filter(tournament=tournament).first()
+    if row is None:
+        return None
+    return {
+        'points_win': row.points_win, 'points_draw': row.points_draw,
+        'points_loss': row.points_loss, 'players_per_team': row.players_per_team,
+        'tiebreakers': list(row.tiebreakers or []),
+    }
+
+
+LEAGUE_KEYS = ('points_win', 'points_draw', 'points_loss', 'players_per_team', 'tiebreakers')
+
+
+def _save_league_settings(tournament, data):
+    """An edit to the league points, into LeagueRules and the ruleset alike.
+
+    Only what the request sent changes: a key it left out keeps its stored
+    value rather than falling back to three for a win. The ruleset, when there
+    is one, is given the same numbers, because the rules editor copies the
+    ruleset over LeagueRules on its next save and the two must not disagree.
+    """
+    row, _ = LeagueRules.objects.get_or_create(tournament=tournament)
+    current = {
+        'points_win': row.points_win, 'points_draw': row.points_draw,
+        'points_loss': row.points_loss,
+        'players_per_team': row.players_per_team or tournament.team_size or 1,
+        'tiebreakers': list(row.tiebreakers or []),
+    }
+    sent = {k: data.get(k) for k in LEAGUE_KEYS if k in data}
+    settings = _league_settings({**current, **sent}, tournament.team_size or 1)
+    for key, value in settings.items():
+        setattr(row, key, value)
+    row.save()
+
+    ruleset = getattr(tournament, 'ruleset', None) if hasattr(tournament, 'ruleset') else None
+    if ruleset is not None:
+        body = dict(ruleset.data or {})
+        body['points'] = {'win': row.points_win, 'draw': row.points_draw, 'loss': row.points_loss}
+        body['tiebreakers'] = list(row.tiebreakers)
+        ruleset.data = body
+        ruleset.save(update_fields=['data', 'updated_at'])
+
+
 def _league_settings(data, team_size):
     """Points, seats and the tiebreak order, from whatever the wizard sent.
 
@@ -1306,6 +1353,13 @@ def _check_in_summary(tournament):
         'closed': window['closed'],
         'closed_by_organiser': window['closed_by_organiser'],
         'forfeit_without_check_in': window['forfeit_without_check_in'],
+        'refund_no_shows': window['refund_no_shows'],
+        # On, and somebody has paid on the promise of it: the wizard shows the
+        # switch held on rather than letting it look movable (the save would
+        # keep it on anyway, see options.keep_refund_promise).
+        'refund_no_shows_locked': bool(
+            window['refund_no_shows']
+            and tournament.registrations.filter(entry_fee_paid=True).exists()),
         'checked_in_count': tournament.registrations.filter(
             status__in=('pending', 'confirmed'), checked_in_at__isnull=False,
         ).count(),
@@ -1595,6 +1649,10 @@ def view_tournament(request, tournament_id):
             # will be held to rather than discovering them at registration.
             "options": tournament_options.clean(tournament.options),
             "check_in": _check_in_summary(tournament),
+            # How the table is scored, from LeagueRules, the row the table
+            # reads. The draft wizard fell back to 3 / 1 / 0 without it, and
+            # saving a draft wrote those back over the organiser's own points.
+            "league": _league_payload(tournament),
             "tournament_creator": creator_obj,
             "prize_distribution": prize_list,
             "tournament_logo": tournament.tournament_logo.url if tournament.tournament_logo else None,
@@ -2444,19 +2502,16 @@ def edit_tournament(request, tournament_id):
                 # changing one setting must not wipe the twenty-one it did not
                 # mention. clean() runs over the merged result, so what is
                 # stored is still a whole valid object.
-                merged = dict(tournament.options or {})
-                merged.update(raw_options)
-                tournament.options = tournament_options.clean(merged)
+                tournament.options = tournament_options.merge(tournament, raw_options)
                 updated_fields.append('options')
 
-        # The league points and seat count, for the formats that have them.
-        if _wants_league(tournament.bracket_type):
-            league = _league_settings(request.data, tournament.team_size or 1)
-            merged = dict(tournament.options or {})
-            merged.update(league)
-            tournament.options = merged
-            if 'options' not in updated_fields:
-                updated_fields.append('options')
+        # The league points and seat count, for the formats that have them,
+        # into LeagueRules, which is the row the table is computed from. They
+        # used to be merged into `options`, which nothing reads, so continuing
+        # a draft and changing the points did nothing (29 September 2026).
+        if _wants_league(tournament.bracket_type) and any(
+                key in request.data for key in LEAGUE_KEYS):
+            _save_league_settings(tournament, request.data)
 
         # Sponsors, replaced wholesale rather than added to.
         #
@@ -2551,20 +2606,9 @@ def edit_tournament(request, tournament_id):
                 tournament.status = 'draft' if tournament.is_draft else 'registration_open'
                 updated_fields.append('status')
 
-        # Organiser settings. Merged onto what is already stored rather than
-        # replacing it, so an edit screen that only sends the check-in window
-        # cannot silently wipe the region restriction.
-        raw_options = request.data.get('options')
-        if isinstance(raw_options, str):
-            try:
-                raw_options = json.loads(raw_options) if raw_options.strip() else None
-            except (json.JSONDecodeError, ValueError):
-                raw_options = None
-        if isinstance(raw_options, dict):
-            merged = dict(tournament_options.clean(tournament.options))
-            merged.update(raw_options)
-            tournament.options = tournament_options.clean(merged)
-            updated_fields.append('options')
+        # Organiser settings: written once, above, by tournament_options.merge.
+        # A second copy of that write lived here and ran clean() over the
+        # result, which undid the first and dropped the league settings.
 
         # Validate game if provided
         game_title = request.data.get('game')
