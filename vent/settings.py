@@ -488,13 +488,9 @@ FRONTEND_LOCALHOST = os.environ.get('FRONTEND_LOCALHOST', 'http://localhost:3000
 # somebody who never returns should not be burned forever.
 WAITLIST_HOLD_DAYS = int(os.environ.get('WAITLIST_HOLD_DAYS', '90'))
 
-# VENT COINS credited when a waitlist reservation is claimed. Deliberately 0:
-# the founding-member perk is the reserved username and the badge, neither of
-# which costs anything, and the claim email promises no coins. The mechanism
-# exists so that when there is budget this becomes a number, and
-# `manage.py grant_founding_bonus` can pay everyone already marked as founding
-# without anyone having been promised money we did not have.
-WAITLIST_CLAIM_BONUS_VC = int(os.environ.get('WAITLIST_CLAIM_BONUS_VC', '0'))
+# No coin bonuses of any kind (CEO, 29 September 2026): coins exist only when
+# somebody buys them, because they will soon be worth real money. The
+# founding-member perk is the reserved username and the badge.
 
 # The key the Futbin scraper posts with. Empty means ingest is off, which is
 # the right default: a write endpoint with no key set must refuse everybody
