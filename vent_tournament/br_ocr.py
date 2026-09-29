@@ -143,15 +143,8 @@ def used_today(user):
 # Uploads
 # ---------------------------------------------------------------------------
 
-def sniff(head):
-    """The real type from the first bytes, whatever the upload claimed."""
-    if head.startswith(b'\x89PNG\r\n\x1a\n'):
-        return 'image/png'
-    if head[:3] == b'\xff\xd8\xff':
-        return 'image/jpeg'
-    if head[:4] == b'RIFF' and head[8:12] == b'WEBP':
-        return 'image/webp'
-    return None
+# One sniffer for every door that takes an image (vent_auth/uploads.py).
+from vent_auth.uploads import sniff  # noqa: E402
 
 
 def check_uploads(files):

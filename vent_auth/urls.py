@@ -32,6 +32,8 @@ from . import views_discord_auth as discord_auth
 from . import views_discord_interactions as discord_interactions
 from . import views_discord_server as discord_guild
 from . import views_discord_webhooks as discord_hooks
+from . import views_flutterwave
+from . import views_wallet as views_wallet_mod
 from . import views_linking as linking
 from . import views_cards as cards
 
@@ -285,6 +287,8 @@ urlpatterns = [
          discord_guild.server_purge, name="discord_guild_purge"),
     path("discord/guild/<str:ref>/servers/<int:server_id>/log/",
          discord_guild.server_log, name="discord_guild_log"),
+    # Flutterwave telling us a payment moved (29 September 2026).
+    path("flutterwave/webhook/", views_flutterwave.webhook, name="flutterwave_webhook"),
     path("discord/webhooks/<str:kind>/<str:ref>/", discord_hooks.webhooks,
          name="discord_webhooks"),
     path("discord/webhooks/<str:kind>/<str:ref>/<int:hook_id>/",
@@ -323,6 +327,7 @@ urlpatterns = [
     path("wallet/withdraw/quote/", withdraw_quote, name="withdraw_quote"),
     # Paying for something with a card instead of coins already held.
     path("wallet/pay/methods/", pay_methods, name="pay_methods"),
+    path("wallet/pay/providers/", views_wallet_mod.pay_providers, name="pay_providers"),
     path("wallet/pay/", pay_shortfall, name="pay_shortfall"),
     path("wallet/withdraw/initiate/", withdraw_initiate, name="withdraw_initiate"),
     path("wallet/withdraw/status/", withdraw_status, name="withdraw_status"),

@@ -2380,6 +2380,11 @@ class AbandonedCheckout(models.Model):
     # so a retried request cannot write the attempt twice.
     reference = models.CharField(max_length=64, unique=True)
     total_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # The whole order, for a gateway that does not carry it back. Paystack
+    # returns its metadata at verification; Flutterwave's `meta` holds strings
+    # only and is not returned for every method, so the order is kept here
+    # against the reference (29 September 2026).
+    order = models.JSONField(null=True, blank=True)
 
     started_at = models.DateTimeField(auto_now_add=True)
     converted_at = models.DateTimeField(null=True, blank=True)

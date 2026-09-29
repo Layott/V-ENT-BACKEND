@@ -87,6 +87,17 @@ def default_card(user):
     ).exclude(authorization_code='').order_by('-is_default', '-created_at').first()
 
 
+def providers():
+    """The gateways that can take money now, in the order they are offered."""
+    from . import flutterwave
+    out = []
+    if paystack.configured():
+        out.append({'key': 'paystack', 'test_mode': paystack.is_test()})
+    if flutterwave.configured():
+        out.append({'key': 'flutterwave', 'test_mode': flutterwave.is_test()})
+    return out
+
+
 def options(user):
     """What this person can pay with, for a screen deciding what to offer.
 
@@ -96,9 +107,13 @@ def options(user):
     """
     wallet = UserWallet.objects.filter(user=user).first()
     card = default_card(user) if paystack.configured() else None
+    from . import flutterwave
     return {
-        'cards_enabled': paystack.configured(),
+        'cards_enabled': paystack.configured() or flutterwave.configured(),
         'test_mode': paystack.is_test(),
+        # Which gateways can take a payment right now, for the screen to offer
+        # a choice only when there is one (CEO, 29 September 2026).
+        'providers': providers(),
         'balance_vc': wallet.wallet_balance if wallet else 0,
         'ngn_per_coin': ngn_per_coin(),
         'saved_card': {
@@ -195,7 +210,7 @@ def cover(user, coins, *, purpose='purchase', card_id=None):
     }
 
 
-def start(user, coins, callback_url='', *, purpose='purchase'):
+def start(user, coins, callback_url='', *, purpose='purchase', provider='paystack'):
     """A Paystack page for somebody with no saved card.
 
     The coins are credited by `topup_verify` when they come back, which is the
@@ -205,6 +220,8 @@ def start(user, coins, callback_url='', *, purpose='purchase'):
     coins = int(coins)
     if coins <= 0:
         raise PayError(NOTHING_TO_PAY, 'There is nothing to pay for.')
+    if provider == 'flutterwave':
+        return _start_flutterwave(user, coins, callback_url, purpose)
     if not paystack.configured():
         raise PayError(CARDS_UNAVAILABLE,
                        'Card payment is not set up on this platform yet.')
@@ -254,13 +271,50 @@ def start(user, coins, callback_url='', *, purpose='purchase'):
     }
 
 
-def cover_or_start(user, coins, callback_url='', *, purpose='purchase', card_id=None):
+def _start_flutterwave(user, coins, callback_url, purpose):
+    """The same page-and-pending-row shape as Paystack, through Flutterwave.
+    The coins arrive through `topup_verify` (or the webhook), which reads the
+    FLW- prefix and asks Flutterwave."""
+    from . import flutterwave
+    if not flutterwave.configured():
+        raise PayError(CARDS_UNAVAILABLE, 'Flutterwave is not set up on this platform yet.')
+    wallet = UserWallet.objects.filter(user=user).first()
+    if wallet is None:
+        raise PayError(NO_WALLET, 'That account has no wallet to pay from.')
+    amount_ngn = coins_to_ngn(coins)
+    reference = flutterwave.new_reference('TOP')
+    try:
+        started = flutterwave.start(
+            reference=reference, amount_ngn=amount_ngn, email=user.email,
+            name=user.full_name or user.username, callback_url=callback_url,
+            title='V-ENT', description='%s VENT COINS' % coins,
+            meta={'user_id': user.user_id, 'vent_coins': coins, 'purpose': purpose})
+    except flutterwave.Unreachable:
+        raise PayError(GATEWAY_ERROR,
+                       'The payment gateway could not be reached. Nothing was charged.')
+    except flutterwave.Refused as exc:
+        raise PayError(GATEWAY_ERROR, str(exc))
+    Transaction.objects.create(
+        wallet=wallet, type='top_up', amount=coins,
+        description='Top up via Flutterwave - %s NGN' % amount_ngn,
+        status='pending', reference=reference)
+    return {'paid': False, 'authorization_url': started['authorization_url'],
+            'reference': reference, 'coins': coins, 'amount_ngn': amount_ngn,
+            'provider': 'flutterwave', 'test_mode': flutterwave.is_test()}
+
+
+def cover_or_start(user, coins, callback_url='', *, purpose='purchase', card_id=None,
+                   provider='paystack'):
     """Cover it with a saved card when there is one, else hand back a page.
 
     One call for a screen that does not want to branch: `paid` says which
     happened, and the screen either carries straight on or sends them out.
     """
     coins = int(math.ceil(float(coins)))
+    if provider == 'flutterwave':
+        # A saved card is a Paystack authorization; choosing Flutterwave is
+        # choosing its page.
+        return start(user, coins, callback_url, purpose=purpose, provider='flutterwave')
     try:
         return cover(user, coins, purpose=purpose, card_id=card_id)
     except PayError as exc:

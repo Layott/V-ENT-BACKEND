@@ -59,7 +59,7 @@ def _workspace_root():
 
 ROOT = _workspace_root()
 
-BACKEND = os.path.join(ROOT, 'V-ENT-BACKEND')
+BACKEND = (os.environ.get('VENT_BACKEND') or os.path.join(ROOT, 'V-ENT-BACKEND'))
 FRONTEND = os.path.join(ROOT, 'V-ENT-FRONTEND')
 
 WIZARD = os.path.join(

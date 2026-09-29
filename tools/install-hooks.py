@@ -46,13 +46,17 @@ HOOK = r'''#!/bin/sh
 # Every catcher, in front of every commit. See that file for why.
 echo ""
 echo "V-ENT catchers ------------------------------------------------------"
-python "%s" --record
+# The catchers of the tree being committed: a worktree carries its own
+# tools/check-all.py. A frontend commit has none and uses the backend's.
+top=$(git rev-parse --show-toplevel)
+if [ -f "$top/tools/check-all.py" ]; then checker="$top/tools/check-all.py"; else checker="%s"; fi
+python "$checker" --record
 status=$?
 echo "---------------------------------------------------------------------"
 if [ $status -ne 0 ]; then
   echo ""
-  echo "Commit stopped: a blocking catcher broke, or debt went up."
-  echo "Fix it, or commit with --no-verify and say why in the message."
+  echo "Commit stopped: a blocking catcher broke, or debt went up. Fix it."
+  echo "(The owner rules forbid --no-verify.)"
   echo ""
 fi
 exit $status

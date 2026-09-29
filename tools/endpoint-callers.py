@@ -53,7 +53,7 @@ def _workspace_root(start):
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = _workspace_root(__file__)
-BACKEND = os.path.join(ROOT, 'V-ENT-BACKEND')
+BACKEND = (os.environ.get('VENT_BACKEND') or os.path.join(ROOT, 'V-ENT-BACKEND'))
 FRONTEND = os.path.join(ROOT, 'V-ENT-FRONTEND', 'src')
 BASELINE = os.path.join(HERE, 'endpoint-callers-baseline.json')
 
@@ -66,6 +66,8 @@ INCLUDE = re.compile(r"""\bpath\(\s*['"]([^'"]*)['"]\s*,\s*include\(\s*['"]([^'"
 # here is a decision, not an oversight, which is the whole difference.
 DELIBERATE = {
     'admin/': 'Django admin',
+    # Called by Flutterwave's servers, never by a screen (29 September 2026).
+    'flutterwave/webhook/': 'called by Flutterwave when a payment moves, signed with FLW_SECRET_HASH',
     # The screen does call it, but through a URL the API hands over in the
     # KYC payload (`kyc_document_url` builds it), so no fetch string in the
     # frontend names the path. An <img src> of an absolute URL from the server
