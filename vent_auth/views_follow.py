@@ -18,6 +18,9 @@ version end up disagreeing about what a follower is.
 
 `ref` is a slug or a username, never a primary key, per the slug rule.
 """
+from datetime import timedelta
+
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
@@ -93,9 +96,24 @@ def follow(request, kind, ref):
     else:
         # get_or_create, so a double tap on a slow connection is one row and
         # one follower rather than two of each.
-        Follow.objects.get_or_create(follower=viewer, kind=kind,
-                                     target_id=target_id)
+        _row, created = Follow.objects.get_or_create(follower=viewer, kind=kind,
+                                                     target_id=target_id)
         following = True
+        # A new follower is told to the person followed, through their own
+        # switches for the "New followers" row (CEO, 30 September 2026). A
+        # re-follow after an unfollow within the day is not news twice.
+        if created and kind == 'user':
+            from .models import Notification
+            from .views_notifications import create_notification
+            recent = Notification.objects.filter(
+                user_id=target_id, category='follower',
+                metadata__follower=viewer.username,
+                created_at__gte=timezone.now() - timedelta(days=1)).exists()
+            if not recent:
+                create_notification(
+                    target_id, 'follower', '@%s followed you' % viewer.username,
+                    link='/u/%s' % viewer.username,
+                    metadata={'follower': viewer.username})
 
     return _ok({
         'is_following': following,

@@ -1663,12 +1663,37 @@ class Notification(models.Model):
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     read_at = models.DateTimeField(null=True, blank=True)
+    # False when the person switched this kind of notification off for the
+    # in-app inbox (CEO, 30 September 2026: every switch must work as set).
+    # The row is still written, so the other channels have something to send
+    # and a caller can tell "delivered elsewhere" from "failed"; the inbox and
+    # the bell only ever read rows where this is true.
+    in_inbox = models.BooleanField(default=True, db_index=True)
 
     class Meta:
         ordering = ['-created_at']
 
     def __str__(self):
         return f"[{self.category}] {self.title} -> {self.user_id}"
+
+
+class PushSubscription(models.Model):
+    """One browser that agreed to receive push notifications for one person.
+
+    Written by the browser's own Push API (endpoint + the two keys it hands
+    out), so a person can hold several: a phone and a laptop. A subscription
+    the push service answers 404 or 410 for is gone and is deleted on the spot.
+    """
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='push_subscriptions')
+    endpoint = models.URLField(max_length=600, unique=True)
+    p256dh = models.CharField(max_length=200)
+    auth = models.CharField(max_length=100)
+    user_agent = models.CharField(max_length=300, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Push for {self.user_id}"
 
 
 class AdminTOTP(models.Model):

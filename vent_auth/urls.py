@@ -3,6 +3,7 @@ from .views import *
 from django.conf import settings
 from django.conf.urls.static import static
 from . import views_admin_events as admin_events
+from . import views_push as views_push_mod
 
 
 from .views_rankings import games_list
@@ -328,6 +329,10 @@ urlpatterns = [
     # Paying for something with a card instead of coins already held.
     path("wallet/pay/methods/", pay_methods, name="pay_methods"),
     path("wallet/pay/providers/", views_wallet_mod.pay_providers, name="pay_providers"),
+    # Browser push (CEO, 30 September 2026: every notification switch works).
+    path("push/subscribe/", views_push_mod.push_subscribe, name="push_subscribe"),
+    path("push/unsubscribe/", views_push_mod.push_unsubscribe, name="push_unsubscribe"),
+    path("push/test/", views_push_mod.push_test, name="push_test"),
     path("wallet/pay/", pay_shortfall, name="pay_shortfall"),
     path("wallet/withdraw/initiate/", withdraw_initiate, name="withdraw_initiate"),
     path("wallet/withdraw/status/", withdraw_status, name="withdraw_status"),

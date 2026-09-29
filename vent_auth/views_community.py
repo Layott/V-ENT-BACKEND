@@ -1130,9 +1130,18 @@ def dm_send(request, conversation_id):
 
     other = convo.user_b if convo.user_a_id == user.user_id else convo.user_a
     try:
+        from .models import Notification
         from .views_notifications import create_notification
+        # One notification per conversation until they have read it: ten quick
+        # messages are one ping, not ten emails and ten pushes.
+        waiting = Notification.objects.filter(
+            user=other, category='dm', is_read=False,
+            metadata__conversation_id=convo.id,
+            created_at__gte=timezone.now() - timezone.timedelta(minutes=30)).exists()
+        if waiting:
+            raise LookupError('already told')
         create_notification(
-            user=other, category='mention',
+            user=other, category='dm',
             title=f'New message from @{user.username}',
             # The address of the conversation itself. Without it the
             # notification announces a message and then opens a list.

@@ -440,6 +440,12 @@ AUTH_THROTTLE_ENABLED = (
     and 'test' not in sys.argv
 )
 
+# Notification email and push go on a background thread in production, so a
+# slow relay never holds up the request that caused them. Under the test runner
+# they run inline, so a test sees exactly what was sent and a thread can never
+# write into the next test's outbox.
+NOTIFY_IN_BACKGROUND = 'test' not in sys.argv
+
 # Email Backend
 #
 # Overridable so a local machine, which cannot reach the relay, can still walk

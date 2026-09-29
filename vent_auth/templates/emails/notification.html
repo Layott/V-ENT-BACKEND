@@ -1,0 +1,10 @@
+{% extends "emails/base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block kicker %}{{ kicker }}{% endblock %}
+{% block preheader %}{{ preheader }}{% endblock %}
+{% block heading %}{{ title }}{% endblock %}
+{% block content %}
+{% if body %}<p style="margin:0 0 16px 0; white-space:pre-line;">{{ body }}</p>{% endif %}
+{% include "emails/_button.html" with url=url label=button %}
+{% endblock %}
+{% block footer_note %}You get this email because it is switched on in Settings, Notifications. Switch it off there at any time: {{ settings_url }}{% endblock %}

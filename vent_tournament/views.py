@@ -665,6 +665,7 @@ def join_tournament(request):
                 f"You're registered for {tournament.tournament_title}",
                 link=f'/tournaments/{tournament.slug or tournament.tournament_id}',
                 metadata={'tournament_id': tournament.tournament_id},
+                email=False,
             )
             # Confirmation of the slot, with the start time and what was paid.
             # Sent to whoever holds the entry: the team owner, or the player.

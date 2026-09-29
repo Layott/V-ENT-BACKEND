@@ -1247,6 +1247,7 @@ def admin_approve_payout(request, withdrawal_id):
             body=payouts.describe_destination(w),
             link='/wallets', metadata={'withdrawal_id': w.id, 'amount': w.amount,
                                        'method': w.method},
+            email=False,
         )
         emails.send_payout_approved(w, amount_ngn=int(_payout_ngn(w)))
     except Exception:
@@ -1289,6 +1290,7 @@ def admin_reject_payout(request, withdrawal_id):
             f'Your payout of {w.amount} VC was rejected: {reason}' if reason
             else f'Your payout of {w.amount} VC was rejected',
             link='/wallets', metadata={'withdrawal_id': w.id, 'amount': w.amount},
+            email=False,
         )
         emails.send_payout_rejected(w, reason=reason)
     except Exception:
@@ -1410,6 +1412,7 @@ def admin_approve_kyc(request, kyc_id):
         create_notification(
             doc.user, 'kyc', 'Your KYC was approved',
             link='/wallets/verify', metadata={'kyc_id': doc.id},
+            email=False,
         )
         emails.send_kyc_approved(doc.user)
     except Exception:
@@ -1443,6 +1446,7 @@ def admin_reject_kyc(request, kyc_id):
         create_notification(
             doc.user, 'kyc', f'Your KYC was rejected: {reason}' if reason else 'Your KYC was rejected',
             link='/wallets/verify', metadata={'kyc_id': doc.id},
+            email=False,
         )
         emails.send_kyc_rejected(doc.user, reason=reason)
     except Exception:

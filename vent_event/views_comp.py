@@ -208,6 +208,7 @@ def comp_tickets(request, event_id):
                 body=note or 'The organiser sent you one.',
                 link='/events/my-tickets',
                 metadata={'ticket_code': ticket.code},
+                email=False,
             )
         except Exception:                                   # noqa: BLE001
             pass

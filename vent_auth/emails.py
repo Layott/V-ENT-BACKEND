@@ -713,6 +713,42 @@ def send_partner_decision(partner):
         return False
 
 
+KICKER = {
+    'tournaments': 'Tournaments', 'teams': 'Teams', 'events': 'Events',
+    'wallet': 'Wallet', 'mentions': 'Community', 'followers': 'Community',
+    'dms': 'Messages', 'marketplace': 'Marketplace', 'anime': 'Anime',
+    'account': 'Your account',
+}
+
+
+def send_notification(notification, row_id):
+    """A notification the person asked to have by email (Settings, Notifications).
+
+    CEO, 30 September 2026: every switch must work as each person set it. This
+    is the email half of the grid; `views_notifications.create_notification`
+    decides whether to call it.
+    """
+    user = notification.user
+    if not getattr(user, 'email', ''):
+        return False
+    link = notification.link or '/notifications'
+    url = link if link.startswith('http') else f'{APP_URL}{link}'
+    return _send(
+        user.email,
+        notification.title,
+        'notification.html',
+        {
+            'title': notification.title,
+            'body': notification.body,
+            'kicker': KICKER.get(row_id, 'V-ENT'),
+            'preheader': (notification.body or notification.title)[:120],
+            'url': url,
+            'button': 'Open on V-ENT',
+            'settings_url': f'{APP_URL}/settings?panel=notifications',
+        },
+    )
+
+
 def send_event_announcement(to_address, *, event, subject, body):
     """One message from an organiser to one ticket holder.
 
