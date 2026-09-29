@@ -203,3 +203,40 @@ class BrandTests(TestCase):
         res = self.client.get('/api/v1/')
         self.assertEqual(res.status_code, 200)
         self.assertIn('brand', res.json()['data'])
+
+
+class StatsScopeTests(TestCase):
+    """Stats are results, so the bracket scope opens them and nothing else does."""
+
+    def setUp(self):
+        game = Games.objects.get_or_create(game_title='Free Fire')[0]
+        creator = Users.objects.create(username='statscreator', email='sc@vent.test')
+        self.t = Tournament.objects.create(
+            tournament_title='Stats Cup', tournament_game=game, tournament_creator=creator,
+            start_date_and_time=timezone.now(), end_date_and_time=timezone.now(),
+            tournament_visibility='public', is_draft=False)
+        self.draft = Tournament.objects.create(
+            tournament_title='Draft Cup', tournament_game=game, tournament_creator=creator,
+            start_date_and_time=timezone.now(), end_date_and_time=timezone.now(),
+            tournament_visibility='public', is_draft=True)
+
+    def key(self, scopes):
+        partner = make_partner(approved_scopes=scopes)
+        _key, secret = PartnerApiKey.issue(partner, scopes=scopes)
+        return {'HTTP_AUTHORIZATION': f'Bearer {secret}'}
+
+    def test_the_bracket_scope_opens_stats(self):
+        res = self.client.get('/api/v1/tournaments/%d/stats/' % self.t.tournament_id,
+                              **self.key(['tournaments:brackets:read']))
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.assertIn('boards', res.json()['data'])
+
+    def test_the_read_scope_alone_does_not(self):
+        res = self.client.get('/api/v1/tournaments/%d/stats/' % self.t.tournament_id,
+                              **self.key(['tournaments:read']))
+        self.assertEqual(res.status_code, 403)
+
+    def test_a_draft_is_never_served(self):
+        res = self.client.get('/api/v1/tournaments/%d/stats/' % self.draft.tournament_id,
+                              **self.key(['tournaments:brackets:read']))
+        self.assertEqual(res.status_code, 404)

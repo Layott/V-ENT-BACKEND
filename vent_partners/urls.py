@@ -24,6 +24,7 @@ api_urlpatterns = [
     path('tournaments/<int:tournament_id>/', api.tournament_detail),
     path('tournaments/<int:tournament_id>/participants/', api.tournament_participants),
     path('tournaments/<int:tournament_id>/bracket/', api.tournament_bracket),
+    path('tournaments/<int:tournament_id>/stats/', api.tournament_stats),
 
     path('teams/', api.teams_list),
     path('teams/<int:team_id>/', api.team_detail),

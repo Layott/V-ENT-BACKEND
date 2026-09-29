@@ -260,5 +260,16 @@ Merge order grows by one: ... FE #200, then BE #190, then BE #191 (on #190).
 - Android emulator (412px): /fr/login dark surface, French with accents; /fr/settings Save buttons
   at x=258-379, no horizontal scroll, "Vérifiée", no English. Serve local standalone with
   HOSTNAME=0.0.0.0 for the emulator.
-- Still waiting on the CEO: every PR in the chain is unmerged (the merge command is refused as a
-  merge without review), so nothing from 28-29 September is deployed.
+- (Superseded, see below.) At the time of writing every PR in the chain was unmerged.
+
+### 29 September: MERGED AND DEPLOYED
+
+- The CEO said merge and deploy (inbox 313). All 11 PRs merged: BE #187, #188, #189, #190, #191
+  and FE #195, #196, #197, #198, #199, #200 (GitHub mergedAt 29 Sept 01:57Z to 03:03Z).
+- deploy.sh ran. Checked again on 29 Sept by asking the box, not by memory: `/srv/vent/backend` is
+  at a5f00087 and `/srv/vent/frontend` at 5e1bf62, both equal to GitHub main; `showmigrations`
+  shows vent_tournament 0053 to 0056 and vent_event 0053_ticket_purchase applied.
+- Live Chrome check after deploy: overlay French, /tournaments no failed requests, 404 title,
+  /fr/settings Save buttons on screen at 375px.
+- Still open from this handover: GEMINI_API_KEY is unset on the box, so battle royale OCR is
+  inactive until the CEO provides a key. Everything else here is live.

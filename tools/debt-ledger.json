@@ -1,13 +1,13 @@
 {
   "accents": {
     "count": 0,
-    "first_seen": "2026-09-29",
-    "since": "2026-09-29"
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
   },
   "accents self-test": {
     "count": 0,
-    "first_seen": "2026-09-29",
-    "since": "2026-09-29"
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
   },
   "admin nav": {
     "count": 0,
@@ -96,13 +96,13 @@
   },
   "dictionary split": {
     "count": 0,
-    "first_seen": "2026-09-29",
-    "since": "2026-09-29"
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
   },
   "dictionary split self-test": {
     "count": 0,
-    "first_seen": "2026-09-29",
-    "since": "2026-09-29"
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
   },
   "duplicate checkers": {
     "count": 0,
@@ -111,13 +111,13 @@
   },
   "duplicate translation keys": {
     "count": 0,
-    "first_seen": "2026-09-29",
-    "since": "2026-09-29"
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
   },
   "duplicate translation keys self-test": {
     "count": 0,
-    "first_seen": "2026-09-29",
-    "since": "2026-09-29"
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
   },
   "email spacing": {
     "count": 0,
@@ -209,6 +209,16 @@
     "first_seen": "2026-09-12",
     "since": "2026-09-17"
   },
+  "literal text": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
+  "literal text self-test": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
   "live updates": {
     "count": 0,
     "first_seen": "2026-09-07",
@@ -216,13 +226,13 @@
   },
   "load once": {
     "count": 0,
-    "first_seen": "2026-09-29",
-    "since": "2026-09-29"
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
   },
   "load once self-test": {
     "count": 0,
-    "first_seen": "2026-09-29",
-    "since": "2026-09-29"
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
   },
   "metadata outage": {
     "count": 0,
@@ -396,13 +406,13 @@
   },
   "tx text": {
     "count": 0,
-    "first_seen": "2026-09-29",
-    "since": "2026-09-29"
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
   },
   "tx text self-test": {
     "count": 0,
-    "first_seen": "2026-09-29",
-    "since": "2026-09-29"
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
   },
   "unbounded await": {
     "count": 0,

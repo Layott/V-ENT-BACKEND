@@ -21,6 +21,7 @@ from . import views_access
 from . import views_invitations
 from . import views_overlay_feed
 from . import views_overlays
+from . import views_stats
 from . import views_squads
 from vent_cards import views_lineups, views_review
 from . import views_studio
@@ -201,6 +202,9 @@ urlpatterns = [
     path("<str:tournament_id>/check-in/", check_in, name="check_in"),
     path("<str:tournament_id>/check-in/status/", check_in_status, name="check_in_status"),
     path("<str:tournament_id>/close-check-in/", close_check_in, name="close_check_in"),
+    # Leaders, every entrant's record and head to head, derived from the results (inbox 306).
+    path("<str:tournament_id>/stats/", views_stats.tournament_stats, name="tournament_stats"),
+    path("<str:tournament_id>/stats/head-to-head/", views_stats.tournament_head_to_head, name="tournament_head_to_head"),
     path("<str:tournament_id>/extend-check-in/", extend_check_in, name="extend_check_in"),
 
     # --- league: both tables, and the games inside a tie ------------------

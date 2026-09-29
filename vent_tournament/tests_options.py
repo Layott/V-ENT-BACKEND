@@ -683,3 +683,89 @@ class OneShapeTests(TestCase):
             self.assertIn(key, card, f'card is missing {key}')
             self.assertIn(key, detail, f'detail is missing {key}')
             self.assertEqual(card[key], detail[key], f'{key} differs between card and detail')
+
+
+class EditKeepsTheLeagueSetupTests(TestCase):
+    """Editing one organiser setting must not wipe what the league table reads.
+
+    Found 29 September 2026: edit_tournament wrote `options` twice, and the
+    second write ran clean() over everything, which keeps only the organiser
+    settings. Points for a win, draw and loss, the tiebreakers, the stat
+    columns and the manual adjustments all live in the same dict and were
+    thrown away by any edit that sent `options`.
+    """
+
+    def setUp(self):
+        from .tests import make_tournament, make_user
+        self.org = make_user(970)
+        self.t = make_tournament(self.org, bracket_type='round_robin')
+        self.t.options = {
+            'points_win': 4, 'points_draw': 2, 'points_loss': 0,
+            'tiebreakers': ['head_to_head', 'goal_difference'],
+            'league_stats': {'goals': True},
+            'league_adjustments': [{'registration_id': 1, 'points': -3}],
+            'check_in_minutes': 15,
+        }
+        self.t.save(update_fields=['options'])
+
+    def test_changing_the_check_in_window_keeps_the_league_setup(self):
+        from .tests import client_for
+        res = client_for(self.org).put(
+            '/tournament/edit-tournament/%d/' % self.t.tournament_id,
+            {'options': {'check_in_minutes': 30}}, format='json')
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.t.refresh_from_db()
+        opts = self.t.options
+        self.assertEqual(opts['check_in_minutes'], 30)
+        self.assertEqual(opts.get('league_stats'), {'goals': True})
+        self.assertEqual(opts.get('league_adjustments'), [{'registration_id': 1, 'points': -3}])
+        self.assertEqual(opts.get('tiebreakers'), ['head_to_head', 'goal_difference'])
+
+    def test_a_setting_nobody_knows_is_not_accepted_from_the_request(self):
+        from .tests import client_for
+        client_for(self.org).put(
+            '/tournament/edit-tournament/%d/' % self.t.tournament_id,
+            {'options': {'is_admin': True, 'check_in_minutes': 20}}, format='json')
+        self.t.refresh_from_db()
+        self.assertNotIn('is_admin', self.t.options)
+
+    def test_changing_the_points_reaches_the_row_the_table_reads(self):
+        from .models import LeagueRules
+        from .tests import client_for
+        res = client_for(self.org).put(
+            '/tournament/edit-tournament/%d/' % self.t.tournament_id,
+            {'points_win': 5, 'tiebreakers': ['head_to_head']}, format='json')
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        row = LeagueRules.objects.get(tournament=self.t)
+        self.assertEqual((row.points_win, row.tiebreakers), (5, ['head_to_head']))
+
+        # A later edit that does not mention the points leaves them alone.
+        client_for(self.org).put(
+            '/tournament/edit-tournament/%d/' % self.t.tournament_id,
+            {'options': {'check_in_minutes': 45}}, format='json')
+        row.refresh_from_db()
+        self.assertEqual(row.points_win, 5)
+
+    def test_the_ruleset_is_given_the_same_points(self):
+        from .models import TournamentRuleset
+        from .tests import client_for
+        TournamentRuleset.objects.create(tournament=self.t, data={'points': {'win': 3, 'draw': 1, 'loss': 0}})
+        client_for(self.org).put(
+            '/tournament/edit-tournament/%d/' % self.t.tournament_id,
+            {'points_win': 7}, format='json')
+        self.t.ruleset.refresh_from_db()
+        self.assertEqual(self.t.ruleset.data['points']['win'], 7)
+
+    def test_the_page_carries_the_points_so_a_draft_reopens_with_them(self):
+        """The draft wizard read `league` from the page and, finding none,
+        fell back to 3 for a win; saving the draft then wrote 3 back."""
+        from .models import LeagueRules
+        from .tests import client_for
+        LeagueRules.objects.update_or_create(
+            tournament=self.t, defaults={'points_win': 4, 'tiebreakers': ['head_to_head']})
+        res = client_for(self.org).get('/tournament/view-tournament/%d/' % self.t.tournament_id)
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        body = res.json()['data']
+        league = body.get('league') or body.get('tournament', {}).get('league')
+        self.assertEqual(league['points_win'], 4)
+        self.assertEqual(league['tiebreakers'], ['head_to_head'])
