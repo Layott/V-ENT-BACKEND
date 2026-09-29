@@ -141,7 +141,8 @@ def refund_ticket(ticket, reason, *, by=None):
             data = gateway.refund(ticket.payment_reference, naira)
         except (gateway.Unreachable, gateway.Refused) as exc:
             out['outcome'] = 'card_failed'
-            out['error'] = str(exc)[:200]
+            # The gateway's words are logged below; the console shows ours.
+            out['error'] = 'The card gateway did not accept the refund. It can be tried again.'
             logger.warning('refund of %s refused by the gateway: %s', ticket.code, exc)
             return out
         reference = str(data.get('id') or data.get('reference') or ticket.payment_reference)[:64]

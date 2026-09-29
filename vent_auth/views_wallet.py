@@ -20,6 +20,7 @@ from . import payouts
 from . import wallets
 from .models import (Users, UserWallet, TeamWallet, OrgWallet, Transaction,
                      WithdrawalRequest, KYCDocument, PayoutAddress)
+from vent_auth.errors import gateway_down, gateway_refused
 
 
 # ---------------------------------------------------------------------------
@@ -377,9 +378,7 @@ def topup_initiate(request):
                              'message': 'The payment gateway did not answer. Nothing was charged.'},
                             status=status.HTTP_502_BAD_GATEWAY)
         except _flw.Refused as exc:
-            return Response({'status': 'error', 'code': 'PAYMENT_REFUSED', 'data': {'reason': str(exc)},
-                             'message': 'The payment could not be started: %s' % exc},
-                            status=status.HTTP_502_BAD_GATEWAY)
+            return gateway_refused(exc)
         Transaction.objects.create(
             wallet=wallet, type='top_up', amount=vent_coins,
             description=f'Top up via Flutterwave - {amount_ngn} NGN',
@@ -389,6 +388,15 @@ def topup_initiate(request):
             'vent_coins': vent_coins, 'amount_ngn': amount_ngn,
             'provider': 'flutterwave', 'test_mode': _flw.is_test(),
         }}, status=status.HTTP_200_OK)
+
+    # No key on this box: say so plainly, before anybody is sent anywhere.
+    # Production had none on 29 September 2026 and people read Paystack's
+    # own "Format is Authorization Bearer [secret key]" instead.
+    from vent_auth import paystack as _ps
+    if not _ps.configured():
+        return Response({'status': 'error', 'code': 'PROVIDER_UNAVAILABLE', 'data': {},
+                         'message': 'Card payments are not available right now. Choose another way to pay.'},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
     reference = f"VENT-{uuid.uuid4().hex[:16].upper()}"
 
@@ -421,11 +429,7 @@ def topup_initiate(request):
             status=status.HTTP_502_BAD_GATEWAY,
         )
     except _paystack.Refused as exc:
-        return Response(
-            {'status': 'error', 'code': 'PAYMENT_REFUSED', 'data': {'reason': str(exc)},
-             'message': 'The payment could not be started: %s' % exc},
-            status=status.HTTP_502_BAD_GATEWAY,
-        )
+        return gateway_refused(exc)
 
     # Create a pending transaction record
     Transaction.objects.create(
@@ -572,10 +576,7 @@ def topup_verify(request):
             resp.raise_for_status()
             data = resp.json()
         except http_requests.RequestException as e:
-            return Response(
-                {'status': 'error', 'message': f'Payment gateway error: {str(e)}'},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
+            return gateway_down(e)
 
         if not data.get('status') or data['data']['status'] != 'success':
             txn.status = 'failed'

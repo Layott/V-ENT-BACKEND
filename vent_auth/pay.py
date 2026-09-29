@@ -43,6 +43,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from . import paystack
+from .errors import GATEWAY_REFUSED
 from .models import SavedCard, Transaction, UserWallet
 
 logger = logging.getLogger(__name__)
@@ -250,7 +251,10 @@ def start(user, coins, callback_url='', *, purpose='purchase', provider='paystac
         raise PayError(GATEWAY_ERROR,
                        'The payment gateway could not be reached. Nothing was charged.')
     except paystack.Refused as exc:
-        raise PayError(GATEWAY_ERROR, str(exc))
+        # Paystack's own words go to the log; a person gets ours (CEO,
+        # 29 September 2026: users saw "Format is Authorization Bearer").
+        logging.getLogger(__name__).warning('paystack refused: %s', exc)
+        raise PayError(GATEWAY_ERROR, GATEWAY_REFUSED)
     body = {'data': data}
 
     # The pending row the wallet's own top-up writes, so the reference is
@@ -293,7 +297,8 @@ def _start_flutterwave(user, coins, callback_url, purpose):
         raise PayError(GATEWAY_ERROR,
                        'The payment gateway could not be reached. Nothing was charged.')
     except flutterwave.Refused as exc:
-        raise PayError(GATEWAY_ERROR, str(exc))
+        logging.getLogger(__name__).warning('flutterwave refused: %s', exc)
+        raise PayError(GATEWAY_ERROR, GATEWAY_REFUSED)
     Transaction.objects.create(
         wallet=wallet, type='top_up', amount=coins,
         description='Top up via Flutterwave - %s NGN' % amount_ngn,

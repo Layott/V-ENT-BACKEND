@@ -42,7 +42,9 @@ class TopUpCeilingTests(TestCase):
             HTTP_AUTHORIZATION='Bearer %s' % self.user.login_session_token)
 
     def topup(self, ngn):
-        with mock.patch('vent_auth.views_wallet.http_requests.post', paystack_says_yes):
+        # A key must exist: with none the door answers PROVIDER_UNAVAILABLE
+        # before the ceiling is read (inbox 354).
+        with mock.patch.dict('os.environ', {'PAYSTACK_SECRET_KEY': 'sk_test_x'}),              mock.patch('vent_auth.views_wallet.http_requests.post', paystack_says_yes):
             return self.client.post('/auth/wallet/topup/initiate/',
                                     {'amount_ngn': ngn}, format='json')
 

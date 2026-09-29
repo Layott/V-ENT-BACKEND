@@ -31,6 +31,7 @@ from rest_framework.response import Response
 
 from . import availability, checkout
 from .models import AbandonedCheckout, Event, Ticket, TicketTier
+from vent_auth.errors import gateway_down, gateway_refused
 
 PAYSTACK_BASE = 'https://api.paystack.co'
 MAX_PER_PURCHASE = 10
@@ -487,9 +488,7 @@ def guest_buy(request, event_id):
             return _err('That does not look like an email address the card '
                         'gateway will accept.', 'EMAIL_INVALID',
                         status.HTTP_400_BAD_REQUEST, field='email')
-        return _err('The payment could not be started: %s' % exc,
-                    'PAYMENT_REFUSED', status.HTTP_502_BAD_GATEWAY,
-                    data={'reason': str(exc)})
+        return gateway_refused(exc)
 
     # Somebody reached the payment page. The ORDER still lives only in the
     # Paystack metadata, for the reason written above - but the FACT that they
@@ -551,8 +550,7 @@ def _start_flutterwave(request, event, tier, quantity, email, answers, promo, to
         return _err('The payment gateway did not answer. Nothing was charged.',
                     'GATEWAY_ERROR', status.HTTP_502_BAD_GATEWAY)
     except flutterwave.Refused as exc:
-        return _err('The payment could not be started: %s' % exc,
-                    'PAYMENT_REFUSED', status.HTTP_502_BAD_GATEWAY, data={'reason': str(exc)})
+        return gateway_refused(exc)
     AbandonedCheckout.objects.create(
         event=event, tier=tier, email=email, quantity=quantity,
         reference=reference, total_ngn=total_ngn, order=order)
@@ -673,8 +671,7 @@ def guest_verify(request):
         response.raise_for_status()
         body = response.json()
     except http_requests.RequestException as exc:
-        return _err('The payment gateway could not be reached: %s' % exc,
-                    'PAYMENT_GATEWAY', status.HTTP_502_BAD_GATEWAY)
+        return gateway_down(exc)
 
     data = (body or {}).get('data') or {}
     if not body.get('status') or data.get('status') != 'success':

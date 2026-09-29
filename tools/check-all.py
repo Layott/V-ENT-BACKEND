@@ -57,6 +57,20 @@ _OWN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BACKEND = (_OWN if os.path.isfile(os.path.join(_OWN, 'manage.py'))
            else os.path.join(ROOT, 'V-ENT-BACKEND'))
 
+def _django_python():
+    """A python that can import Django: the backend's virtualenv, or the main
+    checkout's when this is a worktree (which has none)."""
+    pythons = [os.path.join(BACKEND, 'venv', 'Scripts', 'python.exe'),
+               os.path.join(BACKEND, 'venv', 'bin', 'python'),
+               os.path.join(ROOT, 'V-ENT-BACKEND', 'venv', 'Scripts', 'python.exe'),
+               os.path.join(ROOT, 'V-ENT-BACKEND', 'venv', 'bin', 'python'),
+               sys.executable]
+    return next(p for p in pythons if os.path.exists(p))
+
+
+DJANGO_PY = _django_python()
+
+
 def _fresh_routes():
     """Every route of THIS backend, dumped now, for the api-paths row.
 
@@ -65,13 +79,7 @@ def _fresh_routes():
     """
     import tempfile
     out = os.path.join(tempfile.gettempdir(), 'vent-routes-%d.txt' % (abs(hash(BACKEND)) % 10 ** 8))
-    pythons = [os.path.join(BACKEND, 'venv', 'Scripts', 'python.exe'),
-               os.path.join(BACKEND, 'venv', 'bin', 'python'),
-               os.path.join(ROOT, 'V-ENT-BACKEND', 'venv', 'Scripts', 'python.exe'),
-               os.path.join(ROOT, 'V-ENT-BACKEND', 'venv', 'bin', 'python'),
-               sys.executable]
-    python = next(p for p in pythons if os.path.exists(p))
-    subprocess.run([python, os.path.join(BACKEND, 'tools', 'dump-routes.py'), '--out', out],
+    subprocess.run([DJANGO_PY, os.path.join(BACKEND, 'tools', 'dump-routes.py'), '--out', out],
                    cwd=BACKEND, capture_output=True, text=True, timeout=300)
     return out
 
@@ -503,6 +511,22 @@ CATCHERS = [
     ('frontend url',
      'links built here carry a host that exists',
      BACKEND, [sys.executable, 'tools/check-frontend-url.py'], True),
+    # A gateway's or an exception's own words shown to a person (CEO, 29
+    # September 2026: "Format is Authorization Bearer [secret key]"; inbox 354).
+    ('gateway text',
+     'no view sends exception or gateway text to a person',
+     BACKEND, [sys.executable, 'tools/check-raw-errors.py'], True),
+    ('gateway text self-test',
+     'the raw-error catcher still catches str(exc) in a response',
+     BACKEND, [sys.executable, 'tools/check-raw-errors.py', '--self-test'], True),
+    # Two blocks in an email with no space between them (CEO, 29 September
+    # 2026, the sign-in alert's button touching its paragraph; inbox 355).
+    ('email spacing',
+     'no two blocks in any email touch',
+     BACKEND, [DJANGO_PY, 'tools/check-email-spacing.py'], True),
+    ('email spacing self-test',
+     'the email spacing catcher still catches a button against its paragraph',
+     BACKEND, [sys.executable, 'tools/check-email-spacing.py', '--self-test'], True),
 
     # Backend code with no screen in front of it.
     #
