@@ -21,6 +21,7 @@ from .models import (
 from . import emails
 from .views_helpers import session_timeout_minutes, username_refusal
 from .throttle import limited
+from vent_auth.errors import server_error
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,7 @@ def change_fullname(request):
     except Http404:
         return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error(e)
 
 
 @api_view(['POST'])
@@ -174,7 +175,7 @@ def verify_new_email(request):
     except Http404:
         return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error(e)
 
 
 @api_view(['POST'])
@@ -202,7 +203,7 @@ def add_date_of_birth(request):
     except Http404:
         return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error(e)
 
 
 @api_view(['POST'])
@@ -241,10 +242,7 @@ def add_game_account(request):
     except Http404:
         return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response(
-            {'status': 'error', 'message': f'An unexpected error occurred: {str(e)}'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return server_error(e)
 
 
 @api_view(['POST'])
@@ -269,7 +267,7 @@ def edit_game_account_username(request):
     except Http404:
         return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error(e)
 
 
 @api_view(['POST'])
@@ -436,7 +434,7 @@ def get_user_status(request):
     except Http404:
         return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({'status': 'error', 'message': f'An error occurred: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error(e)
 
 
 @api_view(["POST"])
@@ -515,7 +513,7 @@ def edit_favorite_games(request):
     except Http404:
         return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({'status': 'error', 'message': f'An unexpected error occurred: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error(e)
 
 
 @api_view(['POST'])

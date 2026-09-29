@@ -1,4 +1,5 @@
 {
+  "uploads": {"gate": ["image_refusal"], "verified": "2026-09-29", "$comment": "vent_auth/uploads.py image_refusal sniffs the bytes (PNG/JPG/WebP), verifies with PIL and caps the size; a file that calls it counts as typed, sniffed and capped (R70)."},
   "$comment": "How V-ENT's backend meets owner rules R55 to R61 (17 September 2026). Read by ~/.claude/skills/security-rules/scripts/check-security.mjs. The mapping table is 'Owner rules 55 to 61 in V-ENT' in ../CLAUDE.md. Every allow row below was read by hand before it was written; a new one needs a reason somebody else can check.",
 
   "frontend": [],

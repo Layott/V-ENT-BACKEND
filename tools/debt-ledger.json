@@ -119,6 +119,16 @@
     "first_seen": "2026-09-28",
     "since": "2026-09-28"
   },
+  "email spacing": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
+  "email spacing self-test": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
   "endpoints with no screen": {
     "count": 0,
     "first_seen": "2026-09-09",
@@ -148,6 +158,16 @@
     "count": 0,
     "first_seen": "2026-09-09",
     "since": "2026-09-09"
+  },
+  "gateway text": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
+  "gateway text self-test": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
   },
   "guides": {
     "count": 0,
@@ -278,6 +298,11 @@
     "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
+  },
+  "raw errors self-test": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
   },
   "required fields": {
     "count": 0,
