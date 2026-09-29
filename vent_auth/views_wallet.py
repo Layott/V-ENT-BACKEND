@@ -149,6 +149,44 @@ def get_wallet_balance(request):
 # GET /auth/wallet/transactions/
 # ---------------------------------------------------------------------------
 
+def payment_method(reference):
+    """How a row was paid, read off its reference, for the statement."""
+    ref = str(reference or '')
+    if ref.startswith('FLW-'):
+        return 'flutterwave'
+    if ref.startswith('VENT-'):
+        return 'paystack'
+    return 'wallet'
+
+
+def wallet_summary(wallet, zone_name=''):
+    """Money in and out over the WHOLE history, completed rows only.
+
+    The wallet page used to add these up from the latest 20 rows it had been
+    sent, pending ones included, so a top-up somebody started and never paid
+    showed as money earned (CEO, 29 September 2026). A row counts once it has
+    happened. The month is the reader's month, in their own zone.
+    """
+    from zoneinfo import ZoneInfo
+    from django.db.models import Sum
+    try:
+        zone = ZoneInfo(zone_name) if zone_name else timezone.get_current_timezone()
+    except Exception:                                          # noqa: BLE001
+        zone = timezone.get_current_timezone()
+    now = timezone.now().astimezone(zone)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    done = wallet.transactions.filter(status='completed')
+
+    def total(qs):
+        return int(qs.aggregate(n=Sum('amount'))['n'] or 0)
+    return {
+        'month_in': total(done.filter(amount__gt=0, created_at__gte=month_start)),
+        'month_out': -total(done.filter(amount__lt=0, created_at__gte=month_start)),
+        'lifetime_in': total(done.filter(amount__gt=0)),
+        'pending_count': wallet.transactions.filter(status='pending').count(),
+    }
+
+
 @api_view(['GET'])
 def get_wallet_transactions(request):
     wallet, err = _get_user_from_token(request)
@@ -175,6 +213,7 @@ def get_wallet_transactions(request):
             'description': t.description,
             'status': t.status,
             'reference': t.reference,
+            'method': payment_method(t.reference),
             'tournament_id': t.tournament_id,
             'created_at': t.created_at,
         }
@@ -188,6 +227,7 @@ def get_wallet_transactions(request):
             'total': total,
             'page': page,
             'per_page': per_page,
+            'summary': wallet_summary(wallet, str(request.GET.get('tz') or '')[:64]),
         }
     }, status=status.HTTP_200_OK)
 
@@ -293,7 +333,7 @@ def pay_shortfall(request):
             str(request.data.get('callback_url') or ''),
             purpose=str(request.data.get('purpose') or 'purchase')[:40],
             card_id=request.data.get('card_id'),
-            provider='flutterwave' if str(request.data.get('provider') or '').lower() == 'flutterwave'
+            provider='flutterwave' if pay.choose_provider(request.data.get('provider')) == 'flutterwave'
             else 'paystack')
     except pay.PayError as exc:
         http = (status.HTTP_503_SERVICE_UNAVAILABLE
@@ -359,7 +399,8 @@ def topup_initiate(request):
     # Flutterwave, when the person chose it (CEO, 29 September 2026). Same
     # pending row, same verify door; the reference's FLW- prefix is what tells
     # the verify step where to ask.
-    if str(request.data.get('provider') or '').lower() == 'flutterwave':
+    from . import pay
+    if pay.choose_provider(request.data.get('provider')) == 'flutterwave':
         from vent_auth import flutterwave as _flw
         if not _flw.configured():
             return Response({'status': 'error', 'code': 'PROVIDER_UNAVAILABLE', 'data': {},

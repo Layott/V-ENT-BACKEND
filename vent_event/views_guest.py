@@ -438,7 +438,8 @@ def guest_buy(request, event_id):
             status.HTTP_201_CREATED)
 
     # ------------------------------------------------------------------ paid
-    if str(request.data.get('provider') or '').lower() == 'flutterwave':
+    from vent_auth.pay import choose_provider
+    if choose_provider(request.data.get('provider')) == 'flutterwave':
         return _start_flutterwave(request, event, tier, quantity, email, answers,
                                   promo, total_ngn, fee_ngn, priced)
 
