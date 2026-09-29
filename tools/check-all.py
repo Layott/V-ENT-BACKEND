@@ -551,6 +551,14 @@ CATCHERS = [
     ('email spacing',
      'no two blocks in any email touch',
      BACKEND, [DJANGO_PY, 'tools/check-email-spacing.py'], True),
+    # Coins exist only when somebody buys them (CEO, 29 September 2026;
+    # inbox 366). Every place that adds to a balance names the payment.
+    ('coin sources',
+     'every place that adds coins names the payment behind them',
+     BACKEND, [sys.executable, 'tools/check-coin-sources.py'], True),
+    ('coin sources self-test',
+     'the coin catcher still catches a balance written up from nothing',
+     BACKEND, [sys.executable, 'tools/check-coin-sources.py', '--self-test'], True),
     ('email spacing self-test',
      'the email spacing catcher still catches a button against its paragraph',
      BACKEND, [sys.executable, 'tools/check-email-spacing.py', '--self-test'], True),

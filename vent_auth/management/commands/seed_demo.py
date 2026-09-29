@@ -29,6 +29,7 @@ from datetime import timedelta
 
 from django.contrib.auth.hashers import make_password
 from django.core.files.base import ContentFile
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
@@ -112,6 +113,12 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         random.seed(20260818)  # stable output across runs
+        # Coins exist only when somebody buys them (CEO, 29 September 2026:
+        # "the only way coins should exist on the site is if someone buys
+        # them, cause coins will soon be equivalent to real money"). Demo
+        # balances are written on a development box and nowhere else; on any
+        # other the accounts are seeded with empty wallets.
+        self.coins = bool(getattr(settings, 'DEBUG', False))
         if options['wipe'] or options['reset']:
             self.wipe()
         if options['wipe'] and not options['reset']:
@@ -275,7 +282,7 @@ class Command(BaseCommand):
             profile.save()
         wallet = get_or_create_user_wallet(user)
         fields = []
-        if coins and wallet.wallet_balance == 0:
+        if coins and self.coins and wallet.wallet_balance == 0:
             wallet.wallet_balance = coins
             fields.append('wallet_balance')
         # Paid registration, sending coins and buying a ticket all stop at the
@@ -476,6 +483,8 @@ class Command(BaseCommand):
             ('top_up', 3000, 'Top up via Paystack', 'completed', 'DEMO-PSK-5520', None, 2),
             ('withdrawal', -4000, 'Withdrawal to GTBank 0123456789', 'pending', None, None, 1),
         ]
+        if not self.coins:
+            rows = []
         for kind, amount, note, state, reference, tournament, days_ago in rows:
             txn = Transaction.objects.create(
                 wallet=wallet, type=kind, amount=amount, description=note,
@@ -495,7 +504,7 @@ class Command(BaseCommand):
         """Give the admin payout and KYC screens something real to act on."""
         for user in players[1:4]:
             wallet = get_or_create_user_wallet(user)
-            if wallet.wallet_balance < 2500:
+            if self.coins and wallet.wallet_balance < 2500:
                 wallet.wallet_balance = 2500
                 wallet.save(update_fields=['wallet_balance'])
             WithdrawalRequest.objects.get_or_create(

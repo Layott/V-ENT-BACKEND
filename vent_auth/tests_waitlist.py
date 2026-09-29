@@ -7,7 +7,7 @@ is stuck inactive because the verification link was broken.
 """
 from datetime import timedelta
 
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -141,26 +141,15 @@ class ClaimTests(TestCase):
         self.assertEqual(chosen.status_code, 201)
         self.assertTrue(Users.objects.filter(username='pickedlater').exists())
 
-    @override_settings(WAITLIST_CLAIM_BONUS_VC=0)
-    def test_no_coins_are_credited_while_the_bonus_is_zero(self):
+    def test_claiming_credits_no_coins(self):
+        """Coins exist only when somebody buys them (CEO, 29 September 2026)."""
         make_reservation()
         self.client.post(self.url, {'token': 'tok-happy-path', 'password': 'a-real-password'},
                          content_type='application/json')
 
         wallet = UserWallet.objects.get(user__username='reserver')
         self.assertEqual(wallet.wallet_balance, 0)
-        self.assertFalse(Transaction.objects.filter(description='Founding member bonus').exists())
-
-    @override_settings(WAITLIST_CLAIM_BONUS_VC=2)
-    def test_bonus_is_credited_once_turned_on(self):
-        make_reservation()
-        self.client.post(self.url, {'token': 'tok-happy-path', 'password': 'a-real-password'},
-                         content_type='application/json')
-
-        wallet = UserWallet.objects.get(user__username='reserver')
-        self.assertEqual(wallet.wallet_balance, 2)
-        self.assertEqual(
-            Transaction.objects.filter(description='Founding member bonus').count(), 1)
+        self.assertFalse(Transaction.objects.filter(wallet=wallet).exists())
 
 
 class ReservedUsernameHoldTests(TestCase):

@@ -232,7 +232,7 @@ def send_waitlist_claim(to_address, *, name, username, position, claim_url, hold
 
     Promises exactly two things, because both are free: the username they
     reserved, and a permanent founding-member number. No coin bonus is mentioned
-    - see WAITLIST_CLAIM_BONUS_VC, which is 0 by decision.
+    - coins exist only when somebody buys them.
     """
     return _send(
         to_address,

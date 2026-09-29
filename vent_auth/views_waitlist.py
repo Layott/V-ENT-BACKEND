@@ -190,21 +190,9 @@ def waitlist_claim(request):
             create_user_wallet(user=user)
             wallet = UserWallet.objects.filter(user=user).first()
 
-        # 0 today, by decision - see WAITLIST_CLAIM_BONUS_VC in settings. The
-        # branch is here so turning it on later is a config change, not a code
-        # change, and so nothing is credited that the email did not promise.
-        bonus = int(getattr(settings, 'WAITLIST_CLAIM_BONUS_VC', 0) or 0)
-        if bonus > 0 and wallet is not None:
-            locked = UserWallet.objects.select_for_update().get(pk=wallet.pk)
-            locked.wallet_balance += bonus
-            locked.save(update_fields=['wallet_balance'])
-            Transaction.objects.create(
-                wallet=locked,
-                type='top_up',
-                amount=bonus,
-                description='Founding member bonus',
-                status='completed',
-            )
+        # No bonus coins: coins exist only when somebody buys them (CEO, 29
+        # September 2026: "the only way coins should exist on the site is if
+        # someone buys them"). The claim bonus and its setting are gone.
 
         reservation.claimed_at = timezone.now()
         reservation.claimed_user = user
