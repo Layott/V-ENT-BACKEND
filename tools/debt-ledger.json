@@ -1,4 +1,14 @@
 {
+  "accents": {
+    "count": 0,
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
+  },
+  "accents self-test": {
+    "count": 0,
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
+  },
   "admin nav": {
     "count": 0,
     "first_seen": "2026-09-08",
@@ -84,10 +94,30 @@
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
+  "dictionary split": {
+    "count": 0,
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
+  },
+  "dictionary split self-test": {
+    "count": 0,
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
+  },
   "duplicate checkers": {
     "count": 0,
     "first_seen": "2026-09-12",
     "since": "2026-09-12"
+  },
+  "duplicate translation keys": {
+    "count": 0,
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
+  },
+  "duplicate translation keys self-test": {
+    "count": 0,
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
   },
   "endpoints with no screen": {
     "count": 0,
@@ -163,6 +193,16 @@
     "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
+  },
+  "load once": {
+    "count": 0,
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
+  },
+  "load once self-test": {
+    "count": 0,
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
   },
   "metadata outage": {
     "count": 0,
@@ -289,6 +329,11 @@
     "first_seen": "2026-09-08",
     "since": "2026-09-08"
   },
+  "standalone unlink self-test": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
   "status buckets": {
     "count": 0,
     "first_seen": "2026-09-12",
@@ -323,6 +368,16 @@
     "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
+  },
+  "tx text": {
+    "count": 0,
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
+  },
+  "tx text self-test": {
+    "count": 0,
+    "first_seen": "2026-09-28",
+    "since": "2026-09-28"
   },
   "unbounded await": {
     "count": 0,
