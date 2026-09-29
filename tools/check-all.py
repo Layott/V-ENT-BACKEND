@@ -147,6 +147,15 @@ CATCHERS = [
     ('date inputs',
      'no native date control, which draws its text in the browser language',
      FRONTEND, ['node', 'scripts/check-date-inputs.mjs'], True),
+    # Every page shipped all three languages, 621 KB gzipped, before it could
+    # do anything (28 September 2026). The browser now loads generated
+    # per-language files; a stale copy would show last week's wording.
+    ('dictionary split',
+     'the per-language files match dictionaries.js',
+     FRONTEND, ['node', 'scripts/split-dictionaries.mjs', '--check'], True),
+    ('dictionary split self-test',
+     'the split still notices an edited string',
+     FRONTEND, ['node', 'scripts/split-dictionaries.mjs', '--self-test'], True),
     ('date inputs self-test',
      'the date input catcher still catches a native control',
      FRONTEND, ['node', 'scripts/check-date-inputs.mjs', '--self-test'], True),
