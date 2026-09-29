@@ -19,12 +19,14 @@ real person's balance is never changed by a script, it is looked at.
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.db.models import Q, Sum
+from django.utils import timezone
 
-from vent_auth.models import Transaction, UserWallet
+from vent_auth.models import Transaction, UserWallet, WithdrawalRequest
 
 SEED_PREFIX = 'demo_'
 SEED_DOMAIN = '@seed.v-ent.co'
 NOTE = 'Removed: coins that were never bought (demo account)'
+PAYOUT_NOTE = 'Rejected: a demo account, and its coins were never bought'
 
 
 def bought(wallet):
@@ -60,11 +62,31 @@ class Command(BaseCommand):
                     locked.save(update_fields=['wallet_balance'])
             cleared += 1
 
+        # A withdrawal already took its coins off the balance, so a pending one
+        # from a seed account is fake coins waiting to become real naira if an
+        # admin presses Approve. Closed as rejected; the coins are NOT put back.
+        open_payouts = WithdrawalRequest.objects.filter(
+            status__in=('pending', 'approved', 'processing'),
+            wallet__user__username__startswith=SEED_PREFIX,
+            wallet__user__email__endswith=SEED_DOMAIN).select_related('wallet__user')
+        closed = 0
+        for row in open_payouts:
+            self.stdout.write('%s payout #%d %s %d VC' % (
+                'reject' if apply else 'would reject', row.id, row.wallet.user.username, row.amount))
+            if apply:
+                done = WithdrawalRequest.objects.filter(
+                    pk=row.pk, status__in=('pending', 'approved', 'processing')).update(
+                    status='rejected', admin_note=PAYOUT_NOTE, processed_at=timezone.now())
+                closed += done
+            else:
+                closed += 1
+
         for wallet in UserWallet.objects.exclude(seed).filter(wallet_balance__gt=0).select_related('user'):
             paid_for = bought(wallet)
             if wallet.wallet_balance > paid_for:
                 self.stdout.write('LOOK AT %s: holds %d VC, bought %d VC (left unchanged)'
                                   % (wallet.user.username, wallet.wallet_balance, paid_for))
 
-        self.stdout.write('%s %d demo wallet(s), %d VC' % (
-            'cleared' if apply else 'would clear', cleared, total))
+        self.stdout.write('%s %d demo wallet(s), %d VC; %s %d demo payout(s)' % (
+            'cleared' if apply else 'would clear', cleared, total,
+            'rejected' if apply else 'would reject', closed))

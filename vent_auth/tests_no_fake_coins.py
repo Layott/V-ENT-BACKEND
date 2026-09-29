@@ -77,3 +77,31 @@ class SeederWritesNoCoinsOutsideDevelopmentTests(TestCase):
         self.assertTrue(demo.exists())
         self.assertEqual(sum(w.wallet_balance for w in demo), 0)
         self.assertFalse(Transaction.objects.filter(wallet__in=demo, amount__gt=0).exists())
+
+
+class SeedPayoutsAreClosedTests(TestCase):
+    """A pending withdrawal from a seed account is fake coins about to become naira."""
+
+    def test_pending_seed_payout_is_rejected_and_the_coins_are_not_returned(self):
+        from .models import WithdrawalRequest
+        wallet = seed_user('temi', 100)
+        row = WithdrawalRequest.objects.create(wallet=wallet, amount=4000, bank_name='GTBank',
+                                               account_number='0123456789', account_name='T',
+                                               status='pending')
+        out = StringIO()
+        call_command('clear_unbought_coins', '--apply', stdout=out)
+        row.refresh_from_db()
+        wallet.refresh_from_db()
+        self.assertEqual(row.status, 'rejected')
+        self.assertIn('never bought', row.admin_note)
+        self.assertEqual(wallet.wallet_balance, 0)
+        self.assertIn('rejected 1 demo payout(s)', out.getvalue())
+
+    def test_a_real_persons_payout_is_untouched(self):
+        from .models import WithdrawalRequest
+        user, wallet = make_user('realpayout')
+        row = WithdrawalRequest.objects.create(wallet=wallet, amount=5, bank_name='GTBank',
+                                               account_number='1', account_name='R', status='pending')
+        call_command('clear_unbought_coins', '--apply', stdout=StringIO())
+        row.refresh_from_db()
+        self.assertEqual(row.status, 'pending')
