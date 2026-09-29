@@ -99,6 +99,21 @@ def providers():
     return out
 
 
+def choose_provider(requested):
+    """The gateway a request means: the one it named, or the only one there is.
+
+    A request that named nothing used to mean Paystack, which production does
+    not offer, so a payer who pressed Pay without choosing was refused with
+    PROVIDER_UNAVAILABLE (CEO, 29 September 2026). A named gateway that is not
+    set up is still refused downstream, plainly.
+    """
+    named = str(requested or '').strip().lower()
+    if named:
+        return named
+    keys = [p['key'] for p in providers()]
+    return keys[0] if len(keys) == 1 else 'paystack'
+
+
 def options(user):
     """What this person can pay with, for a screen deciding what to offer.
 

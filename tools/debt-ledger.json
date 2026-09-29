@@ -304,6 +304,16 @@
     "first_seen": "2026-09-29",
     "since": "2026-09-29"
   },
+  "renames followed": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
+  "renames followed self-test": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
   "required fields": {
     "count": 0,
     "first_seen": "2026-09-12",
@@ -418,6 +428,16 @@
     "count": 0,
     "first_seen": "2026-09-12",
     "since": "2026-09-12"
+  },
+  "undefined names": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
+  },
+  "undefined names self-test": {
+    "count": 0,
+    "first_seen": "2026-09-29",
+    "since": "2026-09-29"
   },
   "user chips": {
     "count": 0,
