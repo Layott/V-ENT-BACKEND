@@ -23,6 +23,7 @@ from . import metrics as catalogue
 from .models import (BracketMatch, MatchPlayerStat, Tournament,
                      TournamentMetric, TournamentMVP)
 from .services import mvp as service
+from vent_auth import inputs
 
 
 def _err(message, code, http=status.HTTP_400_BAD_REQUEST, extra=None):
@@ -218,7 +219,7 @@ def match_stats(request, tournament_id, match_id):
                                 'the metrics first.' % definition.label,
                                 'METRIC_NOT_COUNTED')
                 try:
-                    value = float(raw)
+                    value = inputs.finite_float(raw, definition.key)
                 except (TypeError, ValueError):
                     return _err('%s has to be a number.' % definition.label,
                                 'VALIDATION_ERROR')

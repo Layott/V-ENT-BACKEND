@@ -244,10 +244,30 @@
     "first_seen": "2026-09-28",
     "since": "2026-09-28"
   },
+  "metadata language": {
+    "count": 0,
+    "first_seen": "2026-09-30",
+    "since": "2026-09-30"
+  },
+  "metadata language self-test": {
+    "count": 0,
+    "first_seen": "2026-09-30",
+    "since": "2026-09-30"
+  },
   "metadata outage": {
     "count": 0,
     "first_seen": "2026-09-27",
     "since": "2026-09-27"
+  },
+  "notification rows": {
+    "count": 0,
+    "first_seen": "2026-09-30",
+    "since": "2026-09-30"
+  },
+  "notification rows self-test": {
+    "count": 0,
+    "first_seen": "2026-09-30",
+    "since": "2026-09-30"
   },
   "null images": {
     "count": 0,
@@ -328,6 +348,16 @@
     "count": 0,
     "first_seen": "2026-09-12",
     "since": "2026-09-12"
+  },
+  "role walks": {
+    "count": 0,
+    "first_seen": "2026-09-30",
+    "since": "2026-09-30"
+  },
+  "role walks self-test": {
+    "count": 0,
+    "first_seen": "2026-09-30",
+    "since": "2026-09-30"
   },
   "security rules (backend)": {
     "count": 0,

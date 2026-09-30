@@ -26,6 +26,7 @@ from rest_framework.response import Response
 from vent_auth.actors import actor_from_request, may_override
 
 from .models import Sponsor, SponsorLink
+from vent_auth import uploads
 
 MAX_NAME = 100
 MAX_URL = 500
@@ -116,6 +117,9 @@ def event_sponsors(request, event_id):
 
     # Appended, not inserted. The order an organiser added them in is the order
     # they were agreed in, which is the order that matters to the people paying.
+    refused = uploads.files_refusal(request, 'logo')
+    if refused:
+        return refused
     last = event.sponsors.order_by('-sort_order').first()
     sponsor = Sponsor.objects.create(
         event=event,
@@ -159,6 +163,9 @@ def event_sponsor(request, event_id, sponsor_id):
     # A new file replaces the old one. An empty value is left alone rather than
     # treated as "remove the logo": a form that submits every field would then
     # wipe the artwork every time somebody corrected a spelling.
+    refused = uploads.files_refusal(request, 'logo')
+    if refused:
+        return refused
     if request.FILES.get('logo'):
         sponsor.logo = request.FILES['logo']
         sponsor.logo_url = None

@@ -10,6 +10,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from .models import Users, UserGallery
+from . import uploads
 
 
 @api_view(['POST'])
@@ -35,6 +36,9 @@ def upload_images(request):
         if not images:
             return Response({ 'code': 'NO_IMAGES_PROVIDED','status': 'error', 'message': 'No images provided'}, status=status.HTTP_400_BAD_REQUEST)
 
+        refused = uploads.files_refusal(request, 'images')
+        if refused:
+            return refused
         current_image_count = UserGallery.objects.filter(user=user).count()
         total_after_upload = current_image_count + len(images)
 

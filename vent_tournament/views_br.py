@@ -26,6 +26,7 @@ from . import br_engine, br_ocr, lookup, stage_engine, stage_settings
 from .access import may_manage, may_record_results
 from .models import BRLobby, BRMap, BROcrJob
 from .views_stages import _err, _ok, _row, _viewer
+from vent_auth import inputs
 
 
 STATUS_FOR = {
@@ -259,8 +260,8 @@ def move_seat(request, tournament_id, stage_id):
     # BRError IS a ValueError, and caught the other way round every refusal
     # read "say which squad" (walk, 28 September 2026).
     try:
-        registration_id = int(request.data.get('registration_id') or 0)
-        lobby_number = int(request.data.get('lobby') or 0)
+        registration_id = inputs.read_int(request.data, 'registration_id', default=0)
+        lobby_number = inputs.read_int(request.data, 'lobby', default=0)
     except (TypeError, ValueError):
         return _err('Say which squad and which lobby.', 'VALIDATION_FAILED')
     try:

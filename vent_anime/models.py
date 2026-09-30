@@ -32,6 +32,7 @@ from vent_auth.models import Users
 from vent_auth.slugs import ensure_token, sync_slug
 
 from . import catalogue
+from vent_auth.uploads import OpaqueName
 
 
 class Series(models.Model):
@@ -56,7 +57,7 @@ class Series(models.Model):
     status = models.CharField(max_length=12, choices=STATUS_CHOICES,
                               default='ongoing')
 
-    cover = models.ImageField(upload_to='anime/covers/', null=True, blank=True)
+    cover = models.ImageField(upload_to=OpaqueName('anime/covers/'), null=True, blank=True)
 
     #: Genres and free tags are different things and are kept apart. A genre is
     #: from a catalogue everybody filters by; a tag is whatever the author
@@ -201,7 +202,7 @@ class Page(models.Model):
     chapter = models.ForeignKey(Chapter, on_delete=models.CASCADE,
                                 related_name='pages')
     number = models.PositiveIntegerField()
-    image = models.ImageField(upload_to='anime/pages/')
+    image = models.ImageField(upload_to=OpaqueName('anime/pages/'))
 
     #: What is on it, for a reader who cannot see it and for a model reading
     #: the page. Empty is allowed and says so rather than inventing one.
@@ -406,7 +407,7 @@ class AnimeAd(models.Model):
 
     ad_id = models.AutoField(primary_key=True)
     title = models.CharField(max_length=140)
-    image = models.ImageField(upload_to='anime/ads/', null=True, blank=True)
+    image = models.ImageField(upload_to=OpaqueName('anime/ads/'), null=True, blank=True)
     url = models.URLField(blank=True, default='')
     weight = models.PositiveSmallIntegerField(default=1)
     is_active = models.BooleanField(default=True)
@@ -676,7 +677,7 @@ class BattleCharacter(models.Model):
                                related_name='characters')
     name = models.CharField(max_length=140)
     source = models.CharField(max_length=140, blank=True, default='')
-    image = models.ImageField(upload_to='anime/characters/', null=True,
+    image = models.ImageField(upload_to=OpaqueName('anime/characters/'), null=True,
                               blank=True)
 
     nominated_by = models.ForeignKey(Users, on_delete=models.SET_NULL,

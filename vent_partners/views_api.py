@@ -23,6 +23,7 @@ from vent_tournament.models import (
 
 from .auth import requires_scope
 from .models import SCOPES
+from vent_auth import inputs
 
 MAX_PAGE_SIZE = 100
 DEFAULT_PAGE_SIZE = 25
@@ -30,11 +31,11 @@ DEFAULT_PAGE_SIZE = 25
 
 def _page(request, queryset, serialize):
     try:
-        page = max(1, int(request.GET.get('page', 1)))
+        page = max(1, inputs.read_int(request.GET, 'page', default=1))
     except (TypeError, ValueError):
         page = 1
     try:
-        size = int(request.GET.get('page_size', DEFAULT_PAGE_SIZE))
+        size = inputs.read_int(request.GET, 'page_size', default=DEFAULT_PAGE_SIZE)
     except (TypeError, ValueError):
         size = DEFAULT_PAGE_SIZE
     size = max(1, min(MAX_PAGE_SIZE, size))

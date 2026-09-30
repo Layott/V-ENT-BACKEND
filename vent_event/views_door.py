@@ -52,6 +52,7 @@ from .attendance import SELF_GATE
 from .models import Event, Ticket, DoorLookup
 from .permissions import may_work_the_door, may_run_event
 from .views_tickets import _authenticate, _error, _ok, _holder
+from vent_auth import inputs
 
 # A steward types into a phone at a gate. Two characters would match half the
 # room and cost a full table scan to say so, which is the opposite of useful.
@@ -454,7 +455,7 @@ def door_lookups(request, event_id):
                       'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
     try:
-        limit = min(max(int(request.query_params.get('limit') or LOOKUP_PAGE), 1), 500)
+        limit = min(max(inputs.read_int(request.query_params, 'limit', default=LOOKUP_PAGE), 1), 500)
     except (TypeError, ValueError):
         limit = LOOKUP_PAGE
 

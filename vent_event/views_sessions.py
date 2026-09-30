@@ -25,6 +25,7 @@ from rest_framework.response import Response
 from vent_auth.actors import actor_from_request, may_override
 
 from .models import EventSession
+from vent_auth import inputs
 
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
@@ -160,7 +161,7 @@ def manage_sessions(request, event_id):
                         'END_BEFORE_START', field='ends_at')
 
     try:
-        capacity = int(request.data.get('capacity') or 0)
+        capacity = inputs.read_int(request.data, 'capacity', default=0)
     except (TypeError, ValueError):
         return _err('The capacity has to be a number.', 'INVALID_NUMBER',
                     field='capacity')
@@ -237,7 +238,7 @@ def session_detail(request, event_id, session_id):
 
     if 'capacity' in request.data:
         try:
-            session.capacity = max(int(request.data.get('capacity') or 0), 0)
+            session.capacity = max(inputs.read_int(request.data, 'capacity', default=0), 0)
         except (TypeError, ValueError):
             return _err('The capacity has to be a number.', 'INVALID_NUMBER',
                         field='capacity')

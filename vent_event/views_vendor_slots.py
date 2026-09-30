@@ -39,6 +39,7 @@ from vent_auth.models import Transaction, UserWallet
 from .models import Event, Vendor, VendorSlot, VendorSlotPurchase
 from .views_promos import _actor_for_event, event_by_ref
 from .views_tickets import _authenticate, _error, _ngn_to_coins, _ok
+from vent_auth import inputs
 
 
 def _slot_row(slot, viewer=None):
@@ -119,8 +120,8 @@ def event_slots(request, event_id):
                       'getting.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
 
     try:
-        quantity = int(request.data.get('quantity', 1))
-        price_ngn = float(request.data.get('price_ngn', 0))
+        quantity = inputs.read_int(request.data, 'quantity', default=1)
+        price_ngn = inputs.read_float(request.data, 'price_ngn', default=0)
     except (TypeError, ValueError):
         return _error('The price and the number available have to be numbers.',
                       'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
@@ -189,7 +190,7 @@ def event_slot_detail(request, event_id, slot_id):
         fields.append('is_active')
     if 'price_ngn' in request.data:
         try:
-            slot.price_ngn = float(request.data.get('price_ngn'))
+            slot.price_ngn = inputs.read_float(request.data, 'price_ngn', required=True)
         except (TypeError, ValueError):
             return _error('The price has to be a number.', 'VALIDATION_ERROR',
                           status.HTTP_400_BAD_REQUEST)
@@ -200,7 +201,7 @@ def event_slot_detail(request, event_id, slot_id):
         fields.append('price_ngn')
     if 'quantity' in request.data:
         try:
-            quantity = int(request.data.get('quantity'))
+            quantity = inputs.read_int(request.data, 'quantity', required=True)
         except (TypeError, ValueError):
             return _error('The number available has to be a number.',
                           'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)

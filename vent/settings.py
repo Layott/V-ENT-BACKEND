@@ -161,7 +161,37 @@ MIDDLEWARE = [
     # The browser's zone for every datetime that arrives without one. See the
     # module: a naive 10:30 typed in Lagos was stored as 10:30 UTC.
     'vent_auth.middleware_timezone.ClientTimezoneMiddleware',
+    # What a page from this origin may load and run (R77).
+    'vent_auth.middleware_security.ContentSecurityPolicyMiddleware',
 ]
+
+# A field that cannot be read (vent_auth.inputs.BadInput) answers 400
+# INVALID_INPUT naming the field, from any view, instead of a 500 (R69).
+REST_FRAMEWORK = {
+    'EXCEPTION_HANDLER': 'vent_auth.inputs.exception_handler',
+}
+
+# Where errors and refusals go (R81). gunicorn runs with --error-logfile -, so
+# stderr lands in journald: `journalctl -u vent-api`. Tracebacks from
+# server_error() and refusals from vent_auth.security_log both arrive there,
+# one line each, with no password, token or code in any of them. Quiet under
+# the test runner, which refuses sign-ins on purpose hundreds of times.
+_QUIET = 'test' in sys.argv
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'line': {'format': '%(asctime)s %(levelname)s %(name)s %(message)s'},
+    },
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler', 'formatter': 'line'},
+    },
+    'root': {'handlers': ['console'], 'level': 'WARNING'},
+    'loggers': {
+        'vent.security': {'handlers': ['console'], 'propagate': False,
+                          'level': 'CRITICAL' if _QUIET else 'WARNING'},
+    },
+}
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -437,6 +467,13 @@ GEOCODING_ENABLED = (
 # cache and outlives a test. `tests_throttle` overrides it to True.
 AUTH_THROTTLE_ENABLED = (
     os.environ.get('AUTH_THROTTLE_ENABLED', '') != '0'
+    and 'test' not in sys.argv
+)
+
+# The proof-of-work check on signup and the public forms (vent_auth.bot_check).
+# Off under the test runner like the limiter; tests_bot_check switches it on.
+BOT_CHECK_ENABLED = (
+    os.environ.get('BOT_CHECK_ENABLED', '') != '0'
     and 'test' not in sys.argv
 )
 

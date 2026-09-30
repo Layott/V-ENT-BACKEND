@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .models import Currency
 from .rates import FEED_URL, refresh_rates
+from . import inputs
 
 # Adding a currency or moving a rate changes what every reader sees a price as,
 # which is a platform-shaping decision rather than a moderation one.
@@ -73,7 +74,7 @@ def admin_rate_detail(request, code):
         if currency.code == 'NGN':
             return _err('The naira is the base and is always 1.', 'BASE_RATE_FIXED')
         try:
-            value = float(request.data.get('rate_from_ngn'))
+            value = inputs.read_float(request.data, 'rate_from_ngn', required=True)
         except (TypeError, ValueError):
             return _err('The rate must be a number.', 'VALIDATION_FAILED')
         if value <= 0:
@@ -93,7 +94,7 @@ def admin_rate_detail(request, code):
 
     if 'sort_order' in request.data:
         try:
-            currency.sort_order = int(request.data.get('sort_order') or 0)
+            currency.sort_order = inputs.read_int(request.data, 'sort_order', default=0)
         except (TypeError, ValueError):
             return _err('sort_order must be a number.', 'VALIDATION_FAILED')
         updated.append('sort_order')

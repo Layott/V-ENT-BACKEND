@@ -35,6 +35,7 @@ from vent_auth.models import Users
 
 from . import overlay_binding, overlay_templates, presentation, text_layers
 from .models import Tournament, TournamentOverlay
+from vent_auth import uploads
 
 #: An overlay is markup. A 5MB one is already unusual; the KON10DR pack reaches
 #: 3.3MB only because it inlines every image as base64.
@@ -398,6 +399,16 @@ def serve_overlay(request, token, owner=None, label=None):
                             content_type='text/html; charset=utf-8')
     # A browser source that caches is a scoreboard that is wrong.
     response['Cache-Control'] = 'no-store, must-revalidate'
+    # A designer's page: inline scripts, pictures and fonts from anywhere, and
+    # framed by OBS and by the studio preview, so those stay open. What an
+    # overlay never needs is a form, a plugin or a changed base address, and
+    # those are closed (R77; vent_auth.middleware_security leaves this be).
+    response['Content-Security-Policy'] = (
+        "default-src 'self' https: data: blob:; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; "
+        "style-src 'self' 'unsafe-inline' https:; img-src * data: blob:; "
+        "media-src * data: blob:; font-src * data:; connect-src 'self' https: wss:; "
+        "object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors *")
     return response
 
 
@@ -815,6 +826,9 @@ def _create_overlay(request, tournament=None, event=None, user=None):
     if upload.size > MAX_BYTES:
         return _error('That file is larger than %dMB.'
                       % (MAX_BYTES // 1024 // 1024), 'TOO_LARGE')
+    refused = uploads.files_refusal(request, 'file', kinds=('html',), max_bytes=MAX_BYTES)
+    if refused:
+        return refused
 
     markup = upload.read().decode('utf-8', 'replace')
     upload.seek(0)

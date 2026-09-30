@@ -21,6 +21,7 @@ from .models import (Bookmark, ChapterComment, PromoMessage, ReaderSettings,
 from .views_series import (_chapter_row, _err, _find_chapter, _find_series,
                            _ok, _person, _series_row, _viewer)
 from vent_auth.text import count as _count
+from vent_auth import inputs
 
 
 def _need_user(request):
@@ -113,7 +114,7 @@ def series_rate(request, reference):
         return _err('No such comic.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
     try:
-        stars = int(request.data.get('stars'))
+        stars = inputs.read_int(request.data, 'stars', required=True)
     except (TypeError, ValueError):
         return _err('How many stars?', 'STARS_REQUIRED')
     if not 1 <= stars <= 5:
@@ -185,7 +186,7 @@ def chapter_progress(request, reference):
     if chapter is None:
         return _err('No such chapter.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
-    page = max(1, int(request.data.get('page') or 1))
+    page = max(1, inputs.read_int(request.data, 'page', default=1))
     row, _created = ReadingProgress.objects.update_or_create(
         user=user, series=chapter.series,
         defaults={'chapter': chapter, 'page_number': page})
@@ -202,7 +203,7 @@ def chapter_bookmarks(request, reference):
         return _err('No such chapter.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
     if request.method == 'POST':
-        page = max(1, int(request.data.get('page') or 1))
+        page = max(1, inputs.read_int(request.data, 'page', default=1))
         row, created = Bookmark.objects.get_or_create(
             user=user, chapter=chapter, page_number=page,
             defaults={'note': str(request.data.get('note') or '')[:200]})
@@ -287,7 +288,7 @@ def reader_settings(request):
             row.theme = theme
         if 'font_scale' in request.data:
             row.font_scale = max(70, min(
-                int(request.data.get('font_scale') or 100), 200))
+                inputs.read_int(request.data, 'font_scale', default=100), 200))
         row.save()
 
     return _ok({
@@ -320,7 +321,7 @@ def series_boost(request, reference):
                     status.HTTP_402_PAYMENT_REQUIRED)
 
     from datetime import timedelta
-    days = max(1, min(int(request.data.get('days') or 7), 30))
+    days = max(1, min(inputs.read_int(request.data, 'days', default=7), 30))
     now = timezone.now()
     # Extends rather than overwrites, so boosting twice buys two weeks.
     start = (series.boosted_until if series.boosted_until

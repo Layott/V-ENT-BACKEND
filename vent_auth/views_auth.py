@@ -17,6 +17,9 @@ from rest_framework.response import Response
 from vent.settings import FRONTEND_URL
 from . import login_2fa
 from .throttle import limited
+from .errors import password_refused
+from . import security_log
+from . import bot_check
 from .models import Users, UserProfile, UserWallet, VerificationToken, WaitlistReservation
 from .serializers import UserSerializer
 from . import emails
@@ -54,6 +57,9 @@ def _login_avatar(request, user):
 @api_view(['POST'])
 @limited('signup', 10)
 def signup(request):
+    refused = bot_check.verify_challenge(request)
+    if refused:
+        return refused
     email = request.data.get('email')
     username = request.data.get('username')
     password = request.data.get('password')
@@ -300,6 +306,7 @@ def login(request):
 
         return issue_session(user, request, method='password', with_2fa=False)
     else:
+        security_log.refused('login_failed', request)
         return Response({ 'code': 'INVALID_USERNAME_EMAIL_PASSWORD',
             'message': 'Invalid username/email or password'
         }, status=status.HTTP_401_UNAUTHORIZED)
@@ -549,7 +556,7 @@ def change_password_fp(request):
     try:
         validate_password(new_password)
     except DjangoValidationError as exc:
-        return Response({"status": "error", "message": " ".join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+        return password_refused(exc)
 
     try:
         user = Users.objects.get(email=email)

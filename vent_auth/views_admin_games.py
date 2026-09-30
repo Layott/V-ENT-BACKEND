@@ -16,6 +16,8 @@ from rest_framework.response import Response
 
 from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .models import GameMode, GameSeries, Games
+from . import uploads
+from . import inputs
 
 # Adding a game shapes what every organiser can run, so it sits with the other
 # structural powers rather than with day-to-day moderation.
@@ -90,10 +92,13 @@ def admin_games(request):
         return _err('There is already a game with that name.', 'GAME_EXISTS',
                     status.HTTP_409_CONFLICT)
 
+    refused = uploads.files_refusal(request, 'logo')
+    if refused:
+        return refused
     game = Games.objects.create(
         game_title=name,
         description=(request.data.get('description') or '').strip() or None,
-        sort_order=int(request.data.get('sort_order') or 0),
+        sort_order=inputs.read_int(request.data, 'sort_order', default=0),
     )
     if request.FILES.get('logo'):
         game.logo = request.FILES['logo']
@@ -135,11 +140,14 @@ def admin_game_detail(request, game_id):
 
     if 'sort_order' in request.data:
         try:
-            game.sort_order = int(request.data.get('sort_order') or 0)
+            game.sort_order = inputs.read_int(request.data, 'sort_order', default=0)
         except (TypeError, ValueError):
             return _err('sort_order must be a number.', 'VALIDATION_FAILED')
         updated.append('sort_order')
 
+    refused = uploads.files_refusal(request, 'logo')
+    if refused:
+        return refused
     if request.FILES.get('logo'):
         game.logo = request.FILES['logo']
         updated.append('logo')
@@ -174,7 +182,7 @@ def admin_game_series(request, game_id):
             return _err('The release year must be a number.', 'VALIDATION_FAILED')
 
     series = GameSeries(game=game, name=name, release_year=year,
-                        sort_order=int(request.data.get('sort_order') or 0))
+                        sort_order=inputs.read_int(request.data, 'sort_order', default=0))
     series.save()
     return _ok(_game_row(game, request), 'Edition added.', status.HTTP_201_CREATED)
 
@@ -220,7 +228,7 @@ def admin_series_detail(request, series_id):
 
     if 'sort_order' in request.data:
         try:
-            series.sort_order = int(request.data.get('sort_order') or 0)
+            series.sort_order = inputs.read_int(request.data, 'sort_order', default=0)
         except (TypeError, ValueError):
             return _err('sort_order must be a number.', 'VALIDATION_FAILED')
         updated.append('sort_order')
@@ -267,7 +275,7 @@ def admin_game_modes(request, game_id):
                     'MODE_EXISTS', status.HTTP_409_CONFLICT)
 
     try:
-        team_size = int(request.data.get('team_size') or 0)
+        team_size = inputs.read_int(request.data, 'team_size', default=0)
     except (TypeError, ValueError):
         return _err('The team size must be a number.', 'VALIDATION_FAILED')
     if team_size < 0 or team_size > 100:
@@ -282,7 +290,7 @@ def admin_game_modes(request, game_id):
         team_size=team_size,
         default_format=(request.data.get('default_format') or '')[:40],
         default_placement_table=(request.data.get('default_placement_table') or '')[:40],
-        sort_order=int(request.data.get('sort_order') or 0),
+        sort_order=inputs.read_int(request.data, 'sort_order', default=0),
     )
     return _ok(_game_row(game, request), 'Mode added.', status.HTTP_201_CREATED)
 
@@ -320,7 +328,7 @@ def admin_mode_detail(request, mode_id):
 
     if 'team_size' in request.data:
         try:
-            size = int(request.data.get('team_size') or 0)
+            size = inputs.read_int(request.data, 'team_size', default=0)
         except (TypeError, ValueError):
             return _err('The team size must be a number.', 'VALIDATION_FAILED')
         if size < 0 or size > 100:
@@ -340,7 +348,7 @@ def admin_mode_detail(request, mode_id):
 
     if 'sort_order' in request.data:
         try:
-            mode.sort_order = int(request.data.get('sort_order') or 0)
+            mode.sort_order = inputs.read_int(request.data, 'sort_order', default=0)
         except (TypeError, ValueError):
             return _err('sort_order must be a number.', 'VALIDATION_FAILED')
         updated.append('sort_order')

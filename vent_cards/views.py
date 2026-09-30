@@ -29,6 +29,7 @@ from vent_auth.models import Users
 from . import formations as formation_catalogue
 from . import windows
 from .models import GameCard, Lineup, LineupRules, LineupSlot
+from vent_auth import inputs
 
 
 def _err(message, code, http=status.HTTP_400_BAD_REQUEST, **extra):
@@ -286,7 +287,7 @@ def search(request):
                             field=name)
 
     try:
-        limit = min(60, max(1, int(request.GET.get('limit') or 30)))
+        limit = min(60, max(1, inputs.read_int(request.GET, 'limit', default=30)))
     except (TypeError, ValueError):
         limit = 30
 

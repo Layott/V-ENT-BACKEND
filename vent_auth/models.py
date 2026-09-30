@@ -7,6 +7,7 @@ import datetime
 import uuid
 
 from .storages import private_storage
+from vent_auth.uploads import OpaqueName
 
 
 class Users(AbstractUser, PremiumMixin):
@@ -152,9 +153,9 @@ class Users(AbstractUser, PremiumMixin):
 class UserProfile(models.Model):
     profile_id = models.AutoField(primary_key=True)
     user = models.ForeignKey(Users, on_delete=models.CASCADE)
-    profile_picture = models.ImageField(upload_to='profile_pictures/', null=True, blank=True)
+    profile_picture = models.ImageField(upload_to=OpaqueName('profile_pictures/'), null=True, blank=True)
     date_of_birth = models.DateField(null=True, blank=True)
-    banner = models.ImageField(upload_to='banners/', null=True)
+    banner = models.ImageField(upload_to=OpaqueName('banners/'), null=True)
     description = models.CharField(max_length=140, null=True)
     penalty_point = models.IntegerField(default=0, null=True)
 
@@ -201,7 +202,7 @@ class UserGallery(models.Model):
     RELEASE_TERMS_VERSION = '2026-08-31'
 
     user = models.ForeignKey(Users, on_delete=models.CASCADE)
-    image = models.ImageField(upload_to='gallery/', null=True, blank=True)
+    image = models.ImageField(upload_to=OpaqueName('gallery/'), null=True, blank=True)
     kind = models.CharField(max_length=16, choices=KIND_CHOICES, default=KIND_PERSONAL)
     caption = models.CharField(max_length=140, blank=True, default='')
     # When the person granted organisers use of this picture, and under which
@@ -335,7 +336,7 @@ class Games(models.Model):
     game_id = models.AutoField(primary_key=True)
     game_title = models.CharField(max_length=40, unique=True)
     description = models.TextField(null=True)
-    logo = models.ImageField(upload_to='game_logos/', null=True, blank=True)  # Add the logo field
+    logo = models.ImageField(upload_to=OpaqueName('game_logos/'), null=True, blank=True)  # Add the logo field
     # A game that is no longer run leaves the pickers without being deleted.
     # Deleting is not an option: tournaments point at it, and some of those FKs
     # cascade.
@@ -477,8 +478,8 @@ class GameMode(models.Model):
 class Achievement(models.Model):
     name = models.CharField(max_length=100)
     description = models.TextField(null=True)
-    logo = models.ImageField(upload_to='achievements/', blank=True, null=True)  # Updated folder name
-    awarded_to = models.ManyToManyField(Users, related_name="achievements", blank=True, null=True)
+    logo = models.ImageField(upload_to=OpaqueName('achievements/'), blank=True, null=True)  # Updated folder name
+    awarded_to = models.ManyToManyField(Users, related_name="achievements", blank=True)
 
     def __str__(self):
         return self.name
@@ -585,8 +586,8 @@ class Teams(models.Model):
     organization = models.ForeignKey(
         'Organization', on_delete=models.SET_NULL, null=True, blank=True, related_name='teams',
     )
-    team_logo = models.ImageField(upload_to='teams_logos/', null=True, blank=True)
-    team_banner = models.ImageField(upload_to='teams_banners/', null=True, blank=True)
+    team_logo = models.ImageField(upload_to=OpaqueName('teams_logos/'), null=True, blank=True)
+    team_banner = models.ImageField(upload_to=OpaqueName('teams_banners/'), null=True, blank=True)
     
     game = models.ForeignKey(
         Games,
@@ -765,8 +766,8 @@ class Organization(PremiumMixin):
     region = models.CharField(max_length=60, blank=True, default='')
     contact_email = models.EmailField(blank=True, default='')
     founded = models.DateField(null=True, blank=True)
-    logo = models.ImageField(upload_to='org_logos/', null=True, blank=True)
-    banner = models.ImageField(upload_to='org_banners/', null=True, blank=True)
+    logo = models.ImageField(upload_to=OpaqueName('org_logos/'), null=True, blank=True)
+    banner = models.ImageField(upload_to=OpaqueName('org_banners/'), null=True, blank=True)
     social_links = models.JSONField(default=dict, blank=True)
 
     # Trust
@@ -1382,7 +1383,7 @@ class KYCDocument(models.Model):
     # Identity documents live outside MEDIA_ROOT (see vent_auth/storages.py).
     # nginx serves MEDIA_ROOT directly, so a file written there is public to
     # anyone who guesses the name. Read these through GET /auth/kyc/document/<id>/.
-    document_image = models.ImageField(upload_to='kyc/', storage=private_storage)
+    document_image = models.ImageField(upload_to=OpaqueName('kyc/'), storage=private_storage)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     rejection_reason = models.TextField(blank=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
@@ -1788,7 +1789,7 @@ class Post(models.Model):
     slug = models.SlugField(max_length=160, unique=True, null=True, blank=True, db_index=True)
     author = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='posts')
     body = models.TextField()
-    image = models.ImageField(upload_to='post_images/', null=True, blank=True)
+    image = models.ImageField(upload_to=OpaqueName('post_images/'), null=True, blank=True)
     game = models.ForeignKey(Games, on_delete=models.SET_NULL, null=True, blank=True, related_name='posts')
     club = models.ForeignKey('Club', on_delete=models.CASCADE, null=True, blank=True, related_name='posts')
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
@@ -1834,8 +1835,8 @@ class Club(models.Model):
     name = models.CharField(max_length=120, unique=True)
     description = models.TextField(blank=True, default='')
     game = models.ForeignKey(Games, on_delete=models.SET_NULL, null=True, blank=True, related_name='clubs')
-    logo = models.ImageField(upload_to='club_logos/', null=True, blank=True)
-    banner = models.ImageField(upload_to='club_banners/', null=True, blank=True)
+    logo = models.ImageField(upload_to=OpaqueName('club_logos/'), null=True, blank=True)
+    banner = models.ImageField(upload_to=OpaqueName('club_banners/'), null=True, blank=True)
     owner = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='owned_clubs')
     # A club can belong to an organisation, which is how an org holds its
     # community alongside its teams, events and tournaments.
@@ -2817,3 +2818,17 @@ class PremiumInterest(models.Model):
 
     def __str__(self):
         return 'Wants premium: %s' % self.user.username
+
+
+class UsedChallenge(models.Model):
+    """A bot-check puzzle that has been answered once (vent_auth.bot_check).
+
+    A row, not a cache entry: seven gunicorn workers each hold their own
+    memory, and a puzzle answered on one must be refused on all of them.
+    Swept as it expires, so the table holds twenty minutes of signups."""
+
+    digest = models.CharField(max_length=64, unique=True)
+    expires_at = models.DateTimeField(db_index=True)
+
+    def __str__(self):
+        return self.digest[:12]

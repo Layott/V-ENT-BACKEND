@@ -95,7 +95,7 @@ def _notify(subscription, code, params, title, body):
                       'subscription': subscription.token},
         )
     except Exception:
-        logger.exception('dunning notice failed for %s', subscription.token)
+        logger.exception('dunning notice failed for subscription %s', subscription.pk)
 
 
 def on_failure(subscription, invoice, *, at=None):

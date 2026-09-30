@@ -27,6 +27,7 @@ from rest_framework.response import Response
 
 from .models import UserGallery, Users
 from .views_helpers import session_timeout_minutes
+from . import uploads
 
 # The most a person may hold, per kind. The old limit was five for everything;
 # somebody building an esports portfolio should not have to delete a holiday
@@ -129,6 +130,9 @@ def upload_gallery(request):
         return _error('No images provided.', 'NO_IMAGES_PROVIDED',
                       status.HTTP_400_BAD_REQUEST)
 
+    refused = uploads.files_refusal(request, ('images', 'image'))
+    if refused:
+        return refused
     kind = (request.data.get('kind') or UserGallery.KIND_PERSONAL).strip().lower()
     if kind not in dict(UserGallery.KIND_CHOICES):
         return _error('That is not a kind of picture.', 'VALIDATION_ERROR',

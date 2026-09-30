@@ -24,6 +24,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from . import bot_check
 from .models import Feedback, Users
 
 # Long enough to say what happened, short enough that nobody pastes a log file.
@@ -93,6 +94,9 @@ def feedback(request):
             'max_message': MAX_MESSAGE,
         })
 
+    refused = bot_check.verify_challenge(request)
+    if refused:
+        return refused
     user = _viewer(request)
     ip = _ip(request)
 

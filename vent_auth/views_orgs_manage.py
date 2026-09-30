@@ -32,6 +32,7 @@ from .views_orgs import (
     _abs, _authenticate, _error, _ok, _optional_user, _org_by_ref, _person_row,
     _role_of, serialize_member, serialize_org,
 )
+from . import uploads
 
 # Fields on the profile a manager may not touch and an admin may.
 TEXT_FIELDS = {
@@ -174,6 +175,9 @@ def org_update(request, org_id):
             org.social_links = links
             changed.append('social_links')
 
+    refused = uploads.files_refusal(request, ('logo', 'banner'))
+    if refused:
+        return refused
     for field in ('logo', 'banner'):
         uploaded = request.FILES.get(field)
         if uploaded is not None:

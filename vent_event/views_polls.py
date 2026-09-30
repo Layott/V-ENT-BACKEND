@@ -32,6 +32,7 @@ from vent_auth.models import Users
 
 from .models import (Event, EventManager, EventPoll, EventPollChoice,
                      EventPollOption, EventPollVote, Ticket)
+from vent_auth import inputs
 
 MAX_OPTIONS = 10
 
@@ -538,7 +539,7 @@ def vote(request, event_id, poll_id):
 
     elif poll.kind == EventPoll.SCALE:
         try:
-            number = int(request.data.get('number'))
+            number = inputs.read_int(request.data, 'number', required=True)
         except (TypeError, ValueError):
             return _error('Pick a number on the scale.', 'VALIDATION_ERROR')
         if not (poll.scale_min <= number <= poll.scale_max):

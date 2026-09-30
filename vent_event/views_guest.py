@@ -32,6 +32,7 @@ from rest_framework.response import Response
 from . import availability, checkout
 from .models import AbandonedCheckout, Event, Ticket, TicketTier
 from vent_auth.errors import gateway_down, gateway_refused
+from vent_auth import inputs
 
 PAYSTACK_BASE = 'https://api.paystack.co'
 MAX_PER_PURCHASE = 10
@@ -145,7 +146,7 @@ def _validate_order(event, request):
                 status.HTTP_403_FORBIDDEN)
 
     try:
-        quantity = int(request.data.get('quantity') or 1)
+        quantity = inputs.read_int(request.data, 'quantity', default=1)
     except (TypeError, ValueError):
         return None, None, None, None, _err(
             'How many has to be a number.', 'VALIDATION_ERROR', field='quantity')

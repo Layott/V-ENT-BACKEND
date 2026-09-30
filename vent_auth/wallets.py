@@ -39,6 +39,7 @@ from django.contrib.auth.hashers import check_password
 from django.db import transaction as db_transaction
 from django.utils import timezone
 
+from . import security_log
 from .models import OrgWallet, TeamWallet, Transaction, UserWallet
 
 
@@ -135,6 +136,8 @@ def check_pin(wallet, pin):
             'PIN_LOCKED', minutes=left)
     if not pin or not check_password(str(pin), wallet.pin_hash):
         failures = int(wallet.pin_failures or 0) + 1
+        security_log.refused('pin_wrong', user_id=getattr(wallet, 'user_id', None),
+                             wallet=wallet.pk, failures=failures)
         if failures >= PIN_TRIES:
             wallet.pin_failures = 0
             wallet.pin_locked_until = now + timedelta(minutes=PIN_LOCK_MINUTES)

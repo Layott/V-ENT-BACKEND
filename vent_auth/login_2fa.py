@@ -37,6 +37,7 @@ from datetime import timedelta
 from django.core import signing
 from django.utils import timezone
 
+from . import security_log
 from . import totp as totp_lib
 from .models import UserTOTP, Users
 
@@ -162,6 +163,7 @@ def spend_code(user, code):
     matched = totp_lib.verify(factor.secret, code, factor.last_used_step)
     if matched is None:
         failures = int(factor.code_failures or 0) + 1
+        security_log.refused('two_factor_wrong', user_id=user.pk, failures=failures)
         if failures >= CODE_TRIES:
             factor.code_failures = 0
             factor.code_locked_until = now + timedelta(minutes=CODE_LOCK_MINUTES)

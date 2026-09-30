@@ -22,6 +22,7 @@ from . import emails
 from .views_helpers import session_timeout_minutes, username_refusal
 from .throttle import limited
 from vent_auth.errors import server_error
+from . import uploads
 
 logger = logging.getLogger(__name__)
 
@@ -500,6 +501,9 @@ def edit_profile_info(request):
             return Response({ 'code': 'INVALID_TOKEN_FORMAT','status': 'error', 'message': 'Invalid token format'}, status=status.HTTP_400_BAD_REQUEST)
 
         login_session_token = session_token.split(" ")[1]
+        refused = uploads.files_refusal(request, ('profile_pic', 'banner'))
+        if refused:
+            return refused
         profile_pic = request.FILES.get("profile_pic")
         banner = request.FILES.get("banner")
         username = request.data.get('username')
@@ -595,6 +599,9 @@ def upload_avatar(request):
     if err:
         return err
 
+    refused = uploads.files_refusal(request, ('profile_picture', 'profile_pic', 'avatar'))
+    if refused:
+        return refused
     avatar = request.FILES.get('profile_picture') or request.FILES.get('profile_pic') or request.FILES.get('avatar')
     if not avatar:
         return Response(
@@ -625,6 +632,9 @@ def upload_banner(request):
     if err:
         return err
 
+    refused = uploads.files_refusal(request, 'banner')
+    if refused:
+        return refused
     banner = request.FILES.get('banner')
     if not banner:
         return Response(

@@ -22,6 +22,7 @@ The overlay goes on air in the wrong typeface with nothing to say so, which is
 the same class as a missing image and more embarrassing.
 """
 
+import os
 from datetime import timedelta
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -29,6 +30,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from vent_auth.models import Games, Users
+from vent_auth import testfiles
 from vent_tournament import overlay_binding
 from vent_tournament.models import StudioAsset, Tournament
 
@@ -59,7 +61,11 @@ class StudioFontTests(TestCase):
         self.ref = self.tournament.slug or self.tournament.tournament_id
         self.url = '/tournament/%s/studio/assets/' % self.ref
 
-    def upload(self, filename, slot='hero', content=b'a font'):
+    def upload(self, filename, slot='hero', content=None):
+        if content is None:
+            extension = os.path.splitext(filename)[1].lower()
+            content = (testfiles.font(extension) if extension in testfiles.FONT_MAGIC
+                       else b'%PDF-1.4 not a font')
         return self.client.post(self.url, data={
             'file': SimpleUploadedFile(filename, content),
             'name': 'Headline face', 'slot': slot}, **self.auth)
@@ -88,7 +94,7 @@ class StudioFontTests(TestCase):
 
     def test_a_stranger_cannot_upload_a_font(self):
         res = self.client.post(self.url, data={
-            'file': SimpleUploadedFile('Head.woff2', b'a font'),
+            'file': SimpleUploadedFile('Head.woff2', testfiles.font('.woff2')),
             'name': 'Theirs', 'slot': 'hero'}, **self.stranger_auth)
         self.assertIn(res.status_code, (401, 403))
 
@@ -114,7 +120,7 @@ class StudioFontTests(TestCase):
     def test_a_font_with_no_slot_is_not_offered(self):
         """A slot is what a designer writes. With none it cannot be named."""
         self.client.post(self.url, data={
-            'file': SimpleUploadedFile('Nameless.woff2', b'a font'),
+            'file': SimpleUploadedFile('Nameless.woff2', testfiles.font('.woff2')),
             'name': 'Nameless'}, **self.auth)
         self.assertEqual(self.feed()['fonts'], [])
 
@@ -129,7 +135,7 @@ class StudioFontTests(TestCase):
 
     def test_a_picture_is_not_offered_as_a_font(self):
         self.client.post(self.url, data={
-            'file': SimpleUploadedFile('shot.png', b'a picture'),
+            'file': SimpleUploadedFile('shot.png', testfiles.png()),
             'name': 'A picture', 'slot': 'hero'}, **self.auth)
         self.assertEqual(self.feed()['fonts'], [])
 
@@ -267,14 +273,14 @@ class ThePromptNamesThisStudiosOwnFontsTests(StudioFontTests):
 
     def test_an_uploaded_picture_is_named_as_a_usable_source(self):
         self.client.post(self.url, data={
-            'file': SimpleUploadedFile('crowd.png', b'a picture'),
+            'file': SimpleUploadedFile('crowd.png', testfiles.png()),
             'name': 'Crowd', 'slot': 'crowd'}, **self.auth)
         self.assertIn('data-vent-src="asset.crowd"', self.prompt())
 
     def test_a_font_with_no_slot_is_not_offered_in_the_prompt(self):
         """It cannot be named, so telling a designer about it would be a lie."""
         self.client.post(self.url, data={
-            'file': SimpleUploadedFile('Nameless.woff2', b'a font'),
+            'file': SimpleUploadedFile('Nameless.woff2', testfiles.font('.woff2')),
             'name': 'Nameless'}, **self.auth)
         self.assertIn('NO UPLOADED FONTS OR PICTURES YET', self.prompt())
 

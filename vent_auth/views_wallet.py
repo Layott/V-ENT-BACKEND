@@ -21,6 +21,7 @@ from . import wallets
 from .models import (Users, UserWallet, TeamWallet, OrgWallet, Transaction,
                      WithdrawalRequest, KYCDocument, PayoutAddress)
 from vent_auth.errors import gateway_down, gateway_refused
+from . import inputs
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +195,7 @@ def get_wallet_transactions(request):
         return err
 
     try:
-        page = max(1, int(request.GET.get('page', 1)))
+        page = max(1, inputs.read_int(request.GET, 'page', default=1))
     except (ValueError, TypeError):
         page = 1
 
@@ -307,7 +308,7 @@ def pay_shortfall(request):
     from . import pay
 
     try:
-        coins = int(request.data.get('coins') or 0)
+        coins = inputs.read_int(request.data, 'coins', default=0)
     except (TypeError, ValueError):
         coins = 0
     if coins <= 0:
@@ -1122,7 +1123,7 @@ def withdraw_quote(request):
     if err:
         return err
     try:
-        amount = max(0, int(request.query_params.get('amount') or 0))
+        amount = max(0, inputs.read_int(request.query_params, 'amount', default=0))
     except (TypeError, ValueError):
         amount = 0
     priced = payouts.fee_on(amount)

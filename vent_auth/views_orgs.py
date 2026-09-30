@@ -18,6 +18,7 @@ from rest_framework import status
 from .models import (
     Users, Organization, OrgMember, OrgJoinRequest, OrgFollower, Teams, AdminAction,
 )
+from . import uploads
 
 SESSION_TIMEOUT_MINUTES = 120
 MANAGE_ROLES = {'owner', 'admin', 'manager'}
@@ -268,6 +269,9 @@ def org_create(request):
         return _error('An organization with that name already exists.',
                       'DUPLICATE', status.HTTP_409_CONFLICT)
 
+    refused = uploads.files_refusal(request, ('logo', 'banner'))
+    if refused:
+        return refused
     org = Organization.objects.create(
         org_name=name[:148],
         org_creator=user,

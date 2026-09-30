@@ -48,6 +48,7 @@ from . import runsheet_import
 from .models import RunSheet, RunSheetDay, RunSheetItem
 from .production_access import (
     REFUSAL_CODE, find_owner, kind_of, may_run_production, viewer as _viewer)
+from vent_auth import uploads
 
 #: An xlsx of a run of show is tens of kilobytes. A megabyte is already a sheet
 #: with pictures pasted into it, which imports fine but is worth a ceiling.
@@ -301,6 +302,9 @@ def import_run_sheet(request, kind, ref):
         if upload.size > MAX_UPLOAD_BYTES:
             return _err('That file is too big. The limit is 4MB.',
                         'FILE_TOO_LARGE', field='file')
+        refused = uploads.files_refusal(request, 'file', kinds=('spreadsheet', 'text'), max_bytes=MAX_UPLOAD_BYTES)
+        if refused:
+            return refused
         name = (upload.name or '').lower()
         data = upload.read()
         if name.endswith('.xlsx') or name.endswith('.xlsm'):

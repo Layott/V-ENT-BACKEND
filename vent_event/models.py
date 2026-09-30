@@ -6,6 +6,7 @@ from django.db import models
 from vent_auth.models import Users, Games, Teams, Organization
 from vent_auth.softdelete import DeletedManager, LiveManager
 from django.utils import timezone
+from vent_auth.uploads import OpaqueName
 
 
 class Event(models.Model):
@@ -83,8 +84,8 @@ class Event(models.Model):
     )
     capacity_mode = models.CharField(
         max_length=10, choices=CAPACITY_MODES, default=CAPACITY_PER_DAY)
-    logo = models.ImageField(upload_to='event_logos/', null=True, blank=True)  # Event logo upload path
-    banner = models.ImageField(upload_to='event_banners/', null=True, blank=True)  # Event banner upload path
+    logo = models.ImageField(upload_to=OpaqueName('event_logos/'), null=True, blank=True)  # Event logo upload path
+    banner = models.ImageField(upload_to=OpaqueName('event_banners/'), null=True, blank=True)  # Event banner upload path
     banner_url = models.URLField(max_length=500, null=True, blank=True)  # External banner URL (used when no file upload)
     is_active = models.BooleanField(default=True)  # To mark if the event is active or not
     # Off the public listing, the sitemap, the partner feed and the Discord
@@ -761,7 +762,7 @@ class Sponsor(models.Model):
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="sponsors")
     name = models.CharField(max_length=100)
     kind = models.CharField(max_length=10, choices=KIND_CHOICES, default='sponsor')
-    logo = models.ImageField(upload_to='sponsor_logos/', null=True, blank=True)  # Sponsor logo upload path
+    logo = models.ImageField(upload_to=OpaqueName('sponsor_logos/'), null=True, blank=True)  # Sponsor logo upload path
     logo_url = models.URLField(max_length=500, null=True, blank=True)  # External sponsor logo URL
     website = models.URLField(max_length=500, null=True, blank=True)
     sort_order = models.PositiveIntegerField(default=0)
@@ -1093,8 +1094,8 @@ class Vendor(models.Model):
     category = models.CharField(max_length=60, blank=True, default='')
     description = models.TextField(blank=True, default='')
     booth = models.CharField(max_length=40, blank=True, default='')
-    logo = models.ImageField(upload_to='vendor_logos/', null=True, blank=True)
-    banner = models.ImageField(upload_to='vendor_banners/', null=True, blank=True)
+    logo = models.ImageField(upload_to=OpaqueName('vendor_logos/'), null=True, blank=True)
+    banner = models.ImageField(upload_to=OpaqueName('vendor_banners/'), null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -1149,7 +1150,7 @@ class VendorProduct(models.Model):
     name = models.CharField(max_length=140)
     description = models.TextField(blank=True, default='')
     price = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # NGN
-    image = models.ImageField(upload_to='vendor_products/', null=True, blank=True)
+    image = models.ImageField(upload_to=OpaqueName('vendor_products/'), null=True, blank=True)
     stock = models.PositiveIntegerField(default=0)
     sold = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)

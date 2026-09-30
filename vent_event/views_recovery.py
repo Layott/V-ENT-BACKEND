@@ -31,6 +31,8 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from vent_auth import inputs
+
 from .models import AbandonedCheckout
 from .views_promos import _actor_for_event, _err, _ok, event_by_ref
 
@@ -106,7 +108,9 @@ def remind_abandoned(request, event_id):
         event=event, converted_at__isnull=True, reminded_at__isnull=True
     ).select_related('event', 'tier')
 
-    one = request.data.get('id')
+    # A word where the row number belongs reached filter(id=...) and answered
+    # a 500 until 30 September; now it is refused as INVALID_INPUT.
+    one = inputs.read_int(request.data, 'id', minimum=1)
     if one:
         rows = rows.filter(id=one)
         if not rows.exists():

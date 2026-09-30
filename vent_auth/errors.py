@@ -51,3 +51,26 @@ def gateway_refused(exc=None):
 def gateway_down(exc=None):
     log.warning('payment gateway unreachable: %s', exc)
     return _answer('PAYMENT_GATEWAY', GATEWAY_DOWN, status.HTTP_502_BAD_GATEWAY)
+
+
+# Django's password validators say why in English sentences. The screen needs
+# a code it can translate; the first refusal decides it (R79, 30 Sept 2026).
+_PASSWORD_CODES = {
+    'password_too_short': 'PASSWORD_TOO_SHORT',
+    'password_too_similar': 'PASSWORD_TOO_SIMILAR',
+    'password_too_common': 'PASSWORD_TOO_COMMON',
+    'password_entirely_numeric': 'PASSWORD_ALL_NUMBERS',
+}
+
+
+def password_refused(exc):
+    """A new password Django's validators refused, as a coded answer."""
+    first = exc.error_list[0] if getattr(exc, 'error_list', None) else None
+    code = _PASSWORD_CODES.get(getattr(first, 'code', ''), 'PASSWORD_TOO_WEAK')
+    params = dict(getattr(first, 'params', None) or {})
+    if 'min_length' in params:
+        # The screen's sentence reads {minimum}, as the waitlist claim sends it.
+        params['minimum'] = params['min_length']
+    return Response({'status': 'error', 'code': code, 'params': params,
+                     'message': ' '.join(exc.messages)},
+                    status=status.HTTP_400_BAD_REQUEST)

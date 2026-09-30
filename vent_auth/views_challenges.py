@@ -29,6 +29,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from .models import Conversation, Scrim, ScrimResult, TeamMembers, Teams, Users
+from . import inputs
 
 
 def _ok(data, message='OK', http=status.HTTP_200_OK):
@@ -326,8 +327,8 @@ def report_result(request, scrim_id):
                     status.HTTP_409_CONFLICT)
 
     try:
-        score_a = int(request.data.get('score_a'))
-        score_b = int(request.data.get('score_b'))
+        score_a = inputs.read_int(request.data, 'score_a', required=True)
+        score_b = inputs.read_int(request.data, 'score_b', required=True)
     except (TypeError, ValueError):
         return _err('Both scores have to be numbers.', 'VALIDATION_ERROR')
     if score_a < 0 or score_b < 0:
@@ -395,8 +396,8 @@ def confirm_result(request, scrim_id):
 
     if not agree:
         try:
-            their_a = int(request.data.get('score_a'))
-            their_b = int(request.data.get('score_b'))
+            their_a = inputs.read_int(request.data, 'score_a', required=True)
+            their_b = inputs.read_int(request.data, 'score_b', required=True)
         except (TypeError, ValueError):
             return _err('Say what the score actually was.', 'VALIDATION_ERROR')
         result.status = 'disputed'

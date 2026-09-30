@@ -48,6 +48,7 @@ from .models import Organization
 from .models_discord import DiscordAction, DiscordServer
 from .views_linking import API_BASE, _discord_credentials
 from .views_profile import _user_from_bearer
+from . import inputs
 
 logger = logging.getLogger(__name__)
 
@@ -444,7 +445,7 @@ def server_purge(request, ref, server_id):
 
     channel = str(request.data.get('channel_id') or '')
     try:
-        limit = int(request.data.get('limit') or 0)
+        limit = inputs.read_int(request.data, 'limit', default=0)
     except (TypeError, ValueError):
         limit = 0
     if not channel or limit < 1:

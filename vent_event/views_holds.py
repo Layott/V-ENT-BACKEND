@@ -24,6 +24,7 @@ from vent_auth.models import Users
 from . import availability
 from .models import Ticket, TicketHold
 from vent_auth.text import count as _count
+from vent_auth import inputs
 
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
@@ -102,7 +103,7 @@ def holds(request, event_id):
                     'for.', 'VALIDATION_FAILED', field='name')
 
     try:
-        quantity = int(request.data.get('quantity') or 0)
+        quantity = inputs.read_int(request.data, 'quantity', default=0)
     except (TypeError, ValueError):
         return _err('How many has to be a number.', 'INVALID_NUMBER',
                     field='quantity')

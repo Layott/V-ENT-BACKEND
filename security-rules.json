@@ -1,24 +1,40 @@
 {
-  "uploads": {"gate": ["image_refusal"], "verified": "2026-09-29", "$comment": "vent_auth/uploads.py image_refusal sniffs the bytes (PNG/JPG/WebP), verifies with PIL and caps the size; a file that calls it counts as typed, sniffed and capped (R70)."},
+  "uploads": {
+    "gate": [
+      "image_refusal",
+      "file_refusal",
+      "files_refusal"
+    ],
+    "verified": "2026-09-30",
+    "$comment": "vent_auth/uploads.py: image_refusal and file_refusal sniff the bytes (images also opened with PIL), cap the size and allow a short list per door; files_refusal runs them over the named fields of a request. Every FileField stores under OpaqueName (random hex name). A file that calls one counts as typed, sniffed and capped (R70)."
+  },
   "$comment": "How V-ENT's backend meets owner rules R55 to R61 (17 September 2026). Read by ~/.claude/skills/security-rules/scripts/check-security.mjs. The mapping table is 'Owner rules 55 to 61 in V-ENT' in ../CLAUDE.md. Every allow row below was read by hand before it was written; a new one needs a reason somebody else can check.",
-
   "frontend": [],
   "server": [],
-  "ignore": ["vent/Lib", "venv", "node_modules", "media", "static", "private"],
-
+  "ignore": [
+    "vent/Lib",
+    "venv",
+    "node_modules",
+    "media",
+    "static",
+    "private"
+  ],
   "db": "mysql",
   "migrations": [],
   "rls": {
     "na": "MySQL on production and sqlite locally, reached only through the Django ORM by the one application role. There is no anon key, no client that queries the database directly, and no row-level policy engine on this stack; ownership is enforced per handler (R58) and proven at runtime by security/idor-cases.json plus vent_auth/tests_signed_out.py."
   },
-
   "rateLimit": {
     "middleware": [],
     "edge": [
       {
         "provider": "nginx",
         "rule": "limit_req_zone $binary_remote_addr zone=auth:10m rate=5r/m; location ~ ^/auth/(login|signup|forgot-password) { limit_req zone=auth burst=10 nodelay; } (deploy/nginx-vent.conf, which also covers /auth/login/2fa/verify/ by prefix)",
-        "paths": ["/vent_auth/views_auth", "/vent_auth/views_twofactor", "/vent_auth/views_social"],
+        "paths": [
+          "/vent_auth/views_auth",
+          "/vent_auth/views_twofactor",
+          "/vent_auth/views_social"
+        ],
         "verified": "2026-09-17",
         "how": "sudo nginx -T on the box, read back the zone and the location block; the api zone (120r/m) and admin zone (300r/m) cover everything else under /auth and /event and /tournament"
       }
@@ -26,11 +42,13 @@
     "live": {
       "path": "/auth/login/",
       "method": "POST",
-      "body": { "username_or_email": "nobody@example.com", "password": "not-the-password" },
+      "body": {
+        "username_or_email": "nobody@example.com",
+        "password": "not-the-password"
+      },
       "burst": 40
     }
   },
-
   "ownership": {
     "markers": [
       "_may_manage(",
@@ -45,21 +63,129 @@
     ],
     "cases": "security/idor-cases.json"
   },
-
   "billing": {
     "register": "security/billing-caps.md",
     "maxAgeDays": 90
   },
-
   "allow": [
-    { "rule": "R58", "path": "vent_auth/views_cards.py", "reason": "card_id from the body is only ever resolved inside pay.cover, which filters SavedCard by the signed-in user (SavedCard.objects.filter(user=user, pk=card_id)); the view itself never touches a card row" },
-    { "rule": "R58", "path": "vent_auth/views_wallet.py", "reason": "every wallet view starts with _get_user_from_token(request) and reads only that wallet; the one record chosen by the body, card_id on /wallet/pay/, is resolved inside pay.cover which filters by the same user" },
-    { "rule": "R58", "path": "vent_auth/views_discord_server.py", "reason": "install_callback reaches the organisation named in a signed state (signing.loads with STATE_SALT and a max age) that only that organisation's owner could have minted at install start; Discord sends the browser back carrying it. A forged or expired state is refused before any row is read" },
-    { "rule": "R58", "path": "vent_auth/views_social.py", "reason": "the identity comes from a Google id_token verified against GOOGLE_CLIENT_ID (signature, issuer, audience, expiry, email_verified); provider_id and email in the body decide nothing. vent_auth/tests_social_auth.py proves the body alone signs nobody in" },
-    { "rule": "R58", "path": "vent_event/views_guest.py", "reason": "guest checkout has no account by design (public by default, gate the action); the tier is scoped to the event in the address (event.ticket_tiers.filter(pk=...)) and a guest reads a ticket back only by the code emailed to them" },
-    { "rule": "R58", "path": "vent_event/views_recovery.py", "reason": "every view calls _actor_for_event(request, event), which refuses anybody who is not the organiser or a manager of that event, before the abandoned-checkout rows are read; the id in the body only narrows within that event" },
-    { "rule": "R58", "path": "vent_tournament/views_studio.py", "reason": "broadcast views go through may_run_production(user, owner) on the tournament or event named in the address, and a layer's overlay_id is resolved only within that broadcast's own tournament or event (TournamentOverlay.objects.filter(pk=raw, tournament=...))" },
-    { "rule": "R61", "path": "vent_auth/management/commands/delete_user.py", "reason": "table and column names come from a fixed list in the file; the only value from outside is the user id, and it is a bound parameter. Marked sql-safe on both lines" },
-    { "rule": "R70", "path": "vent_tournament/views_br.py", "reason": "the one upload (ocr_upload) hands request.FILES to br_ocr.check_uploads, which caps the count (6) and size (8 MB), sniffs the magic bytes (png, jpeg, webp only) and runs PIL verify; files are stored under an opaque name in private storage and streamed back to staff only. tests_battle_royale_doors.test_uploads_are_checked proves each refusal" }
-  ]
+    {
+      "rule": "R58",
+      "path": "vent_auth/views_cards.py",
+      "reason": "card_id from the body is only ever resolved inside pay.cover, which filters SavedCard by the signed-in user (SavedCard.objects.filter(user=user, pk=card_id)); the view itself never touches a card row"
+    },
+    {
+      "rule": "R58",
+      "path": "vent_auth/views_wallet.py",
+      "reason": "every wallet view starts with _get_user_from_token(request) and reads only that wallet; the one record chosen by the body, card_id on /wallet/pay/, is resolved inside pay.cover which filters by the same user"
+    },
+    {
+      "rule": "R58",
+      "path": "vent_auth/views_discord_server.py",
+      "reason": "install_callback reaches the organisation named in a signed state (signing.loads with STATE_SALT and a max age) that only that organisation's owner could have minted at install start; Discord sends the browser back carrying it. A forged or expired state is refused before any row is read"
+    },
+    {
+      "rule": "R58",
+      "path": "vent_auth/views_social.py",
+      "reason": "the identity comes from a Google id_token verified against GOOGLE_CLIENT_ID (signature, issuer, audience, expiry, email_verified); provider_id and email in the body decide nothing. vent_auth/tests_social_auth.py proves the body alone signs nobody in"
+    },
+    {
+      "rule": "R58",
+      "path": "vent_event/views_guest.py",
+      "reason": "guest checkout has no account by design (public by default, gate the action); the tier is scoped to the event in the address (event.ticket_tiers.filter(pk=...)) and a guest reads a ticket back only by the code emailed to them"
+    },
+    {
+      "rule": "R58",
+      "path": "vent_event/views_recovery.py",
+      "reason": "every view calls _actor_for_event(request, event), which refuses anybody who is not the organiser or a manager of that event, before the abandoned-checkout rows are read; the id in the body only narrows within that event"
+    },
+    {
+      "rule": "R58",
+      "path": "vent_tournament/views_studio.py",
+      "reason": "broadcast views go through may_run_production(user, owner) on the tournament or event named in the address, and a layer's overlay_id is resolved only within that broadcast's own tournament or event (TournamentOverlay.objects.filter(pk=raw, tournament=...))"
+    },
+    {
+      "rule": "R61",
+      "path": "vent_auth/management/commands/delete_user.py",
+      "reason": "table and column names come from a fixed list in the file; the only value from outside is the user id, and it is a bound parameter. Marked sql-safe on both lines"
+    },
+    {
+      "rule": "R70",
+      "path": "vent_tournament/views_br.py",
+      "reason": "the one upload (ocr_upload) hands request.FILES to br_ocr.check_uploads, which caps the count (6) and size (8 MB), sniffs the magic bytes (png, jpeg, webp only) and runs PIL verify; files are stored under an opaque name in private storage and streamed back to staff only. tests_battle_royale_doors.test_uploads_are_checked proves each refusal"
+    },
+    {
+      "rule": "R64",
+      "path": "vent_auth/geo.py",
+      "reason": "not a request handler: refresh_daily_location(user, request) and record_login(user, request) are called by the sign-in and session views after they have resolved the user themselves; the request is read only for the client IP and user agent, never for who the user is"
+    },
+    {
+      "rule": "R65",
+      "path": "vent_auth/wallets.py",
+      "reason": "the only ** into the ORM is **{column_for(wallet): wallet}, a keyword built in code from the wallet type (user_wallet / team_wallet / org_wallet); no request body reaches this module, callers pass amounts and wallet objects"
+    },
+    {
+      "rule": "R64",
+      "path": "vent_auth/uploads.py",
+      "reason": "vent_auth/uploads.py is the upload validator itself, not a request handler: it takes a request an authenticated view already holds, reads only request.FILES, and writes nothing (it returns None or a refusal). Read by hand 30 Sept 2026"
+    },
+    {
+      "rule": "R69",
+      "path": "vent_auth/uploads.py",
+      "reason": "vent_auth/uploads.py is the upload validator itself, not a request handler: it takes a request an authenticated view already holds, reads only request.FILES, and writes nothing (it returns None or a refusal). Read by hand 30 Sept 2026"
+    },
+    {
+      "rule": "R72",
+      "path": "vent_auth/views_discord_webhooks.py",
+      "reason": "not a receiver: this file stores and manages the OUTGOING Discord webhook URLs an organiser adds (V-ENT posts into their channel). Nothing is ever received here; every route passes _user_from_bearer and the may_manage / may_run_event check first. The receivers (Paystack x-paystack-signature HMAC-SHA512, Flutterwave verif-hash) verify before touching the database. Read by hand 30 Sept 2026"
+    },
+    {
+      "rule": "R68",
+      "path": "vent_auth/views_auth.py",
+      "reason": "signup: the door calls bot_check.verify_challenge(request) before it reads anything else: a self-hosted proof of work (ALTCHA shape) whose puzzle is HMAC-signed by this server, expires in 20 minutes and is refused a second use by a unique row in UsedChallenge; plus a honeypot field. Not a third-party captcha because the VPS brief rules out outside services, so the checker pattern (siteverify, verifyChallenge) does not name it. tests_security_batch.BotCheckTests proves each refusal. Read by hand 30 Sept 2026"
+    },
+    {
+      "rule": "R68",
+      "path": "vent_auth/views_feedback.py",
+      "reason": "feedback: the door calls bot_check.verify_challenge(request) before it reads anything else: a self-hosted proof of work (ALTCHA shape) whose puzzle is HMAC-signed by this server, expires in 20 minutes and is refused a second use by a unique row in UsedChallenge; plus a honeypot field. Not a third-party captcha because the VPS brief rules out outside services, so the checker pattern (siteverify, verifyChallenge) does not name it. tests_security_batch.BotCheckTests proves each refusal. Read by hand 30 Sept 2026"
+    },
+    {
+      "rule": "R68",
+      "path": "vent_auth/views_admin.py",
+      "reason": "add_email_to_waitlist: the door calls bot_check.verify_challenge(request) before it reads anything else: a self-hosted proof of work (ALTCHA shape) whose puzzle is HMAC-signed by this server, expires in 20 minutes and is refused a second use by a unique row in UsedChallenge; plus a honeypot field. Not a third-party captcha because the VPS brief rules out outside services, so the checker pattern (siteverify, verifyChallenge) does not name it. tests_security_batch.BotCheckTests proves each refusal. Read by hand 30 Sept 2026"
+    },
+    {
+      "rule": "R68",
+      "path": "vent_auth/views_waitlist.py",
+      "reason": "not an open form: waitlist_claim turns a reservation into an account only with the single-use token emailed to that address (WaitlistReservation.token), so a script without the mailbox has nothing to submit"
+    },
+    {
+      "rule": "R68",
+      "path": "vent_event/views_waitlist.py",
+      "reason": "not an open form: join_waitlist starts with actor_from_request and refuses anybody not signed in, so it is an action of an account, not a public form"
+    },
+    {
+      "rule": "R69",
+      "path": "vent_auth/bot_check.py",
+      "reason": "the one input (challenge) is parsed strictly in problem(): a dict or JSON / base64 JSON under 2000 characters, salt, challenge and signature as strings, number as an int within 0..MAX_NUMBER, the signature checked with compare_digest before anything else; the only write is the UsedChallenge row that makes a puzzle single use"
+    },
+    {
+      "rule": "R64",
+      "path": "vent_auth/bot_check.py",
+      "reason": "public by design: GET /auth/challenge/ hands a puzzle to somebody who is not signed in yet (that is the point of it, signup), rate limited at 60 a minute; the only write is the UsedChallenge row, made after the signature and the answer are proven"
+    }
+  ],
+  "auth": {
+    "markers": [
+      "_viewer(",
+      "_get_user_from_token(",
+      "_user_from_bearer(",
+      "_need_user(",
+      "require_viewer(",
+      "_actor_for_event(",
+      "_may_manage(",
+      "_admin_user(",
+      "may_run_production(",
+      "may_override("
+    ]
+  }
 }

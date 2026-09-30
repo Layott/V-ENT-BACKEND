@@ -4,6 +4,7 @@ from vent_auth.models import Users, Games, Teams, Organization
 from vent_auth.softdelete import DeletedManager, LiveManager
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
+from vent_auth.uploads import OpaqueName
 
 class Tournament(models.Model):
     TOURNAMENT_VISIBILITY_CHOICES = [
@@ -83,8 +84,8 @@ class Tournament(models.Model):
     # the behaviour everything already assumes.
     registration_opens_at = models.DateTimeField(null=True, blank=True)
     registration_closes_at = models.DateTimeField(null=True, blank=True)
-    tournament_logo = models.ImageField(upload_to='tournament_logos/', null=True, blank=True)
-    tournament_banner = models.ImageField(upload_to='tournament_banners/', null=True, blank=True)
+    tournament_logo = models.ImageField(upload_to=OpaqueName('tournament_logos/'), null=True, blank=True)
+    tournament_banner = models.ImageField(upload_to=OpaqueName('tournament_banners/'), null=True, blank=True)
     tournament_description = models.TextField(null=True)
     tournament_rules = models.TextField(null=True, blank=True)
 
@@ -97,7 +98,7 @@ class Tournament(models.Model):
     # organiser published, not a retyped summary of it. The typed field stays
     # because a reader on a phone should not have to download anything to see
     # whether substitutes are allowed.
-    rules_document = models.FileField(upload_to='tournament_rules/', null=True, blank=True)
+    rules_document = models.FileField(upload_to=OpaqueName('tournament_rules/'), null=True, blank=True)
     bracket_type = models.CharField(max_length=50, default='Single Elimination')
     tournament_creator = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True, related_name='tournament_creator')
     tournament_organization = models.ForeignKey(Organization, on_delete=models.CASCADE, null=True, blank=True)
@@ -443,7 +444,7 @@ class Sponsors(models.Model):
     sponsor_id_object = models.PositiveIntegerField(null=True)
     sponsor = GenericForeignKey('sponsor_type', 'sponsor_id_object')
 
-    logo = models.ImageField(upload_to='sponsor_logos/', null=True, blank=True)
+    logo = models.ImageField(upload_to=OpaqueName('sponsor_logos/'), null=True, blank=True)
     website = models.URLField(null=True, blank=True)
 
     def __str__(self):
@@ -649,7 +650,7 @@ class TournamentSquad(models.Model):
     name = models.CharField(max_length=80)
     #: The short form a broadcast uses. `NGA` on a scorebar.
     tag = models.CharField(max_length=8, blank=True, default='')
-    logo = models.ImageField(upload_to='squad_logos/', null=True, blank=True)
+    logo = models.ImageField(upload_to=OpaqueName('squad_logos/'), null=True, blank=True)
     created_by = models.ForeignKey(
         Users, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='squads_created')
@@ -1619,7 +1620,7 @@ class TournamentOverlay(models.Model):
         'vent_event.Event', on_delete=models.CASCADE,
         null=True, blank=True, related_name='overlays')
     name = models.CharField(max_length=120)
-    file = models.FileField(upload_to='tournament_overlays/')
+    file = models.FileField(upload_to=OpaqueName('tournament_overlays/'))
 
     # What goes in the URL. Long, random, and rotatable: a URL pasted into a
     # machine at a venue and forgotten is a URL that has to be revocable.
@@ -1978,7 +1979,7 @@ class StudioAsset(models.Model):
 
     kind = models.CharField(max_length=8, choices=KINDS)
     name = models.CharField(max_length=140)
-    file = models.FileField(upload_to='studio_assets/')
+    file = models.FileField(upload_to=OpaqueName('studio_assets/'))
     size_bytes = models.BigIntegerField(default=0)
 
     # How long a clip runs, so the console can take it off air by itself

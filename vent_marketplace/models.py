@@ -28,6 +28,8 @@ from vent_auth.models import Games, Organization, Users
 from vent_auth.slugs import ensure_token, sync_slug
 
 from . import catalogue
+from django.core.validators import FileExtensionValidator
+from vent_auth.uploads import OpaqueName
 
 
 class Listing(models.Model):
@@ -158,7 +160,11 @@ class ListingMedia(models.Model):
 
     listing = models.ForeignKey(Listing, on_delete=models.CASCADE,
                                 related_name='media')
-    file = models.FileField(upload_to='marketplace/')
+    # Pictures and clips only; the door sniffs the bytes as well (R70).
+    file = models.FileField(
+        upload_to=OpaqueName('marketplace/'),
+        validators=[FileExtensionValidator(
+            ['png', 'jpg', 'jpeg', 'webp', 'gif', 'mp4', 'webm', 'mov'])])
     caption = models.CharField(max_length=140, blank=True, default='')
     portfolio = models.BooleanField(default=False)
     order = models.PositiveIntegerField(default=0)

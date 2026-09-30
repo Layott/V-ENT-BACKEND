@@ -9,6 +9,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from vent_auth.models import Organization
+from vent_auth import testfiles
 
 from . import catalogue, listings as rules
 from .models import Listing
@@ -114,7 +115,7 @@ class PremiumFieldTests(TestCase):
         from django.core.files.uploadedfile import SimpleUploadedFile
         res = self.client.post(
             '/marketplace/listings/%s/media/' % made,
-            {'file': SimpleUploadedFile('a.png', b'x', content_type='image/png'),
+            {'file': SimpleUploadedFile('a.png', testfiles.png(), content_type='image/png'),
              'portfolio': 'true'})
         self.assertEqual(res.status_code, 402)
         self.assertEqual(res.json()['code'], 'PREMIUM_REQUIRED')
@@ -124,7 +125,7 @@ class PremiumFieldTests(TestCase):
         from django.core.files.uploadedfile import SimpleUploadedFile
         res = self.client.post(
             '/marketplace/listings/%s/media/' % made,
-            {'file': SimpleUploadedFile('a.png', b'x', content_type='image/png')})
+            {'file': SimpleUploadedFile('a.png', testfiles.png(), content_type='image/png')})
         self.assertEqual(res.status_code, 201, res.content)
 
 

@@ -24,6 +24,7 @@ from vent_auth.slugs import lookup_kwargs
 from . import catalogue, holds
 from .models import Bid, Listing, Purchase, Review, Wishlist
 from .views_listings import _person, _row
+from vent_auth import inputs
 
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
@@ -120,7 +121,7 @@ def bids(request, reference):
                     status.HTTP_409_CONFLICT)
 
     try:
-        amount = int(request.data.get('amount'))
+        amount = inputs.read_int(request.data, 'amount', required=True)
     except (TypeError, ValueError):
         return _err('How much are you offering?', 'VALIDATION_FAILED',
                     field='amount')
@@ -369,7 +370,7 @@ def review(request, token):
                     status.HTTP_409_CONFLICT)
 
     try:
-        rating = int(request.data.get('rating'))
+        rating = inputs.read_int(request.data, 'rating', required=True)
     except (TypeError, ValueError):
         return _err('One to five.', 'VALIDATION_FAILED', field='rating')
     if not 1 <= rating <= 5:

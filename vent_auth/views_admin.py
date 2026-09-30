@@ -11,6 +11,7 @@ from rest_framework.response import Response
 
 from django.core import signing
 
+from . import bot_check
 from . import emails
 from . import kyc as kyc_service
 from . import payouts
@@ -28,6 +29,7 @@ from .decorators import (
     ADMIN_SESSION_MINUTES,
     ADMIN_ROLES, ROLE_PERMISSIONS, admin_role_required, resolve_admin, admin_identity,
 )
+from . import inputs
 
 
 # Pending-2FA tokens are signed, not stored: they carry only the user id and
@@ -89,11 +91,11 @@ def _wallet_vc(user):
 def _paginate(request, default_size=20, max_size=200):
     """Return (page, page_size, offset) from query params."""
     try:
-        page = max(1, int(request.GET.get('page', 1)))
+        page = max(1, inputs.read_int(request.GET, 'page', default=1))
     except (ValueError, TypeError):
         page = 1
     try:
-        page_size = int(request.GET.get('page_size', default_size))
+        page_size = inputs.read_int(request.GET, 'page_size', default=default_size)
     except (ValueError, TypeError):
         page_size = default_size
     page_size = max(1, min(page_size, max_size))
@@ -1563,11 +1565,11 @@ def admin_audit_log(request):
     total = qs.count()
 
     try:
-        page = max(1, int(request.GET.get('page', 1)))
+        page = max(1, inputs.read_int(request.GET, 'page', default=1))
     except (ValueError, TypeError):
         page = 1
     try:
-        page_size = int(request.GET.get('page_size', 25))
+        page_size = inputs.read_int(request.GET, 'page_size', default=25)
     except (ValueError, TypeError):
         page_size = 25
     page_size = max(1, min(page_size, 100))
@@ -1691,6 +1693,9 @@ def check_username_availability(request):
 
 @api_view(['POST'])
 def add_email_to_waitlist(request):
+    refused = bot_check.verify_challenge(request)
+    if refused:
+        return refused
     email = request.data.get("email")
 
     if not email:

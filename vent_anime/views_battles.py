@@ -16,6 +16,7 @@ from vent_auth.slugs import resolve_or_redirect
 from . import battles, catalogue
 from .models import AttributeVote, Battle, BattleCharacter, BattleComment
 from .views_series import _err, _ok, _person, _viewer
+from vent_auth import uploads
 
 #: The permission that decides who may run a battle. `moderate_content` rather
 #: than a new name: deciding which characters enter and when voting closes is
@@ -179,6 +180,9 @@ def battle_nominate(request, reference):
     if BattleCharacter.objects.filter(battle=battle, name__iexact=name).exists():
         return _err('Somebody already nominated them.', 'ALREADY_NOMINATED')
 
+    refused = uploads.files_refusal(request, 'image')
+    if refused:
+        return refused
     character = BattleCharacter(
         battle=battle, name=name[:140],
         source=str(request.data.get('source') or '')[:140],
