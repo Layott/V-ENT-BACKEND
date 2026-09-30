@@ -23,6 +23,7 @@ from . import checkout
 from .models import Event, TicketTier, Ticket
 from vent_auth.text import count as _count
 from vent_auth import coins
+from vent_auth import inputs
 
 
 def _event_by_ref(ref, **extra):
@@ -284,7 +285,7 @@ def ticket_types(request, event_id):
     # invisible until somebody arrives with their link or their code, which is
     # the whole point of giving a creator something their audience alone can
     # buy.
-    code = str(request.GET.get('code') or '').strip()
+    code = inputs.read_text(request.GET, 'code', max_length=40)
     visible = [tier for tier in tiers if tier.opened_by(code)]
     unlocked = [t for t in visible if t.is_hidden]
 
@@ -337,7 +338,8 @@ def ticket_quote(request, event_id):
     if err:
         return err
 
-    tier_ref = request.GET.get('tier') or request.GET.get('tier_id')
+    tier_ref = (inputs.read_int(request.GET, 'tier', minimum=1)
+                or inputs.read_int(request.GET, 'tier_id', minimum=1))
     tier = event.ticket_tiers.filter(id=tier_ref).first() if tier_ref else None
     if tier is None:
         return _error('Ticket type not found.', 'NOT_FOUND',
@@ -345,13 +347,14 @@ def ticket_quote(request, event_id):
 
     # A hidden tier is priced only for somebody holding the code. Quoting it to
     # anybody who guesses its id would publish the presale it exists to hide.
-    code = str(request.GET.get('code') or '').strip()
+    code = inputs.read_text(request.GET, 'code', max_length=40)
     if tier.is_hidden and not tier.opened_by(code):
         return _error('That ticket type needs an access code.', 'CODE_REQUIRED',
                       status.HTTP_403_FORBIDDEN)
 
     try:
-        quantity = int(request.GET.get('quantity') or request.GET.get('qty') or 1)
+        quantity = (inputs.read_int(request.GET, 'quantity')
+                    or inputs.read_int(request.GET, 'qty') or 1)
     except (TypeError, ValueError):
         quantity = 1
     quantity = max(1, min(quantity, MAX_PER_PURCHASE))
@@ -360,12 +363,12 @@ def ticket_quote(request, event_id):
     # `channel=naira` is the guest checkout asking; a wallet buyer is the
     # default. The fee lands in a different place on each, and the panel has
     # to say the right one.
-    channel = 'naira' if request.query_params.get('channel') == 'naira' else 'wallet'
+    channel = 'naira' if inputs.read_text(request.query_params, 'channel', max_length=10) == 'naira' else 'wallet'
     # A promo code, quoted rather than refused: the panel shows the price
     # without it and says why the code did not take.
     from . import promos as _promos
     promo, promo_error = None, None
-    promo_code = str(request.GET.get('promo') or '').strip()
+    promo_code = inputs.read_text(request.GET, 'promo', max_length=60)
     if promo_code:
         promo, promo_error = _promos.resolve(event, promo_code, tier, quantity)
     priced = _ledger.quote(tier, quantity, event, buyer=_maybe_viewer(request),
@@ -470,14 +473,15 @@ def buy_ticket(request, event_id):
         return _error('Ticket sales have closed for this event.',
                       'STATE_CONFLICT', status.HTTP_409_CONFLICT)
 
-    tier_id = request.data.get('tier_id')
-    pin = request.data.get('pin')
+    tier_id = inputs.read_int(request.data, 'tier_id', minimum=1)
+    pin = inputs.read_text(request.data, 'pin', max_length=12, strip=False) or None
     attendees = request.data.get('attendees') or []
     if not isinstance(attendees, list):
         attendees = []
+    attendees = attendees[:MAX_PER_PURCHASE]
     raw_qty = request.data.get('quantity', request.data.get('qty', len(attendees) or 1))
     try:
-        quantity = int(raw_qty)
+        quantity = inputs.read_int({'quantity': raw_qty}, 'quantity', required=True)
     except (TypeError, ValueError):
         return _error('Quantity must be a number.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
 
@@ -549,7 +553,7 @@ def buy_ticket(request, event_id):
         # A hidden type that can be bought by anybody who guesses its id is not
         # hidden.
         if tier.is_hidden:
-            given = str(request.data.get('code') or '').strip()
+            given = inputs.read_text(request.data, 'code', max_length=40)
             if not tier.opened_by(given):
                 return _error('That ticket type needs an access code.',
                               'CODE_REQUIRED', status.HTTP_403_FORBIDDEN)
@@ -557,7 +561,7 @@ def buy_ticket(request, event_id):
         # How many one address may hold. The same rule as the guest checkout,
         # because it is a property of the event and not of the door somebody
         # came through. A signed-in buyer's address is their account's.
-        buyer_email = (str(request.data.get('email') or '').strip()
+        buyer_email = (inputs.read_text(request.data, 'email', max_length=254)
                        or (user.email or ''))
         ok, refusal = checkout.room_for_email(event, buyer_email, quantity,
                                               tier=tier)
@@ -597,7 +601,7 @@ def buy_ticket(request, event_id):
         # charged the full price in silence: they typed it on purpose.
         from . import promos as _promos
         promo = None
-        promo_code = str(request.data.get('promo') or '').strip()
+        promo_code = inputs.read_text(request.data, 'promo', max_length=60)
         if promo_code:
             promo, promo_error = _promos.resolve(event, promo_code, tier, quantity)
             if promo is None:
@@ -678,7 +682,7 @@ def buy_ticket(request, event_id):
         # since they arrived is sent here too. An unknown or switched-off code
         # credits nobody and is never a reason to refuse the sale.
         from . import referrals as _refs
-        _referral = _refs.resolve(event, request.data.get('ref'))
+        _referral = _refs.resolve(event, inputs.read_text(request.data, 'ref', max_length=200) or None)
         # A promo tied to an influencer credits them when no link did: the
         # code is how a viewer with no link arrives.
         if _referral is None and promo is not None and promo.referral_id:
@@ -759,7 +763,7 @@ def my_tickets(request):
     except Exception:
         pass
 
-    wanted = (request.GET.get('status') or '').strip()
+    wanted = inputs.read_text(request.GET, 'status', max_length=20)
     qs = Ticket.objects.filter(user=user).select_related('event', 'tier')
     if wanted in {'valid', 'checked_in', 'refunded', 'cancelled'}:
         qs = qs.filter(status=wanted)
@@ -816,7 +820,7 @@ def check_in_ticket(request, code):
         return _error('Only the event organizer or their door staff can check '
                       'tickets in.', 'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
-    gate = str(request.data.get('gate') or '').strip()[:60]
+    gate = inputs.read_text(request.data, 'gate', max_length=inputs.LONGEST_TEXT)[:60]
 
     # WHICH DAY this door is admitting for.
     #
@@ -892,7 +896,7 @@ def check_in_ticket(request, code):
     # a day, so a phone with a wrong clock cannot write the future.
     now = timezone.now()
     when = now
-    raw_at = str(request.data.get('at') or '').strip()
+    raw_at = inputs.read_text(request.data, 'at', max_length=40)
     if raw_at:
         parsed = parse_datetime(raw_at)
         if parsed is not None:
@@ -925,7 +929,7 @@ def _scan_day(request):
     to test it, and a scanner pinned to a date is the only way that is possible.
     Absent, it is today, which is what a door standing open right now means.
     """
-    raw = str(request.data.get('day') or '').strip()
+    raw = inputs.read_text(request.data, 'day', max_length=40)
     if not raw:
         return timezone.localdate(), None
     try:
@@ -988,7 +992,7 @@ def event_attendees(request, event_id):
     # A bad timestamp is ignored rather than refused. A door that stops
     # answering because a clock is odd is worse than one that sends a little
     # too much.
-    since_raw = str(request.query_params.get('since') or '').strip()
+    since_raw = inputs.read_text(request.query_params, 'since', max_length=40)
     since = None
     if since_raw:
         parsed = parse_datetime(since_raw)
@@ -1002,7 +1006,7 @@ def event_attendees(request, event_id):
     # own labels, and on a list this size that is most of the cost. A door
     # refreshing every few seconds does not need them; the full list on first
     # load does. Asking for `lean` is asking for the door's version.
-    lean = str(request.query_params.get('lean') or '').lower() in ('1', 'true', 'yes')
+    lean = inputs.read_bool(request.query_params, 'lean')
 
     # The stamp to send back next time. Taken BEFORE the rows are built so a
     # ticket bought while this response is being assembled is not skipped: it

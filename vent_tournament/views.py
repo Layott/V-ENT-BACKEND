@@ -21,6 +21,7 @@ from rest_framework.permissions import AllowAny
 from django.db import transaction as db_transaction
 from .money import CURRENCIES, from_coins, rates, to_coins
 from . import options as tournament_options
+from . import tournament_input as tin
 from django.contrib.contenttypes.models import ContentType
 from vent_auth import org_link
 from vent_auth.models import Organization
@@ -50,6 +51,7 @@ from . import formats as _formats
 # call be the thing that raises inside its own except block.
 import logging
 from vent_auth import uploads
+from vent_auth import inputs
 logger = logging.getLogger(__name__)
 
 
@@ -340,8 +342,8 @@ def join_tournament(request):
         if user.login_session_created_at is None or timezone.now() - user.login_session_created_at > timedelta(minutes=session_timeout_minutes()):
             return Response({ 'code': 'SESSION_TOKEN_EXPIRED','status': 'error', 'message': 'Session token has expired'}, status=status.HTTP_401_UNAUTHORIZED)
 
-        tournament_id = request.data.get('tournament_id')
-        team_id = request.data.get('team_id')  # optional - required for team-access tournaments
+        tournament_id = inputs.read_text(request.data, 'tournament_id', max_length=200)
+        team_id = inputs.read_int(request.data, 'team_id', minimum=1)  # optional - required for team-access tournaments
 
         if not tournament_id:
             return Response({ 'code': 'TOURNAMENT_ID_REQUIRED','status': 'error', 'message': 'tournament_id is required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -441,8 +443,8 @@ def join_tournament(request):
         # PRD asks for.
         invite = None
         if tournament.tournament_visibility in ('protected', 'private'):
-            given = str(request.data.get('invite_code')
-                        or request.data.get('code') or '').strip()
+            given = (inputs.read_text(request.data, 'invite_code', max_length=64)
+                     or inputs.read_text(request.data, 'code', max_length=64))
             invite = _usable_invite(tournament, given)
             if invite is None:
                 return Response({
@@ -484,7 +486,7 @@ def join_tournament(request):
         # the clash and what it collides with, and goes ahead when the caller
         # sends acknowledge_overlap - which is what a "yes, I know" button does.
         clash = _overlapping_registration(user, tournament)
-        if clash is not None and not request.data.get('acknowledge_overlap'):
+        if clash is not None and not inputs.read_bool(request.data, 'acknowledge_overlap'):
             return Response({
                 'status': 'error',
                 'code': 'SCHEDULE_CONFLICT',
@@ -558,7 +560,7 @@ def join_tournament(request):
         # KYC gate applies to any tournament that charges entry OR awards a prize
         # (locked CEO decision 2026-05-26).
         needs_kyc = tournament.is_paid_entry
-        pin = request.data.get('pin')
+        pin = inputs.read_text(request.data, 'pin', max_length=12, strip=False) or None
 
         from vent_auth.models import UserWallet
         from vent_auth import wallets
@@ -711,16 +713,19 @@ def search_tournament(request):
     try:
         # The tournaments page sends q / game / format / entry / status / from / to.
         # `name`, `game_id`, `location`, `access` are the older param names - both work.
-        name = request.GET.get('name') or request.GET.get('q')
-        game_id = request.GET.get('game_id')
-        game_title = request.GET.get('game')
-        location = request.GET.get('location')
-        access = request.GET.get('access')  # team / individual / team_and_individual
-        fmt = request.GET.get('format')
-        entry = (request.GET.get('entry') or '').lower()
-        wanted_status = request.GET.get('status')
-        date_from = request.GET.get('from')
-        date_to = request.GET.get('to')
+        name = (inputs.read_text(request.GET, 'name', max_length=100)
+                or inputs.read_text(request.GET, 'q', max_length=100))
+        game_id = inputs.read_text(request.GET, 'game_id', max_length=12)
+        game_title = inputs.read_text(request.GET, 'game', max_length=40)
+        location = inputs.read_text(request.GET, 'location', max_length=100)
+        access = inputs.read_text(request.GET, 'access', max_length=30)  # team / individual / team_and_individual
+        fmt = inputs.read_text(request.GET, 'format', max_length=50)
+        entry = inputs.read_text(request.GET, 'entry', max_length=10).lower()
+        wanted_status = inputs.read_text(request.GET, 'status', max_length=20)
+        # A public search: a date that is not one narrows nothing rather than
+        # failing the whole page, the way the formats catalogue treats rubbish.
+        date_from = _lenient_when(request.GET, 'from')
+        date_to = _lenient_when(request.GET, 'to')
 
         query = Q(is_draft=False, tournament_visibility__in=['public', 'protected'])
 
@@ -783,6 +788,99 @@ def _wants_league(bracket_type):
     return bool(definition and definition.advancement == 'table')
 
 
+#: More placings than any bracket pays.
+MOST_PLACES = 1024
+
+#: The prize column holds ten digits, two after the point.
+MOST_COINS = Decimal('100000000')
+
+
+def _prize_error(code, field, message):
+    return Response({'status': 'error', 'code': code, 'field': field,
+                     'message': message, 'data': {}},
+                    status=status.HTTP_400_BAD_REQUEST)
+
+
+def _prize_rows(raw, currency):
+    """The prize table the wizard sends, as the column values of each row.
+
+    Returns `(rows, None)` or `(None, error Response)`. Create and edit both
+    read it here (inbox 398). Until 30 September 2026 edit kept its own copy,
+    which took the typed figure as coins whatever the currency, so a naira
+    prize corrected while continuing a draft was stored a thousand times too
+    large, and it let NaN reach the column.
+    """
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw) if raw.strip() else []
+        except (json.JSONDecodeError, ValueError):
+            raw = []
+    if not isinstance(raw, list):
+        return [], None
+    rows = []
+    for entry in raw[:MOST_PLACES]:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            position = inputs.read_int(entry, 'position', minimum=0, maximum=MOST_PLACES)
+        except inputs.BadInput:
+            position = None
+        if not position:
+            continue
+        # The organiser may type in naira, dollars or coins. The conversion
+        # happens here rather than in the browser, because a figure worked
+        # out client-side is a figure somebody can edit before it is sent.
+        entry_currency = (inputs.read_text(entry, 'currency', max_length=3)
+                          or currency or 'VC').upper()
+        typed, ok = _typed_amount(entry.get('amount', entry.get('prize')))
+        extras_typed, extras_ok = _typed_amount(entry.get('extras_amount'))
+        if not (ok and extras_ok):
+            return None, _prize_error('PRIZE_NOT_A_NUMBER', 'prize_data',
+                                      'The prize has to be a number.')
+        coins = to_coins(typed, entry_currency)
+        extras_coins = to_coins(extras_typed, entry_currency) if extras_typed else None
+        if coins >= MOST_COINS or (extras_coins or 0) >= MOST_COINS:
+            return None, _prize_error('PRIZE_TOO_LARGE', 'prize_data',
+                                      'That prize is larger than a prize can be.')
+        rows.append({
+            'position': position, 'prize': coins, 'amount_original': typed,
+            'currency': entry_currency,
+            'extras': inputs.read_text(entry, 'extras', max_length=inputs.LONGEST_TEXT)[:120],
+            'extras_amount': extras_typed, 'extras_prize': extras_coins,
+        })
+    return rows, None
+
+
+def _winner_prize(raw, currency):
+    """`(amount, coins, None)` for the single winner-takes-all prize, or an error."""
+    amount, ok = _typed_amount(raw)
+    if not ok:
+        return None, None, _prize_error('PRIZE_NOT_A_NUMBER', 'winner_prize',
+                                        'The prize has to be a number.')
+    coins = to_coins(amount, currency)
+    if coins >= MOST_COINS:
+        return None, None, _prize_error('PRIZE_TOO_LARGE', 'winner_prize',
+                                        'That prize is larger than a prize can be.')
+    return amount, coins, None
+
+
+def _lenient_id(src, key):
+    """An id the wizard may send as a number, blank or the text null; a stale
+    or wrong one falls through to the next way of finding the record."""
+    try:
+        return inputs.read_int(src, key, minimum=1)
+    except inputs.BadInput:
+        return None
+
+
+def _lenient_when(src, key):
+    """A date filter on a public search; one that is not a date is ignored."""
+    try:
+        return tin.read_when(src, key)
+    except inputs.BadInput:
+        return None
+
+
 def _typed_amount(raw):
     """A prize figure as the organiser typed it, or None when it is not a number.
 
@@ -794,10 +892,21 @@ def _typed_amount(raw):
     """
     if raw in (None, '', 'null'):
         return None, True
+    if isinstance(raw, bool):
+        return None, False
     try:
-        return Decimal(str(raw)), True
+        value = Decimal(str(raw))
     except (InvalidOperation, TypeError, ValueError):
         return None, False
+    # NaN and infinity parse as Decimals and then fail on the column; so does
+    # anything past its twelve digits.
+    if not value.is_finite() or abs(value) >= MOST_TYPED:
+        return None, False
+    return value, True
+
+
+#: Larger than any prize typed in any currency; the columns hold 12 digits.
+MOST_TYPED = Decimal('1000000000')
 
 
 def _league_payload(tournament):
@@ -857,9 +966,10 @@ def _league_settings(data, team_size):
     """
     def whole(key, fallback):
         try:
-            return int(data.get(key, fallback))
+            value = inputs.read_int(data, key, minimum=-1000, maximum=1000)
         except (TypeError, ValueError):
             return fallback
+        return fallback if value is None else value
 
     seats = whole('players_per_team', team_size or 1)
     tiebreakers = data.get('tiebreakers')
@@ -877,7 +987,8 @@ def _league_settings(data, team_size):
         'points_draw': whole('points_draw', 1),
         'points_loss': whole('points_loss', 0),
         'players_per_team': max(1, seats),
-        'tiebreakers': [str(x) for x in tiebreakers],
+        'tiebreakers': [inputs.read_text({'tiebreakers': x}, 'tiebreakers', max_length=40)
+                        for x in tiebreakers[:20]],
     }
 
 
@@ -897,24 +1008,29 @@ def create_tournament(request):
             # Extract the actual token
             login_session_token = session_token.split(" ")[1]
             # Get data from the request
-            tournament_title = request.data.get('tournament_title')
-            game = request.data.get('game')
-            game_mode = request.data.get('game_mode')
-            tournament_description = request.data.get('tournament_description')
-            tournament_type = request.data.get('tournament_type')
-            start_date_and_time = request.data.get('start_date_and_time')
-            end_date_and_time = request.data.get('end_date_and_time')
+            tournament_title = tin.read_column(request.data, 'tournament_title')
+            game = inputs.read_text(request.data, 'game', max_length=40) or None
+            game_mode = tin.read_column(request.data, 'game_mode')
+            tournament_description = tin.read_column(request.data, 'tournament_description')
+            tournament_type = tin.read_column(request.data, 'tournament_type')
+            start_date_and_time = tin.read_column(request.data, 'start_date_and_time')
+            end_date_and_time = tin.read_column(request.data, 'end_date_and_time')
             # When entries open and close. The wizard has sent these under
             # these names since it was written and there was nowhere to put
             # them, so they were read and thrown away on every save.
-            registration_opens_at = request.data.get('reg_start_date_and_time') or None
-            registration_closes_at = request.data.get('reg_end_date_and_time') or None
-            tournament_location = request.data.get('tournament_location')
-            virtual_link = request.data.get('virtual_link')
-            hide_location = request.data.get('hide_location', False)
-            tournament_visibility = request.data.get('tournament_visibility')
-            entry_type = request.data.get('entry_type')
-            entry_fee_price = 0.00 if entry_type == 'Free' else request.data.get('entry_fee_price', 0.00)
+            registration_opens_at = tin.read_column(request.data, 'reg_start_date_and_time',
+                                                    column='registration_opens_at')
+            registration_closes_at = tin.read_column(request.data, 'reg_end_date_and_time',
+                                                     column='registration_closes_at')
+            tournament_location = tin.read_column(request.data, 'tournament_location')
+            virtual_link = tin.read_column(request.data, 'virtual_link')
+            # Multipart sends "false" as text, which bool() and a bare `if` both
+            # read as true, hiding the venue of every tournament made that way.
+            hide_location = inputs.read_bool(request.data, 'hide_location')
+            tournament_visibility = tin.read_column(request.data, 'tournament_visibility')
+            entry_type = inputs.read_text(request.data, 'entry_type', max_length=5)
+            entry_fee_price = (Decimal('0') if entry_type == 'Free'
+                               else tin.read_number(request.data, 'entry_fee_price', default=Decimal('0')))
             tournament_logo = request.FILES.get('tournament_logo')
             tournament_banner = request.FILES.get('tournament_banner')
             rules_document = request.FILES.get('rules_document')
@@ -924,29 +1040,50 @@ def create_tournament(request):
             refused = uploads.files_refusal(request, 'rules_document', kinds=('pdf', 'document'), max_bytes=12 * 1024 * 1024)
             if refused:
                 return refused
-            tournament_access = request.data.get('tournament_access')
-            team_size = request.data.get('team_size', 1)
-            min_number_of_participants = request.data.get('min_number_of_participants', 0)
-            max_number_of_participants = request.data.get('max_number_of_participants', 0)
-            bracket_type = normalize_bracket_type(request.data.get('bracket_type'))
-            tournament_rules = request.data.get('tournament_rules')
+            tournament_access = tin.read_column(request.data, 'tournament_access')
+            team_size = tin.read_number(request.data, 'team_size', default=1)
+            min_number_of_participants = tin.read_number(
+                request.data, 'min_number_of_participants', column='min_number_of_teams', default=0)
+            max_number_of_participants = tin.read_number(
+                request.data, 'max_number_of_participants', column='max_number_of_teams', default=0)
+            bracket_type = normalize_bracket_type(inputs.read_text(request.data, 'bracket_type', max_length=50) or None)
+            tournament_rules = tin.read_column(request.data, 'tournament_rules')
             # Wizard sends 'winner-takes-all' (hyphen); model choice is
             # 'winner_takes_all' - normalize so the prize branch + stored value match.
-            prize_type = (request.data.get('prize_type', 'no_prize') or 'no_prize').replace('-', '_')
+            prize_type = inputs.read_text(request.data, 'prize_type', max_length=30,
+                                          default='no_prize').replace('-', '_')
 
             # Which currency the organiser is thinking in, and the pool they
             # announced in it. Both are kept; the coins are what pay out.
-            prize_currency = (request.data.get('prize_currency') or 'VC').upper()
+            prize_currency = inputs.read_text(request.data, 'prize_currency', max_length=3,
+                                              default='VC').upper()
             if prize_currency not in CURRENCIES:
                 prize_currency = 'VC'
-            announced_total = request.data.get('prize_pool_total')
-            is_draft = request.data.get('is_draft', True)
+            announced_total, ok = _typed_amount(request.data.get('prize_pool_total'))
+            if not ok:
+                return _prize_error('PRIZE_NOT_A_NUMBER', 'prize_pool_total',
+                                    'The prize has to be a number.')
+            # Read before anything is created: a refusal returned inside the
+            # atomic block below commits, and would leave a tournament behind
+            # with no prizes.
+            prize_rows, winner_amount, winner_coins = [], None, None
+            if prize_type == 'distributed':
+                prize_rows, prize_error = _prize_rows(request.data.get('prize_data'), prize_currency)
+                if prize_error is not None:
+                    return prize_error
+            elif prize_type == 'winner_takes_all':
+                winner_amount, winner_coins, prize_error = _winner_prize(
+                    request.data.get('winner_prize', request.data.get('total_prize', 0)),
+                    prize_currency)
+                if prize_error is not None:
+                    return prize_error
             # Locked CEO decision 2026-05-26: organizer picks how scores get confirmed.
-            score_confirmation_mode = request.data.get('score_confirmation_mode', 'both_players_confirm')
+            score_confirmation_mode = inputs.read_text(request.data, 'score_confirmation_mode',
+                                                       max_length=30, default='both_players_confirm')
             valid_modes = {'organizer_only', 'both_players_confirm', 'screenshot_required'}
             if score_confirmation_mode not in valid_modes:
                 score_confirmation_mode = 'both_players_confirm'
-            is_draft_bool = str(is_draft) not in ('0', 'false', 'False')
+            is_draft_bool = inputs.read_bool(request.data, 'is_draft', default=True)
 
             # The organiser settings that decide who may enter, how the draw is
             # made and whether there is a check-in window. The wizard sends them
@@ -954,6 +1091,7 @@ def create_tournament(request):
             # unknown keys dropped, numbers clamped, every key present.
             raw_options = request.data.get('options')
             if isinstance(raw_options, str):
+                inputs.read_text(request.data, 'options', max_length=inputs.LONGEST_TEXT)
                 try:
                     raw_options = json.loads(raw_options) if raw_options.strip() else {}
                 except (json.JSONDecodeError, ValueError):
@@ -970,14 +1108,9 @@ def create_tournament(request):
 
             # Social Links
             social_links = {
-                "facebook_link": request.data.get('facebook_link'),
-                "twitter_link": request.data.get('twitter_link'),
-                "instagram_link": request.data.get('instagram_link'),
-                "youtube_link": request.data.get('youtube_link'),
-                "twitch_link": request.data.get('twitch_link'),
-                "kick_link": request.data.get('kick_link'),
-                "tiktok_link": request.data.get('tiktok_link'),
-                "bigolive_link": request.data.get('bigolive_link')
+                key: tin.read_column(request.data, key)
+                for key in ('facebook_link', 'twitter_link', 'instagram_link', 'youtube_link',
+                            'twitch_link', 'kick_link', 'tiktok_link', 'bigolive_link')
             }
 
             # The wizard knows the game's id as well as its title, and sends
@@ -990,8 +1123,8 @@ def create_tournament(request):
             # The id wins when it names a real game. A stale or wrong id falls
             # through to the title rather than refusing, because the title is
             # what the organiser actually saw and chose.
-            game_id = request.data.get('game_id')
-            if game_id not in (None, '', 'null'):
+            game_id = _lenient_id(request.data, 'game_id')
+            if game_id:
                 by_id = Games.objects.filter(game_id=game_id).first()
                 if by_id is not None:
                     game = by_id
@@ -1035,7 +1168,7 @@ def create_tournament(request):
             # it belongs to a different game, because that pairing is somebody's
             # stale form rather than an instruction.
             series = None
-            series_id = request.data.get('series_id')
+            series_id = _lenient_id(request.data, 'series_id')
             if series_id and game is not None:
                 from vent_auth.models import GameSeries
 
@@ -1046,8 +1179,8 @@ def create_tournament(request):
             # organisation showed an empty feed for everybody: 0 of 10
             # tournaments and 0 of 5 events carried one.
             organization, org_error = org_link.resolve(
-                request.data.get('organization')
-                or request.data.get('tournament_organization'),
+                inputs.read_text(request.data, 'organization', max_length=200)
+                or inputs.read_text(request.data, 'tournament_organization', max_length=200),
                 creator)
             if org_error == 'ORG_NOT_FOUND':
                 return Response({'status': 'error', 'code': 'ORG_NOT_FOUND',
@@ -1114,55 +1247,14 @@ def create_tournament(request):
 
             # Create prize distributions if applicable
             if prize_type == 'distributed':
-                prize_data = request.data.get('prize_data', [])
-                # The create wizard sends prize_data as a JSON-stringified array
-                # inside multipart FormData (same as sponsors), so decode it before
-                # iterating - otherwise we iterate the string's characters.
-                if isinstance(prize_data, str):
-                    try:
-                        prize_data = json.loads(prize_data) if prize_data.strip() else []
-                    except (json.JSONDecodeError, ValueError):
-                        prize_data = []
-                for prize_entry in prize_data:
-                    if not isinstance(prize_entry, dict):
-                        continue
-                    # The organiser may type in naira, dollars or coins. The
-                    # conversion happens here rather than in the browser,
-                    # because a figure worked out client-side is a figure
-                    # somebody can edit before it is sent.
-                    entry_currency = (prize_entry.get('currency') or prize_currency or 'VC').upper()
-                    typed = prize_entry.get('amount', prize_entry.get('prize'))
-                    coins = to_coins(typed, entry_currency)
-
-                    extras_typed = prize_entry.get('extras_amount')
-                    extras_coins = to_coins(extras_typed, entry_currency) if extras_typed else None
-
-                    TournamentPrizeDistribution.objects.create(
-                        tournament=tournament,
-                        position=prize_entry['position'],
-                        prize=coins,
-                        amount_original=typed or None,
-                        currency=entry_currency,
-                        extras=(prize_entry.get('extras') or '')[:120],
-                        extras_amount=extras_typed or None,
-                        extras_prize=extras_coins,
-                    )
+                for row in prize_rows:
+                    TournamentPrizeDistribution.objects.create(tournament=tournament, **row)
             elif prize_type == 'winner_takes_all':
-                typed = request.data.get('winner_prize', request.data.get('total_prize', 0))
-                # Refused by name rather than saved and 500ing on the decimal
-                # column, which is what "lots" in the prize box used to do.
-                amount, ok = _typed_amount(typed)
-                if not ok:
-                    return Response({
-                        'status': 'error', 'code': 'PRIZE_NOT_A_NUMBER',
-                        'field': 'winner_prize',
-                        'message': 'The prize has to be a number.', 'data': {},
-                    }, status=status.HTTP_400_BAD_REQUEST)
                 TournamentPrizeDistribution.objects.create(
                     tournament=tournament,
                     position=1,
-                    prize=to_coins(amount, prize_currency),
-                    amount_original=amount,
+                    prize=winner_coins,
+                    amount_original=winner_amount,
                     currency=prize_currency,
                     extras='Winner Takes All',
                 )
@@ -1997,10 +2089,10 @@ def update_bracket(request, tournament_id):
         if not may_record_results(user, tournament):
             return Response({ 'code': 'ONLY_ORGANIZER_CAN_UPDATE_BRACKETS','status': 'error', 'message': 'Only the tournament organizer or a scorekeeper can record a result'}, status=status.HTTP_403_FORBIDDEN)
 
-        match_id = request.data.get('match_id')
+        match_id = inputs.read_int(request.data, 'match_id', minimum=1)
         score_p1 = request.data.get('score_p1')
         score_p2 = request.data.get('score_p2')
-        winner_registration_id = request.data.get('winner_registration_id')
+        winner_registration_id = inputs.read_int(request.data, 'winner_registration_id', minimum=1)
 
         if not match_id or score_p1 is None or score_p2 is None:
             return Response(
@@ -2229,7 +2321,7 @@ def edit_tournament(request, tournament_id):
             # the split it was paid under.
             'fee_bearer',
         ]
-        if 'fee_bearer' in request.data and str(request.data.get('fee_bearer')) not in (
+        if 'fee_bearer' in request.data and inputs.read_text(request.data, 'fee_bearer', max_length=16) not in (
                 Tournament.FEE_ORGANISER, Tournament.FEE_PLAYER):
             return Response({'status': 'error', 'code': 'VALIDATION_ERROR',
                              'message': 'Say whether the organiser or the player pays the fee.'},
@@ -2252,8 +2344,9 @@ def edit_tournament(request, tournament_id):
         # The organisation, which is a foreign key and so cannot ride in
         # `editable_text`. An empty string means "take it off again".
         if 'organization' in request.data or 'tournament_organization' in request.data:
-            raw = request.data.get('organization',
-                                   request.data.get('tournament_organization'))
+            raw = (inputs.read_text(request.data, 'organization', max_length=200)
+                   if 'organization' in request.data
+                   else inputs.read_text(request.data, 'tournament_organization', max_length=200))
             organization, org_error = org_link.resolve(raw, user)
             if org_error == 'ORG_NOT_FOUND':
                 return Response({'status': 'error', 'code': 'ORG_NOT_FOUND',
@@ -2281,7 +2374,7 @@ def edit_tournament(request, tournament_id):
         for sent, column in (('reg_start_date_and_time', 'registration_opens_at'),
                              ('reg_end_date_and_time', 'registration_closes_at')):
             if sent in request.data:
-                setattr(tournament, column, request.data.get(sent) or None)
+                setattr(tournament, column, tin.read_column(request.data, sent, column=column))
                 updated_fields.append(column)
 
         # Hiding the venue, and the headline prize. Both were read on create
@@ -2295,13 +2388,13 @@ def edit_tournament(request, tournament_id):
         # location is not itself being edited in the same request, because then
         # that value is the organiser's newer answer.
         if 'hide_location' in request.data:
-            hidden = str(request.data.get('hide_location')).lower() in ('1', 'true', 'yes', 'on')
+            hidden = inputs.read_bool(request.data, 'hide_location')
             if hidden:
                 tournament.tournament_location = None
                 if 'tournament_location' not in updated_fields:
                     updated_fields.append('tournament_location')
             elif 'tournament_location' in request.data:
-                tournament.tournament_location = request.data.get('tournament_location') or None
+                tournament.tournament_location = tin.read_column(request.data, 'tournament_location')
                 if 'tournament_location' not in updated_fields:
                     updated_fields.append('tournament_location')
 
@@ -2316,23 +2409,17 @@ def edit_tournament(request, tournament_id):
         # the tournament itself changed.
         if 'winner_prize' in request.data or 'total_prize' in request.data:
             typed = request.data.get('winner_prize', request.data.get('total_prize'))
-            currency = (request.data.get('prize_currency')
+            currency = (inputs.read_text(request.data, 'prize_currency', max_length=3)
                         or tournament.prize_distributions.filter(position=1)
                         .values_list('currency', flat=True).first()
                         or 'VC').upper()
-            amount, ok = _typed_amount(typed)
-            if not ok:
-                return Response({
-                    'status': 'error',
-                    'code': 'PRIZE_NOT_A_NUMBER',
-                    'field': 'winner_prize',
-                    'message': 'The prize has to be a number.',
-                    'data': {},
-                }, status=status.HTTP_400_BAD_REQUEST)
+            amount, coins, prize_error = _winner_prize(typed, currency)
+            if prize_error is not None:
+                return prize_error
             tournament.prize_distributions.update_or_create(
                 position=1,
                 defaults={
-                    'prize': to_coins(amount, currency),
+                    'prize': coins,
                     'amount_original': amount,
                     'currency': currency,
                     'extras': 'Winner Takes All',
@@ -2347,7 +2434,7 @@ def edit_tournament(request, tournament_id):
         # game: changing the game while keeping a series from the old one would
         # leave a pairing that means nothing.
         if 'tournament_game' in request.data:
-            raw = request.data.get('tournament_game')
+            raw = inputs.read_text(request.data, 'tournament_game', max_length=40)
             game = None
             if raw not in (None, '', 'null'):
                 game = (Games.objects.filter(game_id=raw).first()
@@ -2372,7 +2459,7 @@ def edit_tournament(request, tournament_id):
 
         if 'series_id' in request.data:
             from vent_auth.models import GameSeries
-            raw = request.data.get('series_id')
+            raw = _lenient_id(request.data, 'series_id')
             tournament.tournament_series = (
                 GameSeries.objects.filter(series_id=raw,
                                           game=tournament.tournament_game).first()
@@ -2390,8 +2477,9 @@ def edit_tournament(request, tournament_id):
                     # has no way to say "clear".
                     continue
                 try:
-                    val = (Decimal(str(val)) if numeric[field] == 'decimal'
-                           else int(val))
+                    # Bounded by the column and refusing NaN, which passed
+                    # Decimal() and then raised at `val < 0` below as a 500.
+                    val = tin.read_number(request.data, field, minimum=None)
                 except (InvalidOperation, TypeError, ValueError):
                     return Response({
                         'status': 'error',
@@ -2406,6 +2494,9 @@ def edit_tournament(request, tournament_id):
                         'field': field,
                         'message': '%s cannot be negative.' % field,
                     }, status=status.HTTP_400_BAD_REQUEST)
+            if field not in numeric:
+                val = (inputs.read_text(request.data, field, max_length=50) if field == 'bracket_type'
+                       else tin.read_column(request.data, field, default=tin.blank_for(field)))
             if field == 'bracket_type':
                 val = normalize_bracket_type(val, tournament.bracket_type)
             setattr(tournament, field, val)
@@ -2435,10 +2526,7 @@ def edit_tournament(request, tournament_id):
         # string is truthy, so switching approvals OFF would silently turn it
         # on. The absent-means-unchanged rule still holds.
         if 'approve_registrations' in request.data:
-            raw = request.data.get('approve_registrations')
-            tournament.approve_registrations = (
-                raw if isinstance(raw, bool)
-                else str(raw).strip().lower() in ('1', 'true', 'yes', 'on'))
+            tournament.approve_registrations = inputs.read_bool(request.data, 'approve_registrations')
             updated_fields.append('approve_registrations')
 
         # How a result becomes final. A value outside the set would leave
@@ -2446,7 +2534,7 @@ def edit_tournament(request, tournament_id):
         # silently substituting a different mode from the one an organiser
         # picked is worse than telling them.
         if 'score_confirmation_mode' in request.data:
-            mode = str(request.data.get('score_confirmation_mode') or '').strip()
+            mode = inputs.read_text(request.data, 'score_confirmation_mode', max_length=30)
             allowed = [c[0] for c in
                        Tournament._meta.get_field('score_confirmation_mode').choices]
             if mode not in allowed:
@@ -2488,7 +2576,7 @@ def edit_tournament(request, tournament_id):
             if raw in (None, ''):
                 continue
             try:
-                value = int(raw)
+                value = tin.read_number(request.data, sent, column=columns[0], minimum=None)
             except (TypeError, ValueError):
                 return Response({
                     'status': 'error', 'code': 'INVALID_NUMBER', 'field': sent,
@@ -2508,6 +2596,7 @@ def edit_tournament(request, tournament_id):
         if 'options' in request.data:
             raw_options = request.data.get('options')
             if isinstance(raw_options, str):
+                inputs.read_text(request.data, 'options', max_length=inputs.LONGEST_TEXT)
                 try:
                     raw_options = json.loads(raw_options) if raw_options.strip() else {}
                 except (json.JSONDecodeError, ValueError):
@@ -2579,20 +2668,14 @@ def edit_tournament(request, tournament_id):
                 except (json.JSONDecodeError, ValueError):
                     prize_data = []
             if isinstance(prize_data, list):
+                currency = (inputs.read_text(request.data, 'prize_currency', max_length=3)
+                            or tournament.prize_currency or 'VC').upper()
+                rows, prize_error = _prize_rows(prize_data, currency)
+                if prize_error is not None:
+                    return prize_error
                 tournament.prize_distributions.all().delete()
-                for entry in prize_data:
-                    if not isinstance(entry, dict):
-                        continue
-                    try:
-                        position = int(entry.get('position') or 0)
-                        prize = Decimal(str(entry.get('prize') or 0))
-                    except (TypeError, ValueError, InvalidOperation):
-                        continue
-                    if position <= 0:
-                        continue
-                    TournamentPrizeDistribution.objects.create(
-                        tournament=tournament, position=position, prize=prize,
-                        extras=str(entry.get('extras') or '')[:40])
+                for row in rows:
+                    TournamentPrizeDistribution.objects.create(tournament=tournament, **row)
 
         # File fields
         if request.FILES.get('rules_document'):
@@ -2613,9 +2696,8 @@ def edit_tournament(request, tournament_id):
             updated_fields.append('rules_document')
 
         # Publish/draft toggle - keep `status` in sync with `is_draft`.
-        is_draft = request.data.get('is_draft')
-        if is_draft is not None:
-            tournament.is_draft = str(is_draft) in ('1', 'true', 'True')
+        if request.data.get('is_draft') is not None:
+            tournament.is_draft = inputs.read_bool(request.data, 'is_draft')
             updated_fields.append('is_draft')
             # Only touch status for pre-live tournaments (never rewind a live/completed one).
             if tournament.status in ('draft', 'published', 'registration_open'):
@@ -2627,7 +2709,7 @@ def edit_tournament(request, tournament_id):
         # result, which undid the first and dropped the league settings.
 
         # Validate game if provided
-        game_title = request.data.get('game')
+        game_title = inputs.read_text(request.data, 'game', max_length=40)
         if game_title:
             try:
                 tournament.tournament_game = Games.objects.get(game_title=game_title.title())
@@ -2649,7 +2731,7 @@ def edit_tournament(request, tournament_id):
                     action_type='edit_tournament',
                     target_model='Tournament',
                     target_id=str(tournament.tournament_id),
-                    reason=str(request.data.get('reason') or '')[:500],
+                    reason=inputs.read_text(request.data, 'reason', max_length=inputs.LONGEST_TEXT, strip=False)[:500],
                     metadata={
                         'updated_fields': updated_fields,
                         'owner_id': tournament.tournament_creator_id,
@@ -2704,7 +2786,7 @@ def get_tournament_brackets(request, tournament_id):
         stages_here = list(tournament.stages.all())
         chosen = None
         if stages_here:
-            wanted = request.GET.get('stage')
+            wanted = inputs.read_text(request.GET, 'stage', max_length=20)
             if wanted:
                 chosen = next((s for s in stages_here if str(s.id) == str(wanted)), None)
             if chosen is None:

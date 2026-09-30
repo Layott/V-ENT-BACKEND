@@ -53,7 +53,9 @@ def to_coins(amount, currency):
         value = Decimal(str(amount or '0'))
     except Exception:
         return Decimal('0')
-    if value <= 0:
+    # NaN raised InvalidOperation at the comparison below, outside the try,
+    # and infinity converted to infinite coins (inbox 398).
+    if not value.is_finite() or value <= 0:
         return Decimal('0')
 
     code = (currency or 'VC').upper()

@@ -56,6 +56,10 @@ from .models import (
 from .production_access import (
     REFUSAL_CODE, find_owner, kind_of, may_run_production, viewer as _viewer)
 from .views_assets import library_for, resolve_asset, serialize as serialize_asset
+from vent_auth import inputs
+
+#: The largest one graphic's fields may be, as JSON.
+MOST_PAYLOAD = 20000
 
 # Kept under its old name: the tests and the handovers call it this, and it
 # is the one line the plan check will sit on when plans exist.
@@ -317,7 +321,7 @@ def _sessions(request, owner, kind):
     session = BroadcastSession.objects.create(
         tournament=owner if kind == 'tournament' else None,
         event=owner if kind == 'event' else None,
-        name=str(request.data.get('name') or '').strip()[:120],
+        name=inputs.read_text(request.data, 'name', max_length=inputs.LONGEST_TEXT)[:120],
         started_by=user,
         # A brand is set once, not every broadcast day (inbox 393): the style
         # and each designed overlay's own settings come across. Nothing comes
@@ -368,14 +372,14 @@ def _session_detail(request, owner, kind, session_id):
         # Which look this broadcast is drawn in. Refused rather than ignored
         # when it is not one that exists: an operator who set a look and saw
         # nothing change would set it again rather than read a name back.
-        wanted = str(request.data.get('theme') or '').strip()
+        wanted = inputs.read_text(request.data, 'theme', max_length=40)
         if wanted not in dict(BroadcastSession.THEMES):
             return _err('There is no broadcast look called %s.' % wanted,
                         'INVALID_THEME', field='theme')
         session.theme = wanted
         session.save(update_fields=['theme'])
 
-    if request.method == 'POST' and request.data.get('end'):
+    if request.method == 'POST' and inputs.read_bool(request.data, 'end'):
         # Ending clears every element, because the alternative is a graphic
         # left on screen after the show with nobody watching the console.
         session.elements.update(is_active=False)
@@ -424,10 +428,14 @@ def _element(request, owner, kind, session_id, element_kind):
                 merged['options'] = presentation.clean(payload.get('options'))
             except presentation.PresentationError as err:
                 return _err(str(err), 'INVALID_PRESENTATION', field=err.field)
-        row.payload = merged
+        # Every field a graphic carries is text, a colour, a number or a
+        # picture reference; the whole of one is a few kilobytes. Merged in
+        # unbounded, one press could store megabytes that every overlay poll
+        # then sends back out.
+        row.payload = inputs.bounded_json(merged, 'payload', max_chars=MOST_PAYLOAD)
 
     if 'active' in request.data:
-        row.is_active = bool(request.data.get('active'))
+        row.is_active = inputs.read_bool(request.data, 'active')
 
     row.save()
     return _ok({'session': _session_payload(session, request)},
@@ -470,7 +478,7 @@ def _slot(request, owner, kind, session_id, role):
     # other, because a slot showing two things is not a thing anybody wants and
     # letting it happen is how a stale graphic ends up under a new one.
     if 'item_kind' in request.data:
-        wanted = str(request.data.get('item_kind') or '').strip()
+        wanted = inputs.read_text(request.data, 'item_kind', max_length=40)
         if wanted and wanted not in _kinds(session):
             return _err('There is no %s graphic for %s.' % (
                 wanted.replace('_', ' '),
@@ -481,8 +489,8 @@ def _slot(request, owner, kind, session_id, role):
             row.overlay = None
 
     if 'overlay_id' in request.data:
-        raw = request.data.get('overlay_id')
-        if raw in (None, '', 0, '0'):
+        raw = inputs.read_int(request.data, 'overlay_id', minimum=0)
+        if not raw:
             row.overlay = None
         else:
             # Only an overlay belonging to THIS broadcast's own tournament or
@@ -500,7 +508,7 @@ def _slot(request, owner, kind, session_id, role):
             row.item_kind = ''
 
     if 'active' in request.data:
-        row.active = bool(request.data.get('active'))
+        row.active = inputs.read_bool(request.data, 'active')
 
     row.save()
     return _ok({'session': _session_payload(session, request)}, 'Slot updated.')

@@ -19,6 +19,7 @@ from .models import (
 )
 from . import uploads
 from vent_auth import fuzzy
+from . import inputs
 
 SESSION_TIMEOUT_MINUTES = 120
 MANAGE_ROLES = {'owner', 'admin', 'manager'}
@@ -223,11 +224,12 @@ def org_list(request):
     viewer = _optional_user(request)
     qs = Organization.objects.all().prefetch_related('teams', 'followers')
 
-    search = (request.GET.get('search') or request.GET.get('q') or '').strip()
-    region = (request.GET.get('region') or '').strip()
+    search = (inputs.read_text(request.GET, 'search', max_length=100)
+              or inputs.read_text(request.GET, 'q', max_length=100))
+    region = inputs.read_text(request.GET, 'region', max_length=60)
     if region and region.lower() != 'all':
         qs = qs.filter(region__iexact=region)
-    if (request.GET.get('verified') or '').lower() in {'1', 'true', 'yes'}:
+    if inputs.read_bool(request.GET, 'verified'):
         qs = qs.filter(verified=True)
 
     if search:
@@ -254,7 +256,7 @@ def _parse_links(raw):
             raw = json.loads(raw)
         except ValueError:
             return {}
-    return raw if isinstance(raw, (list, dict)) else {}
+    return inputs.bounded_json(raw, 'social_links') if isinstance(raw, (list, dict)) else {}
 
 
 @api_view(['POST'])
@@ -263,7 +265,8 @@ def org_create(request):
     if auth_error:
         return auth_error
 
-    name = (request.data.get('name') or request.data.get('org_name') or '').strip()
+    name = (inputs.read_text(request.data, 'name', max_length=148)
+            or inputs.read_text(request.data, 'org_name', max_length=148))
     if not name:
         return _error('An organization name is required.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
     if Organization.objects.filter(org_name__iexact=name).exists():
@@ -277,13 +280,13 @@ def org_create(request):
         org_name=name[:148],
         org_creator=user,
         org_owner=user,
-        tag=(request.data.get('tag') or '').strip()[:12],
-        bio=(request.data.get('bio') or '').strip()[:280],
-        mission=(request.data.get('mission') or '').strip(),
-        focus=(request.data.get('focus') or '').strip()[:120],
-        location=(request.data.get('location') or '').strip()[:120],
-        region=(request.data.get('region') or '').strip()[:60],
-        contact_email=(request.data.get('contact_email') or '').strip(),
+        tag=inputs.read_text(request.data, 'tag', max_length=inputs.LONGEST_TEXT)[:12],
+        bio=inputs.read_text(request.data, 'bio', max_length=inputs.LONGEST_TEXT)[:280],
+        mission=inputs.read_text(request.data, 'mission', max_length=inputs.LONGEST_TEXT),
+        focus=inputs.read_text(request.data, 'focus', max_length=inputs.LONGEST_TEXT)[:120],
+        location=inputs.read_text(request.data, 'location', max_length=inputs.LONGEST_TEXT)[:120],
+        region=inputs.read_text(request.data, 'region', max_length=inputs.LONGEST_TEXT)[:60],
+        contact_email=inputs.read_text(request.data, 'contact_email', max_length=254),
         social_links=_parse_links(request.data.get('social_links')),
     )
 
@@ -378,7 +381,7 @@ def org_promote(request, org_id):
         return _error('Your role in this organization does not allow that.',
                       'FORBIDDEN', status.HTTP_403_FORBIDDEN)
 
-    role = (request.data.get('role') or '').strip()
+    role = inputs.read_text(request.data, 'role', max_length=20)
     if role not in {'admin', 'manager', 'member'}:
         return _error('Role must be admin, manager or member.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
     if role == OrgMember.ROLE_ADMIN and me.role != OrgMember.ROLE_OWNER:
@@ -386,7 +389,7 @@ def org_promote(request, org_id):
                       status.HTTP_403_FORBIDDEN)
 
     member = OrgMember.objects.filter(
-        org=org, user_id=request.data.get('user_id')
+        org=org, user_id=inputs.read_int(request.data, 'user_id', minimum=1, required=True)
     ).select_related('user').first()
     if member is None:
         return _error('That person is not a member.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
@@ -420,7 +423,7 @@ def org_kick(request, org_id):
     if me is None or me.rank < OrgMember.RANK[OrgMember.ROLE_ADMIN]:
         return _error('You do not manage this organization.', 'FORBIDDEN', status.HTTP_403_FORBIDDEN)
 
-    member = OrgMember.objects.filter(org=org, user_id=request.data.get('user_id')).select_related('user').first()
+    member = OrgMember.objects.filter(org=org, user_id=inputs.read_int(request.data, 'user_id', minimum=1, required=True)).select_related('user').first()
     if member is None:
         return _error('That person is not a member.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if not me.outranks(member):
@@ -451,7 +454,7 @@ def org_apply(request, org_id):
         return _error('Your application is already pending.', 'ALREADY_APPLIED', status.HTTP_409_CONFLICT)
 
     req = OrgJoinRequest.objects.create(
-        org=org, user=user, message=(request.data.get('message') or '').strip()[:280],
+        org=org, user=user, message=inputs.read_text(request.data, 'message', max_length=inputs.LONGEST_TEXT)[:280],
     )
     try:
         from .views_notifications import create_notification
@@ -511,7 +514,7 @@ def _resolve_request(request, org_id, accept):
         return _error('You do not manage this organization.', 'FORBIDDEN', status.HTTP_403_FORBIDDEN)
 
     req = OrgJoinRequest.objects.filter(
-        id=request.data.get('request_id'), org=org, status='pending'
+        id=inputs.read_int(request.data, 'request_id', minimum=1, required=True), org=org, status='pending'
     ).select_related('user').first()
     if req is None:
         return _error('That request is no longer pending.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
@@ -595,7 +598,7 @@ def org_request_verification(request, org_id):
         return _error('Verification is already under review.', 'ALREADY_REQUESTED', status.HTTP_409_CONFLICT)
 
     org.verification_requested = True
-    org.verification_note = (request.data.get('note') or '').strip()
+    org.verification_note = inputs.read_text(request.data, 'note', max_length=4000)
     org.save(update_fields=['verification_requested', 'verification_note'])
     return _ok({'verification_requested': True}, 'Verification requested. An admin will review it.')
 
@@ -634,7 +637,7 @@ def org_link_team(request, org_id):
         return _error('Only the organization owner can link teams.',
                       'FORBIDDEN', status.HTTP_403_FORBIDDEN)
 
-    team = Teams.objects.filter(team_id=request.data.get('team_id')).first()
+    team = Teams.objects.filter(team_id=inputs.read_int(request.data, 'team_id', minimum=1, required=True)).first()
     if team is None:
         return _error('Team not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if team.team_owner_id != user.user_id:
@@ -662,7 +665,7 @@ def org_unlink_team(request, org_id):
         return _error('Only the organization owner can unlink teams.',
                       'FORBIDDEN', status.HTTP_403_FORBIDDEN)
 
-    team = Teams.objects.filter(team_id=request.data.get('team_id'), organization=org).first()
+    team = Teams.objects.filter(team_id=inputs.read_int(request.data, 'team_id', minimum=1, required=True), organization=org).first()
     if team is None:
         return _error('That team is not linked to this organization.',
                       'NOT_FOUND', status.HTTP_404_NOT_FOUND)

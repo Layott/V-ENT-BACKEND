@@ -23,6 +23,7 @@ import json
 import logging
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.utils.dateparse import parse_datetime
 from rest_framework import status
@@ -232,6 +233,18 @@ def read_ids(src, key, *, max_items=500):
         except (TypeError, ValueError):
             raise BadInput(key, 'not a whole number') from None
     return out
+
+
+def read_timezone(src, key, *, default=''):
+    """An IANA zone this server knows, like Africa/Lagos, or `default`."""
+    value = read_text(src, key, max_length=64)
+    if not value:
+        return default
+    try:
+        ZoneInfo(value)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise BadInput(key, 'not a time zone') from None
+    return value
 
 
 def read_json(src, key, *, max_chars=4000, required=False, default=None):

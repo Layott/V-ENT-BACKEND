@@ -33,6 +33,7 @@ from .views_orgs import (
     _role_of, serialize_member, serialize_org,
 )
 from . import uploads
+from . import inputs
 
 # Fields on the profile a manager may not touch and an admin may.
 TEXT_FIELDS = {
@@ -147,7 +148,8 @@ def org_update(request, org_id):
         return err
 
     changed = []
-    name = (request.data.get('name') or request.data.get('org_name') or '').strip()
+    name = (inputs.read_text(request.data, 'name', max_length=148)
+            or inputs.read_text(request.data, 'org_name', max_length=148))
     if name and name != org.org_name:
         if Organization.objects.filter(org_name__iexact=name).exclude(pk=org.pk).exists():
             return _error('An organization with that name already exists.', 'DUPLICATE',
@@ -158,10 +160,10 @@ def org_update(request, org_id):
 
     for field, limit in TEXT_FIELDS.items():
         if field in request.data:
-            setattr(org, field, (request.data.get(field) or '').strip()[:limit])
+            setattr(org, field, inputs.read_text(request.data, field, max_length=inputs.LONGEST_TEXT)[:limit])
             changed.append(field)
     if 'mission' in request.data:
-        org.mission = (request.data.get('mission') or '').strip()
+        org.mission = inputs.read_text(request.data, 'mission', max_length=inputs.LONGEST_TEXT)
         changed.append('mission')
     if 'social_links' in request.data:
         links = request.data.get('social_links')
@@ -172,7 +174,7 @@ def org_update(request, org_id):
             except ValueError:
                 links = None
         if links is not None:
-            org.social_links = links
+            org.social_links = inputs.bounded_json(links, 'social_links')
             changed.append('social_links')
 
     refused = uploads.files_refusal(request, ('logo', 'banner'))
@@ -183,7 +185,7 @@ def org_update(request, org_id):
         if uploaded is not None:
             setattr(org, field, uploaded)
             changed.append(field)
-        elif request.data.get('remove_%s' % field):
+        elif inputs.read_bool(request.data, 'remove_%s' % field):
             setattr(org, field, None)
             changed.append(field)
 
@@ -220,16 +222,16 @@ def org_set_role(request, org_id):
     if err:
         return err
 
-    role = (request.data.get('role') or '').strip().lower()
+    role = inputs.read_text(request.data, 'role', max_length=20).lower()
     if role not in dict(OrgMember.ROLE_CHOICES):
         return _error('That is not a role.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
     if role == OrgMember.ROLE_OWNER:
         return _error('Ownership is handed over, not assigned.', 'VALIDATION_ERROR',
                       status.HTTP_400_BAD_REQUEST)
 
-    username = (request.data.get('username') or '').strip()
+    username = inputs.read_text(request.data, 'username', max_length=129)
     target_user = (Users.objects.filter(username__iexact=username).first() if username
-                   else Users.objects.filter(pk=request.data.get('user_id')).first())
+                   else Users.objects.filter(pk=inputs.read_int(request.data, 'user_id', minimum=1)).first())
     target = OrgMember.objects.filter(org=org, user=target_user).select_related('user').first() \
         if target_user else None
     if target is None:
@@ -305,8 +307,9 @@ def org_invite(request, org_id):
     # caterer's email, not their handle, and being told to go and find the
     # handle first is how the invite never gets sent.
     from .invites import invitee_for
-    raw = (request.data.get('username') or request.data.get('email') or
-           request.data.get('invitee') or '').strip()
+    raw = (inputs.read_text(request.data, 'username', max_length=254)
+           or inputs.read_text(request.data, 'email', max_length=254)
+           or inputs.read_text(request.data, 'invitee', max_length=254))
     if not raw:
         return _error('Give an email address or a username.', 'VALIDATION_ERROR',
                       status.HTTP_400_BAD_REQUEST)
@@ -318,7 +321,7 @@ def org_invite(request, org_id):
         return _error('@%s is already in this organization.' % target.username,
                       'ALREADY_MEMBER', status.HTTP_400_BAD_REQUEST)
 
-    role = (request.data.get('role') or OrgMember.ROLE_MEMBER).strip().lower()
+    role = inputs.read_text(request.data, 'role', max_length=20, default=OrgMember.ROLE_MEMBER).lower()
     if role not in dict(OrgMember.ROLE_CHOICES) or role == OrgMember.ROLE_OWNER:
         return _error('That is not a role somebody can be invited as.', 'VALIDATION_ERROR',
                       status.HTTP_400_BAD_REQUEST)
@@ -342,7 +345,7 @@ def org_invite(request, org_id):
         # Re-inviting somebody is how a role is corrected before they answer,
         # rather than a second invite they then have to choose between.
         existing.role, existing.scopes = role, scopes
-        existing.message = (request.data.get('message') or '').strip()[:280]
+        existing.message = inputs.read_text(request.data, 'message', max_length=inputs.LONGEST_TEXT)[:280]
         existing.invited_by = me.user
         existing.save(update_fields=['role', 'scopes', 'message', 'invited_by'])
         invite = existing
@@ -350,7 +353,7 @@ def org_invite(request, org_id):
         invite = OrgInvite.objects.create(
             org=org, user=target, email=email, invited_by=me.user, role=role,
             scopes=scopes,
-            message=(request.data.get('message') or '').strip()[:280],
+            message=inputs.read_text(request.data, 'message', max_length=inputs.LONGEST_TEXT)[:280],
         )
 
     # A notification needs somebody to notify. When the invitation is addressed
@@ -428,7 +431,7 @@ def respond_to_invite(request, token):
         return _error('You have already answered this invite.', 'ALREADY_ANSWERED',
                       status.HTTP_400_BAD_REQUEST)
 
-    accept = bool(request.data.get('accept'))
+    accept = inputs.read_bool(request.data, 'accept')
     invite.status = OrgInvite.STATUS_ACCEPTED if accept else OrgInvite.STATUS_DECLINED
     invite.responded_at = timezone.now()
     invite.save(update_fields=['status', 'responded_at'])
@@ -504,7 +507,8 @@ def org_link_club(request, org_id):
     if err:
         return err
 
-    ref = str(request.data.get('club') or request.data.get('slug') or '').strip()
+    ref = (inputs.read_text(request.data, 'club', max_length=200)
+           or inputs.read_text(request.data, 'slug', max_length=200))
     club = (Club.objects.filter(id=int(ref)).first() if ref.isdigit()
             else Club.objects.filter(slug=ref).first())
     if club is None:
@@ -528,7 +532,8 @@ def org_unlink_club(request, org_id):
     if err:
         return err
 
-    ref = str(request.data.get('club') or request.data.get('slug') or '').strip()
+    ref = (inputs.read_text(request.data, 'club', max_length=200)
+           or inputs.read_text(request.data, 'slug', max_length=200))
     club = (Club.objects.filter(id=int(ref), organization=org).first() if ref.isdigit()
             else Club.objects.filter(slug=ref, organization=org).first())
     if club is None:

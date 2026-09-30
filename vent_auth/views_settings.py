@@ -5,7 +5,6 @@ Mounted at ROOT (no /auth prefix) because the FE calls `/setting/`, `/device/…
 """
 import logging
 import re
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from rest_framework import status
 from rest_framework.decorators import api_view
@@ -150,17 +149,6 @@ def _with_real_twofactor(settings, user):
     return {**settings, 'security': security}
 
 
-def _timezone(src, key):
-    """An IANA zone this server knows, like Africa/Lagos."""
-    value = inputs.read_text(src, key, max_length=64)
-    if value:
-        try:
-            ZoneInfo(value)
-        except (ZoneInfoNotFoundError, ValueError):
-            raise inputs.BadInput(key, 'not a time zone') from None
-    return value
-
-
 def _currency(src, key):
     """A three letter currency code, like NGN, or '' for the site's default."""
     value = inputs.read_text(src, key, max_length=3).upper()
@@ -221,7 +209,7 @@ SECTION_FIELDS = {
     None: {
         'language': _choice('en', 'fr', 'pt'),
         'region': lambda src, key: inputs.read_text(src, key, max_length=8),
-        'timezone': _timezone,
+        'timezone': inputs.read_timezone,
         'date_format': lambda src, key: inputs.read_choice(
             src, key, ('DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'), default=''),
         'walkthrough': _walkthrough,

@@ -31,6 +31,7 @@ from vent_auth.actors import actor_from_request, may_override
 
 from .models import Event, TicketTier
 from .views_tickets import serialize_tier
+from vent_auth import inputs
 
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
@@ -66,11 +67,24 @@ def _event_and_permission(request, event_id):
     return event, user, None
 
 
+def _read_perks(data):
+    """The perks line: a list from the console or the text of one."""
+    perks = data.get('perks')
+    if isinstance(perks, list):
+        return ', '.join(inputs.read_text({'perks': p}, 'perks', max_length=255)
+                         for p in perks[:50]
+                         if inputs.read_text({'perks': p}, 'perks', max_length=255))[:255]
+    return inputs.read_text(data, 'perks', max_length=inputs.LONGEST_TEXT)[:255]
+
+
 def _read_price(raw, current=None):
     if raw in (None, ''):
         return current, None
     try:
-        price = Decimal(str(raw))
+        # read_decimal refuses NaN and infinity: Decimal('NaN') passed the
+        # parse and then raised InvalidOperation at `price < 0`, outside this
+        # try, which answered 500. The column holds ten digits.
+        price = inputs.read_decimal({'price': raw}, 'price', maximum=99_999_999, places=None)
     except (InvalidOperation, TypeError, ValueError):
         return None, _err('The price has to be a number.', 'INVALID_NUMBER',
                           field='price')
@@ -90,7 +104,7 @@ def _read_quantity(raw, current=None):
     if raw in (None, ''):
         return current, None
     try:
-        quantity = int(raw)
+        quantity = inputs.read_int({'quantity': raw}, 'quantity', maximum=10_000_000)
     except (TypeError, ValueError):
         return None, _err('How many has to be a number.', 'INVALID_NUMBER',
                           field='quantity')
@@ -109,7 +123,8 @@ def _read_email_limit(raw, current=None):
     if raw in (None, ''):
         return None, None
     try:
-        limit = int(raw)
+        limit = inputs.read_int({'max_tickets_per_email': raw}, 'max_tickets_per_email',
+                                maximum=100_000)
     except (TypeError, ValueError):
         return None, _err('That has to be a number.', 'INVALID_NUMBER',
                           field='max_tickets_per_email')
@@ -207,7 +222,7 @@ def create_tier(request, event_id):
             },
         }, 'Ticket types')
 
-    name = str(request.data.get('name') or '').strip()
+    name = inputs.read_text(request.data, 'name', max_length=inputs.LONGEST_TEXT)
     if not name:
         return _err('A ticket type needs a name.', 'VALIDATION_FAILED', field='name')
     if event.ticket_tiers.filter(name__iexact=name).exists():
@@ -221,9 +236,7 @@ def create_tier(request, event_id):
     if err:
         return err
 
-    perks = request.data.get('perks')
-    if isinstance(perks, list):
-        perks = ', '.join(str(p).strip() for p in perks if str(p).strip())
+    perks = _read_perks(request.data)
 
     email_limit, err = _read_email_limit(request.data.get('max_tickets_per_email'))
     if err:
@@ -249,7 +262,7 @@ def create_tier(request, event_id):
         quantity=quantity,
         perks=str(perks or '')[:255],
         day=day,
-        day_label=str(request.data.get('day_label') or '')[:60],
+        day_label=inputs.read_text(request.data, 'day_label', max_length=inputs.LONGEST_TEXT, strip=False)[:60],
         max_tickets_per_email=email_limit,
     )
     # A new type on a sold-out event is room for the queue.
@@ -278,7 +291,7 @@ def update_tier(request, event_id, tier_id):
     updated = []
 
     if 'name' in request.data:
-        name = str(request.data.get('name') or '').strip()
+        name = inputs.read_text(request.data, 'name', max_length=inputs.LONGEST_TEXT)
         if not name:
             return _err('A ticket type needs a name.', 'VALIDATION_FAILED',
                         field='name')
@@ -311,17 +324,14 @@ def update_tier(request, event_id, tier_id):
         updated.append('quantity')
 
     if 'perks' in request.data:
-        perks = request.data.get('perks')
-        if isinstance(perks, list):
-            perks = ', '.join(str(p).strip() for p in perks if str(p).strip())
-        tier.perks = str(perks or '')[:255]
+        tier.perks = _read_perks(request.data)[:255]
         updated.append('perks')
 
     # Which influencer's audience this type is for. Cleared with an empty
     # value, because taking a tier back off a creator is a thing organisers do.
     if 'unlocked_by' in request.data:
-        raw = request.data.get('unlocked_by')
-        if raw in (None, '', 0, '0'):
+        raw = inputs.read_int(request.data, 'unlocked_by', minimum=0)
+        if not raw:
             tier.unlocked_by = None
         else:
             from .models import EventReferral
@@ -366,7 +376,7 @@ def update_tier(request, event_id, tier_id):
         updated.append('day')
 
     if 'day_label' in request.data:
-        tier.day_label = str(request.data.get('day_label') or '')[:60]
+        tier.day_label = inputs.read_text(request.data, 'day_label', max_length=inputs.LONGEST_TEXT, strip=False)[:60]
         updated.append('day_label')
 
     # The three ways a price moves, which the console's Pricing panel has
@@ -418,7 +428,7 @@ def update_tier(request, event_id, tier_id):
     if 'access_code' in request.data:
         # Trimmed, and matched case-insensitively at the purchase, so it is
         # stored as typed and compared lowercased there.
-        tier.access_code = str(request.data.get('access_code') or '').strip()[:40]
+        tier.access_code = inputs.read_text(request.data, 'access_code', max_length=inputs.LONGEST_TEXT)[:40]
         updated.append('access_code')
 
     if not updated:
@@ -503,7 +513,7 @@ def manage_checkout_fields(request, event_id):
                    'Checkout fields')
 
     raw = request.data.get('fields')
-    if not isinstance(raw, list):
+    if not isinstance(raw, list) or len(raw) > 50:
         return _err('Send the fields as a list, in the order they are asked.',
                     'VALIDATION_FAILED', field='fields')
 
