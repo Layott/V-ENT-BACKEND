@@ -48,6 +48,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from . import presentation
+from . import overlay_style
 from . import text_layers
 from .models import (
     BroadcastElement, BroadcastSession, BroadcastSlot, TournamentOverlay)
@@ -169,9 +170,12 @@ def _version(session, elements):
                          row.updated_at.isoformat() if row.updated_at else '')
         for row in sorted(slots, key=lambda r: r.role))
 
-    return '%s-%s-%s-%s-%s-%s' % (
+    # The overlay style too (inbox 393): every designed overlay reads it, and a
+    # style changed under a stale version would change nothing on air.
+    return '%s-%s-%s-%s-%s-%s-%s' % (
         session.id,
         session.theme,
+        overlay_style.stamp(session.style),
         sum(1 for e in elements.values() if e['active']),
         stamp,
         text_layers.stamp(elements),
@@ -265,6 +269,8 @@ def _session_payload(session, request):
         # list rather than a hardcoded pair in the console, so a look added
         # here appears there without a second change.
         'theme': session.theme,
+        # The overlay style every designed overlay follows (inbox 393).
+        'style': session.style or {},
         'themes': [{'value': v, 'label': label}
                    for v, label in BroadcastSession.THEMES],
         'version': _version(session, elements),
@@ -301,12 +307,23 @@ def _sessions(request, owner, kind):
     owner.broadcast_sessions.filter(status='live').update(
         status='ended', ended_at=timezone.now())
 
+    previous = owner.broadcast_sessions.order_by('-started_at', '-id').first()
     session = BroadcastSession.objects.create(
         tournament=owner if kind == 'tournament' else None,
         event=owner if kind == 'event' else None,
         name=str(request.data.get('name') or '').strip()[:120],
         started_by=user,
+        # A brand is set once, not every broadcast day (inbox 393): the style
+        # and each designed overlay's own settings come across. Nothing comes
+        # across on air.
+        style=(previous.style if previous else {}) or {},
     )
+    if previous is not None:
+        for row in previous.elements.filter(kind__in=BroadcastElement.DESIGNED_KINDS):
+            design = (row.payload or {}).get('design')
+            if design:
+                BroadcastElement.objects.create(session=session, kind=row.kind,
+                                                payload={'design': design})
     return _ok({'session': _session_payload(session, request)},
                'Broadcast started.')
 
@@ -331,6 +348,15 @@ def _session_detail(request, owner, kind, session_id):
         except presentation.PresentationError as err:
             return _err(str(err), 'INVALID_PRESENTATION', field=err.field)
         session.save(update_fields=['defaults'])
+
+    if request.method == 'POST' and 'style' in request.data:
+        # The overlay style (inbox 393). Refused whole when any part is not a
+        # colour, a face or a picture, so a half-saved style never goes on air.
+        try:
+            session.style = overlay_style.clean(request.data.get('style'))
+        except overlay_style.StyleError as err:
+            return _err('That overlay style could not be read.', 'INVALID_STYLE', field=err.field)
+        session.save(update_fields=['style'])
 
     if request.method == 'POST' and 'theme' in request.data:
         # Which look this broadcast is drawn in. Refused rather than ignored
@@ -698,7 +724,8 @@ def feed(request, token):
 
         return _ok({
             'session': {'id': session.id, 'name': session.name,
-                        'is_live': True, 'theme': session.theme},
+                        'is_live': True, 'theme': session.theme,
+                        'style': session.style or {}},
             'kind': 'event',
             'elements': elements,
             # What each of the four layers is holding right now. A slot page
@@ -732,7 +759,8 @@ def feed(request, token):
                                              include_private=True)
     return _ok({
         'session': {'id': session.id, 'name': session.name,
-                    'is_live': True, 'theme': session.theme},
+                    'is_live': True, 'theme': session.theme,
+                    'style': session.style or {}},
         'kind': 'tournament',
         'elements': elements,
         # What each of the four layers is holding right now.
