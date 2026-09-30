@@ -22,6 +22,7 @@ from .views_series import (_chapter_row, _err, _find_chapter, _find_series,
                            _ok, _person, _series_row, _viewer)
 from vent_auth.text import count as _count
 from vent_auth import inputs
+from vent_auth import coins as vent_coins
 
 
 def _need_user(request):
@@ -56,7 +57,7 @@ def chapter_buy(request, reference):
     return _ok({
         'coins': row.coins,
         'reason': row.reason,
-        'balance_vc': wallet.wallet_balance if wallet else 0,
+        'balance_vc': vent_coins.as_json(wallet.wallet_balance) if wallet else 0,
         'chapter': _chapter_row(request, chapter, user, with_pages=True),
     }, 'It is yours to read.')
 
@@ -82,7 +83,7 @@ def series_subscribe(request, reference):
     wallet = UserWallet.objects.filter(user=user).first()
     return _ok({
         'until': row.until,
-        'balance_vc': wallet.wallet_balance if wallet else 0,
+        'balance_vc': vent_coins.as_json(wallet.wallet_balance) if wallet else 0,
     }, 'You are subscribed.')
 
 

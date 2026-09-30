@@ -39,7 +39,7 @@ from django.contrib.auth.hashers import check_password
 from django.db import transaction as db_transaction
 from django.utils import timezone
 
-from . import security_log
+from . import coins, security_log
 from .models import OrgWallet, TeamWallet, Transaction, UserWallet
 
 
@@ -173,13 +173,19 @@ def transfer(source, target, amount, *, note='', kind='transfer', pin=None,
     between a person and a team is a `transfer` on both sides, because neither
     of the other two words is true of it.
     """
+    # Hundredths of a coin are allowed (coins.py); a third decimal place is
+    # refused rather than rounded, because rounding is choosing somebody's
+    # amount for them.
     try:
-        amount = int(amount)
-    except (TypeError, ValueError):
+        amount = coins.parse(amount)
+    except coins.AmountError as exc:
+        if exc.code == 'AMOUNT_TOO_PRECISE':
+            raise WalletError('Coins go to two decimal places at most, like 0.25.',
+                              'AMOUNT_TOO_PRECISE')
+        if exc.code == 'AMOUNT_MUST_POSITIVE':
+            raise WalletError('The amount has to be more than nothing.',
+                              'VALIDATION_ERROR')
         raise WalletError('Say how much to send.', 'VALIDATION_ERROR')
-    if amount <= 0:
-        raise WalletError('The amount has to be more than nothing.',
-                          'VALIDATION_ERROR')
     if _key(source) == _key(target):
         raise WalletError('That is the same wallet.', 'SAME_WALLET')
 
@@ -197,8 +203,9 @@ def transfer(source, target, amount, *, note='', kind='transfer', pin=None,
         # the lock is a balance that may already have been spent.
         if src.wallet_balance < amount:
             raise WalletError(
-                'There is not enough in that wallet: %d VC available.'
-                % src.wallet_balance, 'INSUFFICIENT_BALANCE')
+                'There is not enough in that wallet: %s VC available.'
+                % coins.label(src.wallet_balance), 'INSUFFICIENT_BALANCE',
+                available=coins.as_json(src.wallet_balance))
 
         src.wallet_balance -= amount
         dst.wallet_balance += amount
@@ -374,8 +381,8 @@ def hold_for_payout(wallet, amount, description):
         locked = UserWallet.objects.select_for_update().get(pk=wallet.pk)
         if locked.wallet_balance < amount:
             raise WalletError(
-                'There is not enough in your wallet: %d VC available.'
-                % locked.wallet_balance, 'INSUFFICIENT_BALANCE')
+                'There is not enough in your wallet: %s VC available.'
+                % coins.label(locked.wallet_balance), 'INSUFFICIENT_BALANCE')
         locked.wallet_balance -= amount
         locked.save(update_fields=['wallet_balance'])
         return Transaction.objects.create(

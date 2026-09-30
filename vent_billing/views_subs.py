@@ -20,6 +20,7 @@ from . import benefits, charging, lifecycle, serializers
 from .models import Invoice, Subscription
 from .permissions import error, ok, require_viewer
 from .views_plans import _plan_by_ref
+from vent_auth import coins as vent_coins
 
 
 def _mine(who, token):
@@ -43,7 +44,7 @@ def my_subscriptions(request):
         # What the next charge would come out of, so the screen can say it
         # rather than guess. A subscriber asking "what is this taking from"
         # is asking about a real account, not about a preference.
-        'wallet_balance_vc': wallet.wallet_balance if wallet else 0,
+        'wallet_balance_vc': vent_coins.as_json(wallet.wallet_balance) if wallet else 0,
         'default_card': ({'brand': card.brand, 'last4': card.last4}
                          if card else None),
     })

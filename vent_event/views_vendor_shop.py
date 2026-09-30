@@ -36,6 +36,7 @@ from .models import Vendor, VendorOrder, VendorProduct
 from .views_tickets import _authenticate, _error, _ngn_to_coins, _ok
 from .views_vendors import read_variants
 from vent_auth import uploads
+from vent_auth import coins
 
 PAGE_SIZE = 100
 
@@ -59,7 +60,7 @@ def _refund_cancelled(order, stall):
         if seller is None or seller.wallet_balance < order.vendor_paid_vc:
             return _error('Cancelling refunds the buyer from your wallet, and it holds %s VC '
                           'of the %s VC this order paid you.'
-                          % (seller.wallet_balance if seller else 0, order.vendor_paid_vc),
+                          % (coins.label(seller.wallet_balance if seller else 0), order.vendor_paid_vc),
                           'CANNOT_REFUND', status.HTTP_409_CONFLICT)
         seller.wallet_balance -= order.vendor_paid_vc
         seller.save(update_fields=['wallet_balance'])

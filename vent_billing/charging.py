@@ -54,6 +54,7 @@ from vent_auth.models import SavedCard, Transaction, UserWallet
 
 from . import states
 from .models import BillingLedgerEntry, Invoice, Subscription
+from vent_auth import coins
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,7 @@ def _collect_from_wallet(user, amount_vc, description):
         if wallet is None:
             return False, '', NO_PAYMENT_METHOD, 'no wallet row'
         if wallet.wallet_balance < amount_vc:
-            return False, '', INSUFFICIENT_FUNDS, 'balance %s' % wallet.wallet_balance
+            return False, '', INSUFFICIENT_FUNDS, 'balance %s' % coins.label(wallet.wallet_balance)
         reference = 'VENTSUB-%s' % uuid.uuid4().hex[:16].upper()
         wallet.wallet_balance -= amount_vc
         wallet.save(update_fields=['wallet_balance'])

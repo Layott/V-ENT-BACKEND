@@ -159,6 +159,16 @@
     "first_seen": "2026-09-12",
     "since": "2026-09-12"
   },
+  "forgiving search": {
+    "count": 0,
+    "first_seen": "2026-09-30",
+    "since": "2026-09-30"
+  },
+  "forgiving search self-test": {
+    "count": 0,
+    "first_seen": "2026-09-30",
+    "since": "2026-09-30"
+  },
   "format catalogue": {
     "count": 0,
     "first_seen": "2026-09-12",
@@ -253,6 +263,11 @@
     "count": 0,
     "first_seen": "2026-09-28",
     "since": "2026-09-28"
+  },
+  "matcher parity": {
+    "count": 0,
+    "first_seen": "2026-09-30",
+    "since": "2026-09-30"
   },
   "metadata language": {
     "count": 0,

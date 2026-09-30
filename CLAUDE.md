@@ -6,8 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Non-Negotiable Rules (apply to every task)
 
-1. **Verify before hand-off — no exceptions.** Build pass is not proof. Run migrations, run the server, hit every affected endpoint (curl or test client), confirm the envelope `{status, data, message}` stays correct, and watch the log for tracebacks. Re-test the exact path you fixed until the symptom is gone.
-2. **Design parity at the API boundary.** Every new endpoint mirrors the shape and naming of existing V-ENT endpoints. Read `vent_tournament`, `vent_event`, `vent_auth` before introducing new field names — same auth pattern, same pagination, same status semantics.
+1. **Verify before hand-off - no exceptions.** Build pass is not proof. Run migrations, run the server, hit every affected endpoint (curl or test client), confirm the envelope `{status, data, message}` stays correct, and watch the log for tracebacks. Re-test the exact path you fixed until the symptom is gone.
+2. **Design parity at the API boundary.** Every new endpoint mirrors the shape and naming of existing V-ENT endpoints. Read `vent_tournament`, `vent_event`, `vent_auth` before introducing new field names - same auth pattern, same pagination, same status semantics.
 3. **Use agents for parallel build work.** Default to dispatching agents when tasks are independent.
 4. **Update `tasks/lessons.md` after every correction.** Prevent the same mistake twice.
 
@@ -64,10 +64,10 @@ V-ENT Backend is a **Django 5.0.7 / Python 3.11.9** REST API for an esports/gami
 ## Architecture
 
 ### Settings & Config
-- `vent/settings.py` — Main Django settings. Database, installed apps, CORS, auth backends, media, social providers.
-- `config.py` — SMTP config; `company_email` and `password` read from `COMPANY_EMAIL` / `COMPANY_EMAIL_PASSWORD` env vars.
+- `vent/settings.py` - Main Django settings. Database, installed apps, CORS, auth backends, media, social providers.
+- `config.py` - SMTP config; `company_email` and `password` read from `COMPANY_EMAIL` / `COMPANY_EMAIL_PASSWORD` env vars.
 - Required env vars (add to `.env`): `PAYSTACK_SECRET_KEY`, `VENT_COINS_PER_100_NGN` (default: 50 = 0.5 coins/NGN), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ADMIN_PASSWORD` (legacy), `SECRET_KEY`, `DB_*`.
-- `vent/urls.py` — Root router, mounts all app URL confs.
+- `vent/urls.py` - Root router, mounts all app URL confs.
 
 ### App Map
 | App | Mount | Status | Purpose |
@@ -76,16 +76,16 @@ V-ENT Backend is a **Django 5.0.7 / Python 3.11.9** REST API for an esports/gami
 | `vent_tournament` | `/tournament/` | **Active** | Tournament CRUD, registration, matches |
 | `vent_event` | `/event/` | **Active** | Events |
 | `vent_team` | `/team/` | **Active** | Team management |
-| `vent_anime` | — | **Stub** | In `INSTALLED_APPS`, no views or URLs |
-| `vent_marketplace` | — | **Stub** | In `INSTALLED_APPS`, no views or URLs |
-| `vent_anime` | — | **Stub** | In `INSTALLED_APPS`, no views or URLs |
-| `vent_marketplace` | — | **Stub** | In `INSTALLED_APPS`, no views or URLs |
+| `vent_anime` | - | **Stub** | In `INSTALLED_APPS`, no views or URLs |
+| `vent_marketplace` | - | **Stub** | In `INSTALLED_APPS`, no views or URLs |
+| `vent_anime` | - | **Stub** | In `INSTALLED_APPS`, no views or URLs |
+| `vent_marketplace` | - | **Stub** | In `INSTALLED_APPS`, no views or URLs |
 
 ### Authentication Flow
-1. **Custom backend** (`vent_auth/backends.py`): `EmailOrUsernameModelBackend` — allows login with email or username.
+1. **Custom backend** (`vent_auth/backends.py`): `EmailOrUsernameModelBackend` - allows login with email or username.
 2. Custom `login_session_token` (16-char, stored on `Users` model) is generated on login and used by the frontend as the Bearer token. This is separate from DRF Token auth.
 3. **Social auth** via `django-allauth` (Google OAuth2, Facebook). There is also a manual Google OAuth flow using `get_google_login_url` / `google_callback` / `verify_google_token`.
-4. Email verification via `VerificationToken` model — 2-hour expiry, link sent via Gmail SMTP.
+4. Email verification via `VerificationToken` model - 2-hour expiry, link sent via Gmail SMTP.
 5. `dj-rest-auth` + DRF Token auth are installed but the frontend primarily uses `login_session_token` as Bearer.
 
 ### Important: Duplicate Teams Model
@@ -104,7 +104,7 @@ V-ENT Backend is a **Django 5.0.7 / Python 3.11.9** REST API for an esports/gami
 
 ## All API Endpoints
 
-### `/auth/` — vent_auth
+### `/auth/` - vent_auth
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -170,11 +170,11 @@ V-ENT Backend is a **Django 5.0.7 / Python 3.11.9** REST API for an esports/gami
 | GET | `/auth/wallet/withdraw/status/` | Withdrawal request history |
 | POST | `/auth/wallet/kyc/submit/` | Upload KYC document for admin review |
 | GET | `/auth/wallet/kyc/status/` | KYC verification status |
-| — | `/auth/dj-rest-auth/` | dj-rest-auth built-in routes |
+| - | `/auth/dj-rest-auth/` | dj-rest-auth built-in routes |
 | POST | `/auth/dj-rest-auth/google/` | Google login via dj-rest-auth |
-| — | `/auth/accounts/` | django-allauth routes |
+| - | `/auth/accounts/` | django-allauth routes |
 
-### `/tournament/` — vent_tournament
+### `/tournament/` - vent_tournament
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -192,14 +192,14 @@ V-ENT Backend is a **Django 5.0.7 / Python 3.11.9** REST API for an esports/gami
 | DELETE | `/tournament/delete-draft/<int:tournament_id>/` | Delete own draft |
 | PUT | `/tournament/edit-tournament/<int:tournament_id>/` | Edit any field on own tournament |
 
-### `/event/` — vent_event
+### `/event/` - vent_event
 
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/event/create-event/` | Create event |
 | GET | `/event/get-all-events/` | List all events |
 
-### `/team/` — vent_team
+### `/team/` - vent_team
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -213,7 +213,7 @@ V-ENT Backend is a **Django 5.0.7 / Python 3.11.9** REST API for an esports/gami
 
 ## All Models and Fields
 
-### `vent_auth` — models.py
+### `vent_auth` - models.py
 
 **`Users`** (custom AbstractUser)
 ```
@@ -314,7 +314,7 @@ user  FK(Users) CASCADE
 game  FK(Games) CASCADE
 ```
 
-**`Teams`** (in vent_auth — the active one)
+**`Teams`** (in vent_auth - the active one)
 ```
 team_id                   AutoField PK
 team_name                 CharField(60) unique
@@ -367,7 +367,7 @@ org_owner   FK(Users) CASCADE, related_name='owned_organizations'
 ```
 user_wallet_id   CharField(10) PK
 user             OneToOne(Users) CASCADE, related_name='wallet'
-wallet_balance   IntegerField default=0
+wallet_balance   DecimalField(14,2) default=0  ← hundredths of a coin, see coins.py
 pin_hash         CharField(128) null   ← hashed 4-digit PIN via make_password
 kyc_verified     BooleanField default=False
 ```
@@ -376,7 +376,7 @@ kyc_verified     BooleanField default=False
 ```
 team_wallet_id   CharField(10) PK
 team             OneToOne(Teams) CASCADE, related_name='wallet'
-wallet_balance   IntegerField default=0
+wallet_balance   DecimalField(14,2) default=0  ← hundredths of a coin, see coins.py
 team_wallet_pin  IntegerField null
 ```
 
@@ -384,7 +384,7 @@ team_wallet_pin  IntegerField null
 ```
 org_wallet_id   CharField(10) PK
 org             OneToOne(Organization) CASCADE, related_name='wallet'
-wallet_balance  IntegerField default=0
+wallet_balance  DecimalField(14,2) default=0
 org_wallet_pin  IntegerField null
 ```
 
@@ -407,7 +407,7 @@ join_date    DateTimeField auto_now_add
 id          AutoField PK
 wallet      FK(UserWallet) CASCADE, related_name='transactions'
 type        CharField(20) choices: top_up|deduction|prize|send|receive|withdrawal|refund
-amount      IntegerField  ← positive=credit, negative=debit
+amount      DecimalField(14,2)  ← positive=credit, negative=debit, hundredths of a coin
 description CharField(255)
 status      CharField(20) choices: pending|completed|failed|cancelled
 reference   CharField(255) blank  ← Paystack reference
@@ -455,7 +455,7 @@ performed_at DateTimeField auto_now_add
 
 ---
 
-### `vent_tournament` — models.py
+### `vent_tournament` - models.py
 
 **`Tournament`**
 ```
@@ -549,7 +549,7 @@ registered_at    DateTimeField auto_now_add
 entry_fee_paid   BooleanField default=False
 payment_reference CharField(255) blank
 ```
-`unique_together`: (tournament, team) and (tournament, user) — partial constraints.
+`unique_together`: (tournament, team) and (tournament, user) - partial constraints.
 
 **`BracketMatch`**
 ```
@@ -584,7 +584,7 @@ resolved_at      DateTimeField null
 
 ---
 
-### `vent_event` — models.py
+### `vent_event` - models.py
 
 **`Event`**
 ```
@@ -610,7 +610,7 @@ is_active        BooleanField default=True
 interaction_count PositiveIntegerField default=0
 ```
 
-**`Sponsor`** (vent_event — event-specific, different from vent_tournament.Sponsors)
+**`Sponsor`** (vent_event - event-specific, different from vent_tournament.Sponsors)
 ```
 sponsor_id  AutoField PK
 event       FK(Event) CASCADE, related_name='sponsors'
@@ -618,7 +618,7 @@ name        CharField(100)
 logo        ImageField(sponsor_logos/)
 ```
 
-**`SocialLink`** (vent_event — event-specific)
+**`SocialLink`** (vent_event - event-specific)
 ```
 social_link_id  AutoField PK
 event           FK(Event) CASCADE, related_name='social_links'
@@ -628,9 +628,9 @@ url             URLField
 
 ---
 
-### `vent_team` — models.py
+### `vent_team` - models.py
 
-**`Teams`** (duplicate of vent_auth.Teams — see Known Issues)
+**`Teams`** (duplicate of vent_auth.Teams - see Known Issues)
 ```
 team_id                   AutoField PK
 team_name                 CharField(60) unique
@@ -646,7 +646,7 @@ penalty_points            IntegerField
 number_of_members         IntegerField
 ```
 
-**`TeamProfile`** (richer than vent_auth version — adds country + social links)
+**`TeamProfile`** (richer than vent_auth version - adds country + social links)
 ```
 team_profile_id  AutoField PK
 team             FK(Teams) CASCADE
@@ -665,7 +665,7 @@ team       FK(Teams) CASCADE
 interests  CharField(40)
 ```
 
-**`TeamMembers`** (richer than vent_auth version — has full role choices)
+**`TeamMembers`** (richer than vent_auth version - has full role choices)
 ```
 team    FK(Teams) CASCADE
 member  FK(GameAccount) CASCADE
@@ -681,11 +681,11 @@ This backend integrates with or is planned to integrate with the following servi
 | Service | Purpose | Status |
 |---------|---------|--------|
 | **AWS RDS MySQL** | Production database (replaces localhost MySQL) | Planned |
-| **AWS S3** | Media/file storage via `django-storages` — buckets: `v-ent-media` (public), `v-ent-private` (private) | Planned |
+| **AWS S3** | Media/file storage via `django-storages` - buckets: `v-ent-media` (public), `v-ent-private` (private) | Planned |
 | **AWS CloudFront** | CDN in front of S3 | Planned |
 | **AWS SES** | Transactional email (replaces Gmail SMTP) | Planned |
 | **AWS ElastiCache (Redis)** | Celery broker + Django cache backend | Planned |
-| **AWS EC2** | Hosting — t3.small, runs Django + Celery + Daphne | Planned |
+| **AWS EC2** | Hosting - t3.small, runs Django + Celery + Daphne | Planned |
 | **Paystack** | Payment flows, Nigerian gateway. Never simulate payments. | **Wired** |
 | **Flutterwave** | Beside Paystack at every door that takes money (CEO, 29 September 2026: "lets take all options available"). Hosted checkout with every method on the account; `vent_auth/flutterwave.py`; webhook `/auth/flutterwave/webhook/` with `FLW_SECRET_HASH`; env `FLW_SECRET_KEY`, `FLW_PUBLIC_KEY`, `FLW_SECRET_HASH`. Test keys never take money in production. | **Wired** |
 | **Firebase Admin SDK** | Push notifications (FCM) | Planned |
@@ -693,7 +693,7 @@ This backend integrates with or is planned to integrate with the following servi
 | **Sentry** | Error tracking | Planned |
 | **PostHog** | Analytics | Planned |
 
-> **AWS-first rule:** Use AWS services where possible — covered by $1,000 AWS credit budget (~$61–66/month, ~15 months).
+> **AWS-first rule:** Use AWS services where possible - covered by $1,000 AWS credit budget (~$61-66/month, ~15 months).
 >
 > Reference: `docs/V-ENT_External_Tools_and_Services.md` in the frontend repo for the full external services doc.
 
@@ -703,12 +703,12 @@ This backend integrates with or is planned to integrate with the following servi
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| **Phase 1 MVP** | Tournament brackets + join/leave, production/streaming integration (OBS/VMIX/Streamlabs), wallet system (buy/send VENT COINS, payouts), admin dashboard (user mgmt, tournament oversight, payout approval) | 🟡 Backend complete — frontend wiring + production/streaming integration remaining |
+| **Phase 1 MVP** | Tournament brackets + join/leave, production/streaming integration (OBS/VMIX/Streamlabs), wallet system (buy/send VENT COINS, payouts), admin dashboard (user mgmt, tournament oversight, payout approval) | 🟡 Backend complete - frontend wiring + production/streaming integration remaining |
 | **Phase 2** | Events + ticketing + tournament-event linking + vendor shop system | Not started |
 | **Phase 3** | E-Commerce Shop (Vent Shop) | Not started |
 | **Phase 4** | Marketplace (Vermillion City) | Not started |
 | **Phase 5** | Anime Features (manga, AMV, co-reading) | Not started |
-| **Phase 6** | Wager System — build LAST, legal review required first | Not started |
+| **Phase 6** | Wager System - build LAST, legal review required first | Not started |
 
 Admin dashboard must ship in Phase 1 MVP. Do not start Phase 2 until Phase 1 is stable.
 
@@ -728,45 +728,45 @@ Never build an endpoint that is not coordinated with the frontend contract in `s
 
 ## Known Issues
 
-### Security — All resolved ✓
-Issues 1–8 (hardcoded secrets, DEBUG, ALLOWED_HOSTS, CORS wildcard, no .env) have all been fixed. All secrets are now in `.env` (never committed). See git log for details.
+### Security - All resolved ✓
+Issues 1-8 (hardcoded secrets, DEBUG, ALLOWED_HOSTS, CORS wildcard, no .env) have all been fixed. All secrets are now in `.env` (never committed). See git log for details.
 
-### Model / Data Issues — All resolved ✓
-- #9 Duplicate `Teams` model — fixed: `vent_team` now imports from `vent_auth`
-- #10 `UnconfirmedTeams.match_id` PK — renamed to `id` (migration 0007)
-- #11 Split `TeamProfile` — merged all fields into `vent_auth.TeamProfile` (migration 0015)
-- #12 `wallet_balance` is `IntegerField` — **intentional by design**: VENT COINS are whole-number virtual currency; no change needed unless sub-unit pricing is introduced
-- #13 `UserProfile.date_of_birth` missing `blank=True` — fixed (migration 0016)
-- #14 `Users.email` not `unique=True` — fixed (migration 0014)
+### Model / Data Issues - All resolved ✓
+- #9 Duplicate `Teams` model - fixed: `vent_team` now imports from `vent_auth`
+- #10 `UnconfirmedTeams.match_id` PK - renamed to `id` (migration 0007)
+- #11 Split `TeamProfile` - merged all fields into `vent_auth.TeamProfile` (migration 0015)
+- #12 `wallet_balance` and `Transaction.amount` are `DecimalField(14, 2)` since 30 September 2026 (CEO: "people should be able to send amounts under N1000"). A coin splits into hundredths (0.01 VC = 10 naira). Read, print and JSON-encode amounts through `vent_auth/coins.py`. Prices, fees, top ups and withdrawals stay whole coins
+- #13 `UserProfile.date_of_birth` missing `blank=True` - fixed (migration 0016)
+- #14 `Users.email` not `unique=True` - fixed (migration 0014)
 
-### Settings Issues — All resolved ✓
-- #15 Double `SOCIALACCOUNT_PROVIDERS` — merged into single block
-- #16 Hardcoded email credentials — moved to `.env`
+### Settings Issues - All resolved ✓
+- #15 Double `SOCIALACCOUNT_PROVIDERS` - merged into single block
+- #16 Hardcoded email credentials - moved to `.env`
 
 ### Architecture Issues
 
-20. **Celery configured but no tasks defined** — `celery` and `redis` are installed. No `celery.py` or `tasks.py` exists in any app. Infrastructure is ready but no background jobs are wired up yet.
-21. **`imports/` folder** — re-export shim used by `vent_event/views.py` and `vent_tournament/views.py`. Its `__init__.py` re-exports `api_view`, `Response`, `status`, `get_object_or_404`, `datetime`, and `transaction` so those views can write `from imports import ...` instead of multiple direct imports. Not broken, but unconventional — new views should import directly from their source packages.
-22. **`verify_token_2` uses Selenium** — this legacy function (now in `views_auth.py`) opens a Chrome browser on the server during email verification. It is unused/dead code and should be removed when the old signup flow is officially retired.
+20. **Celery configured but no tasks defined** - `celery` and `redis` are installed. No `celery.py` or `tasks.py` exists in any app. Infrastructure is ready but no background jobs are wired up yet.
+21. **`imports/` folder** - re-export shim used by `vent_event/views.py` and `vent_tournament/views.py`. Its `__init__.py` re-exports `api_view`, `Response`, `status`, `get_object_or_404`, `datetime`, and `transaction` so those views can write `from imports import ...` instead of multiple direct imports. Not broken, but unconventional - new views should import directly from their source packages.
+22. **`verify_token_2` uses Selenium** - this legacy function (now in `views_auth.py`) opens a Chrome browser on the server during email verification. It is unused/dead code and should be removed when the old signup flow is officially retired.
 
 ---
 
 ## Key Conventions
 
 - Views are function-based with `@api_view` decorators throughout.
-- `vent_auth/views.py` is a re-export shim — actual logic lives in:
-  - `views_helpers.py` — `send_email`, `generate_session_token`, `create_user_wallet`, `create_default_profile_picture`, `generate_unique_username`, `download_image_from_url`
-  - `views_auth.py` — signup, login, logout, email verification, password reset
-  - `views_profile.py` — profile CRUD, game accounts, community, teams, social links, favorite games
-  - `views_social.py` — Google/Facebook OAuth (`GoogleLogin`, `social_auth`, `verify_token`, etc.)
-  - `views_gallery.py` — `upload_images`, `get_user_gallery`, `delete_gallery_image`
-  - `views_wallet.py` — `send_funds`
-  - `views_admin.py` — `admin_login`, `get_all_username_and_email`, `add_email_to_waitlist`, etc.
-- Wallet objects (`UserWallet`, `TeamWallet`) are created automatically via `create_user_wallet()` in `views_helpers.py` — do not create them manually.
+- `vent_auth/views.py` is a re-export shim - actual logic lives in:
+  - `views_helpers.py` - `send_email`, `generate_session_token`, `create_user_wallet`, `create_default_profile_picture`, `generate_unique_username`, `download_image_from_url`
+  - `views_auth.py` - signup, login, logout, email verification, password reset
+  - `views_profile.py` - profile CRUD, game accounts, community, teams, social links, favorite games
+  - `views_social.py` - Google/Facebook OAuth (`GoogleLogin`, `social_auth`, `verify_token`, etc.)
+  - `views_gallery.py` - `upload_images`, `get_user_gallery`, `delete_gallery_image`
+  - `views_wallet.py` - `send_funds`
+  - `views_admin.py` - `admin_login`, `get_all_username_and_email`, `add_email_to_waitlist`, etc.
+- Wallet objects (`UserWallet`, `TeamWallet`) are created automatically via `create_user_wallet()` in `views_helpers.py` - do not create them manually.
 - Profile pictures are auto-generated from user initials using PIL when no image is uploaded.
 - URL names use `snake_case` strings. No `reverse()` name lookups enforced.
-- Tournament `is_draft=True` by default — must be explicitly published.
-- All apps' `urls.py` append `static(settings.MEDIA_URL, ...)` — this is a dev-only pattern; it won't serve files in production with a real web server.
+- Tournament `is_draft=True` by default - must be explicitly published.
+- All apps' `urls.py` append `static(settings.MEDIA_URL, ...)` - this is a dev-only pattern; it won't serve files in production with a real web server.
 
 ---
 

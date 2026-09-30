@@ -29,6 +29,7 @@ from . import wallets
 from .models import (OrgMember, Organization, TeamMembers, Teams,
                      UserWallet, Users)
 from . import inputs
+from . import coins
 
 
 def _ok(data, message=''):
@@ -118,7 +119,7 @@ def _target_wallet(payload):
 
 def _wallet_payload(wallet, may_spend, viewer=None):
     return {
-        'balance': wallet.wallet_balance,
+        'balance': coins.as_json(wallet.wallet_balance),
         'has_pin': bool(wallet.pin_hash),
         'can_spend': may_spend,
         # Whether THIS viewer has to produce an authenticator code to spend.
@@ -202,7 +203,7 @@ def _handle(request, owner, wallet, may_read, may_spend, what, viewer=None):
             # A shared wallet has no device of its own, and the person who
             # moved the money is who anybody would want to ask about it.
             wallets.check_second_factor(viewer, request.data.get('code'))
-            wallets.transfer(wallet, target, request.data.get('amount'),
+            _debit, credit = wallets.transfer(wallet, target, request.data.get('amount'),
                              note=str(request.data.get('note') or '')[:200],
                              pin=pin)
         except wallets.WalletError as exc:
@@ -220,11 +221,11 @@ def _handle(request, owner, wallet, may_read, may_spend, what, viewer=None):
                 from .views_notifications import create_notification
                 create_notification(
                     target.user, 'wallet',
-                    'You received %d VC from %s' % (
-                        inputs.read_int(request.data, 'amount', default=0),
+                    'You received %s VC from %s' % (
+                        coins.label(credit.amount),
                         wallets.describe(wallet)),
                     link='/wallets',
-                    metadata={'from': wallets.describe(wallet)})
+                    metadata={'from': wallets.describe(wallet), 'amount': coins.as_json(credit.amount)})
             except Exception:                                    # noqa: BLE001
                 pass
 

@@ -27,6 +27,7 @@ import math
 from django.db import transaction
 
 from . import wallet as wallet_service
+from vent_auth import coins
 
 
 class PrizeError(Exception):
@@ -202,9 +203,9 @@ def distribute(tournament, *, triggered_by=None, auto=False, force_recompute=Fal
                 raise PrizeError(
                     'pool_short',
                     'Entries cover %d of the %d VC in prizes; the other %d VC comes from '
-                    'your wallet, which holds %d VC.' % (
+                    'your wallet, which holds %s VC.' % (
                         funding['from_pool_vc'], prizes_now, funding['from_wallet_vc'],
-                        organiser_wallet.wallet_balance if organiser_wallet else 0))
+                        coins.label(organiser_wallet.wallet_balance if organiser_wallet else 0)))
             wallet_service.debit(
                 organiser_wallet, funding['from_wallet_vc'], tx_type='deduction',
                 description=f'Prize top-up - {tournament.tournament_title}',

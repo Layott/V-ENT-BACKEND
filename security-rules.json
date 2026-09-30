@@ -69,6 +69,11 @@
   },
   "allow": [
     {
+      "rule": "R73",
+      "path": "vent_auth/views_wallet.py",
+      "reason": "the amount on /wallet/send/ and /wallet/send-many/ is how much the sender chooses to give another wallet, not the price of anything the platform sells; it is parsed by coins.parse (hundredths, positive), checked against the locked balance inside wallets.transfer, and never reaches a payment gateway or an order. Every price (tickets, entries, premium, top ups) is still looked up on the server"
+    },
+    {
       "rule": "R58",
       "path": "vent_auth/views_cards.py",
       "reason": "card_id from the body is only ever resolved inside pay.cover, which filters SavedCard by the signed-in user (SavedCard.objects.filter(user=user, pk=card_id)); the view itself never touches a card row"

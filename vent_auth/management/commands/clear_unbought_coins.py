@@ -22,6 +22,7 @@ from django.db.models import Q, Sum
 from django.utils import timezone
 
 from vent_auth.models import Transaction, UserWallet, WithdrawalRequest
+from vent_auth import coins
 
 SEED_PREFIX = 'demo_'
 SEED_DOMAIN = '@seed.v-ent.co'
@@ -84,8 +85,8 @@ class Command(BaseCommand):
         for wallet in UserWallet.objects.exclude(seed).filter(wallet_balance__gt=0).select_related('user'):
             paid_for = bought(wallet)
             if wallet.wallet_balance > paid_for:
-                self.stdout.write('LOOK AT %s: holds %d VC, bought %d VC (left unchanged)'
-                                  % (wallet.user.username, wallet.wallet_balance, paid_for))
+                self.stdout.write('LOOK AT %s: holds %s VC, bought %d VC (left unchanged)'
+                                  % (wallet.user.username, coins.label(wallet.wallet_balance), paid_for))
 
         self.stdout.write('%s %d demo wallet(s), %d VC; %s %d demo payout(s)' % (
             'cleared' if apply else 'would clear', cleared, total,

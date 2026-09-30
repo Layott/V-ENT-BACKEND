@@ -23,6 +23,7 @@ from rest_framework.response import Response
 
 from .models import Users
 from .views_profile import _user_from_bearer
+from vent_auth import coins as vent_coins
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +102,7 @@ def _export_payload(user):
             for row in TournamentRegistration.objects.filter(user=user).select_related('tournament')
         ],
         'wallet': {
-            'balance_vc': wallet.wallet_balance if wallet else 0,
+            'balance_vc': vent_coins.as_json(wallet.wallet_balance) if wallet else 0,
             'transactions': [
                 {
                     'type': t.type, 'amount': t.amount, 'description': t.description,

@@ -20,6 +20,7 @@ from . import premium, premium_sale
 from .actors import actor_from_request
 from .models import UserWallet
 from .org_link import mine as my_orgs
+from vent_auth import coins as vent_coins
 
 
 def _ok(data, message='OK'):
@@ -62,7 +63,7 @@ def premium_offer(request):
         wallet = UserWallet.objects.filter(user=user).first()
         data.update({
             'signed_in': True,
-            'balance_vc': wallet.wallet_balance if wallet else 0,
+            'balance_vc': vent_coins.as_json(wallet.wallet_balance) if wallet else 0,
             'me': _standing(user),
             # The organisations this person may buy for, so the page can offer
             # the choice rather than only ever selling to the individual.
@@ -113,7 +114,7 @@ def premium_buy(request):
         'months': purchase.months,
         'period_start': purchase.period_start,
         'period_end': purchase.period_end,
-        'balance_vc': wallet.wallet_balance if wallet else 0,
+        'balance_vc': vent_coins.as_json(wallet.wallet_balance) if wallet else 0,
         'holder': _standing(holder),
     }, 'Premium is on.')
 

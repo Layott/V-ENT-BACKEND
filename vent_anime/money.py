@@ -34,6 +34,7 @@ from vent_auth.models import UserWallet
 from vent_tournament.services import wallet as wallet_service
 
 from .models import ChapterPurchase, SeriesSubscription
+from vent_auth import coins as vent_coins
 
 #: A month of a subscription. 30 days, for the same reason premium uses 30: the
 #: 31st of next month does not exist six times a year.
@@ -98,8 +99,8 @@ def _move(reader, author, coins, description):
         raise PaymentError(
             'INSUFFICIENT_FUNDS',
             'You need %s VENT COINS and have %s.'
-            % (coins, reader_wallet.wallet_balance),
-            needed_vc=int(coins), balance_vc=reader_wallet.wallet_balance)
+            % (coins, vent_coins.label(reader_wallet.wallet_balance)),
+            needed_vc=int(coins), balance_vc=vent_coins.as_json(reader_wallet.wallet_balance))
 
     fee = fee_on(coins)
     tx = wallet_service.debit(reader_wallet, coins, tx_type='deduction',

@@ -19,6 +19,7 @@ from .models import Event, Vendor, VendorProduct, VendorOrder, VendorOrderItem
 from .permissions import may_run_event
 from .views_tickets import _authenticate, _error, _ok, _ngn_to_coins, CODE_ALPHABET
 from vent_auth import inputs, uploads
+from vent_auth import coins
 
 
 def _event_by_ref(ref, **extra):
@@ -596,9 +597,9 @@ def create_order(request, vendor_id):
                     # The numbers ride with the code so the cart can offer a
                     # card for exactly the shortfall. See vent_auth/pay.py.
                     _refuse(
-                        f'You need {total_vc} VC - your balance is {wallet.wallet_balance} VC.',
+                        f'You need {total_vc} VC - your balance is {coins.label(wallet.wallet_balance)} VC.',
                         'INSUFFICIENT_BALANCE', status.HTTP_400_BAD_REQUEST,
-                        extra={'needed_vc': total_vc, 'balance_vc': wallet.wallet_balance},
+                        extra={'needed_vc': total_vc, 'balance_vc': coins.as_json(wallet.wallet_balance)},
                     )
                 wallet.wallet_balance -= total_vc
                 wallet.save(update_fields=['wallet_balance'])

@@ -37,6 +37,7 @@ from .models import (AdminAction, OrgMember, Organization, OrgWallet,
                      Users)
 from . import inputs
 from vent_auth import fuzzy
+from vent_auth import coins as vent_coins
 
 READ_ROLES = ROLE_PERMISSIONS['view_organizations']
 MANAGE_ROLES = ROLE_PERMISSIONS['manage_organizations']
@@ -81,7 +82,7 @@ def _row(org):
         'owner': org.org_owner.username if org.org_owner_id else '',
         'verified': org.verified,
         'members': OrgMember.objects.filter(org=org).count(),
-        'balance_vc': wallet.wallet_balance if wallet else 0,
+        'balance_vc': vent_coins.as_json(wallet.wallet_balance) if wallet else 0,
         'capabilities': org.capabilities(),
         # An organisation's premium carries everybody acting for it, which is
         # the whole reason `has_premium` prefers the org: somebody running a
