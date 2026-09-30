@@ -74,6 +74,12 @@ CURRENCIES = {
 #: Charged in whole units: there is no smaller coin people pay with.
 WHOLE_UNITS = {'XOF', 'XAF', 'UGX', 'RWF', 'TZS', 'MWK'}
 
+#: The least Flutterwave will take in a currency, found on the live account
+#: on 30 September 2026: 0.99 USD, GBP or EUR is refused ("One or more required
+#: parameters missing") and 1.00 accepted. A price that converts to less is not
+#: offered in that currency at all, rather than offered and refused.
+MINIMUM = {'USD': Decimal('1'), 'GBP': Decimal('1'), 'EUR': Decimal('1')}
+
 QUOTE_SALT = 'vent.flw-quote'
 QUOTE_SECONDS = 15 * 60
 RATE_SECONDS = 10 * 60
@@ -142,6 +148,8 @@ def quote(amount_ngn, currency):
         raise CurrencyError('CURRENCY_UNAVAILABLE', 'That currency cannot be used here.')
     per_unit = rate(currency)
     amount = amount_in(currency, amount_ngn, per_unit)
+    if amount < MINIMUM.get(currency, Decimal('0')):
+        raise CurrencyError('CURRENCY_BELOW_MINIMUM', 'That amount is too small to pay in %s.' % currency)
     body = {'c': currency, 'a': str(amount), 'r': str(per_unit), 'n': str(Decimal(str(amount_ngn)))}
     return {
         'code': currency,
@@ -198,6 +206,8 @@ def terms(amount_ngn, currency='NGN', quote_token=''):
     else:
         per_unit = rate(currency)
         amount = amount_in(currency, amount_ngn, per_unit)
+    if amount < MINIMUM.get(currency, Decimal('0')):
+        raise CurrencyError('CURRENCY_BELOW_MINIMUM', 'That amount is too small to pay in %s.' % currency)
     # Flutterwave reads this as a comma + space list (v3 docs, checked 30 Sept).
     return currency, amount, per_unit, ', '.join(CURRENCIES[currency]['methods'].split(','))
 
