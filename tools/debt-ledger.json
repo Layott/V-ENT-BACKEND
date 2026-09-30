@@ -219,6 +219,16 @@
     "first_seen": "2026-09-12",
     "since": "2026-09-17"
   },
+  "literal messages": {
+    "count": 0,
+    "first_seen": "2026-09-30",
+    "since": "2026-09-30"
+  },
+  "literal messages self-test": {
+    "count": 0,
+    "first_seen": "2026-09-30",
+    "since": "2026-09-30"
+  },
   "literal text": {
     "count": 0,
     "first_seen": "2026-09-29",
@@ -323,6 +333,16 @@
     "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
+  },
+  "raw enums": {
+    "count": 0,
+    "first_seen": "2026-09-30",
+    "since": "2026-09-30"
+  },
+  "raw enums self-test": {
+    "count": 0,
+    "first_seen": "2026-09-30",
+    "since": "2026-09-30"
   },
   "raw errors": {
     "count": 0,
