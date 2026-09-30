@@ -63,3 +63,17 @@ class PrizeCurrencyTests(TestCase):
             ]}, content_type='application/json', **self.auth)
         self.assertEqual(res.status_code, 200, res.content[:300])
         self.assertEqual(self.coins(), before)
+
+
+class ContinueDraftGameTests(PrizeCurrencyTests):
+    """Continuing a draft sends the game's name; one with capitals inside it
+    ("EA FC 25") was refused because the lookup title-cased it."""
+
+    def test_the_game_name_is_found_whatever_its_capitals(self):
+        res = self.client.put(
+            '/tournament/edit-tournament/%d/' % self.tournament.tournament_id,
+            data={'game': 'EA FC PC', 'tournament_description': 'kept'},
+            content_type='application/json', **self.auth)
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.tournament.refresh_from_db()
+        self.assertEqual(self.tournament.tournament_description, 'kept')

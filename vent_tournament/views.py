@@ -2713,11 +2713,17 @@ def edit_tournament(request, tournament_id):
         # Validate game if provided
         game_title = inputs.read_text(request.data, 'game', max_length=40)
         if game_title:
-            try:
-                tournament.tournament_game = Games.objects.get(game_title=game_title.title())
+            # By name, whatever its case. `.title()` turned "EA FC 25" into
+            # "Ea Fc 25", so continuing any draft of a game with capitals inside
+            # its name failed with an English sentence (walk of inbox 398).
+            game = Games.objects.filter(game_title__iexact=game_title).first()
+            if game is None:
+                return Response({'status': 'error', 'code': 'GAME_NOT_FOUND', 'field': 'game',
+                                 'message': 'That game is not one we know.', 'data': {}},
+                                status=status.HTTP_400_BAD_REQUEST)
+            if game.pk != tournament.tournament_game_id:
+                tournament.tournament_game = game
                 updated_fields.append('tournament_game')
-            except Games.DoesNotExist:
-                return Response({'status': 'error', 'message': f'Game "{game_title}" not found'}, status=status.HTTP_400_BAD_REQUEST)
 
         if updated_fields:
             tournament.save(update_fields=updated_fields)
