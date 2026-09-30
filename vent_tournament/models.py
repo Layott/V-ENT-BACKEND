@@ -1842,6 +1842,12 @@ class BroadcastElement(models.Model):
         ('matchday', 'Matchday card'),
         ('analyst_desk', 'Analyst desk frame'),
         ('play_area', 'Play area frame'),
+        # Designed overlays (inbox 390, CEO 30 September 2026), drawn from the
+        # GENERAL OVERLAYS set on a canvas and edited in the console: text,
+        # colours, the organiser's logo, layout. The payload holds `design`
+        # (the settings) and `play` (bumped to replay a transition on air).
+        ('starting_soon', 'Starting soon'),
+        ('transition', 'Transition'),
     ]
     EVENT_KINDS = [
         ('now_next', 'Now and next'),
@@ -1861,6 +1867,9 @@ class BroadcastElement(models.Model):
         ('desk_lower_third', 'Desk lower third'),
         ('analyst_desk', 'Analyst desk frame'),
         ('play_area', 'Play area frame'),
+        # Every broadcast starts and cuts between scenes, tournament or event.
+        ('starting_soon', 'Starting soon'),
+        ('transition', 'Transition'),
     ]
     # The column's choices: every kind either side may use. Written out rather
     # than computed, because a class body cannot see its own names from inside

@@ -54,7 +54,10 @@ NEW_KINDS = ['fixture_card', 'fixture_result', 'match_result', 'head_to_head',
 #: tournament has.
 EVENT_KINDS_BEFORE = ['now_next', 'programme', 'lower_third', 'sponsors',
                       'doors', 'media', 'ticker', 'intro', 'outro',
-                      'desk_lower_third', 'analyst_desk', 'play_area']
+                      'desk_lower_third', 'analyst_desk', 'play_area',
+                      # The designed overlays (inbox 390), added deliberately
+                      # to both halves on 30 September 2026.
+                      'starting_soon', 'transition']
 
 #: The columns the contract names, exactly. Set equality rather than a
 #: containment check: a column the frontend draws and the feed stopped sending
