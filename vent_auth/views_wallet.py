@@ -18,6 +18,7 @@ from django.contrib.auth.hashers import make_password
 from . import kyc as kyc_service
 from . import payouts
 from . import coins, wallets
+from . import statement_lines
 from .models import (Users, UserWallet, TeamWallet, OrgWallet, Transaction,
                      WithdrawalRequest, KYCDocument, PayoutAddress)
 from vent_auth.errors import gateway_down, gateway_refused
@@ -220,6 +221,9 @@ def get_wallet_transactions(request):
             'type': t.type,
             'amount': t.amount,
             'description': t.description,
+            # The same line as a code and its facts, so the screen can say it
+            # in the reader's language (inbox 388). None: show description.
+            'line': statement_lines.parse(t.description),
             'status': t.status,
             'reference': t.reference,
             'method': payment_method(t.reference),

@@ -39,7 +39,7 @@ from django.contrib.auth.hashers import check_password
 from django.db import transaction as db_transaction
 from django.utils import timezone
 
-from . import coins, security_log
+from . import coins, security_log, statement_lines
 from .models import OrgWallet, TeamWallet, Transaction, UserWallet
 
 
@@ -234,6 +234,8 @@ def statement(wallet, limit=100):
         'type': row.type,
         'amount': row.amount,
         'description': row.description,
+        # Said in the reader's language by the screen (inbox 388).
+        'line': statement_lines.parse(row.description),
         'status': row.status,
         'at': row.created_at.isoformat(),
     } for row in rows]

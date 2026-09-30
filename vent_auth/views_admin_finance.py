@@ -39,7 +39,7 @@ from rest_framework.response import Response
 
 from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .models import Transaction, WithdrawalRequest
-from . import inputs
+from . import inputs, statement_lines
 from vent_auth import fuzzy
 
 READ_ROLES = ROLE_PERMISSIONS['view_transactions']
@@ -143,6 +143,7 @@ def _row(txn):
         'type': txn.type,
         'amount': txn.amount,
         'description': txn.description,
+        'line': statement_lines.parse(txn.description),
         'status': txn.status,
         'reference': txn.reference or '',
     }
