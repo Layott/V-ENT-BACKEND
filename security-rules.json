@@ -172,6 +172,16 @@
       "rule": "R64",
       "path": "vent_auth/bot_check.py",
       "reason": "public by design: GET /auth/challenge/ hands a puzzle to somebody who is not signed in yet (that is the point of it, signup), rate limited at 60 a minute; the only write is the UsedChallenge row, made after the signature and the answer are proven"
+    },
+    {
+      "rule": "R69",
+      "path": "vent_auth/flutterwave.py",
+      "reason": "no request input is read here: the `body.get` calls read Flutterwave's own API answer (verify, payments), and the only write is the ForeignCharge row recording what that checkout charged, from values the server computed (flutterwave_currency.terms). Read by hand 30 Sept 2026"
+    },
+    {
+      "rule": "R69",
+      "path": "vent_auth/views_currency.py",
+      "reason": "the one input, amount_ngn, is read through vent_auth.inputs.read_decimal (required, finite, between 0.01 and 50,000,000) and refused as INVALID_INPUT otherwise; nothing is written, it only quotes. tests_local_currency proves the refusals ('', abc, -5, NaN, too large). Read by hand 30 Sept 2026"
     }
   ],
   "auth": {

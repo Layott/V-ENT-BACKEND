@@ -528,7 +528,7 @@ def _start_flutterwave(request, event, tier, quantity, email, answers, promo, to
     reference (AbandonedCheckout.order) because Flutterwave does not carry it
     back; the tickets are issued by `fulfil_flutterwave` when the money is
     confirmed, by the browser returning or by the webhook, whichever is first."""
-    from vent_auth import flutterwave
+    from vent_auth import flutterwave, flutterwave_currency
     if not flutterwave.configured():
         return _err('Flutterwave is not set up on this platform yet.',
                     'PROVIDER_UNAVAILABLE', status.HTTP_503_SERVICE_UNAVAILABLE)
@@ -547,7 +547,10 @@ def _start_flutterwave(request, event, tier, quantity, email, answers, promo, to
             reference=reference, amount_ngn=float(total_ngn), email=email,
             callback_url=request.data.get('callback_url') or '',
             title=event.name[:60], description='%s x %s' % (quantity, tier.name),
-            meta={'event_id': event.event_id, 'tier_id': tier.id})
+            meta={'event_id': event.event_id, 'tier_id': tier.id},
+            **flutterwave_currency.choice(request))
+    except flutterwave_currency.CurrencyError as exc:
+        return _err(exc.message, exc.code, status.HTTP_400_BAD_REQUEST)
     except flutterwave.Unreachable:
         return _err('The payment gateway did not answer. Nothing was charged.',
                     'GATEWAY_ERROR', status.HTTP_502_BAD_GATEWAY)
