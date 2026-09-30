@@ -40,6 +40,7 @@ from . import views_cards as cards
 
 from . import views_feedback
 from . import bot_check
+from . import views_currency
 from . import views_premium
 
 urlpatterns = [
@@ -111,6 +112,7 @@ urlpatterns = [
     # sometimes the sign-in page itself.
     path("feedback/", views_feedback.feedback, name="feedback"),
     path("challenge/", bot_check.challenge, name="bot_challenge"),
+    path("pay/currencies/", views_currency.currencies, name="pay_currencies"),
     # path("admin/", admin.site.urls),
     path('signup/', signup, name='signup'),
     path('verify/<uidb64>/<token>/', verify_token_3, name='verify_token_3'),

@@ -2832,3 +2832,23 @@ class UsedChallenge(models.Model):
 
     def __str__(self):
         return self.digest[:12]
+
+
+class ForeignCharge(models.Model):
+    """A Flutterwave checkout charged in a currency other than naira (inbox 361).
+
+    Written when the checkout starts, read by verify (that currency, at least
+    that amount) and by refund (that currency, in proportion). `amount_ngn` is
+    the naira price the charge stands for, which is what gets credited: a rate
+    that moves after payment changes nothing somebody receives."""
+
+    reference = models.CharField(max_length=64, unique=True)
+    currency = models.CharField(max_length=3)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    rate = models.DecimalField(max_digits=18, decimal_places=6,
+                               help_text='NGN per one unit of the currency, Flutterwave\'s figure at the time')
+    amount_ngn = models.DecimalField(max_digits=14, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return '%s %s %s' % (self.reference, self.amount, self.currency)

@@ -22,7 +22,8 @@ Which appear is the dashboard's decision, not this file's.
   refunded where it was taken, with no column to keep in step.
 * **Nothing is trusted from the browser or the webhook body.** Both only say
   "look at this reference"; the answer comes from asking Flutterwave, and it
-  must say successful, in NGN, for at least the amount we asked for.
+  must say successful, in the currency and for at least the amount we asked
+  for (naira, or the ForeignCharge row for a local currency, inbox 361).
 * **The webhook proves itself** with the secret hash set in the dashboard,
   compared in constant time (owner rule R72).
 
@@ -118,22 +119,34 @@ def _with_reference(url, reference):
 
 
 def start(*, reference, amount_ngn, email, name='', callback_url='', title='V-ENT',
-          description='', meta=None):
-    """A hosted checkout link. Every method enabled on the account is offered."""
+          description='', meta=None, currency='NGN', quote_token=''):
+    """A hosted checkout link.
+
+    In naira every method enabled on the account is offered, as before. In any
+    other currency (inbox 361) the amount comes from the quote the payer saw,
+    only that currency's methods are asked for, and a ForeignCharge row
+    remembers what was charged so verify and refund ask for the same thing."""
+    from . import flutterwave_currency as fx
+    charged_currency, amount, per_unit, methods = fx.terms(amount_ngn, currency, quote_token)
     payload = {
         'tx_ref': reference,
-        'amount': str(amount_ngn),
-        'currency': 'NGN',
+        'amount': str(amount),
+        'currency': charged_currency,
         'redirect_url': _with_reference(callback_url, reference),
         'customer': {'email': email, 'name': name or email},
         'customizations': {'title': title, 'description': description[:100]},
         'meta': {k: str(v) for k, v in (meta or {}).items()},
     }
+    if methods:
+        payload['payment_options'] = methods
     data = _call('POST', '/payments', payload)
     link = data.get('link')
     if not link:
         raise Refused('Flutterwave did not return a payment page.')
-    return {'authorization_url': link, 'reference': reference}
+    if charged_currency != 'NGN':
+        fx.record(reference, charged_currency, amount, per_unit, amount_ngn)
+    return {'authorization_url': link, 'reference': reference,
+            'currency': charged_currency, 'amount': str(amount), 'rate': str(per_unit)}
 
 
 def verify(reference, expected_ngn=None):
@@ -157,10 +170,20 @@ def verify(reference, expected_ngn=None):
                 'email': '', 'id': None}
     amount = float(data.get('amount') or 0)
     currency = str(data.get('currency') or '')
-    ok = (data.get('status') == 'successful' and data.get('tx_ref') == reference
-          and currency == 'NGN'
-          and (expected_ngn is None or amount + 0.005 >= float(expected_ngn)))
-    return {'ok': ok, 'status': data.get('status') or '', 'amount_ngn': amount,
+    paid = data.get('status') == 'successful' and data.get('tx_ref') == reference
+    # A charge started in another currency (inbox 361) is checked against
+    # what that checkout asked for: the same currency and at least the same
+    # amount. What it stands for, and what is credited, is its naira price.
+    from .models import ForeignCharge
+    foreign = ForeignCharge.objects.filter(reference=reference).first()
+    if foreign is not None:
+        ok = paid and currency == foreign.currency and amount + 0.005 >= float(foreign.amount)
+        amount_ngn = float(foreign.amount_ngn) if ok else 0.0
+    else:
+        ok = (paid and currency == 'NGN'
+              and (expected_ngn is None or amount + 0.005 >= float(expected_ngn)))
+        amount_ngn = amount
+    return {'ok': ok, 'status': data.get('status') or '', 'amount_ngn': amount_ngn,
             'currency': currency, 'email': (data.get('customer') or {}).get('email') or '',
             'id': data.get('id')}
 
@@ -170,8 +193,16 @@ def refund(reference, amount_ngn):
     found = verify(reference)
     if not found.get('id'):
         raise Refused('Flutterwave has no payment with that reference.')
-    return _call('POST', '/transactions/%s/refund' % found['id'],
-                 {'amount': str(amount_ngn)})
+    # Back in the currency it was paid in, in proportion to the naira being
+    # returned (inbox 361). Flutterwave refunds in the charge's own currency.
+    from .models import ForeignCharge
+    foreign = ForeignCharge.objects.filter(reference=reference).first()
+    if foreign is not None:
+        from .flutterwave_currency import refund_amount
+        amount = refund_amount(foreign, amount_ngn)
+    else:
+        amount = amount_ngn
+    return _call('POST', '/transactions/%s/refund' % found['id'], {'amount': str(amount)})
 
 
 def signature_ok(request):

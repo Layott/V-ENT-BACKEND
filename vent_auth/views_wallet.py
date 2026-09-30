@@ -22,6 +22,7 @@ from .models import (Users, UserWallet, TeamWallet, OrgWallet, Transaction,
                      WithdrawalRequest, KYCDocument, PayoutAddress)
 from vent_auth.errors import gateway_down, gateway_refused
 from . import inputs
+from .flutterwave_currency import choice as _fx_choice
 
 
 # ---------------------------------------------------------------------------
@@ -335,7 +336,8 @@ def pay_shortfall(request):
             purpose=str(request.data.get('purpose') or 'purchase')[:40],
             card_id=request.data.get('card_id'),
             provider='flutterwave' if pay.choose_provider(request.data.get('provider')) == 'flutterwave'
-            else 'paystack')
+            else 'paystack',
+            **_fx_choice(request))
     except pay.PayError as exc:
         http = (status.HTTP_503_SERVICE_UNAVAILABLE
                 if exc.code == pay.CARDS_UNAVAILABLE else
@@ -407,6 +409,7 @@ def topup_initiate(request):
             return Response({'status': 'error', 'code': 'PROVIDER_UNAVAILABLE', 'data': {},
                              'message': 'Flutterwave is not set up on this platform yet.'},
                             status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        from vent_auth import flutterwave_currency as _fx
         reference = _flw.new_reference('TOP')
         try:
             started = _flw.start(
@@ -414,7 +417,11 @@ def topup_initiate(request):
                 name=wallet.user.full_name or wallet.user.username,
                 callback_url=str(request.data.get('callback_url') or '') or _topup_return_url(),
                 title='V-ENT', description='%s VENT COINS' % vent_coins,
-                meta={'user_id': wallet.user.user_id, 'vent_coins': vent_coins})
+                meta={'user_id': wallet.user.user_id, 'vent_coins': vent_coins},
+                **_fx.choice(request))
+        except _fx.CurrencyError as exc:
+            return Response({'status': 'error', 'code': exc.code, 'data': {},
+                             'message': exc.message}, status=status.HTTP_400_BAD_REQUEST)
         except _flw.Unreachable:
             return Response({'status': 'error', 'code': 'GATEWAY_ERROR', 'data': {},
                              'message': 'The payment gateway did not answer. Nothing was charged.'},
@@ -428,6 +435,7 @@ def topup_initiate(request):
         return Response({'status': 'success', 'data': {
             'authorization_url': started['authorization_url'], 'reference': reference,
             'vent_coins': vent_coins, 'amount_ngn': amount_ngn,
+            'currency': started.get('currency', 'NGN'), 'amount': started.get('amount'),
             'provider': 'flutterwave', 'test_mode': _flw.is_test(),
         }}, status=status.HTTP_200_OK)
 
