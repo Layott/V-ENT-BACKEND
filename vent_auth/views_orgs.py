@@ -9,7 +9,6 @@ calls. Permission model:
 """
 from datetime import timedelta
 
-from django.db.models import Q
 from django.utils import timezone
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -19,6 +18,7 @@ from .models import (
     Users, Organization, OrgMember, OrgJoinRequest, OrgFollower, Teams, AdminAction,
 )
 from . import uploads
+from vent_auth import fuzzy
 
 SESSION_TIMEOUT_MINUTES = 120
 MANAGE_ROLES = {'owner', 'admin', 'manager'}
@@ -224,14 +224,15 @@ def org_list(request):
     qs = Organization.objects.all().prefetch_related('teams', 'followers')
 
     search = (request.GET.get('search') or request.GET.get('q') or '').strip()
-    if search:
-        qs = qs.filter(Q(org_name__icontains=search) | Q(tag__icontains=search) | Q(bio__icontains=search))
     region = (request.GET.get('region') or '').strip()
     if region and region.lower() != 'all':
         qs = qs.filter(region__iexact=region)
     if (request.GET.get('verified') or '').lower() in {'1', 'true', 'yes'}:
         qs = qs.filter(verified=True)
 
+    if search:
+        # Forgiving: close and partial names match too (vent_auth/fuzzy.py, inbox 383).
+        qs = fuzzy.search(qs, search, ['org_name', 'tag', 'bio'])
     orgs = [serialize_org(request, o, viewer) for o in qs]
     return _ok({'organizations': orgs, 'count': len(orgs)}, 'Organizations retrieved.')
 

@@ -35,6 +35,7 @@ from .decorators import (ADMIN_ROLES, ROLE_LABEL, ROLE_PERMISSIONS,
                          ROLE_SHORT, ROLES_AWAITING_THEIR_FEATURE,
                          admin_role_required, effective_admin_role)
 from .models import AdminAction, Users
+from vent_auth import fuzzy
 
 MANAGE_ROLES = ROLE_PERMISSIONS['manage_admins']
 
@@ -126,7 +127,7 @@ def admin_admins(request):
 
     term = (request.GET.get('q') or '').strip()
     if term:
-        rows = rows.filter(username__icontains=term)
+        rows = fuzzy.filter(rows, term, ['username', 'full_name'])
 
     return _ok({
         'results': [_admin_row(u) for u in rows],

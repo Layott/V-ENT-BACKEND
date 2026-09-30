@@ -12,7 +12,6 @@ Response shape (what src/app/rankings/RankingsView.js reads):
   row = { id, name, avatar, country, region, favorite_game, points, wins,
           losses, win_rate, rank, prev_rank, is_session_user }
 """
-from django.db.models import Q
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
@@ -21,6 +20,7 @@ from .models import Users, UserProfile, Teams, Organization, FavoriteGames
 from . import ranking_core
 from . import regions
 from vent_auth.errors import server_error
+from vent_auth import fuzzy
 
 
 WIN_POINTS = ranking_core.WIN_POINTS
@@ -156,7 +156,8 @@ def rankings(request):
             # somebody who picked one expects.
             user_qs = user_qs.filter(country__in=region_countries)
         if search:
-            user_qs = user_qs.filter(Q(username__icontains=search) | Q(full_name__icontains=search))
+            # Forgiving: close and partial names match too (vent_auth/fuzzy.py, inbox 383).
+            user_qs = fuzzy.search(user_qs, search, ['username', 'full_name'])
 
         profiles = {p.user_id: p for p in UserProfile.objects.filter(user__in=user_qs)}
         favorites = {}
@@ -184,10 +185,10 @@ def rankings(request):
 
         # ---- teams ----
         team_qs = Teams.objects.select_related('game')
-        if search:
-            team_qs = team_qs.filter(team_name__icontains=search)
         if game:
             team_qs = team_qs.filter(game__game_title__iexact=game)
+        if search:
+            team_qs = fuzzy.search(team_qs, search, ['team_name'])
 
         teams = []
         for t in team_qs:
@@ -203,7 +204,7 @@ def rankings(request):
         # ---- organizations ----
         org_qs = Organization.objects.all()
         if search:
-            org_qs = org_qs.filter(org_name__icontains=search)
+            org_qs = fuzzy.search(org_qs, search, ['org_name', 'tag'])
         organizations = [
             _row(o.org_id, o.org_name, _org_logo(request, o), None, None, None,
                  0, 0, False, address=o.slug)

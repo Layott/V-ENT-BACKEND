@@ -23,6 +23,7 @@ from .models import (
 )
 from . import uploads
 from . import inputs
+from vent_auth import fuzzy
 
 SESSION_TIMEOUT_MINUTES = 120
 PAGE_SIZE = 20
@@ -155,11 +156,12 @@ def post_list(request):
     if club_id:
         qs = qs.filter(club_id=club_id)
     search = (request.GET.get('search') or request.GET.get('q') or '').strip()
-    if search:
-        qs = qs.filter(Q(body__icontains=search) | Q(author__username__icontains=search))
     if (request.GET.get('filter') or '') == 'following' and viewer:
         club_ids = ClubMember.objects.filter(user=viewer).values_list('club_id', flat=True)
         qs = qs.filter(club_id__in=list(club_ids))
+    if search:
+        # Forgiving: close and partial names match too (vent_auth/fuzzy.py, inbox 383).
+        qs = fuzzy.search(qs, search, ['author__username', 'author__full_name', 'body'])
 
     try:
         page = max(inputs.read_int(request.GET, 'page', default=1), 1)
@@ -168,7 +170,8 @@ def post_list(request):
     start = (page - 1) * PAGE_SIZE
     rows = [serialize_post(request, p, viewer) for p in qs[start:start + PAGE_SIZE]]
 
-    return _ok({'posts': rows, 'count': qs.count(), 'page': page, 'per_page': PAGE_SIZE},
+    return _ok({'posts': rows, 'count': len(qs) if isinstance(qs, list) else qs.count(),
+                'page': page, 'per_page': PAGE_SIZE},
                'Posts retrieved.')
 
 
@@ -329,7 +332,8 @@ def club_list(request):
         qs = qs.filter(game__game_title__iexact=game)
     search = (request.GET.get('search') or '').strip()
     if search:
-        qs = qs.filter(Q(name__icontains=search) | Q(description__icontains=search))
+        # Forgiving: close and partial names match too (vent_auth/fuzzy.py, inbox 383).
+        qs = fuzzy.search(qs, search, ['name', 'description'])
 
     rows = [serialize_club(request, c, viewer) for c in qs]
     return _ok({'clubs': rows, 'count': len(rows)}, 'Clubs retrieved.')
@@ -478,10 +482,12 @@ def thread_list(request):
         qs = qs.filter(category__iexact=category)
     search = (request.GET.get('search') or '').strip()
     if search:
-        qs = qs.filter(Q(title__icontains=search) | Q(body__icontains=search))
+        # Forgiving: close and partial names match too (vent_auth/fuzzy.py, inbox 383).
+        qs = fuzzy.search(qs, search, ['title', 'body'])
 
     rows = [serialize_thread(request, t, viewer=viewer) for t in qs[:PAGE_SIZE]]
-    return _ok({'threads': rows, 'count': qs.count()}, 'Threads retrieved.')
+    return _ok({'threads': rows, 'count': len(qs) if isinstance(qs, list) else qs.count()},
+               'Threads retrieved.')
 
 
 @api_view(['POST'])

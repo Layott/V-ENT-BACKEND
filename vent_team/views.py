@@ -20,6 +20,7 @@ from vent_auth.models import (
 )
 from .serializers import serialize_team_card, serialize_team_detail, absolute_media_url, _collect_members
 from vent_auth import inputs
+from vent_auth import fuzzy
 
 SESSION_TIMEOUT_MINUTES = 120
 PAGE_SIZE = 12
@@ -164,10 +165,11 @@ def team_list(request):
         qs = qs.filter(allow_membership_requests=(open_to_join == 'yes'))
 
     search = request.GET.get('search') or request.GET.get('q')
-    if search:
-        qs = qs.filter(team_name__icontains=search)
 
     qs = qs.order_by('-creation_date', 'team_name')
+    if search:
+        # Forgiving: close and partial names match too (vent_auth/fuzzy.py, inbox 383).
+        qs = fuzzy.search(qs, search, ['team_name', 'slug'])
 
     page, paginator = _paginate(request, qs)
     teams = list(page.object_list)

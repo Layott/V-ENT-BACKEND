@@ -8,7 +8,6 @@ the same thing, discovered when a feature works on one of them.
 from decimal import Decimal, InvalidOperation
 
 from django.core.files.images import get_image_dimensions
-from django.db.models import Q
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view
@@ -25,6 +24,7 @@ from .models import (AnimeAd, Bookmark, Chapter, ChapterComment, Page,
                      SeriesFollow, SeriesRating, SeriesSubscription, Volume)
 from vent_auth import uploads
 from vent_auth import inputs
+from vent_auth import fuzzy
 
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
@@ -264,9 +264,6 @@ def series_list(request):
         qs = qs.filter(visibility='public')
 
     search = str(request.GET.get('q') or '').strip()
-    if search:
-        qs = qs.filter(Q(title__icontains=search)
-                       | Q(synopsis__icontains=search))
 
     genre = request.GET.get('genre')
     if genre:
@@ -281,6 +278,9 @@ def series_list(request):
     if kind in catalogue.KINDS:
         qs = qs.filter(kind=kind)
 
+    if search:
+        # Forgiving: close and partial names match too (vent_auth/fuzzy.py, inbox 383).
+        qs = fuzzy.search(qs, search, ['title', 'synopsis'])
     rows = [_series_row(request, s, viewer) for s in qs[:200]]
 
     sort = request.GET.get('sort') or 'rating'

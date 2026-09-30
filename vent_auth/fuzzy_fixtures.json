@@ -1,0 +1,39 @@
+{
+  "_about": "Shared by vent_auth/fuzzy.py and src/lib/fuzzy.js (inbox 383). A copy lives in each repo; check-all fails when they differ. match: the text must score at or above MIN_SCORE. none: it must score 0. order: the texts must rank in exactly this order.",
+  "match": [
+    ["Winlo", "Winlola"],
+    ["winlola", "Winlola"],
+    ["WINLOLA", "Winlola"],
+    ["winlila", "Winlola"],
+    ["wniloal", "Winlola"],
+    ["nlol", "Winlola"],
+    ["kings", "Port Harcourt Kings"],
+    ["port harcort", "Port Harcourt Kings"],
+    ["portharcourt", "Port Harcourt Kings"],
+    ["harcourt", "Port Harcourt Kings"],
+    ["evenement", "Événement à Lagos"],
+    ["lagos meetup", "V-ENT Lagos Meetup 2026"],
+    ["lagso", "V-ENT Lagos Meetup 2026"],
+    ["naija free fire", "Naija Free Fire Weekly #12"],
+    ["free fir", "Naija Free Fire Weekly #12"],
+    ["efootbal", "eFootball 2026"],
+    ["demo org", "demo_organizer"],
+    ["temi", "Temi Adeyemi"],
+    ["adeyemi", "Temi Adeyemi"],
+    ["tmei", "Temi Adeyemi"],
+    ["wnll", "Winlola"]
+  ],
+  "none": [
+    ["zzz", "Winlola"],
+    ["kano", "Port Harcourt Kings"],
+    ["abc", "Temi Adeyemi"],
+    ["xyz", "eFootball 2026"],
+    ["lol", "Port Harcourt Kings"],
+    ["win", "Wendy Nils"]
+  ],
+  "order": [
+    ["win", ["Win", "Winlola", "Big Win Cup"]],
+    ["port", ["Port Harcourt Kings", "Sports Night", "Pot Luck"]],
+    ["walk organser", ["walk_organiser", "walk_br_organiser"]]
+  ]
+}

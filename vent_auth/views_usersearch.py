@@ -20,13 +20,13 @@ Two rules it keeps:
   * **`can_message` is advice, not enforcement.** `dm_send` checks the same
     setting itself. A client that ignores this field gets a 403, not a message.
 """
-from django.db.models import Q
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from .models import Users, UserProfile
 from .views_profile import _user_from_bearer, can_view_profile, privacy_of
+from vent_auth import fuzzy
 
 MAX_RESULTS = 12
 MIN_QUERY = 2
@@ -104,7 +104,7 @@ def message_policy(owner):
 
 @api_view(['GET'])
 def user_search(request):
-    """GET /user/search/?q=  - people whose handle or name starts with `q`.
+    """GET /user/search/?q=  - people whose handle or name is closest to `q`.
 
     Open to signed-out visitors too, because the same rows are what a public
     search page needs; `can_message` is simply false for all of them.
@@ -120,17 +120,12 @@ def user_search(request):
     viewer, _ignored = _user_from_bearer(request)
     viewer = None if _ignored else viewer
 
-    # Starts-with first, then contains, so typing "te" puts "temi" above
-    # "monster". Ordering by username keeps it stable between keystrokes.
-    matches = (
-        Users.objects
-        .filter(Q(username__istartswith=query)
-                | Q(full_name__istartswith=query)
-                | Q(username__icontains=query)
-                | Q(full_name__icontains=query))
-        .filter(is_active=True)
-        .order_by('username')[:MAX_RESULTS * 3]
-    )
+    # Closest first: exact, then the start of a name, then anywhere, then a
+    # typo or two ("winlila" finds Winlola). Ordering by username keeps equal
+    # matches stable between keystrokes. Forgiving: close and partial names match too (vent_auth/fuzzy.py, inbox 383).
+    matches = fuzzy.search(
+        Users.objects.filter(is_active=True).order_by('username'),
+        query, ['username', 'full_name'], limit=MAX_RESULTS * 3)
 
     rows = []
     for user in matches:
@@ -154,11 +149,9 @@ def user_search(request):
         if len(rows) >= MAX_RESULTS:
             break
 
-    starts = [r for r in rows if r['username'].lower().startswith(query.lower())]
-    rest = [r for r in rows if r not in starts]
-
+    # Already best first (fuzzy.search); re-sorting here would undo it.
     return Response({
         'status': 'success',
-        'data': {'users': starts + rest},
+        'data': {'users': rows},
         'message': '%d found' % len(rows),
     }, status=status.HTTP_200_OK)

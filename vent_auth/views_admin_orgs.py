@@ -26,7 +26,7 @@ organisation's own statement where its owner can see it.
 That last part matters. An admin moving an organisation's money invisibly is
 how a platform loses an argument it cannot reconstruct.
 """
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Sum
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -36,6 +36,7 @@ from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .models import (AdminAction, OrgMember, Organization, OrgWallet,
                      Users)
 from . import inputs
+from vent_auth import fuzzy
 
 READ_ROLES = ROLE_PERMISSIONS['view_organizations']
 MANAGE_ROLES = ROLE_PERMISSIONS['manage_organizations']
@@ -165,7 +166,7 @@ def admin_organizations(request):
 
     term = (request.GET.get('q') or '').strip()
     if term:
-        rows = rows.filter(org_name__icontains=term)
+        rows = fuzzy.filter(rows, term, ['org_name', 'tag'])
     if request.GET.get('verified') in ('1', 'true'):
         rows = rows.filter(verified=True)
 
@@ -391,7 +392,7 @@ def admin_communities(request):
     rows = Club.objects.all()
     term = (request.GET.get('q') or '').strip()
     if term:
-        rows = rows.filter(name__icontains=term)
+        rows = fuzzy.filter(rows, term, ['name'])
 
     out = []
     for club in rows.order_by('name')[:200]:

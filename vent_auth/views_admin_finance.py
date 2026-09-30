@@ -40,6 +40,7 @@ from rest_framework.response import Response
 from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .models import Transaction, WithdrawalRequest
 from . import inputs
+from vent_auth import fuzzy
 
 READ_ROLES = ROLE_PERMISSIONS['view_transactions']
 
@@ -102,12 +103,9 @@ def transactions_queryset(request):
 
     term = (request.GET.get('q') or '').strip()
     if term:
-        rows = rows.filter(
-            Q(description__icontains=term)
-            | Q(reference__icontains=term)
-            | Q(wallet__user__username__icontains=term)
-            | Q(team_wallet__team__team_name__icontains=term)
-            | Q(org_wallet__org__org_name__icontains=term))
+        rows = fuzzy.filter(rows, term, ['reference', 'wallet__user__username',
+                                         'team_wallet__team__team_name',
+                                         'org_wallet__org__org_name', 'description'])
 
     since = _parse_date(request.GET.get('from'))
     if since:
