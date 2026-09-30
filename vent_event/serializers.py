@@ -143,6 +143,9 @@ def serialize_event_card(request, event):
         'longitude': float(event.longitude) if event.longitude is not None else None,
         'directions': event.directions,
         'virtual_link': event.event_link,
+        # 18 when the organiser marked it 18+; 0 is everyone. On the card as
+        # well as the page, so a list never describes a different event.
+        'min_age': event.min_age,
         'self_check_in': event.self_check_in,
         'self_check_in_opens_minutes': event.self_check_in_opens_minutes,
         'entry_fee': str(event.entry_fee) if event.entry_fee is not None else '0',

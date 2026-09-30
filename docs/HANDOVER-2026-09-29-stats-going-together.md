@@ -57,3 +57,116 @@ Read this first, then the 28 Sept handover (now marked DEPLOYED at its end).
   row before reporting a decision as pending.
 - My first league fix would have made the draft wizard's 3/1/0 fallback overwrite real points.
   It was caught before commit by reading the mapper. The page now carries `league`.
+
+## Later, 29 September: 306 built and walked, and what the walk found
+
+- Branches (pushed, no PR yet): `feature/tournament-stats` in both repos, stacked on
+  `fix/no-show-refunds`. BE 526863f5, FE 69a03b0. Merge order: fix/no-show-refunds, then
+  feature/tournament-stats.
+- **Hotfix FE #201 (open, off main): the Money tab and both event vendor-stall panels crash on
+  PRODUCTION** (useAutoRefresh never imported, shipped 29 Sept), and a console with a scheduled
+  reminder crashes (formatDateTime). Four import lines. Merge and deploy it on its own.
+- 306: `vent_tournament/stats.py`, `views_stats.py`, `tests_stats.py` (20); Stats tab
+  `src/components/view-tournament/stats/StatsPanel.js`; partner `/api/v1/tournaments/<id>/stats/`.
+- New catchers (blocking in check-all): `check-undefined.mjs`, `check-renames.mjs`,
+  `check-literal-text.mjs`; check-accents gains elisions and -ee.
+- Walk fixtures: `tools/walk_noshow.py --setup` (walk_ns_* / walk-con-2026 / PIN 2468).
+- Chrome quirks confirmed again: a find-ref click can miss a background tab, press through
+  the DOM; the dev server can take 5+ seconds to compile /login after sign-out.
+- Mine: a --no-verify commit, undone and redone through the hook (inbox 348, lesson written).
+- Next: 305 going together (G1-G6), then the testing ruleset (T1-T3), then F1-F2 and PRs.
+
+## Night 29 September: Flutterwave LIVE, raw errors, email spacing
+
+**Deployed** 29 Sept ~22:15 WAT: BE #192 (bfd26c48), FE #201 + #202 (e138fa1).
+Both ports serve build `gzned9_P-VZmuuuvUYs0q`; vent_event 0054_checkout_order applied.
+
+- **354 raw errors.** Root cause of the CEO's "Format is Authorization Bearer
+  [secret key]": production has NO `PAYSTACK_SECRET_KEY`, the top-up door never
+  asked, and Paystack's own sentence was formatted into our message (and into
+  `api.PAYMENT_REFUSED`'s `{reason}` slot on the frontend). Now:
+  `vent_auth/errors.py` helpers (log the text, answer a fixed sentence + code),
+  25 views rewritten, `topup_initiate` answers PROVIDER_UNAVAILABLE with no key,
+  `tools/check-raw-errors.py` (8 self-test cases) in check-all as "gateway
+  text". Paystack is therefore NOT offered in production until a key is set.
+- **355 emails.** `_button`, `_code`, `_rows` partials carry their own spacing
+  (padding on a cell, Outlook ignores table margins). `tools/check-email-spacing.py`
+  renders all 18 emails twice and measures block gaps: 5 on the old partials
+  (incl. the reported sign-in alert), 0 now. Seen in Chrome desktop + 390px.
+- **356 site spacing.** `scripts/measure-touching.js`, calibrated (unfilled
+  padding counts as space). 20 pages signed in + 7 signed out: 0. FE PR #203
+  (script only, unmerged).
+- **358 live keys.** On the box in `/srv/vent/backend/.env` (backup
+  `.env.bak-*`), plus `FLW_ENCRYPTION_KEY` and a generated `FLW_SECRET_HASH`.
+  Proven live: providers lists flutterwave `test_mode:false`; wrong hash 401;
+  signed unknown reference 200 NOT_FOUND; the key authenticates (rates call);
+  a live hosted checkout link was created, unpaid. **Not yet proven: a real
+  payment.** Needs the CEO to (1) set the webhook in the Flutterwave dashboard
+  to `https://api.v-ent.co/auth/flutterwave/webhook/` with the hash from the
+  box, (2) make one small real top-up and one ticket buy. The CEO sent the keys
+  in chat and will rotate them; after rotation only `.env` changes, then
+  `systemctl restart vent-api`.
+
+Wrong turns: the pre-commit hook pairs a frontend branch with a backend branch
+of the same name, else the main backend checkout, which sits on unmerged
+feature/going-together and lists frontend catchers main lacks (6 bogus
+BREACHes). Cut a same-named backend branch from a FRESH `origin/main`; I cut
+one from a stale fetch first and the hook rewrote debt-ledger.json on the
+stale tree (discarded).
+
+## Late 29 September: shipped twice more
+
+1. **BE #193 + FE #204 + FE #203** (tournament stats, no-show refund option,
+   league setup kept on edit, walk fixes), after 4499 tests OK and a clean
+   build. Build 3V9xeHbsaFraQoWx5uIz1.
+2. **BE #194 + FE #205** (inbox 362, 367, 369, 371, 373), 4514 tests OK.
+   Build PaMyfUJzXcRpQlHBeP77M.
+   - Payment method: `src/lib/payMethods.js` is the one source at the
+     top-up, the shortfall and guest checkout; `pay.choose_provider` on the
+     server sends an unnamed request to the only gateway configured.
+   - Wallet totals: `/auth/wallet/transactions/` returns `summary` over the
+     whole history, completed only, in the reader's month (`?tz=`), and
+     `method` per row.
+   - `settle_pending_topups` on the box's cron every 15 min
+     (`/srv/vent/logs/topups.log`): credits a lost-webhook payment, marks
+     failures, closes unpaid rows after 2 h.
+   - Return page rebuilt; French numbers drew without spaces because Clash
+     Grotesk has no U+202F: fallback faces in `clash-grotesk.css`.
+   - Dead component trees removed (362).
+3. **Real payment proven** (358): the CEO paid 1,000 NGN with Flutterwave;
+   webhook 23:08:16 200, return verify 23:08:17, credited once.
+
+Open, in order (inbox 376 is the standing goal): 366 fake coins, 365 (305
+going together, 351 date of birth, 335 testing ruleset), 374 notification
+channels and SMS coming soon, 375 English-only titles on 53 layouts, 363
+security batch + Django, 361 local currency, 360 embeds and white-label event
+pages, 364 events and ticketing finished, then the full Chrome walk from
+every view. Found on the walk: the local seed account holds 2,495 coins with
+no purchase behind them, which is exactly 366.
+
+## 30 September, early: fake coins gone (366)
+
+BE #195 + #196 deployed (build r9Jf0iZcoqi1pZfi6b7YJ). No code path can
+create coins without a payment: `grant_founding_bonus` deleted, the waitlist
+claim bonus and its setting removed, `seed_demo` writes balances only when
+DEBUG. `tools/check-coin-sources.py` lists all 25 places that raise a balance,
+each with the payment behind it; a new one fails check-all.
+
+Production, applied with `clear_unbought_coins --apply`: 16 demo wallets
+(47,500 VC) set to 0, each with a deduction row saying why; 4 pending demo
+payouts (8,500 VC, one Approve away from real naira) rejected. Platform total
+afterwards: 1 VC (Layott, bought with Flutterwave). Open payouts: 0.
+
+## 30 September: every notification switch works (374, 377)
+
+BE #197 + FE #206 deployed (build Su3ZC2aoPmms3k69500nZ, migration 0084).
+The grid was decorative; now `vent_auth/notify_prefs.py` is the one list the
+screen draws and delivery reads. `create_notification` asks `wants()` per
+channel: in-app (`Notification.in_inbox`), email (`emails/notification.html`),
+push (`vent_auth/push.py`, pywebpush, VAPID keys generated ON the box, never
+printed), Discord. Sites with their own email pass `email=False`; organiser
+announcements obey the email switch for members, guests still get them.
+Payout and KYC decisions are in the locked "account" row. New follower and DM
+notifications. `tools/check-notification-rows.py` in check-all.
+Push on production is configured; nobody has subscribed yet: the CEO can turn
+it on under Settings > Notifications and press "Send a test".

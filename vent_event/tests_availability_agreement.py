@@ -259,6 +259,8 @@ class EverythingSetAtCreationCanBeChangedTests(TestCase):
             'logo', 'banner',
             # published or not, and listed or not (the edit page's switch)
             'is_active', 'is_listed',
+            # the 18+ switch (inbox 305, 29 September 2026)
+            'min_age',
         }
 
         deliberately_fixed = {

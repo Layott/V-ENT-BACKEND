@@ -13,6 +13,7 @@ from vent_tournament import views_assets as asset_views
 from . import views_sponsors
 from . import views_holds
 from . import views_announce
+from . import views_together
 from . import views_vendor_review
 from . import views_metrics
 from . import views_track
@@ -241,6 +242,15 @@ urlpatterns = [
          name="ticket_transfer_history"),
     path("<str:event_id>/metrics/export/", views_metrics.export_metrics,
          name="export_event_metrics"),
+    # Going together: attendance, the area people leave from, meet-up pings
+    # (inbox 305). Rules in together.py.
+    path("admin/location-history/", views_together.location_history, name="location_history"),
+    path("<str:event_id>/together/", views_together.together_state, name="together_state"),
+    path("<str:event_id>/together/me/", views_together.together_me, name="together_me"),
+    path("<str:event_id>/together/approve/", views_together.together_approve, name="together_approve"),
+    path("<str:event_id>/together/ping/", views_together.together_ping, name="together_ping"),
+    path("<str:event_id>/together/ping/<int:ping_id>/answer/", views_together.together_ping_answer,
+         name="together_ping_answer"),
     # A message from the organiser to everybody holding a ticket.
     path("<str:event_id>/announcements/", views_announce.announcements,
          name="event_announcements"),

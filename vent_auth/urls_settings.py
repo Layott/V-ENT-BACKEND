@@ -136,6 +136,7 @@ urlpatterns = [
     path('setting/update/', v.update_settings),
     path('setting/notifications/update/', v.update_notifications),
     path('setting/notifications/grid/', v.notification_grid),
+    path('setting/birthday/', v.birthday),
     path('setting/privacy/update/', v.update_privacy),
     path('setting/security/update/', v.update_security),
     path('setting/payments/update/', v.update_payments),

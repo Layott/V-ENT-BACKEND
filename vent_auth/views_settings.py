@@ -497,3 +497,51 @@ def account_overview(request):
         },
         'message': 'Account overview.',
     })
+
+
+@api_view(['GET', 'POST'])
+def birthday(request):
+    """The signed-in person's own date of birth: read it, or set it once.
+
+    Inbox 351 (29 September 2026): nothing on the site could set a date of
+    birth, and the age rules for going together at events (inbox 305) read it.
+    The only writer was an unrouted view that took a `user_id` from the body,
+    so anybody could have set anybody's; it is gone.
+
+    Set once: a date that could be changed at will would let somebody step past
+    an age rule and back. A mistake is corrected by support.
+    """
+    import datetime as _dt
+
+    from .models import UserProfile
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    if request.method == 'GET':
+        born = profile.date_of_birth
+        return Response({'status': 'success', 'code': 'OK',
+                         'data': {'date_of_birth': born.isoformat() if born else None,
+                                  'locked': bool(born)},
+                         'message': 'Date of birth'})
+    if profile.date_of_birth:
+        return Response({'status': 'error', 'code': 'BIRTHDAY_LOCKED', 'data': {},
+                         'message': 'Your date of birth is already set. Contact support to correct it.'},
+                        status=status.HTTP_409_CONFLICT)
+    raw = str((request.data or {}).get('date_of_birth') or '').strip()
+    try:
+        born = _dt.date.fromisoformat(raw)
+    except ValueError:
+        return Response({'status': 'error', 'code': 'BIRTHDAY_INVALID', 'data': {},
+                         'message': 'Give the date as day, month and year.'},
+                        status=status.HTTP_400_BAD_REQUEST)
+    today = _dt.date.today()
+    if born > today or born.year < today.year - 120:
+        return Response({'status': 'error', 'code': 'BIRTHDAY_INVALID', 'data': {},
+                         'message': 'That date of birth is not possible.'},
+                        status=status.HTTP_400_BAD_REQUEST)
+    profile.date_of_birth = born
+    profile.save(update_fields=['date_of_birth'])
+    return Response({'status': 'success', 'code': 'OK',
+                     'data': {'date_of_birth': born.isoformat(), 'locked': True},
+                     'message': 'Saved.'})
