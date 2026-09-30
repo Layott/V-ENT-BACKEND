@@ -30,6 +30,7 @@ from .decorators import (
     ADMIN_ROLES, ROLE_PERMISSIONS, admin_role_required, resolve_admin, admin_identity,
 )
 from . import inputs
+from vent_auth import fuzzy
 
 
 # Pending-2FA tokens are signed, not stored: they carry only the user id and
@@ -232,7 +233,7 @@ def admin_list_users(request):
 
     search = request.GET.get('search')
     if search:
-        qs = qs.filter(Q(username__icontains=search) | Q(email__icontains=search))
+        qs = fuzzy.filter(qs, search, ['username', 'full_name', 'email'])
 
     country = request.GET.get('country')
     if country:
@@ -787,7 +788,7 @@ def admin_list_tournaments(request):
 
     search = request.GET.get('search')
     if search:
-        qs = qs.filter(tournament_title__icontains=search)
+        qs = fuzzy.filter(qs, search, ['tournament_title'])
 
     status_filter = request.GET.get('status')
     # The same rule as `_tournament_status`, as a query: recorded status
@@ -1125,7 +1126,7 @@ def admin_payouts_list(request):
 
     search = request.GET.get('search')
     if search:
-        qs = qs.filter(wallet__user__username__icontains=search)
+        qs = fuzzy.filter(qs, search, ['wallet__user__username', 'wallet__user__full_name'])
 
     ordering_map = {
         '-submitted_at': '-requested_at',
@@ -1494,11 +1495,7 @@ def _audit_log_queryset(request):
     # Free-text search (accept `q` or FE's `search`)
     q = request.GET.get('q') or request.GET.get('search')
     if q:
-        qs = qs.filter(
-            Q(action_type__icontains=q) | Q(target_model__icontains=q)
-            | Q(target_id__icontains=q) | Q(reason__icontains=q)
-            | Q(admin__username__icontains=q)
-        )
+        qs = fuzzy.filter(qs, q, ['admin__username', 'action_type', 'target_model', 'target_id', 'reason'])
 
     # Action type (accept `action_type` or FE's `action`; multiselect)
     actions = _audit_multi(request, ['action_type', 'action'])
@@ -1753,7 +1750,7 @@ def admin_list_events(request):
 
     search = request.GET.get('search')
     if search:
-        qs = qs.filter(name__icontains=search)
+        qs = fuzzy.filter(qs, search, ['name'])
 
     status_filter = request.GET.get('status')
     if status_filter == 'upcoming':

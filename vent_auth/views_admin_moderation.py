@@ -38,13 +38,14 @@ those are what this moderates.
 """
 from datetime import timedelta
 
-from django.db.models import Count, Q
+from django.db.models import Count
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from .decorators import ROLE_PERMISSIONS, admin_role_required
+from vent_auth import fuzzy
 from .models import (AdminAction, Club, ClubMessage, Post, PostComment, Thread,
                      ThreadReply, UserGallery, UserReport)
 
@@ -130,10 +131,7 @@ def admin_reports(request):
 
     term = (request.GET.get('q') or '').strip()
     if term:
-        rows = rows.filter(
-            Q(reported__username__icontains=term)
-            | Q(reporter__username__icontains=term)
-            | Q(detail__icontains=term))
+        rows = fuzzy.filter(rows, term, ['reported__username', 'reporter__username', 'detail'])
 
     counts = {value: 0 for value, _label in UserReport.STATUS}
     for group in UserReport.objects.values('status').annotate(n=Count('id')):
@@ -276,21 +274,17 @@ def admin_content(request):
     if kind == 'posts':
         rows = Post.objects.select_related('author', 'club')
         if term:
-            rows = rows.filter(Q(body__icontains=term)
-                               | Q(author__username__icontains=term))
+            rows = fuzzy.filter(rows, term, ['author__username', 'body'])
         results = [_post_row(p) for p in rows.order_by('-created_at')[:100]]
     elif kind == 'gallery':
         rows = UserGallery.objects.select_related('user')
         if term:
-            rows = rows.filter(Q(caption__icontains=term)
-                               | Q(user__username__icontains=term))
+            rows = fuzzy.filter(rows, term, ['user__username', 'caption'])
         results = [_gallery_row(g) for g in rows.order_by('-date_added')[:100]]
     elif kind == 'threads':
         rows = Thread.objects.select_related('author', 'club')
         if term:
-            rows = rows.filter(Q(title__icontains=term)
-                               | Q(body__icontains=term)
-                               | Q(author__username__icontains=term))
+            rows = fuzzy.filter(rows, term, ['title', 'author__username', 'body'])
         results = [_thread_row(t) for t in
                    rows.order_by('-is_pinned', '-created_at')[:100]]
     else:

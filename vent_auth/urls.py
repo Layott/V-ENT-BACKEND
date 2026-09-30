@@ -321,6 +321,8 @@ urlpatterns = [
     path("wallet/topup/initiate/", topup_initiate, name="topup_initiate"),
     path("wallet/topup/verify/", topup_verify, name="topup_verify"),
     path("wallet/send/", send_funds, name="send_funds"),
+    # Several recipients, one PIN, all or nothing (inbox 386).
+    path("wallet/send-many/", views_wallet_mod.send_many, name="send_many"),
     path("wallet/pin/verify/", verify_wallet_pin, name="verify_wallet_pin"),
     path("wallet/pin/set/", set_wallet_pin, name="set_wallet_pin"),
     path("wallet/deduct/", wallet_deduct, name="wallet_deduct"),

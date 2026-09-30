@@ -5,7 +5,7 @@ while Vermillion City is closed. That is applied once per route rather than as a
 decorator on each view, because a rule remembered at twenty sites holds at
 nineteen.
 """
-from django.db.models import Avg, Count, Q
+from django.db.models import Avg, Count
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -19,6 +19,7 @@ from vent_auth.slugs import lookup_kwargs, resolve_or_redirect
 from . import catalogue, listings as listing_rules
 from .models import Listing, ListingMedia, Review
 from vent_auth import uploads
+from vent_auth import fuzzy
 
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
@@ -153,11 +154,6 @@ def browse(request):
             .prefetch_related('media'))
 
     search = (request.GET.get('q') or '').strip()
-    if search:
-        rows = rows.filter(Q(title__icontains=search)
-                           | Q(description__icontains=search)
-                           | Q(offered__icontains=search)
-                           | Q(wanted__icontains=search))
 
     for field in ('kind', 'category'):
         value = (request.GET.get(field) or '').strip()
@@ -183,7 +179,11 @@ def browse(request):
 
     # Hoisted first, then newest. That is what the seller paid for, and it is
     # the whole of what they paid for: no other ranking is quietly bought.
-    rows = rows.order_by('-hoisted_until', '-created_at')[:200]
+    rows = rows.order_by('-hoisted_until', '-created_at')
+    if search:
+        # Forgiving: close and partial names match too (vent_auth/fuzzy.py, inbox 383).
+        rows = fuzzy.search(rows, search, ['title', 'offered', 'wanted', 'description'])
+    rows = rows[:200]
 
     out = [_row(listing) for listing in rows]
 

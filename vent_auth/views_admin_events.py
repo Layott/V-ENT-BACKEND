@@ -38,6 +38,7 @@ from rest_framework.response import Response
 from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .models import AdminAction
 from . import inputs
+from vent_auth import fuzzy
 
 logger = logging.getLogger(__name__)
 
@@ -430,12 +431,7 @@ def admin_event_tickets(request, event_ref):
 
     search = (request.GET.get('search') or '').strip()
     if search:
-        qs = qs.filter(
-            Q(code__icontains=search)
-            | Q(attendee_name__icontains=search)
-            | Q(attendee_email__icontains=search)
-            | Q(user__username__icontains=search)
-        )
+        qs = fuzzy.filter(qs, search, ['code', 'attendee_name', 'attendee_email', 'user__username'])
 
     wanted = (request.GET.get('status') or '').strip()
     if wanted == 'comped':

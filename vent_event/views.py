@@ -5,7 +5,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.core.paginator import Paginator, EmptyPage
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
@@ -20,6 +20,7 @@ from .models import Event, TicketTier, Sponsor, SponsorLink, SocialLink, VendorI
 from .serializers import serialize_event_card, serialize_event_detail
 from vent_auth import uploads
 from vent_auth import inputs
+from vent_auth import fuzzy
 
 
 def _event_by_ref(ref, **extra):
@@ -444,10 +445,6 @@ def get_all_events(request):
         filtered = filtered.filter(category__iexact=category)
 
     search = request.GET.get('q') or request.GET.get('search')
-    if search:
-        filtered = filtered.filter(
-            Q(name__icontains=search) | Q(desc__icontains=search) | Q(location__icontains=search)
-        )
 
     date_from = parse_date(request.GET.get('from') or '')
     if date_from:
@@ -458,6 +455,9 @@ def get_all_events(request):
         filtered = filtered.filter(start_date__date__lte=date_to)
 
     filtered = filtered.order_by(F('start_date').desc(nulls_last=True))
+    if search:
+        # Forgiving: close and partial names match too (vent_auth/fuzzy.py, inbox 383).
+        filtered = fuzzy.search(filtered, search, ['name', 'location', 'venue_name', 'desc'])
 
     paginator = Paginator(filtered, PAGE_SIZE)
     try:

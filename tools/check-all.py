@@ -189,6 +189,18 @@ CATCHERS = [
      'the literal-message catcher catches bare English and leaves tt() alone',
      FRONTEND, ['node', 'scripts/check-literal-messages.mjs', '--self-test'], True),
 
+    # "Winlo" answered "No account found" on the Send page. Every search goes
+    # through one forgiving matcher, on both sides (inbox 383, 30 Sept 2026).
+    ('forgiving search',
+     'no search term matched only exactly: fuzzy.js in the browser, fuzzy.py on the server',
+     FRONTEND, ['node', 'scripts/check-forgiving-search.mjs'], True),
+    ('forgiving search self-test',
+     'the catcher catches includes() and __icontains on a search term and leaves the matcher',
+     FRONTEND, ['node', 'scripts/check-forgiving-search.mjs', '--self-test'], True),
+    ('matcher parity',
+     'fuzzy.js passes every shared case and its fixtures equal the backend copy',
+     FRONTEND, ['node', 'scripts/check-fuzzy.mjs'], True),
+
     # "8/-", "8/0" and "8/undefined" for one uncapped tournament on four
     # screens, 28 September 2026, after "0/32 slots" and "0/64" before it.
     # Every count against a cap goes through slotsText in src/lib/slots.js.

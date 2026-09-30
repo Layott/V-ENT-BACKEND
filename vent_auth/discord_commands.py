@@ -39,6 +39,7 @@ import os
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from vent_auth import fuzzy
 
 logger = logging.getLogger(__name__)
 
@@ -211,9 +212,9 @@ def _tournament(term):
     if len(term) < 2:
         return reply('Give me at least two characters to search for.')
 
-    rows = (Tournament.objects.filter(tournament_title__icontains=term,
-                                      is_draft=False)
-            .order_by('-start_date_and_time')[:5])
+    # Forgiving, like every search on the site (inbox 383).
+    rows = fuzzy.search(Tournament.objects.filter(is_draft=False).order_by('-start_date_and_time'),
+                        term, ['tournament_title'], limit=5)
     if not rows:
         return reply(f'Nothing called "{term}". It may be a draft, or spelled '
                      'differently.')
@@ -250,8 +251,8 @@ def _event(term):
     if len(term) < 2:
         return reply('Give me at least two characters to search for.')
 
-    rows = Event.objects.filter(name__icontains=term, is_active=True,
-                                is_listed=True).order_by('-event_date')[:5]
+    rows = fuzzy.search(Event.objects.filter(is_active=True, is_listed=True).order_by('-event_date'),
+                        term, ['name'], limit=5)
     if not rows:
         return reply(f'Nothing called "{term}".')
 

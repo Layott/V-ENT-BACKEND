@@ -804,6 +804,135 @@ def send_funds(request):
 
 
 # ---------------------------------------------------------------------------
+# POST /auth/wallet/send-many/
+# ---------------------------------------------------------------------------
+
+#: The most recipients one send may carry. Enough for a squad or a prize
+#: table; past it, a list is a payout and belongs on the payout screen.
+SEND_MANY_LIMIT = 20
+
+
+def _refuse(code, message, http=status.HTTP_400_BAD_REQUEST, **extra):
+    body = {'code': code, 'status': 'error', 'message': message}
+    body.update(extra)
+    return Response(body, status=http)
+
+
+@api_view(['POST'])
+def send_many(request):
+    """Send coins to several people, teams or organisations at once (inbox 386).
+
+    CEO, 30 September 2026: "What of if I want to send to multiple people at
+    the same time?"
+
+    One PIN and one second factor for the whole send. Every recipient is
+    checked (exists, is not the sender, appears once, a whole positive amount)
+    before anything moves, the total is checked against the balance, and the
+    transfers run in one database transaction: all of them land or none do,
+    so nobody is left paid while a friend in the same send is not.
+
+    Body: {recipients: [{to_kind, to, amount}], pin, code?, note?}
+    """
+    wallet, err = _get_user_from_token(request)
+    if err:
+        return err
+
+    rows = request.data.get('recipients')
+    pin = request.data.get('pin')
+    note = str(request.data.get('note', '') or '')[:200]
+    if not isinstance(rows, list) or not rows:
+        return _refuse('NO_RECIPIENTS', 'Add at least one person to send to.')
+    if len(rows) > SEND_MANY_LIMIT:
+        return _refuse('TOO_MANY_RECIPIENTS', 'One send can go to at most %d.' % SEND_MANY_LIMIT,
+                       limit=SEND_MANY_LIMIT)
+    if not pin:
+        return _refuse('PIN_REQUIRED', 'pin is required')
+
+    plan = []
+    seen = set()
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            return _refuse('INVALID_INPUT', 'Some of the details could not be read.', field='recipients')
+        to_kind = row.get('to_kind') or 'user'
+        to_ref = row.get('to')
+        amount = row.get('amount')
+        if isinstance(amount, bool) or not isinstance(amount, (int, str)) or not str(amount).strip().isdigit():
+            return _refuse('AMOUNT_MUST_WHOLE', 'VENT COINS are sent in whole coins.', index=index)
+        amount = int(amount)
+        if amount <= 0:
+            return _refuse('AMOUNT_MUST_POSITIVE', 'amount must be positive', index=index)
+        try:
+            target = wallets.resolve_target(to_kind, to_ref)
+        except wallets.WalletError as exc:
+            http = status.HTTP_404_NOT_FOUND if exc.code == 'NOT_FOUND' else status.HTTP_400_BAD_REQUEST
+            return _refuse(exc.code, str(exc), http, index=index)
+        if isinstance(target, UserWallet) and target.pk == wallet.pk:
+            return _refuse('CANNOT_SEND_YOURSELF', 'Cannot send to yourself', index=index)
+        key = (type(target).__name__, target.pk)
+        if key in seen:
+            return _refuse('DUPLICATE_RECIPIENT', 'Somebody is on the list twice.', index=index)
+        seen.add(key)
+        plan.append((target, amount))
+
+    total = sum(amount for _target, amount in plan)
+    try:
+        wallets.check_pin(wallet, pin)
+    except wallets.WalletError as exc:
+        return Response(exc.body(), status=status.HTTP_400_BAD_REQUEST)
+    try:
+        wallets.check_second_factor(wallet.user, request.data.get('code'))
+    except wallets.WalletError as exc:
+        return _refuse(exc.code, str(exc))
+    wallet.refresh_from_db()
+    if wallet.wallet_balance < total:
+        return _refuse('INSUFFICIENT_BALANCE',
+                       'There is not enough in that wallet: %d VC available.' % wallet.wallet_balance,
+                       available=wallet.wallet_balance, total=total)
+
+    sender_username = wallet.user.username
+    done = []
+    try:
+        with transaction.atomic():
+            for target, amount in plan:
+                to_user = target.user if isinstance(target, UserWallet) else None
+                named = wallets.describe(target)
+                kinds = ('send', 'receive') if to_user is not None else ('transfer', 'transfer')
+                debit, _credit = wallets.transfer(
+                    wallet, target, amount,
+                    debit_kind=kinds[0], credit_kind=kinds[1],
+                    debit_note='Sent to %s%s' % (named, (': ' + note) if note else ''),
+                    credit_note='Received from @%s%s' % (sender_username, (': ' + note) if note else ''),
+                )
+                done.append((to_user, named, amount, debit.id))
+    except wallets.WalletError as exc:
+        return _refuse(exc.code, str(exc))
+
+    # After the money, never inside it: a notification that fails must not
+    # undo a send that succeeded.
+    for to_user, _named, amount, _txn in done:
+        if to_user is None:
+            continue
+        try:
+            from vent_auth.views_notifications import create_notification
+            create_notification(to_user, 'wallet', f'You received {amount} VC from @{sender_username}',
+                                link='/wallets', metadata={'amount': amount, 'from': sender_username})
+        except Exception:
+            pass
+
+    wallet.refresh_from_db()
+    return Response({
+        'status': 'success',
+        'data': {
+            'new_balance': wallet.wallet_balance,
+            'total': total,
+            'sent': [{'to': named, 'amount': amount, 'transaction_id': txn}
+                     for _user, named, amount, txn in done],
+            'transaction_id': done[0][3] if done else None,
+        },
+    }, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
 # POST /auth/wallet/pin/verify/
 # ---------------------------------------------------------------------------
 

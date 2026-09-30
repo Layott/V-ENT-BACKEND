@@ -1,5 +1,6 @@
 import json
 from vent_auth.views_helpers import session_timeout_minutes
+from vent_auth import fuzzy
 from decimal import Decimal, InvalidOperation
 
 from django.http import Http404
@@ -723,8 +724,6 @@ def search_tournament(request):
 
         query = Q(is_draft=False, tournament_visibility__in=['public', 'protected'])
 
-        if name:
-            query &= Q(tournament_title__icontains=name)
         if game_id and str(game_id).isdigit():
             query &= Q(tournament_game__game_id=game_id)
         if game_title and not str(game_title).isdigit() and game_title != 'All Games':
@@ -749,6 +748,9 @@ def search_tournament(request):
         tournaments = list(
             Tournament.objects.filter(query).select_related('tournament_game').order_by('-start_date_and_time')
         )
+        if name:
+            # Forgiving: close and partial names match too (vent_auth/fuzzy.py, inbox 383).
+            tournaments = fuzzy.search(tournaments, name, ['tournament_title', 'tournament_game__game_title'])
 
         if not tournaments:
             return Response({'status': 'success', 'data': [], 'message': 'No tournaments found'}, status=status.HTTP_200_OK)

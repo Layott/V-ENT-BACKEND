@@ -53,6 +53,7 @@ from .models import Event, Ticket, DoorLookup
 from .permissions import may_work_the_door, may_run_event
 from .views_tickets import _authenticate, _error, _ok, _holder
 from vent_auth import inputs
+from vent_auth import fuzzy
 
 # A steward types into a phone at a gate. Two characters would match half the
 # room and cost a full table scan to say so, which is the opposite of useful.
@@ -225,19 +226,23 @@ def door_search(request, event_id):
 
     # A code is typed in full and read off a screen, so it matches exactly and
     # case does not count. Everything else is a fragment of something longer.
-    matches = (Ticket.objects
-               .filter(event=event)
-               .filter(Q(code__iexact=term)
-                       | Q(code__icontains=term)
-                       | Q(attendee_name__icontains=term)
-                       | Q(attendee_email__icontains=term)
-                       | Q(attendee_phone__icontains=term)
-                       | Q(user__username__icontains=term)
-                       | Q(user__full_name__icontains=term))
-               .select_related('tier', 'user', 'checked_in_by')
-               .order_by('attendee_name', 'code'))
+    base = (Ticket.objects.filter(event=event)
+            .select_related('tier', 'user', 'checked_in_by')
+            .order_by('attendee_name', 'code'))
+    # Codes, emails and phones are read off a screen and typed whole, so they
+    # match as typed. Names are said aloud at a noisy door and spelt however
+    # the steward heard them, so they match forgivingly (inbox 383): the
+    # closest names come after any exact code.
+    exact = list(base.filter(Q(code__iexact=term)
+                             | Q(code__icontains=term)  # exact-match: read off a screen
+                             | Q(attendee_email__icontains=term)  # exact-match: read off a screen
+                             | Q(attendee_phone__icontains=term)))  # exact-match: read off a screen
+    seen = {t.pk for t in exact}
+    named = [t for t in fuzzy.search(base, term, ['attendee_name', 'user__username', 'user__full_name'])
+             if t.pk not in seen]
+    matches = exact + named
 
-    total = matches.count()
+    total = len(matches)
     rows = [_row(t) for t in matches[:MAX_MATCHES]]
 
     DoorLookup.objects.create(
@@ -245,7 +250,7 @@ def door_search(request, event_id):
         # The ticket, but only when the term picked out exactly one. Two
         # matches means the door still had a decision to make, and recording
         # one of them as the answer would be a fiction.
-        ticket=(matches.first() if total == 1 else None),
+        ticket=(matches[0] if total == 1 else None),
         gate=gate,
     )
 
