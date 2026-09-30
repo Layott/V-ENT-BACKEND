@@ -192,6 +192,14 @@ CATCHERS = [
     ('load once self-test',
      'the load-once catcher still catches a view that never refreshes',
      FRONTEND, ['node', 'scripts/check-load-once.mjs', '--self-test'], True),
+    # A page title or description in one language for every reader (52
+    # layouts on 30 September 2026, inbox 375; the ticket page before it).
+    ('metadata language',
+     'no page or layout exports a title or description in one language only',
+     FRONTEND, ['node', 'scripts/check-metadata-language.mjs'], True),
+    ('metadata language self-test',
+     'the metadata catcher still catches a fixed English title',
+     FRONTEND, ['node', 'scripts/check-metadata-language.mjs', '--self-test'], True),
     ('dictionary split',
      'the per-language files match dictionaries.js',
      FRONTEND, ['node', 'scripts/split-dictionaries.mjs', '--check'], True),
