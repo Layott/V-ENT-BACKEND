@@ -127,6 +127,19 @@ def _as_dict(value):
 # Create
 # ---------------------------------------------------------------------------
 
+def _min_age_from(raw):
+    """The youngest age an event is for: 0 (everyone) or 18 (the 18+ switch).
+
+    Same meaning as a tournament's `min_age`. Anything else sent is read as
+    everyone rather than guessed at (inbox 305, 29 September 2026).
+    """
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = 1 if str(raw).lower() in ('true', 'yes', 'on') else 0
+    return 18 if value >= 18 or value == 1 else 0
+
+
 @api_view(['POST'])
 def create_event(request):
     """POST /event/create-event/ - create an event.
@@ -279,6 +292,7 @@ def create_event(request):
                 event_link=virtual_link,
                 capacity=capacity,
                 capacity_mode=capacity_mode,
+                min_age=_min_age_from(data.get('min_age', 0)),
                 organization=organization,
                 banner=request.FILES.get('banner'),
                 banner_url=banner_url,
@@ -802,6 +816,10 @@ def edit_event(request, event_id):
     if 'is_active' in data:
         event.is_active = str(data.get('is_active')).lower() in ('1', 'true', 'yes')
         updated.append('is_active')
+    if 'min_age' in data:
+        event.min_age = _min_age_from(data.get('min_age'))
+        updated.append('min_age')
+
     if 'is_listed' in data:
         event.is_listed = str(data.get('is_listed')).lower() in ('1', 'true', 'yes')
         updated.append('is_listed')

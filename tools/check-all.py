@@ -561,6 +561,14 @@ CATCHERS = [
     ('notification rows self-test',
      'the notification catcher still catches a category with no row',
      BACKEND, [sys.executable, 'tools/check-notification-rows.py', '--self-test'], True),
+    # Every walk log names every role and screen (CEO, 29 September 2026;
+    # inbox 335). The rule is in V-ENT/CLAUDE.md.
+    ('role walks',
+     'every walk log names every role and screen, or why not',
+     ROOT, [sys.executable, 'tools/check-role-walks.py'], True),
+    ('role walks self-test',
+     'the walk-log checker still catches a skipped role',
+     ROOT, [sys.executable, 'tools/check-role-walks.py', '--self-test'], True),
     ('coin sources',
      'every place that adds coins names the payment behind them',
      BACKEND, [sys.executable, 'tools/check-coin-sources.py'], True),

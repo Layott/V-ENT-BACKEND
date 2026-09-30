@@ -94,6 +94,11 @@ class Event(models.Model):
     # page, the checkout and the stalls too, the opposite of what it said.
     is_listed = models.BooleanField(default=True)
     is_featured = models.BooleanField(default=False)  # Manually spotlight an event on the listing
+    # The youngest age this event is for, 0 for everyone. The organiser's "18+
+    # event" switch sets 18. Same concept, same name and the same meaning as a
+    # tournament's `min_age` option (one model per thing): it also closes the
+    # going-together features to minors (inbox 305, 29 September 2026).
+    min_age = models.PositiveSmallIntegerField(default=0)
     interaction_count = models.PositiveIntegerField(default=0)
 
     # How many tickets one email address may hold for this event.
@@ -2414,3 +2419,92 @@ class AbandonedCheckout(models.Model):
         cutoff = (now or _tz.now()) - timedelta(days=days)
         deleted, _ = cls.objects.filter(started_at__lt=cutoff).delete()
         return deleted
+
+
+class EventPresence(models.Model):
+    """One person's going-together settings for one event (inbox 305).
+
+    CEO, 28 September 2026: people choose whether others may see that they are
+    attending, whether chosen people may see the area they are leaving from,
+    and whether they may be pinged at the event. Everything is off until the
+    person turns it on, and what they may turn on depends on their age
+    (`vent_event/together.py`).
+
+    The departure area is soft deleted by rule: after the event ends it is never
+    returned to any user again and cannot be edited, and the row is kept for
+    the admins who hold `view_location_history` (305a, 305b: "don't remove it
+    ever"). Every admin read is written to AdminAction.
+    """
+    ATTENDANCE = [('off', 'Nobody'), ('mutuals', 'Mutuals'), ('event', 'Everyone at the event')]
+    DEPARTURE = [('off', 'Nobody'), ('mutuals', 'Mutuals'),
+                 ('approved', 'Mutuals and people I approve')]
+
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='presences')
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='event_presences')
+    attendance_visibility = models.CharField(max_length=8, choices=ATTENDANCE, default='off')
+    departure_area = models.CharField(max_length=80, blank=True, default='')
+    departure_visibility = models.CharField(max_length=8, choices=DEPARTURE, default='off')
+    departure_set_at = models.DateTimeField(null=True, blank=True)
+    pings_open = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('event', 'user')
+
+    def __str__(self):
+        return '%s at %s' % (self.user_id, self.event_id)
+
+
+class DepartureRecord(models.Model):
+    """Every departure area anybody set, kept (305b: "don't remove it ever").
+
+    Appended on each change and never edited or deleted by any user action, so
+    changing or clearing the area on the presence does not lose the earlier
+    one. Read only through the admin location-history door, which needs its
+    own permission and writes every search to AdminAction. Deleting the
+    account deletes these with it, and the privacy policy says so.
+    """
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='departure_records')
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='departure_records')
+    area = models.CharField(max_length=80, blank=True, default='')
+    visibility = models.CharField(max_length=8, default='off')
+    set_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-set_at']
+
+
+class DepartureApproval(models.Model):
+    """Somebody the owner of a presence lets see their departure area."""
+    presence = models.ForeignKey(EventPresence, on_delete=models.CASCADE, related_name='approvals')
+    approved = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='departure_approvals')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('presence', 'approved')
+
+
+class EventPing(models.Model):
+    """"Want to meet up?" from one person at an event to another.
+
+    One per pair per event. Declining is final for that event, so a decline is
+    an answer rather than an invitation to ask again. Accepting opens a direct
+    conversation between the two.
+    """
+    STATUSES = [('sent', 'Sent'), ('accepted', 'Accepted'), ('declined', 'Declined'),
+                ('withdrawn', 'Withdrawn')]
+
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='pings')
+    sender = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='pings_sent')
+    recipient = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='pings_received')
+    message = models.CharField(max_length=140, blank=True, default='')
+    status = models.CharField(max_length=10, choices=STATUSES, default='sent')
+    created_at = models.DateTimeField(auto_now_add=True)
+    answered_at = models.DateTimeField(null=True, blank=True)
+    conversation = models.ForeignKey('vent_auth.Conversation', on_delete=models.SET_NULL,
+                                     null=True, blank=True, related_name='+')
+
+    class Meta:
+        unique_together = ('event', 'sender', 'recipient')
+        ordering = ['-created_at']

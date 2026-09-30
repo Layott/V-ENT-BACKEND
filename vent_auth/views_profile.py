@@ -179,34 +179,6 @@ def verify_new_email(request):
 
 
 @api_view(['POST'])
-def add_date_of_birth(request):
-    user_id = request.data.get('user_id')
-    date_of_birth = request.data.get('date_of_birth')
-
-    if not user_id or not date_of_birth:
-        return Response({"error": "User ID and date of birth are required"}, status=status.HTTP_400_BAD_REQUEST)
-
-    try:
-        date_of_birth = datetime.datetime.strptime(date_of_birth, '%Y-%m-%d').date()
-
-        with transaction.atomic():
-            user_profile = UserProfile.objects.select_for_update().get(user_id=user_id)
-            user_profile.date_of_birth = date_of_birth
-            user_profile.save()
-
-        return Response({ 'code': 'DATE_BIRTH_ADDED_SUCCESSFULLY',"message": "Date Of Birth Added Successfully"}, status=status.HTTP_200_OK)
-
-    except UserProfile.DoesNotExist:
-        return Response({"error": "User profile not found"}, status=status.HTTP_404_NOT_FOUND)
-    except ValueError:
-        return Response({"error": "Invalid date format. Use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
-    except Http404:
-        return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
-    except Exception as e:
-        return server_error(e)
-
-
-@api_view(['POST'])
 def add_game_account(request):
     # Session-token version (supersedes the legacy user_id version)
     session_token = request.data.get('session_token')

@@ -22,6 +22,8 @@
     { "name": "B cannot edit A's tournament", "attempt": { "as": "b", "method": "PUT", "path": "/tournament/edit-tournament/walk-cup-fee/", "body": { "tournament_title": "Taken" } } },
     { "name": "B cannot read another stallholder's orders", "attempt": { "as": "b", "method": "GET", "path": "/event/my-stalls/walk_vendor_bisi-at-walk-con-ea5e/orders/" } },
     { "name": "B cannot read the transfer history of somebody else's ticket", "attempt": { "as": "b", "method": "GET", "path": "/event/ticket/VT-T6SF8ASW/transfers/" } },
-    { "name": "B cannot give somebody else's ticket away", "attempt": { "as": "b", "method": "POST", "path": "/event/ticket/VT-T6SF8ASW/transfer/", "body": { "to": "walk_buyer_ada" } } }
+    { "name": "B cannot give somebody else's ticket away", "attempt": { "as": "b", "method": "POST", "path": "/event/ticket/VT-T6SF8ASW/transfer/", "body": { "to": "walk_buyer_ada" } } },
+    { "name": "B cannot search anybody's location history", "attempt": { "as": "b", "method": "GET", "path": "/event/admin/location-history/?event=walk-con-ea5e&person=walk_organiser&reason=idor-check" } },
+    { "name": "B cannot answer a meet-up ping that is not theirs", "attempt": { "as": "b", "method": "POST", "path": "/event/walk-con-ea5e/together/ping/1/answer/", "body": { "accept": true } } }
   ]
 }

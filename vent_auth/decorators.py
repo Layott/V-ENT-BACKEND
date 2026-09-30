@@ -147,6 +147,12 @@ ROLE_PERMISSIONS = {
     'manage_games':          {'super_admin', 'admin', 'mod_admin'},
     'manage_rates':          {'super_admin', 'finance_admin'},
     'manage_settings':       {'super_admin'},
+    # Where people said they were leaving from for an event (inbox 305c,
+    # 28 September 2026): its own permission, deliberately NOT bundled with the
+    # general admin role. A moderator holds it because a report about a person
+    # following somebody home is a moderation case. Every search is written to
+    # AdminAction with the reason given.
+    'view_location_history': {'super_admin', 'mod_admin'},
     # Sending a reset does not reveal a password and does not set one: it
     # emails the person the same code the front door does. Support exists to
     # do exactly this, which is why it is here and not with the ban.

@@ -123,6 +123,20 @@ def _export_payload(user):
             }
             for e in user.login_events.all()
         ] if hasattr(user, 'login_events') else [],
+        # Going together (inbox 305c): every area this person said they were
+        # leaving from, including ones they later changed, as the admins keep them.
+        'going_together': {
+            'settings': [
+                {'event': p.event.name, 'attendance_visible_to': p.attendance_visibility,
+                 'departure_visible_to': p.departure_visibility, 'pings_open': p.pings_open}
+                for p in user.event_presences.select_related('event')
+            ],
+            'departure_areas': [
+                {'event': r.event.name, 'area': r.area, 'visible_to': r.visibility,
+                 'set_at': r.set_at.isoformat()}
+                for r in user.departure_records.select_related('event')
+            ],
+        },
     }
 
 

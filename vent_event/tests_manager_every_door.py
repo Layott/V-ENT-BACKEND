@@ -89,6 +89,9 @@ DOOR_MAY = {
 # own actions. A stranger admitted anywhere else is a leak.
 PUBLIC = {
     'view-event/<str:event_id>/',
+    # Going together: a stranger gets the count only; every name, area and
+    # ping is decided per person in together.py (inbox 305).
+    '<str:event_id>/together/',
     '<str:event_id>/slots/',
     '<str:event_id>/slots/<int:slot_id>/',
     '<str:event_id>/slots/<int:slot_id>/buy/',
