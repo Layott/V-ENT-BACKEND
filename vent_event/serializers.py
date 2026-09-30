@@ -11,6 +11,8 @@ from urllib.parse import quote_plus
 
 from django.utils import timezone
 
+from .site import public as site_public
+
 
 def map_search_url(event):
     """A maps search for the venue, or '' when there is nothing to search for.
@@ -252,5 +254,8 @@ def serialize_event_detail(request, event):
         'social_links': social_links_dict(event),
         'linked_tournaments': _linked_tournaments(request, event),
         'vendors_count': event.vendor_invites.count(),
+        # How the event's own website is drawn (inbox 360). Public, because
+        # it is how a public page looks; written only through views_site.
+        'site': site_public(event),
     })
     return data

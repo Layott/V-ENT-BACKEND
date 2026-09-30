@@ -273,6 +273,10 @@ class EverythingSetAtCreationCanBeChangedTests(TestCase):
             # only means anything beside the number it applies to, and that
             # number lives on the Money tab with what it has already cost.
             'fee_bearer',
+            # POST /event/<ref>/site/, the console's "Website and embeds" tab
+            # (inbox 360). Not creation settings at all: off until published.
+            'site_enabled', 'site_headline', 'site_accent', 'site_theme',
+            'site_layout', 'site_sections',
             # admin only, never the organiser's to set
             'is_featured',
             # Legacy columns kept for old rows. start_date and end_date are

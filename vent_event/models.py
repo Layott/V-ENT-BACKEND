@@ -149,6 +149,19 @@ class Event(models.Model):
     # actually turned up, and attendance is the number they act on.
     self_check_in_opens_minutes = models.PositiveIntegerField(default=120)
 
+    # The event's own website (inbox 360). CEO, 29 September 2026: "allow
+    # people be able to like create their own event pages that looks like a
+    # site". The same event, drawn at /events/<slug>/site without V-ENT's app
+    # around it and in the organiser's colours. Off until they publish it.
+    # What each value may be lives in vent_event/site.py, which is the one
+    # reader and the one writer.
+    site_enabled = models.BooleanField(default=False)
+    site_headline = models.CharField(max_length=120, blank=True, default='')
+    site_accent = models.CharField(max_length=7, blank=True, default='')
+    site_theme = models.CharField(max_length=8, default='dark')
+    site_layout = models.CharField(max_length=8, default='poster')
+    site_sections = models.JSONField(default=list, blank=True)
+
     def starts_at(self):
         """The moment the event begins, timezone aware, or None.
 
