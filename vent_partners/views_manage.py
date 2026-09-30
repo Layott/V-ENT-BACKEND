@@ -261,8 +261,8 @@ def _own_partner(request, partner_id):
     if partner is None:
         return None, None, _err('No such partner.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if partner.owner_id != user.user_id and not _is_admin(user):
-        return None, None, _err('That is not your partner account.', 'FORBIDDEN',
-                                status.HTTP_403_FORBIDDEN)
+        # The same answer as a partner that does not exist (R88).
+        return None, None, _err('No such partner.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     return user, partner, None
 
 

@@ -240,7 +240,7 @@ class ReviewTests(TestCase):
             f'/partners/{self.partner_id}/keys/', data=json.dumps({}),
             content_type='application/json', **other_auth,
         )
-        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.status_code, 404)  # the same as a partner that does not exist (R88)
 
     def test_five_live_keys_is_the_limit(self):
         self.review({'decision': 'approved', 'scopes': ['tournaments:read']})

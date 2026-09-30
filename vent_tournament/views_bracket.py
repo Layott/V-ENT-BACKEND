@@ -239,12 +239,14 @@ def report_match_score(request, match_id):
     match = get_object_or_404(BracketMatch.objects.select_related('tournament', 'participant_1', 'participant_2'), id=match_id)
     tournament = match.tournament
 
-    if tournament.score_confirmation_mode == 'organizer_only':
-        return _err('This tournament records results via the organizer', 'ORGANIZER_ONLY_MODE', http.HTTP_409_CONFLICT)
-
+    # Whose match it is first (R88): a stranger is refused the same way
+    # whatever state the match or the tournament is in.
     slot = match.participant_owned_by(user)
     if slot is None:
         return _err('You are not a participant in this match', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
+
+    if tournament.score_confirmation_mode == 'organizer_only':
+        return _err('This tournament records results via the organizer', 'ORGANIZER_ONLY_MODE', http.HTTP_409_CONFLICT)
 
     if match.status in ('completed', 'bye'):
         return _err('This match is already finished', 'STATE_CONFLICT', http.HTTP_409_CONFLICT)
@@ -330,14 +332,14 @@ def confirm_match_score(request, match_id):
     match = get_object_or_404(BracketMatch.objects.select_related('tournament', 'participant_1', 'participant_2'), id=match_id)
     tournament = match.tournament
 
+    slot = match.participant_owned_by(user)
+    if slot is None:
+        return _err('You are not a participant in this match', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
+
     if tournament.score_confirmation_mode == 'organizer_only':
         return _err('This tournament records results via the organizer', 'ORGANIZER_ONLY_MODE', http.HTTP_409_CONFLICT)
     if match.status != 'pending_opponent_confirm':
         return _err('No score is awaiting confirmation on this match', 'STATE_CONFLICT', http.HTTP_409_CONFLICT)
-
-    slot = match.participant_owned_by(user)
-    if slot is None:
-        return _err('You are not a participant in this match', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
 
     submission = (
         MatchScore.objects.filter(match=match, confirmed=False, superseded_by__isnull=True)

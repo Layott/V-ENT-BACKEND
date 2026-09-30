@@ -105,7 +105,7 @@ class TeamMembershipTests(TestCase):
         invite = TeamInvite.objects.get()
         res = self._post('/team/invite/%s/respond/' % invite.id, {'accept': True},
                          auth=stranger_auth)
-        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.status_code, 404)  # the same as a missing invitation (R88)
 
     # --------------------------------------------------------- the join link
     def test_the_owner_gets_a_link_to_hand_out(self):

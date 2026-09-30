@@ -83,8 +83,9 @@ def kyc_document(request, document_id):
         return _error('Document not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
     if not _may_read(user, document):
-        return _error('You are not allowed to view this document.', 'FORBIDDEN',
-                      status.HTTP_403_FORBIDDEN)
+        # The same answer as a document that does not exist (R88): a different
+        # one tells a stranger which identity documents are on file.
+        return _error('Document not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
     name = document.document_image.name          # e.g. "kyc/passport_7.jpg"
     content_type = mimetypes.guess_type(name)[0] or 'application/octet-stream'
