@@ -29,6 +29,7 @@ from django.shortcuts import redirect
 from vent.settings import FRONTEND_URL
 from .models import PlatformAccount
 from .views_profile import _user_from_bearer
+from . import inputs
 
 logger = logging.getLogger(__name__)
 
@@ -265,8 +266,8 @@ def discord_callback(request):
     """Where Discord sends the browser back. Signed state carries the account."""
     from .models import Users
 
-    code = request.query_params.get('code')
-    uid = _unsign(request.query_params.get('state') or '')
+    code = inputs.read_text(request.query_params, 'code', max_length=500) or None
+    uid = _unsign(inputs.read_text(request.query_params, 'state', max_length=2000))
     if not code or not uid:
         return _finish('failed', 'discord')
 
@@ -318,7 +319,7 @@ def steam_callback(request):
     """Steam's OpenID 2.0 return. The assertion has to be checked back with Steam."""
     from .models import Users
 
-    uid = _unsign(request.query_params.get('state') or '')
+    uid = _unsign(inputs.read_text(request.query_params, 'state', max_length=2000))
     if not uid:
         return _finish('failed', 'steam')
 
@@ -340,7 +341,7 @@ def steam_callback(request):
         logger.exception('steam verification failed')
         return _finish('failed', 'steam')
 
-    claimed = request.query_params.get('openid.claimed_id', '')
+    claimed = inputs.read_text(request.query_params, 'openid.claimed_id', max_length=500)
     steam_id = claimed.rstrip('/').split('/')[-1]
     if not steam_id.isdigit():
         return _finish('failed', 'steam')
@@ -430,7 +431,7 @@ def link_dm_toggle(request, provider):
                                     'turn on direct messages.'},
                         status=status.HTTP_400_BAD_REQUEST)
 
-    row.dm_enabled = bool(request.data.get('enabled'))
+    row.dm_enabled = inputs.read_bool(request.data, 'enabled')
     row.dm_error = ''
     row.save(update_fields=['dm_enabled', 'dm_error', 'updated_at'])
 

@@ -41,6 +41,7 @@ from rest_framework.response import Response
 from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .models import AdminAction, Transaction
 from .views_notifications import create_notification
+from . import inputs
 
 READ_ROLES = ROLE_PERMISSIONS['manage_tournaments']
 ANNOUNCE_ROLES = ROLE_PERMISSIONS['send_notifications']
@@ -230,9 +231,9 @@ def admin_tournament_announce(request, tournament_ref):
         })
 
     admin = request.admin_user
-    subject = str(request.data.get('subject') or '').strip()
-    body = str(request.data.get('body') or '').strip()
-    audience = str(request.data.get('audience') or 'all').strip().lower()
+    subject = inputs.read_text(request.data, 'subject', max_length=inputs.LONGEST_TEXT)
+    body = inputs.read_text(request.data, 'body', max_length=inputs.LONGEST_TEXT)
+    audience = inputs.read_text(request.data, 'audience', max_length=20, default='all').lower()
 
     if not subject:
         return _err('Give the message a subject.', 'VALIDATION_ERROR')

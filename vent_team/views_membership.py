@@ -409,8 +409,9 @@ def respond_to_invite(request, invite_id):
     if invite is None:
         return _err('Invitation not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if invite.user_id != user.user_id:
-        return _err('That invitation is not yours.', 'FORBIDDEN',
-                    status.HTTP_403_FORBIDDEN)
+        # Answered as a missing invitation (R88): who has been invited where is
+        # between the team and the person invited.
+        return _err('Invitation not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if invite.status != 'pending':
         return _err(f'That invitation was already {invite.status}.',
                     'STATE_CONFLICT', status.HTTP_409_CONFLICT)

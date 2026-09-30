@@ -27,6 +27,7 @@ from rest_framework.response import Response
 from .models import Users, UserProfile
 from .views_profile import _user_from_bearer, can_view_profile, privacy_of
 from vent_auth import fuzzy
+from . import inputs
 
 MAX_RESULTS = 12
 MIN_QUERY = 2
@@ -109,7 +110,7 @@ def user_search(request):
     Open to signed-out visitors too, because the same rows are what a public
     search page needs; `can_message` is simply false for all of them.
     """
-    query = (request.GET.get('q') or '').strip()
+    query = inputs.read_text(request.GET, 'q', max_length=100)
     if len(query) < MIN_QUERY:
         return Response({
             'status': 'success',
@@ -135,6 +136,12 @@ def user_search(request):
             continue
         # Somebody who is not findable should not be found here either.
         if not can_view_profile(viewer, user):
+            continue
+        # "Indexable in search" off (inbox 399): not found by browsing or by a
+        # close match, only by somebody who already knows the exact username,
+        # so a friend can still message or pay them.
+        if (not privacy_of(user).get('indexable', True)
+                and query.lstrip('@').lower() != user.username.lower()):
             continue
 
         profile = UserProfile.objects.filter(user=user).order_by('profile_id').first()

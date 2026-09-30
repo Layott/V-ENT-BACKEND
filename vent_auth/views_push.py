@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from . import push
 from .models import PushSubscription
 from .views_profile import _user_from_bearer
+from . import inputs
 
 
 def _err(message, code, http=status.HTTP_400_BAD_REQUEST):
@@ -31,10 +32,10 @@ def push_subscribe(request):
         return _err('Push notifications are not set up yet.', 'PUSH_UNAVAILABLE',
                     status.HTTP_503_SERVICE_UNAVAILABLE)
     body = request.data if isinstance(request.data, dict) else {}
-    endpoint = str(body.get('endpoint') or '').strip()
+    endpoint = inputs.read_text(body, 'endpoint', max_length=600)
     keys = body.get('keys') if isinstance(body.get('keys'), dict) else {}
-    p256dh = str(keys.get('p256dh') or '').strip()
-    auth = str(keys.get('auth') or '').strip()
+    p256dh = inputs.read_text(keys, 'p256dh', max_length=200)
+    auth = inputs.read_text(keys, 'auth', max_length=100)
     if not endpoint.startswith('https://') or len(endpoint) > 600 or not p256dh or not auth \
             or len(p256dh) > 200 or len(auth) > 100:
         return _err('That browser subscription could not be read.', 'PUSH_BAD_SUBSCRIPTION')
@@ -54,7 +55,7 @@ def push_unsubscribe(request):
     user, err = _user_from_bearer(request)
     if err:
         return err
-    endpoint = str((request.data or {}).get('endpoint') or '').strip()
+    endpoint = inputs.read_text(request.data, 'endpoint', max_length=600)
     removed, _ = PushSubscription.objects.filter(user=user, endpoint=endpoint).delete()
     return Response({'status': 'success', 'code': 'OK',
                      'data': {'removed': removed, 'devices': user.push_subscriptions.count()},

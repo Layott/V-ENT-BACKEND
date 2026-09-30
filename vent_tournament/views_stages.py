@@ -23,6 +23,7 @@ from .access import may_manage
 from .models import TournamentRegistration, TournamentStage
 
 from . import lookup
+from vent_auth import inputs
 
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
@@ -287,13 +288,13 @@ def draw_stage(request, tournament_id, stage_id):
         if window and window['closed'] and window['forfeit_without_check_in']:
             missing = tournament.registrations.filter(
                 status__in=('pending', 'confirmed'), checked_in_at__isnull=True).count()
-            if missing and not request.data.get('ignore_check_in'):
+            if missing and not inputs.read_bool(request.data, 'ignore_check_in'):
                 return _err('Some entrants never checked in. Close check-in first so '
                             'they are forfeited, or send ignore_check_in.',
                             'CHECK_IN_OPEN', status.HTTP_409_CONFLICT,
                             detail={'missing': missing})
 
-    strategy = request.data.get('seed_strategy') or \
+    strategy = inputs.read_text(request.data, 'seed_strategy', max_length=30) or \
         tournament_options.clean(tournament.options)['seeding_method']
     if strategy == 'seed_field':
         strategy = 'ranked'
@@ -365,8 +366,8 @@ def advance_stage(request, tournament_id, stage_id):
         with transaction.atomic():
             result = stage_engine.advance(
                 stage, user, order=order,
-                ignore_disputes=bool(request.data.get('ignore_disputes')),
-                draw_next=request.data.get('draw_next', True) not in (False, 'false', 0, '0'))
+                ignore_disputes=inputs.read_bool(request.data, 'ignore_disputes'),
+                draw_next=inputs.read_bool(request.data, 'draw_next', default=True))
     except stage_engine.StageEngineError as exc:
         return _engine_err(exc)
 

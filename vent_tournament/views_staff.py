@@ -15,6 +15,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
+from vent_auth import inputs
 from vent_auth.models import Users
 
 from .access import access_payload, may_manage
@@ -86,7 +87,7 @@ def staff(request, tournament_id):
         rows = TournamentStaff.objects.filter(tournament=tournament).select_related('user')
         return _ok({'staff': [_person(r) for r in rows]}, 'Scorekeepers')
 
-    username = str(request.data.get('username') or '').strip().lstrip('@')
+    username = inputs.read_text(request.data, 'username', max_length=129).lstrip('@')
     if not username:
         return _err('Say who, by username.', 'USERNAME_REQUIRED', field='username')
     person = Users.objects.filter(username__iexact=username).first()

@@ -30,6 +30,7 @@ from vent_auth import premium
 from . import documents
 from .models import BracketMatch, TieFixture, Tournament, TournamentRegistration
 from .services import league
+from vent_auth import inputs
 
 
 def _err(message, code, http=status.HTTP_400_BAD_REQUEST):
@@ -124,12 +125,12 @@ def export_tournament(request, tournament_id):
     if err:
         return err
 
-    sheet = str(request.GET.get('sheet') or 'participants').lower()
+    sheet = inputs.read_text(request.GET, 'sheet', max_length=40, default='participants').lower()
 
     # `?as=`, not `?format=`: DRF reserves that name for content negotiation
     # and answers 404 for a renderer it does not have.
     wanted = documents.FORMATS.get(
-        str(request.GET.get('as') or 'csv').strip().lower())
+        inputs.read_text(request.GET, 'as', max_length=10, default='csv').lower())
     if wanted is None:
         return _err('That is not a format this exports as. Ask for csv, xlsx, '
                     'docx or pdf.', 'UNKNOWN_FORMAT')

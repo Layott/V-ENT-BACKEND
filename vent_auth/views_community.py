@@ -1070,7 +1070,9 @@ def dm_detail(request, conversation_id):
     if convo is None:
         return _error('Conversation not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if user.user_id not in (convo.user_a_id, convo.user_b_id):
-        return _error('This conversation is not yours.', 'FORBIDDEN', status.HTTP_403_FORBIDDEN)
+        # The same answer as a conversation that does not exist (R88): a
+        # different one tells a stranger which keys are real.
+        return _error('Conversation not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
     convo.messages.filter(read_at__isnull=True).exclude(sender=user).update(read_at=timezone.now())
 
@@ -1089,6 +1091,11 @@ def dm_detail(request, conversation_id):
                'Conversation retrieved.')
 
 
+def _dm_body(request):
+    return (inputs.read_text(request.data, 'body', max_length=inputs.LONGEST_TEXT)
+            or inputs.read_text(request.data, 'message', max_length=inputs.LONGEST_TEXT))
+
+
 @api_view(['POST'])
 def dm_send(request, conversation_id):
     """Send into an existing conversation, or start one with `username`."""
@@ -1096,12 +1103,15 @@ def dm_send(request, conversation_id):
     if auth_error:
         return auth_error
 
-    body = (request.data.get('body') or request.data.get('message') or '').strip()
-    if not body:
-        return _error('Write a message first.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
-
+    # Whose conversation it is comes first, the words second (R88): reading the
+    # body first told a stranger "write a message first" about somebody
+    # else's conversation instead of refusing it.
     if str(conversation_id) == 'new':
-        other = Users.objects.filter(username=(request.data.get('username') or '').strip()).first()
+        body = _dm_body(request)
+        if not body:
+            return _error('Write a message first.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+        other = Users.objects.filter(
+            username=inputs.read_text(request.data, 'username', max_length=129)).first()
         if other is None:
             return _error('No user with that username.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
         if other.user_id == user.user_id:
@@ -1119,10 +1129,11 @@ def dm_send(request, conversation_id):
         convo = _conversation_for(user, other)
     else:
         convo = _conversation_by_key(conversation_id)
-        if convo is None:
+        if convo is None or user.user_id not in (convo.user_a_id, convo.user_b_id):
             return _error('Conversation not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-        if user.user_id not in (convo.user_a_id, convo.user_b_id):
-            return _error('This conversation is not yours.', 'FORBIDDEN', status.HTTP_403_FORBIDDEN)
+        body = _dm_body(request)
+        if not body:
+            return _error('Write a message first.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
 
         # A block has to stop an EXISTING conversation too, not only a new one.
         # Somebody who has already been in touch is exactly who a block is for,

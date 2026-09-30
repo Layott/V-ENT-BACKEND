@@ -37,6 +37,7 @@ from .views_tickets import _authenticate, _error, _ngn_to_coins, _ok
 from .views_vendors import read_variants
 from vent_auth import uploads
 from vent_auth import coins
+from vent_auth import inputs
 
 PAGE_SIZE = 100
 
@@ -84,6 +85,14 @@ def _refund_cancelled(order, stall):
         VendorProduct.objects.filter(pk=item.product_id).update(
             stock=F('stock') + item.quantity, sold=F('sold') - item.quantity)
     return None
+
+
+def _price(src, key):
+    return inputs.read_float(src, key, maximum=99_999_999, required=True)
+
+
+def _stock(src, key):
+    return inputs.read_int(src, key, maximum=2_000_000_000, required=True)
 
 
 def _my_stall(user, ref):
@@ -209,9 +218,9 @@ def my_stall_detail(request, vendor_id):
 
     if request.method == 'PATCH':
         fields = []
-        for key in ('name', 'description', 'category'):
+        for key, most in (('name', 120), ('description', inputs.LONGEST_TEXT), ('category', 60)):
             if key in request.data:
-                setattr(stall, key, (request.data.get(key) or '').strip())
+                setattr(stall, key, inputs.read_text(request.data, key, max_length=most))
                 fields.append(key)
         # Opening and closing the stall. `approved` and `live` both trade;
         # `closed` is the stallholder saying they have stopped for the day, and
@@ -219,14 +228,14 @@ def my_stall_detail(request, vendor_id):
         if 'fee_bearer' in request.data:
             # The same choice the organiser has on tickets. Applies to orders
             # from now on; what has sold keeps the numbers it sold under.
-            wanted = str(request.data.get('fee_bearer') or '').strip()
+            wanted = inputs.read_text(request.data, 'fee_bearer', max_length=20)
             if wanted not in ('vendor', 'buyer'):
                 return _error('Who pays the fee is the stallholder or the buyer.',
                               'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
             stall.fee_bearer = wanted
             fields.append('fee_bearer')
         if 'status' in request.data:
-            wanted = str(request.data.get('status') or '').strip()
+            wanted = inputs.read_text(request.data, 'status', max_length=20)
             if wanted not in ('live', 'closed'):
                 return _error('A stall can be live or closed.',
                               'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
@@ -302,15 +311,17 @@ def my_product(request, vendor_id, product_id):
         return _ok({'deleted': True}, 'Removed.')
 
     fields = []
-    for key in ('name', 'description'):
+    for key, most in (('name', 140), ('description', inputs.LONGEST_TEXT)):
         if key in request.data:
-            setattr(product, key, (request.data.get(key) or '').strip())
+            setattr(product, key, inputs.read_text(request.data, key, max_length=most))
             fields.append(key)
-    for key, caster, label in (('price', float, 'price'),
-                               ('stock', int, 'number in stock')):
+    # NaN and infinity used to pass float() and every `< 0` check below; the
+    # column holds 10 digits, the stock a positive 32 bit number.
+    for key, caster, label in (('price', _price, 'price'),
+                               ('stock', _stock, 'number in stock')):
         if key in request.data:
             try:
-                value = caster(request.data.get(key))
+                value = caster(request.data, key)
             except (TypeError, ValueError):
                 return _error('The %s has to be a number.' % label,
                               'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
@@ -325,10 +336,10 @@ def my_product(request, vendor_id, product_id):
             setattr(product, key, value)
             fields.append(key)
     if 'is_active' in request.data:
-        product.is_active = bool(request.data.get('is_active'))
+        product.is_active = inputs.read_bool(request.data, 'is_active')
         fields.append('is_active')
     if 'can_deliver' in request.data:
-        product.can_deliver = bool(request.data.get('can_deliver'))
+        product.can_deliver = inputs.read_bool(request.data, 'can_deliver')
         fields.append('can_deliver')
     if 'variants' in request.data:
         product.variants, why = read_variants(request.data.get('variants'))
@@ -359,7 +370,7 @@ def my_stall_orders(request, vendor_id):
         return _error('That is not one of your stalls.', 'NOT_FOUND',
                       status.HTTP_404_NOT_FOUND)
 
-    wanted = request.GET.get('status')
+    wanted = inputs.read_text(request.GET, 'status', max_length=20)
     orders = stall.orders.select_related('buyer').prefetch_related('items__product')
     if wanted:
         orders = orders.filter(status=wanted)
@@ -416,7 +427,7 @@ def my_order_status(request, vendor_id, code):
         return _error('That is not one of your stalls.', 'NOT_FOUND',
                       status.HTTP_404_NOT_FOUND)
 
-    wanted = str(request.data.get('status') or '').strip()
+    wanted = inputs.read_text(request.data, 'status', max_length=20)
     if wanted not in NEXT_STATUS:
         return _error('That is not something an order can become.',
                       'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
@@ -459,7 +470,7 @@ def my_order_status(request, vendor_id, code):
         if wanted == 'sent':
             order.sent_at = timezone.now()
             fields.append('sent_at')
-            tracking = (request.data.get('tracking') or '').strip()
+            tracking = inputs.read_text(request.data, 'tracking', max_length=inputs.LONGEST_TEXT)
             if tracking:
                 order.tracking = tracking[:80]
                 fields.append('tracking')

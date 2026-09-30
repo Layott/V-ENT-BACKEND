@@ -11,6 +11,7 @@ from rest_framework.response import Response
 
 from .models import Users, UserGallery
 from . import uploads
+from . import inputs
 
 
 @api_view(['POST'])
@@ -105,7 +106,7 @@ def get_user_gallery(request):
 @api_view(['POST'])
 def delete_gallery_image(request):
     session_token = request.headers.get('Authorization')
-    image_id = request.data.get('image_id')
+    image_id = inputs.read_int(request.data, 'image_id', minimum=1, required=True)
 
     if not session_token:
         return Response({ 'code': 'AUTHORIZATION_HEADER_REQUIRED','status': 'error', 'message': 'Authorization header is required'}, status=status.HTTP_401_UNAUTHORIZED)

@@ -1,29 +1,6802 @@
 {
-  "$comment": "Owner rule R58, runtime proof. User A (walk_organiser) owns the event walk-con-ea5e and the tournaments walk-cup-fee / walk-cup-finished; walk_vendor_bisi owns a stall on that event; walk_buyer_promo holds ticket VT-T6SF8ASW. User B (walk_buyer_ada) is signed in and owns none of it, and every attempt below must be refused with 403 or 404. The records are the walk fixtures on this machine's local sqlite (tools/walk_event.py --setup; password walk-con-2026). Run with the dev server on 8000: node ~/.claude/skills/security-rules/scripts/check-security.mjs --idor http://127.0.0.1:8000. Run --idor BEFORE --live: the live check bursts the login until it sees 429, and the sign-ins here would be caught by that same limiter for the rest of the minute.",
-  "baseUrl": "http://127.0.0.1:8000",
-  "users": {
-    "a": {
-      "login": { "path": "/auth/login/", "method": "POST", "body": { "username_or_email": "walk_organiser", "password": "walk-con-2026" }, "tokenPath": "session_token", "header": "Authorization: Bearer {token}" }
+ "$comment": "Owner rule R58, runtime proof. User A (walk_organiser) owns the event walk-con-5e6c and the tournaments walk-cup-fee / walk-cup-finished; walk_vendor_bisi owns a stall on that event; walk_buyer_promo holds ticket VT-T6SF8ASW. User B (walk_buyer_ada) is signed in and owns none of it, and every attempt below must be refused with 403 or 404. The records are the walk fixtures on this machine's local sqlite (tools/walk_event.py --setup; password walk-con-2026). Run with the dev server on 8000: node ~/.claude/skills/security-rules/scripts/check-security.mjs --idor http://127.0.0.1:8000. Run --idor BEFORE --live: the live check bursts the login until it sees 429, and the sign-ins here would be caught by that same limiter for the rest of the minute. Generated cases: tools/make-idor-cases.py from a probe of every id address (python manage.py idor_routes; tools/idor-probe.py), read by hand on 30 September 2026. The event of the day is walk-con-5e6c.",
+ "baseUrl": "http://127.0.0.1:8000",
+ "users": {
+  "a": {
+   "login": {
+    "path": "/auth/login/",
+    "method": "POST",
+    "body": {
+     "username_or_email": "walk_organiser",
+     "password": "walk-con-2026"
     },
-    "b": {
-      "login": { "path": "/auth/login/", "method": "POST", "body": { "username_or_email": "walk_buyer_ada", "password": "walk-con-2026" }, "tokenPath": "session_token", "header": "Authorization: Bearer {token}" }
-    }
+    "tokenPath": "session_token",
+    "header": "Authorization: Bearer {token}"
+   }
   },
-  "cases": [
-    { "name": "B cannot read the money on A's event", "attempt": { "as": "b", "method": "GET", "path": "/event/walk-con-ea5e/earnings/" } },
-    { "name": "B cannot pay A's event out", "attempt": { "as": "b", "method": "POST", "path": "/event/walk-con-ea5e/settle/", "body": {} } },
-    { "name": "B cannot read A's door list", "attempt": { "as": "b", "method": "GET", "path": "/event/walk-con-ea5e/attendees/" } },
-    { "name": "B cannot read A's promo codes", "attempt": { "as": "b", "method": "GET", "path": "/event/walk-con-ea5e/promos/" } },
-    { "name": "B cannot add a ticket type to A's event", "attempt": { "as": "b", "method": "POST", "path": "/event/walk-con-ea5e/tiers/", "body": { "name": "Intruder", "price_vc": 1, "quantity": 1 } } },
-    { "name": "B cannot read the money on A's tournament", "attempt": { "as": "b", "method": "GET", "path": "/tournament/walk-cup-fee/earnings/" } },
-    { "name": "B cannot pay A's tournament out", "attempt": { "as": "b", "method": "POST", "path": "/tournament/walk-cup-fee/settle/", "body": {} } },
-    { "name": "B cannot read A's tournament staff", "attempt": { "as": "b", "method": "GET", "path": "/tournament/walk-cup-fee/staff/" } },
-    { "name": "B cannot read A's tournament registrations", "attempt": { "as": "b", "method": "GET", "path": "/tournament/walk-cup-fee/registrations/" } },
-    { "name": "B cannot edit A's tournament", "attempt": { "as": "b", "method": "PUT", "path": "/tournament/edit-tournament/walk-cup-fee/", "body": { "tournament_title": "Taken" } } },
-    { "name": "B cannot read another stallholder's orders", "attempt": { "as": "b", "method": "GET", "path": "/event/my-stalls/walk_vendor_bisi-at-walk-con-ea5e/orders/" } },
-    { "name": "B cannot read the transfer history of somebody else's ticket", "attempt": { "as": "b", "method": "GET", "path": "/event/ticket/VT-T6SF8ASW/transfers/" } },
-    { "name": "B cannot give somebody else's ticket away", "attempt": { "as": "b", "method": "POST", "path": "/event/ticket/VT-T6SF8ASW/transfer/", "body": { "to": "walk_buyer_ada" } } },
-    { "name": "B cannot search anybody's location history", "attempt": { "as": "b", "method": "GET", "path": "/event/admin/location-history/?event=walk-con-ea5e&person=walk_organiser&reason=idor-check" } },
-    { "name": "B cannot answer a meet-up ping that is not theirs", "attempt": { "as": "b", "method": "POST", "path": "/event/walk-con-ea5e/together/ping/1/answer/", "body": { "accept": true } } }
-  ]
+  "b": {
+   "login": {
+    "path": "/auth/login/",
+    "method": "POST",
+    "body": {
+     "username_or_email": "walk_buyer_ada",
+     "password": "walk-con-2026"
+    },
+    "tokenPath": "session_token",
+    "header": "Authorization: Bearer {token}"
+   }
+  }
+ },
+ "cases": [
+  {
+   "name": "B cannot read the money on A's event",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/walk-con-5e6c/earnings/"
+   }
+  },
+  {
+   "name": "B cannot pay A's event out",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/settle/",
+    "body": {}
+   }
+  },
+  {
+   "name": "B cannot read A's door list",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/walk-con-5e6c/attendees/"
+   }
+  },
+  {
+   "name": "B cannot read A's promo codes",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/walk-con-5e6c/promos/"
+   }
+  },
+  {
+   "name": "B cannot add a ticket type to A's event",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/tiers/",
+    "body": {
+     "name": "Intruder",
+     "price_vc": 1,
+     "quantity": 1
+    }
+   }
+  },
+  {
+   "name": "B cannot read the money on A's tournament",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/walk-cup-fee/earnings/"
+   }
+  },
+  {
+   "name": "B cannot pay A's tournament out",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/settle/",
+    "body": {}
+   }
+  },
+  {
+   "name": "B cannot read A's tournament staff",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/walk-cup-fee/staff/"
+   }
+  },
+  {
+   "name": "B cannot read A's tournament registrations",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/walk-cup-fee/registrations/"
+   }
+  },
+  {
+   "name": "B cannot edit A's tournament",
+   "attempt": {
+    "as": "b",
+    "method": "PUT",
+    "path": "/tournament/edit-tournament/walk-cup-fee/",
+    "body": {
+     "tournament_title": "Taken"
+    }
+   }
+  },
+  {
+   "name": "B cannot read another stallholder's orders",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/my-stalls/walk_vendor_bisi-at-walk-con-5e6c/orders/"
+   }
+  },
+  {
+   "name": "B cannot read the transfer history of somebody else's ticket",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/ticket/VT-T6SF8ASW/transfers/"
+   }
+  },
+  {
+   "name": "B cannot give somebody else's ticket away",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/ticket/VT-T6SF8ASW/transfer/",
+    "body": {
+     "to": "walk_buyer_ada"
+    }
+   }
+  },
+  {
+   "name": "B cannot search anybody's location history",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/admin/location-history/?event=walk-con-5e6c&person=walk_organiser&reason=idor-check"
+   }
+  },
+  {
+   "name": "B cannot answer a meet-up ping that is not theirs",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/together/ping/1/answer/",
+    "body": {
+     "accept": true
+    }
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/organizations/<str:org_ref>/ as B",
+   "route": "auth/admin/organizations/<str:org_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/organizations/{id}/"
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET auth/admin/communities/<str:slug>/ as B",
+   "route": "auth/admin/communities/<str:slug>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/auth/admin/communities/{id}/"
+   },
+   "id": "walk-cup-fee"
+  },
+  {
+   "generated": true,
+   "name": "GET auth/admin/organizations/<str:org_ref>/report.csv as B",
+   "route": "auth/admin/organizations/<str:org_ref>/report.csv",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/auth/admin/organizations/{id}/report.csv"
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/reports/<int:report_id>/ as B",
+   "route": "auth/admin/reports/<int:report_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/reports/{id}/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/content/<str:kind>/<str:ref>/ as B",
+   "route": "auth/admin/content/<str:kind>/<str:ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/content/scorebar/{id}/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET auth/admin/tournaments/<str:tournament_ref>/analytics/ as B",
+   "route": "auth/admin/tournaments/<str:tournament_ref>/analytics/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/auth/admin/tournaments/{id}/analytics/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/tournaments/<str:tournament_ref>/announce/ as B",
+   "route": "auth/admin/tournaments/<str:tournament_ref>/announce/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/tournaments/{id}/announce/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/team/<str:team_ref>/wallet/ as B",
+   "route": "auth/team/<str:team_ref>/wallet/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/team/{id}/wallet/"
+   },
+   "id": "lagos-rangers",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/organization/<str:org_ref>/wallet/ as B",
+   "route": "auth/organization/<str:org_ref>/wallet/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/organization/{id}/wallet/"
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/follow/<str:kind>/<str:ref>/ as B",
+   "route": "auth/follow/<str:kind>/<str:ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/follow/user/{id}/",
+    "expect": [
+     200,
+     201,
+     400,
+     409
+    ]
+   },
+   "id": "walk_organiser",
+   "r88": {
+    "skip": [
+     "existence",
+     "methods"
+    ],
+    "reason": "POST,DELETE: following a person or a team is open to everybody; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET auth/follow/<str:kind>/<str:ref>/followers/ as B",
+   "route": "auth/follow/<str:kind>/<str:ref>/followers/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/auth/follow/user/{id}/followers/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk_organiser",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET auth/admin/users/<str:user_id>/ as B",
+   "route": "auth/admin/users/<str:user_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/auth/admin/users/{id}/"
+   },
+   "id": "54",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH auth/admin/users/<str:user_id>/ban/ as B",
+   "route": "auth/admin/users/<str:user_id>/ban/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/auth/admin/users/{id}/ban/"
+   },
+   "id": "54",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH auth/admin/users/<str:user_id>/role/ as B",
+   "route": "auth/admin/users/<str:user_id>/role/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/auth/admin/users/{id}/role/"
+   },
+   "id": "54",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH auth/admin/users/<str:user_id>/premium/ as B",
+   "route": "auth/admin/users/<str:user_id>/premium/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/auth/admin/users/{id}/premium/"
+   },
+   "id": "54",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "DELETE auth/admin/users/<str:user_id>/delete/ as B",
+   "route": "auth/admin/users/<str:user_id>/delete/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/auth/admin/users/{id}/delete/"
+   },
+   "id": "54",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/users/<str:user_id>/reset-password/ as B",
+   "route": "auth/admin/users/<str:user_id>/reset-password/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/users/{id}/reset-password/"
+   },
+   "id": "54",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/users/<str:user_id>/notify/ as B",
+   "route": "auth/admin/users/<str:user_id>/notify/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/users/{id}/notify/"
+   },
+   "id": "54",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET auth/admin/tournaments/<str:tournament_ref>/sent/ as B",
+   "route": "auth/admin/tournaments/<str:tournament_ref>/sent/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/auth/admin/tournaments/{id}/sent/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET auth/admin/events/<str:event_ref>/tickets/ as B",
+   "route": "auth/admin/events/<str:event_ref>/tickets/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/auth/admin/events/{id}/tickets/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET auth/admin/events/<str:event_ref>/sent/ as B",
+   "route": "auth/admin/events/<str:event_ref>/sent/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/auth/admin/events/{id}/sent/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/events/<str:event_ref>/state/ as B",
+   "route": "auth/admin/events/<str:event_ref>/state/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/events/{id}/state/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/events/<str:event_ref>/refunds/ as B",
+   "route": "auth/admin/events/<str:event_ref>/refunds/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/events/{id}/refunds/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET auth/admin/events/<str:event_ref>/ as B",
+   "route": "auth/admin/events/<str:event_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/auth/admin/events/{id}/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH auth/admin/games/<int:game_id>/ as B",
+   "route": "auth/admin/games/<int:game_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/auth/admin/games/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/games/<int:game_id>/series/ as B",
+   "route": "auth/admin/games/<int:game_id>/series/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/games/{id}/series/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/games/<int:game_id>/modes/ as B",
+   "route": "auth/admin/games/<int:game_id>/modes/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/games/{id}/modes/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH auth/admin/modes/<int:mode_id>/ as B",
+   "route": "auth/admin/modes/<int:mode_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/auth/admin/modes/{id}/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "PATCH auth/admin/series/<int:series_id>/ as B",
+   "route": "auth/admin/series/<int:series_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/auth/admin/series/{id}/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/tournaments/<int:tournament_id>/matches/ as B",
+   "route": "auth/admin/tournaments/<int:tournament_id>/matches/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/tournaments/{id}/matches/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/tournaments/<int:tournament_id>/ as B",
+   "route": "auth/admin/tournaments/<int:tournament_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/tournaments/{id}/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/tournaments/<int:tournament_id>/dispute/resolve/ as B",
+   "route": "auth/admin/tournaments/<int:tournament_id>/dispute/resolve/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/tournaments/{id}/dispute/resolve/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/tournaments/<int:tournament_id>/cancel/ as B",
+   "route": "auth/admin/tournaments/<int:tournament_id>/cancel/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/tournaments/{id}/cancel/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/tournaments/<int:tournament_id>/disqualify/ as B",
+   "route": "auth/admin/tournaments/<int:tournament_id>/disqualify/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/tournaments/{id}/disqualify/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH auth/admin/matches/<int:match_id>/score/ as B",
+   "route": "auth/admin/matches/<int:match_id>/score/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/auth/admin/matches/{id}/score/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/payouts/<int:withdrawal_id>/approve/ as B",
+   "route": "auth/admin/payouts/<int:withdrawal_id>/approve/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/payouts/{id}/approve/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/payouts/<int:withdrawal_id>/reject/ as B",
+   "route": "auth/admin/payouts/<int:withdrawal_id>/reject/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/payouts/{id}/reject/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/kyc/<int:kyc_id>/approve/ as B",
+   "route": "auth/admin/kyc/<int:kyc_id>/approve/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/kyc/{id}/approve/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/kyc/<int:kyc_id>/reject/ as B",
+   "route": "auth/admin/kyc/<int:kyc_id>/reject/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/kyc/{id}/reject/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST auth/admin/disputes/<int:dispute_id>/resolve/ as B",
+   "route": "auth/admin/disputes/<int:dispute_id>/resolve/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/disputes/{id}/resolve/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST auth/notifications/<int:notification_id>/read/ as B",
+   "route": "auth/notifications/<int:notification_id>/read/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/notifications/{id}/read/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST auth/notifications/<int:notification_id>/delete/ as B",
+   "route": "auth/notifications/<int:notification_id>/delete/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/notifications/{id}/delete/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST auth/wallet/cards/<int:card_id>/remove/ as B",
+   "route": "auth/wallet/cards/<int:card_id>/remove/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/wallet/cards/r88-none/remove/"
+   },
+   "r88": {
+    "skip": [
+     "existence",
+     "neighbours"
+    ],
+    "reason": "no local record of this kind yet; the address is tried with a key that names nothing"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/wallet/cards/<int:card_id>/default/ as B",
+   "route": "auth/wallet/cards/<int:card_id>/default/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/wallet/cards/r88-none/default/"
+   },
+   "r88": {
+    "skip": [
+     "existence",
+     "neighbours"
+    ],
+    "reason": "no local record of this kind yet; the address is tried with a key that names nothing"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET auth/discord/guild/<str:ref>/install/ as B",
+   "route": "auth/discord/guild/<str:ref>/install/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/auth/discord/guild/{id}/install/"
+   },
+   "id": "walk-cup-fee"
+  },
+  {
+   "generated": true,
+   "name": "GET auth/discord/guild/<str:ref>/servers/ as B",
+   "route": "auth/discord/guild/<str:ref>/servers/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/auth/discord/guild/{id}/servers/"
+   },
+   "id": "walk-cup-fee"
+  },
+  {
+   "generated": true,
+   "name": "POST auth/discord/guild/<str:ref>/servers/<int:server_id>/ as B",
+   "route": "auth/discord/guild/<str:ref>/servers/<int:server_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/discord/guild/walk-cup-fee/servers/r88-none/"
+   },
+   "r88": {
+    "skip": [
+     "existence",
+     "neighbours"
+    ],
+    "reason": "no local record of this kind yet; the address is tried with a key that names nothing"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/discord/guild/<str:ref>/servers/<int:server_id>/targets/ as B",
+   "route": "auth/discord/guild/<str:ref>/servers/<int:server_id>/targets/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/discord/guild/walk-cup-fee/servers/r88-none/targets/"
+   },
+   "r88": {
+    "skip": [
+     "existence",
+     "neighbours"
+    ],
+    "reason": "no local record of this kind yet; the address is tried with a key that names nothing"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/discord/guild/<str:ref>/servers/<int:server_id>/post/ as B",
+   "route": "auth/discord/guild/<str:ref>/servers/<int:server_id>/post/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/discord/guild/walk-cup-fee/servers/r88-none/post/"
+   },
+   "r88": {
+    "skip": [
+     "existence",
+     "neighbours"
+    ],
+    "reason": "no local record of this kind yet; the address is tried with a key that names nothing"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/discord/guild/<str:ref>/servers/<int:server_id>/role/ as B",
+   "route": "auth/discord/guild/<str:ref>/servers/<int:server_id>/role/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/discord/guild/walk-cup-fee/servers/r88-none/role/"
+   },
+   "r88": {
+    "skip": [
+     "existence",
+     "neighbours"
+    ],
+    "reason": "no local record of this kind yet; the address is tried with a key that names nothing"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/discord/guild/<str:ref>/servers/<int:server_id>/channel/ as B",
+   "route": "auth/discord/guild/<str:ref>/servers/<int:server_id>/channel/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/discord/guild/walk-cup-fee/servers/r88-none/channel/"
+   },
+   "r88": {
+    "skip": [
+     "existence",
+     "neighbours"
+    ],
+    "reason": "no local record of this kind yet; the address is tried with a key that names nothing"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/discord/guild/<str:ref>/servers/<int:server_id>/purge/ as B",
+   "route": "auth/discord/guild/<str:ref>/servers/<int:server_id>/purge/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/discord/guild/walk-cup-fee/servers/r88-none/purge/"
+   },
+   "r88": {
+    "skip": [
+     "existence",
+     "neighbours"
+    ],
+    "reason": "no local record of this kind yet; the address is tried with a key that names nothing"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/discord/guild/<str:ref>/servers/<int:server_id>/log/ as B",
+   "route": "auth/discord/guild/<str:ref>/servers/<int:server_id>/log/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/discord/guild/walk-cup-fee/servers/r88-none/log/"
+   },
+   "r88": {
+    "skip": [
+     "existence",
+     "neighbours"
+    ],
+    "reason": "no local record of this kind yet; the address is tried with a key that names nothing"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/discord/webhooks/<str:kind>/<str:ref>/ as B",
+   "route": "auth/discord/webhooks/<str:kind>/<str:ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/discord/webhooks/tournament/{id}/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST auth/discord/webhooks/<str:kind>/<str:ref>/<int:hook_id>/ as B",
+   "route": "auth/discord/webhooks/<str:kind>/<str:ref>/<int:hook_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/discord/webhooks/tournament/walk-cup-fee/r88-none/"
+   },
+   "r88": {
+    "skip": [
+     "existence",
+     "neighbours"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret; no local record of this kind yet; the address is tried with a key that names nothing"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET auth/kyc/document/<int:document_id>/ as B",
+   "route": "auth/kyc/document/<int:document_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/auth/kyc/document/{id}/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/access/ as B",
+   "route": "tournament/<str:tournament_id>/access/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/access/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/staff/ as B",
+   "route": "tournament/<str:tournament_id>/staff/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/staff/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "DELETE tournament/<str:tournament_id>/staff/<int:user_id>/ as B",
+   "route": "tournament/<str:tournament_id>/staff/<int:user_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/tournament/walk-cup-fee/staff/{id}/"
+   },
+   "id": "54",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/run-of-show/ as B",
+   "route": "tournament/<str:tournament_id>/run-of-show/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/run-of-show/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/run-of-show/import/ as B",
+   "route": "tournament/<str:tournament_id>/run-of-show/import/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/run-of-show/import/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/run-of-show/days/ as B",
+   "route": "tournament/<str:tournament_id>/run-of-show/days/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/run-of-show/days/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH tournament/<str:tournament_id>/run-of-show/days/<int:day_id>/ as B",
+   "route": "tournament/<str:tournament_id>/run-of-show/days/<int:day_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/tournament/walk-cup-fee/run-of-show/days/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/run-of-show/items/ as B",
+   "route": "tournament/<str:tournament_id>/run-of-show/items/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/run-of-show/items/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH tournament/<str:tournament_id>/run-of-show/items/<int:item_id>/ as B",
+   "route": "tournament/<str:tournament_id>/run-of-show/items/<int:item_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/tournament/walk-cup-fee/run-of-show/items/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/studio/assets/ as B",
+   "route": "tournament/<str:tournament_id>/studio/assets/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/studio/assets/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "DELETE tournament/<str:tournament_id>/studio/assets/<int:asset_id>/ as B",
+   "route": "tournament/<str:tournament_id>/studio/assets/<int:asset_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/tournament/walk-cup-fee/studio/assets/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/studio/sessions/ as B",
+   "route": "tournament/<str:tournament_id>/studio/sessions/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/studio/sessions/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/studio/sessions/<int:session_id>/ as B",
+   "route": "tournament/<str:tournament_id>/studio/sessions/<int:session_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/studio/sessions/{id}/"
+   },
+   "id": "23",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/studio/sessions/<int:session_id>/element/<str:kind>/ as B",
+   "route": "tournament/<str:tournament_id>/studio/sessions/<int:session_id>/element/<str:kind>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/studio/sessions/23/element/{id}/"
+   },
+   "id": "scorebar",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/studio/sessions/<int:session_id>/slot/<str:role>/ as B",
+   "route": "tournament/<str:tournament_id>/studio/sessions/<int:session_id>/slot/<str:role>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/studio/sessions/23/slot/{id}/"
+   },
+   "id": "full",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/studio/sessions/<int:session_id>/element/<str:element_kind>/layers/ as B",
+   "route": "tournament/<str:tournament_id>/studio/sessions/<int:session_id>/element/<str:element_kind>/layers/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/studio/sessions/23/element/{id}/layers/"
+   },
+   "id": "scorebar",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/studio/sessions/<int:session_id>/element/<str:element_kind>/layers/<int:layer_id>/ as B",
+   "route": "tournament/<str:tournament_id>/studio/sessions/<int:session_id>/element/<str:element_kind>/layers/<int:layer_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/studio/sessions/23/element/scorebar/layers/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/rules/ as B",
+   "route": "tournament/<str:tournament_id>/rules/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/rules/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/stages/ as B",
+   "route": "tournament/<str:tournament_id>/stages/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/stages/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PUT tournament/<str:tournament_id>/stages/set/ as B",
+   "route": "tournament/<str:tournament_id>/stages/set/",
+   "attempt": {
+    "as": "b",
+    "method": "PUT",
+    "path": "/tournament/{id}/stages/set/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/stages/<int:stage_id>/advance/ as B",
+   "route": "tournament/<str:tournament_id>/stages/<int:stage_id>/advance/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/stages/{id}/advance/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/stages/<int:stage_id>/advance/preview/ as B",
+   "route": "tournament/<str:tournament_id>/stages/<int:stage_id>/advance/preview/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/walk-cup-fee/stages/{id}/advance/preview/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/stages/<int:stage_id>/draw/ as B",
+   "route": "tournament/<str:tournament_id>/stages/<int:stage_id>/draw/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/stages/{id}/draw/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/br/ as B",
+   "route": "tournament/<str:tournament_id>/br/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/br/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/br/ensure/ as B",
+   "route": "tournament/<str:tournament_id>/br/ensure/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/br/ensure/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PUT tournament/<str:tournament_id>/br/<int:stage_id>/settings/ as B",
+   "route": "tournament/<str:tournament_id>/br/<int:stage_id>/settings/",
+   "attempt": {
+    "as": "b",
+    "method": "PUT",
+    "path": "/tournament/walk-cup-fee/br/{id}/settings/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/br/<int:stage_id>/seats/move/ as B",
+   "route": "tournament/<str:tournament_id>/br/<int:stage_id>/seats/move/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/br/{id}/seats/move/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH tournament/<str:tournament_id>/br/<int:stage_id>/lobbies/<int:lobby_id>/ as B",
+   "route": "tournament/<str:tournament_id>/br/<int:stage_id>/lobbies/<int:lobby_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/tournament/walk-cup-fee/br/1/lobbies/{id}/"
+   },
+   "id": "8",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/br/<int:stage_id>/lobbies/<int:lobby_id>/matches/ as B",
+   "route": "tournament/<str:tournament_id>/br/<int:stage_id>/lobbies/<int:lobby_id>/matches/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/br/1/lobbies/{id}/matches/"
+   },
+   "id": "8",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/br/<int:stage_id>/finish/ as B",
+   "route": "tournament/<str:tournament_id>/br/<int:stage_id>/finish/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/br/{id}/finish/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH tournament/<str:tournament_id>/br/matches/<int:map_id>/ as B",
+   "route": "tournament/<str:tournament_id>/br/matches/<int:map_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/tournament/walk-cup-fee/br/matches/{id}/"
+   },
+   "id": "19",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/br/matches/<int:map_id>/results/ as B",
+   "route": "tournament/<str:tournament_id>/br/matches/<int:map_id>/results/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/br/matches/{id}/results/"
+   },
+   "id": "19",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/br/matches/<int:map_id>/read/ as B",
+   "route": "tournament/<str:tournament_id>/br/matches/<int:map_id>/read/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/br/matches/{id}/read/"
+   },
+   "id": "19",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/br/reads/<int:job_id>/ as B",
+   "route": "tournament/<str:tournament_id>/br/reads/<int:job_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/walk-cup-fee/br/reads/{id}/"
+   },
+   "id": "4",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/br/reads/<int:job_id>/images/<int:index>/ as B",
+   "route": "tournament/<str:tournament_id>/br/reads/<int:job_id>/images/<int:index>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/walk-cup-fee/br/reads/4/images/{id}/"
+   },
+   "id": "0",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/br/reads/<int:job_id>/commit/ as B",
+   "route": "tournament/<str:tournament_id>/br/reads/<int:job_id>/commit/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/br/reads/{id}/commit/"
+   },
+   "id": "4",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/stat-settings/ as B",
+   "route": "tournament/<str:tournament_id>/stat-settings/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/stat-settings/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/league-adjustment/ as B",
+   "route": "tournament/<str:tournament_id>/league-adjustment/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/league-adjustment/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/head-to-head/ as B",
+   "route": "tournament/<str:tournament_id>/head-to-head/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/head-to-head/",
+    "expect": [
+     400
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "GET tournament/<str:tournament_id>/head-to-head/ is answered 400 by design: public statistics that need two names; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/short-links/ as B",
+   "route": "tournament/<str:tournament_id>/short-links/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/short-links/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "DELETE tournament/<str:tournament_id>/short-links/<int:link_id>/ as B",
+   "route": "tournament/<str:tournament_id>/short-links/<int:link_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/tournament/walk-cup-fee/short-links/{id}/"
+   },
+   "id": "16",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/requirements/ as B",
+   "route": "tournament/<str:tournament_id>/requirements/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/requirements/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PUT tournament/<str:tournament_id>/requirements/set/ as B",
+   "route": "tournament/<str:tournament_id>/requirements/set/",
+   "attempt": {
+    "as": "b",
+    "method": "PUT",
+    "path": "/tournament/{id}/requirements/set/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/requirements/mine/ as B",
+   "route": "tournament/<str:tournament_id>/requirements/mine/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/requirements/mine/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "answers only about the signed-in person asking; B sees B's own row, a visitor is refused",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/requirements/<int:requirement_id>/submit/ as B",
+   "route": "tournament/<str:tournament_id>/requirements/<int:requirement_id>/submit/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/requirements/{id}/submit/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/requirements/queue/ as B",
+   "route": "tournament/<str:tournament_id>/requirements/queue/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/requirements/queue/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/requirements/queue/<int:submission_id>/ as B",
+   "route": "tournament/<str:tournament_id>/requirements/queue/<int:submission_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/requirements/queue/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PUT tournament/<str:tournament_id>/rules/set/ as B",
+   "route": "tournament/<str:tournament_id>/rules/set/",
+   "attempt": {
+    "as": "b",
+    "method": "PUT",
+    "path": "/tournament/{id}/rules/set/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/rules/reset/ as B",
+   "route": "tournament/<str:tournament_id>/rules/reset/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/rules/reset/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/games/<int:game_id>/modes/ as B",
+   "route": "tournament/games/<int:game_id>/modes/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/games/{id}/modes/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/view-tournament/<str:tournament_id>/ as B",
+   "route": "tournament/view-tournament/<str:tournament_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/view-tournament/{id}/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/get-tournament-brackets/<str:tournament_id>/ as B",
+   "route": "tournament/get-tournament-brackets/<str:tournament_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/get-tournament-brackets/{id}/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/get-tournament-participants/<str:tournament_id>/ as B",
+   "route": "tournament/get-tournament-participants/<str:tournament_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/get-tournament-participants/{id}/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/update-bracket/<str:tournament_id>/ as B",
+   "route": "tournament/update-bracket/<str:tournament_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/update-bracket/{id}/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "DELETE tournament/delete-draft/<str:tournament_id>/ as B",
+   "route": "tournament/delete-draft/<str:tournament_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/tournament/delete-draft/{id}/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/delete/ as B",
+   "route": "tournament/<str:tournament_id>/delete/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/delete/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/restore/ as B",
+   "route": "tournament/<str:tournament_id>/restore/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/restore/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PUT tournament/edit-tournament/<str:tournament_id>/ as B",
+   "route": "tournament/edit-tournament/<str:tournament_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PUT",
+    "path": "/tournament/edit-tournament/{id}/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/generate-bracket/ as B",
+   "route": "tournament/<str:tournament_id>/generate-bracket/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/generate-bracket/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/distribute-prizes/ as B",
+   "route": "tournament/<str:tournament_id>/distribute-prizes/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/distribute-prizes/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/prizes/plan/ as B",
+   "route": "tournament/<str:tournament_id>/prizes/plan/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/prizes/plan/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/prizes/schedule/ as B",
+   "route": "tournament/<str:tournament_id>/prizes/schedule/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/prizes/schedule/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/entry-quote/ as B",
+   "route": "tournament/<str:tournament_id>/entry-quote/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/entry-quote/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/earnings/ as B",
+   "route": "tournament/<str:tournament_id>/earnings/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/earnings/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/settle/ as B",
+   "route": "tournament/<str:tournament_id>/settle/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/settle/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/cancel/ as B",
+   "route": "tournament/<str:tournament_id>/cancel/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/cancel/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/match/<int:match_id>/ as B",
+   "route": "tournament/match/<int:match_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/match/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/match/<int:match_id>/report-score/ as B",
+   "route": "tournament/match/<int:match_id>/report-score/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/match/{id}/report-score/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/match/<int:match_id>/check-in/ as B",
+   "route": "tournament/match/<int:match_id>/check-in/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/match/{id}/check-in/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/match/<int:match_id>/room/ as B",
+   "route": "tournament/match/<int:match_id>/room/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/match/{id}/room/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/match/<int:match_id>/time/ as B",
+   "route": "tournament/match/<int:match_id>/time/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/match/{id}/time/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/match/<int:match_id>/confirm-score/ as B",
+   "route": "tournament/match/<int:match_id>/confirm-score/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/match/{id}/confirm-score/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/match/<int:match_id>/raise-dispute/ as B",
+   "route": "tournament/match/<int:match_id>/raise-dispute/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/match/{id}/raise-dispute/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/match/<int:match_id>/dispute/ as B",
+   "route": "tournament/match/<int:match_id>/dispute/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/match/{id}/dispute/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/check-in/ as B",
+   "route": "tournament/<str:tournament_id>/check-in/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/check-in/",
+    "expect": [
+     409
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "POST tournament/<str:tournament_id>/check-in/ is answered 409 by design: checking yourself in; the answer is about the check-in window; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/check-in/status/ as B",
+   "route": "tournament/<str:tournament_id>/check-in/status/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/check-in/status/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "answers only about the signed-in person asking; B sees B's own row, a visitor is refused",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/close-check-in/ as B",
+   "route": "tournament/<str:tournament_id>/close-check-in/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/close-check-in/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/stats/ as B",
+   "route": "tournament/<str:tournament_id>/stats/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/stats/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/stats/head-to-head/ as B",
+   "route": "tournament/<str:tournament_id>/stats/head-to-head/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/stats/head-to-head/",
+    "expect": [
+     400
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "GET tournament/<str:tournament_id>/stats/head-to-head/ is answered 400 by design: public statistics that need two names; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/extend-check-in/ as B",
+   "route": "tournament/<str:tournament_id>/extend-check-in/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/extend-check-in/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/standings/ as B",
+   "route": "tournament/<str:tournament_id>/standings/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/standings/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/export/ as B",
+   "route": "tournament/<str:tournament_id>/export/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/export/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/remind/ as B",
+   "route": "tournament/<str:tournament_id>/remind/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/remind/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/remind/audience/ as B",
+   "route": "tournament/<str:tournament_id>/remind/audience/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/remind/audience/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/remind/scheduled/ as B",
+   "route": "tournament/<str:tournament_id>/remind/scheduled/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/remind/scheduled/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/remind/scheduled/<int:reminder_id>/ as B",
+   "route": "tournament/<str:tournament_id>/remind/scheduled/<int:reminder_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/remind/scheduled/r88-none/"
+   },
+   "r88": {
+    "skip": [
+     "existence",
+     "neighbours"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret; no local record of this kind yet; the address is tried with a key that names nothing"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PUT tournament/<str:tournament_id>/metrics/ as B",
+   "route": "tournament/<str:tournament_id>/metrics/",
+   "attempt": {
+    "as": "b",
+    "method": "PUT",
+    "path": "/tournament/{id}/metrics/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/matches/<int:match_id>/stats/ as B",
+   "route": "tournament/<str:tournament_id>/matches/<int:match_id>/stats/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/matches/{id}/stats/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/mvp/ as B",
+   "route": "tournament/<str:tournament_id>/mvp/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/mvp/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/mvp/award/ as B",
+   "route": "tournament/<str:tournament_id>/mvp/award/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/mvp/award/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/invites/ as B",
+   "route": "tournament/<str:tournament_id>/invites/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/invites/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/invitations/ as B",
+   "route": "tournament/<str:tournament_id>/invitations/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/invitations/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/invitations/mine/ as B",
+   "route": "tournament/<str:tournament_id>/invitations/mine/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/invitations/mine/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "DELETE tournament/<str:tournament_id>/invitations/<int:invitation_id>/ as B",
+   "route": "tournament/<str:tournament_id>/invitations/<int:invitation_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/tournament/walk-cup-fee/invitations/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/invitations/<int:invitation_id>/respond/ as B",
+   "route": "tournament/<str:tournament_id>/invitations/<int:invitation_id>/respond/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/invitations/{id}/respond/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/invites/download/ as B",
+   "route": "tournament/<str:tournament_id>/invites/download/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/invites/download/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/registrations/ as B",
+   "route": "tournament/<str:tournament_id>/registrations/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/registrations/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/running-order/ as B",
+   "route": "tournament/<str:tournament_id>/running-order/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/running-order/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PUT tournament/<str:tournament_id>/running-order/set/ as B",
+   "route": "tournament/<str:tournament_id>/running-order/set/",
+   "attempt": {
+    "as": "b",
+    "method": "PUT",
+    "path": "/tournament/{id}/running-order/set/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/overlay-feed/ as B",
+   "route": "tournament/<str:tournament_id>/overlay-feed/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/overlay-feed/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/lineup/ as B",
+   "route": "tournament/<str:tournament_id>/lineup/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/lineup/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "answers only about the signed-in person asking; B sees B's own row, a visitor is refused",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/lineup/submit/ as B",
+   "route": "tournament/<str:tournament_id>/lineup/submit/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/lineup/submit/",
+    "expect": [
+     400
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "POST tournament/<str:tournament_id>/lineup/submit/ is answered 400 by design: your own lineup; the answer is about the tournament not using lineups; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/lineup/<str:username>/ as B",
+   "route": "tournament/<str:tournament_id>/lineup/<str:username>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/walk-cup-fee/lineup/{id}/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk_organiser",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/lineups/ as B",
+   "route": "tournament/<str:tournament_id>/lineups/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/lineups/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/lineup-rules/ as B",
+   "route": "tournament/<str:tournament_id>/lineup-rules/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/lineup-rules/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/squad-rules/ as B",
+   "route": "tournament/<str:tournament_id>/squad-rules/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/squad-rules/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/lineups/<str:username>/review/ as B",
+   "route": "tournament/<str:tournament_id>/lineups/<str:username>/review/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/lineups/{id}/review/"
+   },
+   "id": "walk_organiser",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/squads/ as B",
+   "route": "tournament/<str:tournament_id>/squads/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/squads/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "DELETE tournament/<str:tournament_id>/squads/<int:squad_id>/ as B",
+   "route": "tournament/<str:tournament_id>/squads/<int:squad_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/tournament/walk-cup-fee/squads/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/squads/<int:squad_id>/members/ as B",
+   "route": "tournament/<str:tournament_id>/squads/<int:squad_id>/members/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/squads/{id}/members/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "DELETE tournament/<str:tournament_id>/squads/<int:squad_id>/members/<str:username>/ as B",
+   "route": "tournament/<str:tournament_id>/squads/<int:squad_id>/members/<str:username>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/tournament/walk-cup-fee/squads/1/members/{id}/"
+   },
+   "id": "walk_organiser",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/squads/<int:squad_id>/enter/ as B",
+   "route": "tournament/<str:tournament_id>/squads/<int:squad_id>/enter/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/squads/{id}/enter/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/entrants/ as B",
+   "route": "tournament/<str:tournament_id>/entrants/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/entrants/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/overlays/ as B",
+   "route": "tournament/<str:tournament_id>/overlays/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/overlays/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/overlays/<int:overlay_id>/ as B",
+   "route": "tournament/<str:tournament_id>/overlays/<int:overlay_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/overlays/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/overlays/<int:overlay_id>/rotate/ as B",
+   "route": "tournament/<str:tournament_id>/overlays/<int:overlay_id>/rotate/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/overlays/{id}/rotate/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/overlays/<int:overlay_id>/layers/ as B",
+   "route": "tournament/<str:tournament_id>/overlays/<int:overlay_id>/layers/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/overlays/{id}/layers/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/overlays/<int:overlay_id>/layers/<int:layer_id>/ as B",
+   "route": "tournament/<str:tournament_id>/overlays/<int:overlay_id>/layers/<int:layer_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/overlays/1/layers/1/"
+   },
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/tie/<int:tie_id>/ as B",
+   "route": "tournament/tie/<int:tie_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/tie/{id}/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/tie/<int:tie_id>/record/ as B",
+   "route": "tournament/tie/<int:tie_id>/record/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/tie/{id}/record/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/league-rules/ as B",
+   "route": "tournament/<str:tournament_id>/league-rules/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/league-rules/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/view-event/<str:event_id>/ as B",
+   "route": "event/view-event/<str:event_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/view-event/{id}/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PUT event/edit-event/<str:event_id>/ as B",
+   "route": "event/edit-event/<str:event_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PUT",
+    "path": "/event/edit-event/{id}/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/slots/ as B",
+   "route": "event/<str:event_id>/slots/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/slots/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/slots/<int:slot_id>/buy/ as B",
+   "route": "event/<str:event_id>/slots/<int:slot_id>/buy/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/slots/{id}/buy/",
+    "expect": [
+     400
+    ]
+   },
+   "id": "18",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "POST event/<str:event_id>/slots/<int:slot_id>/buy/ is answered 400 by design: buying a vendor slot is open to anybody; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH event/<str:event_id>/slots/<int:slot_id>/ as B",
+   "route": "event/<str:event_id>/slots/<int:slot_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/event/walk-con-5e6c/slots/{id}/"
+   },
+   "id": "18",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/vendors/ as B",
+   "route": "event/<str:event_id>/vendors/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/vendors/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/vendors/create/ as B",
+   "route": "event/<str:event_id>/vendors/create/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/vendors/create/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/vendor/<str:vendor_id>/ as B",
+   "route": "event/<str:event_id>/vendor/<str:vendor_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/walk-con-5e6c/vendor/{id}/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk_vendor_bisi-at-walk-con-5e6c",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/vendor/<str:vendor_id>/products/ as B",
+   "route": "event/vendor/<str:vendor_id>/products/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/vendor/{id}/products/"
+   },
+   "id": "walk_vendor_bisi-at-walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/vendor/<str:vendor_id>/order/ as B",
+   "route": "event/vendor/<str:vendor_id>/order/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/vendor/{id}/order/",
+    "expect": [
+     400
+    ]
+   },
+   "id": "walk_vendor_bisi-at-walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "POST event/vendor/<str:vendor_id>/order/ is answered 400 by design: ordering from a stall is open to anybody; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/vendor/<str:vendor_id>/contact/ as B",
+   "route": "event/vendor/<str:vendor_id>/contact/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/vendor/{id}/contact/",
+    "expect": [
+     400
+    ]
+   },
+   "id": "walk_vendor_bisi-at-walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "POST event/vendor/<str:vendor_id>/contact/ is answered 400 by design: writing to a stall is open to anybody; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/vendor/<str:vendor_id>/quote/ as B",
+   "route": "event/vendor/<str:vendor_id>/quote/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/vendor/{id}/quote/",
+    "expect": [
+     400
+    ]
+   },
+   "id": "walk_vendor_bisi-at-walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "POST event/vendor/<str:vendor_id>/quote/ is answered 400 by design: a price quote is open to anybody; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/vendor/<str:vendor_id>/orders/ as B",
+   "route": "event/vendor/<str:vendor_id>/orders/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/vendor/{id}/orders/"
+   },
+   "id": "walk_vendor_bisi-at-walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/stalls/manage/ as B",
+   "route": "event/<str:event_id>/stalls/manage/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/stalls/manage/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/stall/<str:vendor_id>/decide/ as B",
+   "route": "event/<str:event_id>/stall/<str:vendor_id>/decide/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/stall/{id}/decide/"
+   },
+   "id": "walk_vendor_bisi-at-walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/delete/ as B",
+   "route": "event/<str:event_id>/delete/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/delete/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/cancel/ as B",
+   "route": "event/<str:event_id>/cancel/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/cancel/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/restore/ as B",
+   "route": "event/<str:event_id>/restore/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/restore/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH event/my-stalls/<str:vendor_id>/ as B",
+   "route": "event/my-stalls/<str:vendor_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/event/my-stalls/{id}/"
+   },
+   "id": "walk_vendor_bisi-at-walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/my-stalls/<str:vendor_id>/orders/ as B",
+   "route": "event/my-stalls/<str:vendor_id>/orders/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/my-stalls/{id}/orders/"
+   },
+   "id": "walk_vendor_bisi-at-walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/my-stalls/<str:vendor_id>/orders/<str:code>/status/ as B",
+   "route": "event/my-stalls/<str:vendor_id>/orders/<str:code>/status/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/my-stalls/walk_vendor_bisi-at-walk-con-5e6c/orders/{id}/status/"
+   },
+   "id": "R88MISSING",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH event/my-stalls/<str:vendor_id>/products/<int:product_id>/ as B",
+   "route": "event/my-stalls/<str:vendor_id>/products/<int:product_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/event/my-stalls/walk_vendor_bisi-at-walk-con-5e6c/products/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/self-check-in/settings/ as B",
+   "route": "event/<str:event_id>/self-check-in/settings/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/self-check-in/settings/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/ticket-types/ as B",
+   "route": "event/<str:event_id>/ticket-types/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/ticket-types/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/quote/ as B",
+   "route": "event/<str:event_id>/quote/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/quote/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/sessions/ as B",
+   "route": "event/<str:event_id>/sessions/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/sessions/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/sessions/manage/ as B",
+   "route": "event/<str:event_id>/sessions/manage/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/sessions/manage/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH event/<str:event_id>/sessions/<int:session_id>/ as B",
+   "route": "event/<str:event_id>/sessions/<int:session_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/event/walk-con-5e6c/sessions/{id}/"
+   },
+   "id": "23",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/waitlist/ as B",
+   "route": "event/<str:event_id>/waitlist/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/waitlist/",
+    "expect": [
+     200,
+     201,
+     400,
+     409
+    ]
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence",
+     "methods"
+    ],
+    "reason": "POST,DELETE: joining and leaving an event waitlist is your own entry; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/waitlist/mine/ as B",
+   "route": "event/<str:event_id>/waitlist/mine/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/waitlist/mine/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "publicRead": "answers only about the signed-in person asking; B sees B's own row, a visitor is refused",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/waitlist/all/ as B",
+   "route": "event/<str:event_id>/waitlist/all/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/waitlist/all/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/holds/ as B",
+   "route": "event/<str:event_id>/holds/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/holds/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/holds/<int:hold_id>/release/ as B",
+   "route": "event/<str:event_id>/holds/<int:hold_id>/release/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/holds/{id}/release/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/holds/<int:hold_id>/issue/ as B",
+   "route": "event/<str:event_id>/holds/<int:hold_id>/issue/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/holds/{id}/issue/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/money/ as B",
+   "route": "event/<str:event_id>/money/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/money/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/tiers/ as B",
+   "route": "event/<str:event_id>/tiers/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/tiers/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/site/ as B",
+   "route": "event/<str:event_id>/site/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/site/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/email-limits/ as B",
+   "route": "event/<str:event_id>/email-limits/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/email-limits/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/overlay-feed/ as B",
+   "route": "event/<str:event_id>/overlay-feed/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/overlay-feed/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/overlays/ as B",
+   "route": "event/<str:event_id>/overlays/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/overlays/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/overlays/<int:overlay_id>/ as B",
+   "route": "event/<str:event_id>/overlays/<int:overlay_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/overlays/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/overlays/<int:overlay_id>/rotate/ as B",
+   "route": "event/<str:event_id>/overlays/<int:overlay_id>/rotate/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/overlays/{id}/rotate/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/overlays/<int:overlay_id>/layers/ as B",
+   "route": "event/<str:event_id>/overlays/<int:overlay_id>/layers/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/overlays/{id}/layers/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/overlays/<int:overlay_id>/layers/<int:layer_id>/ as B",
+   "route": "event/<str:event_id>/overlays/<int:overlay_id>/layers/<int:layer_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/overlays/1/layers/1/"
+   },
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/studio/assets/ as B",
+   "route": "event/<str:event_id>/studio/assets/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/studio/assets/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "DELETE event/<str:event_id>/studio/assets/<int:asset_id>/ as B",
+   "route": "event/<str:event_id>/studio/assets/<int:asset_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/event/walk-con-5e6c/studio/assets/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/studio/sessions/ as B",
+   "route": "event/<str:event_id>/studio/sessions/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/studio/sessions/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/studio/sessions/<int:session_id>/ as B",
+   "route": "event/<str:event_id>/studio/sessions/<int:session_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/studio/sessions/{id}/"
+   },
+   "id": "23",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/studio/sessions/<int:session_id>/element/<str:kind>/ as B",
+   "route": "event/<str:event_id>/studio/sessions/<int:session_id>/element/<str:kind>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/studio/sessions/23/element/{id}/"
+   },
+   "id": "scorebar",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/studio/sessions/<int:session_id>/slot/<str:role>/ as B",
+   "route": "event/<str:event_id>/studio/sessions/<int:session_id>/slot/<str:role>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/studio/sessions/23/slot/{id}/"
+   },
+   "id": "full",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/studio/sessions/<int:session_id>/element/<str:element_kind>/layers/ as B",
+   "route": "event/<str:event_id>/studio/sessions/<int:session_id>/element/<str:element_kind>/layers/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/studio/sessions/23/element/{id}/layers/"
+   },
+   "id": "scorebar",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/studio/sessions/<int:session_id>/element/<str:element_kind>/layers/<int:layer_id>/ as B",
+   "route": "event/<str:event_id>/studio/sessions/<int:session_id>/element/<str:element_kind>/layers/<int:layer_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/studio/sessions/23/element/scorebar/layers/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/run-of-show/ as B",
+   "route": "event/<str:event_id>/run-of-show/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/run-of-show/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/run-of-show/import/ as B",
+   "route": "event/<str:event_id>/run-of-show/import/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/run-of-show/import/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/run-of-show/days/ as B",
+   "route": "event/<str:event_id>/run-of-show/days/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/run-of-show/days/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH event/<str:event_id>/run-of-show/days/<int:day_id>/ as B",
+   "route": "event/<str:event_id>/run-of-show/days/<int:day_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/event/walk-con-5e6c/run-of-show/days/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/run-of-show/items/ as B",
+   "route": "event/<str:event_id>/run-of-show/items/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/run-of-show/items/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH event/<str:event_id>/run-of-show/items/<int:item_id>/ as B",
+   "route": "event/<str:event_id>/run-of-show/items/<int:item_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/event/walk-con-5e6c/run-of-show/items/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/short-links/ as B",
+   "route": "event/<str:event_id>/short-links/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/short-links/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "DELETE event/<str:event_id>/short-links/<int:link_id>/ as B",
+   "route": "event/<str:event_id>/short-links/<int:link_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/event/walk-con-5e6c/short-links/{id}/"
+   },
+   "id": "16",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/checkout-fields/ as B",
+   "route": "event/<str:event_id>/checkout-fields/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/checkout-fields/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/sponsors/manage/ as B",
+   "route": "event/<str:event_id>/sponsors/manage/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/sponsors/manage/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PUT event/<str:event_id>/sponsors/<int:sponsor_id>/ as B",
+   "route": "event/<str:event_id>/sponsors/<int:sponsor_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PUT",
+    "path": "/event/walk-con-5e6c/sponsors/{id}/"
+   },
+   "id": "35",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PUT event/<str:event_id>/checkout-fields/manage/ as B",
+   "route": "event/<str:event_id>/checkout-fields/manage/",
+   "attempt": {
+    "as": "b",
+    "method": "PUT",
+    "path": "/event/{id}/checkout-fields/manage/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/guest-buy/ as B",
+   "route": "event/<str:event_id>/guest-buy/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/guest-buy/",
+    "expect": [
+     400
+    ]
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "POST event/<str:event_id>/guest-buy/ is answered 400 by design: buying a ticket is open to anybody; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH event/<str:event_id>/tiers/<int:tier_id>/ as B",
+   "route": "event/<str:event_id>/tiers/<int:tier_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/event/walk-con-5e6c/tiers/{id}/"
+   },
+   "id": "85",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "DELETE event/<str:event_id>/tiers/<int:tier_id>/delete/ as B",
+   "route": "event/<str:event_id>/tiers/<int:tier_id>/delete/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/event/walk-con-5e6c/tiers/{id}/delete/"
+   },
+   "id": "85",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/buy-ticket/ as B",
+   "route": "event/<str:event_id>/buy-ticket/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/buy-ticket/",
+    "expect": [
+     400
+    ]
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "POST event/<str:event_id>/buy-ticket/ is answered 400 by design: buying a ticket is open to anybody; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/attendees/ as B",
+   "route": "event/<str:event_id>/attendees/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/attendees/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/door-search/ as B",
+   "route": "event/<str:event_id>/door-search/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/door-search/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/door-summary/ as B",
+   "route": "event/<str:event_id>/door-summary/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/door-summary/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/door-lookups/ as B",
+   "route": "event/<str:event_id>/door-lookups/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/door-lookups/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/metrics/ as B",
+   "route": "event/<str:event_id>/metrics/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/metrics/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/track/ as B",
+   "route": "event/<str:event_id>/track/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/track/",
+    "expect": [
+     200,
+     201,
+     400,
+     409
+    ]
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence",
+     "methods"
+    ],
+    "reason": "POST: a page-view beacon; records nothing about another person; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/earnings/ as B",
+   "route": "event/<str:event_id>/earnings/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/earnings/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/fee-bearer/ as B",
+   "route": "event/<str:event_id>/fee-bearer/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/fee-bearer/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/settle/ as B",
+   "route": "event/<str:event_id>/settle/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/settle/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/metrics/export/ as B",
+   "route": "event/<str:event_id>/metrics/export/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/metrics/export/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/together/ as B",
+   "route": "event/<str:event_id>/together/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/together/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/together/me/ as B",
+   "route": "event/<str:event_id>/together/me/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/together/me/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/together/approve/ as B",
+   "route": "event/<str:event_id>/together/approve/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/together/approve/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/together/ping/ as B",
+   "route": "event/<str:event_id>/together/ping/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/together/ping/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/together/ping/<int:ping_id>/answer/ as B",
+   "route": "event/<str:event_id>/together/ping/<int:ping_id>/answer/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/together/ping/{id}/answer/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/announcements/ as B",
+   "route": "event/<str:event_id>/announcements/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/announcements/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/announcements/audience/ as B",
+   "route": "event/<str:event_id>/announcements/audience/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/announcements/audience/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/polls/ as B",
+   "route": "event/<str:event_id>/polls/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/polls/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH event/<str:event_id>/polls/<int:poll_id>/ as B",
+   "route": "event/<str:event_id>/polls/<int:poll_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/event/walk-con-5e6c/polls/{id}/"
+   },
+   "id": "28",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/origins/ as B",
+   "route": "event/<str:event_id>/origins/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/origins/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence",
+     "methods"
+    ],
+    "reason": "DELETE: withdrawing your own map cell; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/comp-tickets/ as B",
+   "route": "event/<str:event_id>/comp-tickets/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/comp-tickets/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/polls/<int:poll_id>/vote/ as B",
+   "route": "event/<str:event_id>/polls/<int:poll_id>/vote/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/polls/{id}/vote/"
+   },
+   "id": "28",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/ref/<str:code>/visit/ as B",
+   "route": "event/<str:event_id>/ref/<str:code>/visit/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/ref/{id}/visit/",
+    "expect": [
+     200,
+     201,
+     400,
+     409
+    ]
+   },
+   "id": "R88MISSING",
+   "r88": {
+    "skip": [
+     "existence",
+     "methods"
+    ],
+    "reason": "POST: a referral click counter; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/referrals/ as B",
+   "route": "event/<str:event_id>/referrals/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/referrals/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH event/<str:event_id>/referrals/<int:referral_id>/ as B",
+   "route": "event/<str:event_id>/referrals/<int:referral_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/event/walk-con-5e6c/referrals/{id}/"
+   },
+   "id": "22",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/promos/ as B",
+   "route": "event/<str:event_id>/promos/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/promos/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH event/<str:event_id>/promos/<int:promo_id>/ as B",
+   "route": "event/<str:event_id>/promos/<int:promo_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/event/walk-con-5e6c/promos/{id}/"
+   },
+   "id": "18",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/managers/ as B",
+   "route": "event/<str:event_id>/managers/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/managers/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "DELETE event/<str:event_id>/managers/<int:manager_id>/ as B",
+   "route": "event/<str:event_id>/managers/<int:manager_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/event/walk-con-5e6c/managers/{id}/"
+   },
+   "id": "33",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/abandoned/ as B",
+   "route": "event/<str:event_id>/abandoned/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/abandoned/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/abandoned/remind/ as B",
+   "route": "event/<str:event_id>/abandoned/remind/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/abandoned/remind/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/tournaments/ as B",
+   "route": "event/<str:event_id>/tournaments/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/tournaments/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/linkable-tournaments/ as B",
+   "route": "event/<str:event_id>/linkable-tournaments/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/linkable-tournaments/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/link-tournament/ as B",
+   "route": "event/<str:event_id>/link-tournament/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/link-tournament/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/unlink-tournament/ as B",
+   "route": "event/<str:event_id>/unlink-tournament/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/unlink-tournament/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/tournament/<str:tournament_id>/ticketing/ as B",
+   "route": "event/<str:event_id>/tournament/<str:tournament_id>/ticketing/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/tournament/{id}/ticketing/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST team/invite/<int:invite_id>/respond/ as B",
+   "route": "team/invite/<int:invite_id>/respond/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/team/invite/{id}/respond/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "GET team/<str:team_id>/roster/ as B",
+   "route": "team/<str:team_id>/roster/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/team/{id}/roster/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "publicRead": "answers only about the signed-in person asking; B sees B's own row, a visitor is refused",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST team/<str:team_id>/invites/ as B",
+   "route": "team/<str:team_id>/invites/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/team/{id}/invites/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST team/<str:team_id>/invites/<int:invite_id>/revoke/ as B",
+   "route": "team/<str:team_id>/invites/<int:invite_id>/revoke/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/team/1/invites/1/revoke/"
+   },
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST team/<str:team_id>/set-role/ as B",
+   "route": "team/<str:team_id>/set-role/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/team/{id}/set-role/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST team/<str:team_id>/remove/ as B",
+   "route": "team/<str:team_id>/remove/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/team/{id}/remove/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET team/view-team/<str:team_id>/ as B",
+   "route": "team/view-team/<str:team_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/team/view-team/{id}/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET team/tournaments/<int:team_id>/ as B",
+   "route": "team/tournaments/<int:team_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/team/tournaments/{id}/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET team/events/<int:team_id>/ as B",
+   "route": "team/events/<int:team_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/team/events/{id}/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET team/get-team-details/<str:team_id>/ as B",
+   "route": "team/get-team-details/<str:team_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/team/get-team-details/{id}/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST team/request-join/<int:team_id>/ as B",
+   "route": "team/request-join/<int:team_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/team/request-join/{id}/",
+    "expect": [
+     200,
+     201,
+     400,
+     409
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence",
+     "methods"
+    ],
+    "reason": "POST: asking to join a team is open to everybody; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST team/leave/<int:team_id>/ as B",
+   "route": "team/leave/<int:team_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/team/leave/{id}/",
+    "expect": [
+     400
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "POST team/leave/<int:team_id>/ is answered 400 by design: leaving a team is about your own membership (NOT_MEMBER); the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET team/join-requests/<int:team_id>/ as B",
+   "route": "team/join-requests/<int:team_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/team/join-requests/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST team/accept-request/<int:request_id>/ as B",
+   "route": "team/accept-request/<int:request_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/team/accept-request/r88-none/"
+   },
+   "r88": {
+    "skip": [
+     "existence",
+     "neighbours"
+    ],
+    "reason": "no local record of this kind yet; the address is tried with a key that names nothing"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST team/reject-request/<int:request_id>/ as B",
+   "route": "team/reject-request/<int:request_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/team/reject-request/r88-none/"
+   },
+   "r88": {
+    "skip": [
+     "existence",
+     "neighbours"
+    ],
+    "reason": "no local record of this kind yet; the address is tried with a key that names nothing"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH team/edit-team/<int:team_id>/ as B",
+   "route": "team/edit-team/<int:team_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/team/edit-team/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH team/membership-settings/<int:team_id>/ as B",
+   "route": "team/membership-settings/<int:team_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/team/membership-settings/{id}/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET billing/plan/<str:ref>/ as B",
+   "route": "billing/plan/<str:ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/billing/plan/{id}/"
+   },
+   "id": "walk-cup-fee"
+  },
+  {
+   "generated": true,
+   "name": "POST billing/plan/<str:ref>/edit/ as B",
+   "route": "billing/plan/<str:ref>/edit/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/billing/plan/{id}/edit/"
+   },
+   "id": "walk-cup-fee"
+  },
+  {
+   "generated": true,
+   "name": "GET billing/plan/<str:ref>/members-area/ as B",
+   "route": "billing/plan/<str:ref>/members-area/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/billing/plan/{id}/members-area/"
+   },
+   "id": "walk-cup-fee"
+  },
+  {
+   "generated": true,
+   "name": "POST billing/plan/<str:ref>/subscribe/ as B",
+   "route": "billing/plan/<str:ref>/subscribe/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/billing/plan/{id}/subscribe/"
+   },
+   "id": "walk-cup-fee"
+  },
+  {
+   "generated": true,
+   "name": "GET billing/plan/<str:ref>/members/ as B",
+   "route": "billing/plan/<str:ref>/members/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/billing/plan/{id}/members/"
+   },
+   "id": "walk-cup-fee"
+  },
+  {
+   "generated": true,
+   "name": "GET billing/plan/<str:ref>/earnings/ as B",
+   "route": "billing/plan/<str:ref>/earnings/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/billing/plan/{id}/earnings/"
+   },
+   "id": "walk-cup-fee"
+  },
+  {
+   "generated": true,
+   "name": "GET billing/plan/<str:ref>/invoices/ as B",
+   "route": "billing/plan/<str:ref>/invoices/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/billing/plan/{id}/invoices/"
+   },
+   "id": "walk-cup-fee"
+  },
+  {
+   "generated": true,
+   "name": "POST billing/plan/<str:ref>/settle/ as B",
+   "route": "billing/plan/<str:ref>/settle/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/billing/plan/{id}/settle/"
+   },
+   "id": "walk-cup-fee"
+  },
+  {
+   "generated": true,
+   "name": "POST marketplace/bids/<int:bid_id>/ as B",
+   "route": "marketplace/bids/<int:bid_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/marketplace/bids/r88-none/"
+   },
+   "r88": {
+    "skip": [
+     "existence",
+     "neighbours"
+    ],
+    "reason": "no local record of this kind yet; the address is tried with a key that names nothing"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST marketplace/wishlist/<int:row_id>/ as B",
+   "route": "marketplace/wishlist/<int:row_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/marketplace/wishlist/r88-none/"
+   },
+   "r88": {
+    "skip": [
+     "existence",
+     "neighbours"
+    ],
+    "reason": "no local record of this kind yet; the address is tried with a key that names nothing"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST api/v1/events/<int:event_id>/ as B",
+   "route": "api/v1/events/<int:event_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/api/v1/events/{id}/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST api/v1/tournaments/<int:tournament_id>/ as B",
+   "route": "api/v1/tournaments/<int:tournament_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/api/v1/tournaments/{id}/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST api/v1/tournaments/<int:tournament_id>/participants/ as B",
+   "route": "api/v1/tournaments/<int:tournament_id>/participants/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/api/v1/tournaments/{id}/participants/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST api/v1/tournaments/<int:tournament_id>/bracket/ as B",
+   "route": "api/v1/tournaments/<int:tournament_id>/bracket/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/api/v1/tournaments/{id}/bracket/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST api/v1/tournaments/<int:tournament_id>/stats/ as B",
+   "route": "api/v1/tournaments/<int:tournament_id>/stats/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/api/v1/tournaments/{id}/stats/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET api/v1/teams/<int:team_id>/ as B",
+   "route": "api/v1/teams/<int:team_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/api/v1/teams/{id}/",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST partners/<int:partner_id>/update/ as B",
+   "route": "partners/<int:partner_id>/update/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/{id}/update/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST partners/<int:partner_id>/keys/ as B",
+   "route": "partners/<int:partner_id>/keys/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/{id}/keys/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST partners/<int:partner_id>/keys/<int:key_id>/revoke/ as B",
+   "route": "partners/<int:partner_id>/keys/<int:key_id>/revoke/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/1/keys/1/revoke/"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST partners/admin/<int:partner_id>/review/ as B",
+   "route": "partners/admin/<int:partner_id>/review/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/admin/{id}/review/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST partners/admin/<int:partner_id>/sso-review/ as B",
+   "route": "partners/admin/<int:partner_id>/sso-review/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/admin/{id}/sso-review/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST partners/admin/<int:partner_id>/scopes/ as B",
+   "route": "partners/admin/<int:partner_id>/scopes/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/admin/{id}/scopes/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST partners/admin/<int:partner_id>/redirects/ as B",
+   "route": "partners/admin/<int:partner_id>/redirects/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/admin/{id}/redirects/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST partners/admin/<int:partner_id>/verification/ as B",
+   "route": "partners/admin/<int:partner_id>/verification/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/admin/{id}/verification/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST partners/admin/<int:partner_id>/keys/ as B",
+   "route": "partners/admin/<int:partner_id>/keys/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/admin/{id}/keys/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST partners/admin/<int:partner_id>/keys/<int:key_id>/rotate/ as B",
+   "route": "partners/admin/<int:partner_id>/keys/<int:key_id>/rotate/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/admin/1/keys/1/rotate/"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET organization/<str:org_id>/ as B",
+   "route": "organization/<str:org_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/organization/{id}/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET organization/<str:org_id>/members/ as B",
+   "route": "organization/<str:org_id>/members/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/organization/{id}/members/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST organization/<str:org_id>/promote/ as B",
+   "route": "organization/<str:org_id>/promote/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/organization/{id}/promote/"
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST organization/<str:org_id>/kick/ as B",
+   "route": "organization/<str:org_id>/kick/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/organization/{id}/kick/"
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST organization/<str:org_id>/apply/ as B",
+   "route": "organization/<str:org_id>/apply/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/organization/{id}/apply/",
+    "expect": [
+     200,
+     201,
+     400,
+     409
+    ]
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence",
+     "methods"
+    ],
+    "reason": "POST: applying to an organisation is open to everybody; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET organization/<str:org_id>/requests/ as B",
+   "route": "organization/<str:org_id>/requests/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/organization/{id}/requests/"
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST organization/<str:org_id>/approve-request/ as B",
+   "route": "organization/<str:org_id>/approve-request/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/organization/{id}/approve-request/"
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST organization/<str:org_id>/reject-request/ as B",
+   "route": "organization/<str:org_id>/reject-request/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/organization/{id}/reject-request/"
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST organization/<str:org_id>/follow/ as B",
+   "route": "organization/<str:org_id>/follow/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/organization/{id}/follow/",
+    "expect": [
+     200,
+     201,
+     400,
+     409
+    ]
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence",
+     "methods"
+    ],
+    "reason": "POST: following is open to everybody; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST organization/<str:org_id>/request-verification/ as B",
+   "route": "organization/<str:org_id>/request-verification/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/organization/{id}/request-verification/"
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET organization/<str:org_id>/teams/ as B",
+   "route": "organization/<str:org_id>/teams/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/organization/{id}/teams/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST organization/<str:org_id>/link-team/ as B",
+   "route": "organization/<str:org_id>/link-team/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/organization/{id}/link-team/"
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST organization/<str:org_id>/unlink-team/ as B",
+   "route": "organization/<str:org_id>/unlink-team/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/organization/{id}/unlink-team/"
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET organization/<str:org_id>/tournaments/ as B",
+   "route": "organization/<str:org_id>/tournaments/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/organization/{id}/tournaments/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET organization/<str:org_id>/events/ as B",
+   "route": "organization/<str:org_id>/events/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/organization/{id}/events/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET organization/<str:org_id>/activity/ as B",
+   "route": "organization/<str:org_id>/activity/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/organization/{id}/activity/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST organization/<str:org_id>/update/ as B",
+   "route": "organization/<str:org_id>/update/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/organization/{id}/update/"
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET organization/<str:org_id>/capabilities/ as B",
+   "route": "organization/<str:org_id>/capabilities/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/organization/{id}/capabilities/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST organization/<str:org_id>/role/ as B",
+   "route": "organization/<str:org_id>/role/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/organization/{id}/role/"
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST organization/<str:org_id>/invite/ as B",
+   "route": "organization/<str:org_id>/invite/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/organization/{id}/invite/"
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET organization/<str:org_id>/invites/ as B",
+   "route": "organization/<str:org_id>/invites/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/organization/{id}/invites/"
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET organization/<str:org_id>/clubs/ as B",
+   "route": "organization/<str:org_id>/clubs/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/organization/{id}/clubs/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST organization/<str:org_id>/link-club/ as B",
+   "route": "organization/<str:org_id>/link-club/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/organization/{id}/link-club/"
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST organization/<str:org_id>/unlink-club/ as B",
+   "route": "organization/<str:org_id>/unlink-club/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/organization/{id}/unlink-club/"
+   },
+   "id": "walk-test-org",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET post/<str:post_id>/ as B",
+   "route": "post/<str:post_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/post/{id}/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST post/<int:post_id>/like/ as B",
+   "route": "post/<int:post_id>/like/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/post/{id}/like/",
+    "expect": [
+     200,
+     201,
+     400,
+     409
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence",
+     "methods"
+    ],
+    "reason": "POST: liking a public post; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST post/<int:post_id>/comment/ as B",
+   "route": "post/<int:post_id>/comment/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/post/{id}/comment/",
+    "expect": [
+     400
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "POST post/<int:post_id>/comment/ is answered 400 by design: commenting on a public post; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET club/<str:club_id>/ as B",
+   "route": "club/<str:club_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/club/{id}/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST club/<str:club_id>/join/ as B",
+   "route": "club/<str:club_id>/join/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/club/{id}/join/",
+    "expect": [
+     200,
+     201,
+     400,
+     409
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence",
+     "methods"
+    ],
+    "reason": "POST: joining an open club; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET club/<str:club_ref>/overview/ as B",
+   "route": "club/<str:club_ref>/overview/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/club/{id}/overview/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-free-fire-lounge",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET club/<str:club_ref>/members/ as B",
+   "route": "club/<str:club_ref>/members/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/club/{id}/members/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-free-fire-lounge",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST club/<str:club_ref>/leave/ as B",
+   "route": "club/<str:club_ref>/leave/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/club/{id}/leave/",
+    "expect": [
+     200,
+     201,
+     400,
+     409
+    ]
+   },
+   "id": "walk-free-fire-lounge",
+   "r88": {
+    "skip": [
+     "existence",
+     "methods"
+    ],
+    "reason": "POST: leaving a club you are in; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST club/<str:club_ref>/topic/create/ as B",
+   "route": "club/<str:club_ref>/topic/create/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/club/{id}/topic/create/"
+   },
+   "id": "walk-free-fire-lounge",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET club/<str:club_ref>/topic/<int:topic_id>/ as B",
+   "route": "club/<str:club_ref>/topic/<int:topic_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/club/walk-free-fire-lounge/topic/{id}/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST club/<str:club_ref>/topic/<int:topic_id>/post/ as B",
+   "route": "club/<str:club_ref>/topic/<int:topic_id>/post/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/club/walk-free-fire-lounge/topic/{id}/post/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST club/<str:club_ref>/topic/<int:topic_id>/update/ as B",
+   "route": "club/<str:club_ref>/topic/<int:topic_id>/update/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/club/walk-free-fire-lounge/topic/{id}/update/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST club/<str:club_ref>/topic/<int:topic_id>/delete/ as B",
+   "route": "club/<str:club_ref>/topic/<int:topic_id>/delete/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/club/walk-free-fire-lounge/topic/{id}/delete/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST club/<str:club_ref>/message/<int:message_id>/delete/ as B",
+   "route": "club/<str:club_ref>/message/<int:message_id>/delete/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/club/walk-free-fire-lounge/message/{id}/delete/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST club/<str:club_ref>/role/ as B",
+   "route": "club/<str:club_ref>/role/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/club/{id}/role/"
+   },
+   "id": "walk-free-fire-lounge",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST club/<str:club_ref>/update/ as B",
+   "route": "club/<str:club_ref>/update/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/club/{id}/update/"
+   },
+   "id": "walk-free-fire-lounge",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST club/<str:club_ref>/delete/ as B",
+   "route": "club/<str:club_ref>/delete/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/club/{id}/delete/"
+   },
+   "id": "walk-free-fire-lounge",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST club/<str:club_ref>/remove-member/ as B",
+   "route": "club/<str:club_ref>/remove-member/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/club/{id}/remove-member/"
+   },
+   "id": "walk-free-fire-lounge",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST club/<str:club_ref>/mute/ as B",
+   "route": "club/<str:club_ref>/mute/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/club/{id}/mute/"
+   },
+   "id": "walk-free-fire-lounge",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET thread/<str:thread_id>/ as B",
+   "route": "thread/<str:thread_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/thread/{id}/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST thread/<int:thread_id>/reply/ as B",
+   "route": "thread/<int:thread_id>/reply/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/thread/{id}/reply/",
+    "expect": [
+     400
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "POST thread/<int:thread_id>/reply/ is answered 400 by design: replying to a public thread; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST thread/<int:thread_id>/upvote/ as B",
+   "route": "thread/<int:thread_id>/upvote/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/thread/{id}/upvote/",
+    "expect": [
+     200,
+     201,
+     400,
+     409
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence",
+     "methods"
+    ],
+    "reason": "POST: upvoting a public thread; the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST thread/reply/<int:reply_id>/upvote/ as B",
+   "route": "thread/reply/<int:reply_id>/upvote/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/thread/reply/r88-none/upvote/"
+   },
+   "r88": {
+    "skip": [
+     "existence",
+     "neighbours"
+    ],
+    "reason": "no local record of this kind yet; the address is tried with a key that names nothing"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST scrim/<int:scrim_id>/accept/ as B",
+   "route": "scrim/<int:scrim_id>/accept/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/scrim/{id}/accept/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "PATCH scrim/<str:scrim_id>/detail/ as B",
+   "route": "scrim/<str:scrim_id>/detail/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/scrim/{id}/detail/"
+   },
+   "id": "1",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST scrim/<str:scrim_id>/talk/ as B",
+   "route": "scrim/<str:scrim_id>/talk/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/scrim/{id}/talk/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST scrim/<str:scrim_id>/result/ as B",
+   "route": "scrim/<str:scrim_id>/result/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/scrim/{id}/result/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST scrim/<str:scrim_id>/result/confirm/ as B",
+   "route": "scrim/<str:scrim_id>/result/confirm/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/scrim/{id}/result/confirm/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET dm/<str:conversation_id>/ as B",
+   "route": "dm/<str:conversation_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/dm/{id}/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST dm/<str:conversation_id>/send/ as B",
+   "route": "dm/<str:conversation_id>/send/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/dm/{id}/send/"
+   },
+   "id": "1"
+  },
+  {
+   "generated": true,
+   "name": "POST user/<str:user_id>/update/ as B",
+   "route": "user/<str:user_id>/update/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/user/{id}/update/"
+   },
+   "id": "54",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET user/<str:user_id>/profile/ as B",
+   "route": "user/<str:user_id>/profile/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/user/{id}/profile/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "54",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET user/<str:user_id>/gallery/ as B",
+   "route": "user/<str:user_id>/gallery/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/user/{id}/gallery/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "54",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST device/<str:device_id>/revoke/ as B",
+   "route": "device/<str:device_id>/revoke/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/device/{id}/revoke/",
+    "expect": [
+     200,
+     201,
+     400,
+     409
+    ]
+   },
+   "id": "4",
+   "r88": {
+    "skip": [
+     "methods"
+    ],
+    "reason": "POST: acts only on the caller's own session whatever id is sent"
+   }
+  }
+ ]
 }

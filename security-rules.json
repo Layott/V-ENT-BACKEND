@@ -197,6 +197,26 @@
       "rule": "R64",
       "path": "vent_auth/flutterwave_currency.py",
       "reason": "a helper module with no route: it writes a ForeignCharge row and the probed currency list only when called, and every caller is a money door that has already identified the payer (views_wallet topup_initiate, pay.start, views_guest guest_buy) or the flw_currencies management command run on the box"
+    },
+    {
+      "rule": "R69",
+      "path": "vent_event/views_map.py",
+      "reason": "the only input, latitude and longitude, goes straight into geo.to_cell, whose check_point parses each as a Decimal, refuses anything that is not a finite number, and bounds them to -90..90 and -180..180, raising BadCoordinate, answered 400 BAD_COORDINATE; only the rounded cell is stored, never the point. Read by hand 30 Sept 2026 (inbox 398)"
+    },
+    {
+      "rule": "R69",
+      "path": "vent_tournament/views_layers.py",
+      "reason": "the body goes whole into text_layers.apply, a schema one import away: unknown keys refused (UNKNOWN_FIELD), kind a choice, width a bounded whole number, text cut to TEXT_MAX, the feed path to FIELD_MAX, the asset an id checked against the owner; LayerError is answered with its own code and field. Read by hand 30 Sept 2026 (inbox 398)"
+    },
+    {
+      "rule": "R69",
+      "path": "vent_partners/auth.py",
+      "reason": "no request body is read: `body` here is the key text taken from the Authorization header after the vent_pk_ prefix, split once at the dot into a key id looked up by exact match and a secret compared in constant time by PartnerApiKey.matches; unknown id and wrong secret get the same answer. The only write is last_used_at on a key that matched. Read by hand 30 Sept 2026 (inbox 398)"
+    },
+    {
+      "rule": "R87",
+      "path": "vent_tournament/views_overlays.py",
+      "reason": "HTML on purpose: an organiser's broadcast overlay is a page OBS loads, so .html is the one kind this door allows (files_refusal kinds=('html',), 5 MB cap, opaque stored name). The raw file under /media/ is served by nginx with Content-Security-Policy: sandbox, so it never runs as a page there (checked live on api.v-ent.co 30 Sept 2026). The rendered page at /overlay/<token>/ runs the designer's script by design, under a CSP with object-src none, base-uri self and form-action none, on the API origin, where nothing reads a cookie for identity (every view takes the bearer token; no view reads request.user). OPEN, with the CEO: Django's own /admin/ is mounted on that same origin (unused: 0 log entries, 0 sessions, 0 superusers on 30 Sept); unmounting it in production closes the last same-origin cookie. Read by hand 30 Sept 2026 (inbox 398)"
     }
   ],
   "auth": {
@@ -211,6 +231,21 @@
       "_admin_user(",
       "may_run_production(",
       "may_override("
+    ]
+  },
+  "validation": {
+    "$comment": "vent_auth/inputs.py is the project's own validator: each read_* checks type, length or range and raises BadInput, answered INVALID_INPUT by inputs.exception_handler (R69, 30 Sept 2026)",
+    "markers": [
+      "read_int(",
+      "read_float(",
+      "read_decimal(",
+      "read_text(",
+      "read_choice(",
+      "read_bool(",
+      "read_datetime(",
+      "read_ids(",
+      "finite_float(",
+      "read_json("
     ]
   }
 }

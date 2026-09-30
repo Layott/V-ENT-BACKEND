@@ -132,6 +132,18 @@ class InputReaderTests(TestCase):
         with self.assertRaises(inputs.BadInput):
             inputs.read_ids({'i': ['x']}, 'i')
 
+    def test_small_json_values(self):
+        """An entry requirement's answer was stored as sent, any size."""
+        self.assertEqual(inputs.read_json({'v': ' riot#1 '}, 'v'), 'riot#1')
+        self.assertEqual(inputs.read_json({'v': {'a': [1, 2]}}, 'v'), {'a': [1, 2]})
+        self.assertIsNone(inputs.read_json({'v': {}}, 'v'))
+        with self.assertRaises(inputs.BadInput):
+            inputs.read_json({'v': {'a': 'x' * 5000}}, 'v')
+        with self.assertRaises(inputs.BadInput):
+            inputs.read_json({'v': [float('nan')]}, 'v')
+        with self.assertRaises(inputs.BadInput):
+            inputs.read_json({}, 'v', required=True)
+
     def test_a_bad_field_answers_invalid_input_not_a_500(self):
         """The abandoned-checkout reminder took any id straight into the ORM."""
         response = inputs.exception_handler(inputs.BadInput('id', 'not a whole number'), {})

@@ -25,6 +25,7 @@ from vent_auth.models import AdminAction, Users
 from . import together
 from .models import DepartureApproval, DepartureRecord, EventPing, EventPresence
 from .refs import event_by_ref
+from vent_auth import inputs
 
 
 def _ok(data, message='OK'):
@@ -147,10 +148,13 @@ def together_me(request, event_id):
     body = request.data if isinstance(request.data, dict) else {}
 
     presence, _ = EventPresence.objects.get_or_create(event=event, user=viewer)
-    attendance = body.get('attendance_visibility', presence.attendance_visibility)
-    departure = body.get('departure_visibility', presence.departure_visibility)
-    area = str(body.get('departure_area', presence.departure_area) or '').strip()[:80]
-    pings_open = bool(body.get('pings_open', presence.pings_open))
+    attendance = inputs.read_text(body, 'attendance_visibility', max_length=20,
+                                  default=presence.attendance_visibility)
+    departure = inputs.read_text(body, 'departure_visibility', max_length=20,
+                                 default=presence.departure_visibility)
+    area = (inputs.read_text(body, 'departure_area', max_length=inputs.LONGEST_TEXT)[:80]
+            if 'departure_area' in body else presence.departure_area)
+    pings_open = inputs.read_bool(body, 'pings_open', default=presence.pings_open)
 
     if attendance not in options['attendance']:
         return _err('That choice is not available to you.', 'TOGETHER_NOT_ALLOWED')
@@ -189,7 +193,7 @@ def together_approve(request, event_id):
         return _refuse(code)
     if 'approved' not in together.allowed(event, viewer)['departure']:
         return _err('That choice is not available to you.', 'TOGETHER_NOT_ALLOWED')
-    username = str((request.data or {}).get('username') or '').strip().lstrip('@')
+    username = inputs.read_text(request.data, 'username', max_length=129).lstrip('@')
     other = Users.objects.filter(username__iexact=username).first() if username else None
     if other is None or other.user_id == viewer.user_id:
         return _err('No such person.', 'USER_NOT_FOUND', status.HTTP_404_NOT_FOUND)
@@ -214,7 +218,7 @@ def together_ping(request, event_id):
     code = together.refusal(event, viewer)
     if code:
         return _refuse(code)
-    username = str((request.data or {}).get('username') or '').strip().lstrip('@')
+    username = inputs.read_text(request.data, 'username', max_length=129).lstrip('@')
     other = Users.objects.filter(username__iexact=username).first() if username else None
     if other is None:
         return _err('No such person.', 'USER_NOT_FOUND', status.HTTP_404_NOT_FOUND)
@@ -228,7 +232,7 @@ def together_ping(request, event_id):
     if EventPing.objects.filter(event=event, sender=other, recipient=viewer).exists():
         return _err('They have already pinged you; answer theirs.', 'PING_THEIRS_WAITING',
                     status.HTTP_409_CONFLICT)
-    message = str((request.data or {}).get('message') or '').strip()[:140]
+    message = inputs.read_text(request.data, 'message', max_length=inputs.LONGEST_TEXT)[:140]
     if EventPing.objects.filter(event=event, sender=viewer, recipient=other).exists():
         return _err('You have already pinged them at this event.', 'PING_ALREADY',
                     status.HTTP_409_CONFLICT)
@@ -263,7 +267,7 @@ def together_ping_answer(request, event_id, ping_id):
         return _err('No such ping.', 'PING_NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if ping.status != 'sent':
         return _err('This ping has already been answered.', 'PING_ANSWERED', status.HTTP_409_CONFLICT)
-    accept = bool((request.data or {}).get('accept'))
+    accept = inputs.read_bool(request.data, 'accept')
     with transaction.atomic():
         ping.status = 'accepted' if accept else 'declined'
         ping.answered_at = timezone.now()
@@ -287,9 +291,9 @@ def location_history(request):
     reason is required and every search is written to AdminAction, whether it
     finds anything or not (305c).
     """
-    reason = str(request.query_params.get('reason') or '').strip()
-    event_ref = str(request.query_params.get('event') or '').strip()
-    person = str(request.query_params.get('person') or '').strip().lstrip('@')
+    reason = inputs.read_text(request.query_params, 'reason', max_length=500)
+    event_ref = inputs.read_text(request.query_params, 'event', max_length=200)
+    person = inputs.read_text(request.query_params, 'person', max_length=129).lstrip('@')
     if len(reason) < 5:
         return _err('Say why you are looking, for example the report number.', 'REASON_REQUIRED')
     if not event_ref and not person:

@@ -950,6 +950,9 @@ def public_profile(request, user_id):
             'user_id': user.user_id,
             'username': user.username,
             'full_name': user.full_name,
+            # "Indexable in search" (inbox 399): the profile page reads this
+            # and asks search engines to leave it out.
+            'indexable': bool(privacy.get('indexable', True)),
             'country': user.country if privacy.get('show_location', True) else None,
             'state': user.state if privacy.get('show_location', True) else None,
             'email': user.email if privacy.get('show_email') else None,
@@ -1111,7 +1114,13 @@ def privacy_of(user):
     setting = UserSetting.objects.filter(user=user).first()
     if setting is None:
         return defaults
-    stored = (setting.data or {}).get('privacy') or {}
+    stored = dict((setting.data or {}).get('privacy') or {})
+    # Saved by the Privacy panel under names nothing read, until 30 September
+    # 2026 (views_settings.LEGACY_NAMES). The new name wins where both exist.
+    for old, new in (('allow_dm_from', 'allow_direct_messages'),
+                     ('search_indexable', 'indexable')):
+        if old in stored and new not in stored:
+            stored[new] = stored[old]
     return {**defaults, **{k: v for k, v in stored.items() if k in defaults}}
 
 

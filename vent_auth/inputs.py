@@ -19,9 +19,11 @@ INVALID_INPUT through apiMessage.
     one = inputs.read_int(request.data, 'id', minimum=1)
     name = inputs.read_text(request.data, 'name', max_length=120, required=True)
 """
+import json
 import logging
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.utils.dateparse import parse_datetime
 from rest_framework import status
@@ -231,6 +233,53 @@ def read_ids(src, key, *, max_items=500):
         except (TypeError, ValueError):
             raise BadInput(key, 'not a whole number') from None
     return out
+
+
+def read_timezone(src, key, *, default=''):
+    """An IANA zone this server knows, like Africa/Lagos, or `default`."""
+    value = read_text(src, key, max_length=64)
+    if not value:
+        return default
+    try:
+        ZoneInfo(value)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise BadInput(key, 'not a time zone') from None
+    return value
+
+
+def read_json(src, key, *, max_chars=4000, required=False, default=None):
+    """A small value stored as sent into a JSON column: text, a number,
+    true/false, a list or an object. Measured as JSON, so a nested object
+    cannot hide its size, and NaN or anything JSON cannot hold is refused.
+
+    For fields whose shape depends on something else (an entry requirement's
+    answer is an ID for one kind and a set of accounts for another), where the
+    shape is checked downstream and the size is the part nothing else holds.
+    """
+    raw = _raw(src, key)
+    if raw is _MISSING or raw in ({}, []):
+        if required:
+            raise BadInput(key, 'required')
+        return default
+    bounded_json(raw, key, max_chars=max_chars)
+    if isinstance(raw, str):
+        return read_text(src, key, max_length=max_chars)
+    return raw
+
+
+def bounded_json(value, key, *, max_chars=4000):
+    """`value`, if it is something JSON can hold within `max_chars`.
+
+    For a value already taken out of a request in a shape of its own (social
+    links arrive as a list, an object, or the JSON text of either when a form
+    is multipart)."""
+    try:
+        text = json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError):
+        raise BadInput(key, 'unreadable') from None
+    if len(text) > max_chars:
+        raise BadInput(key, 'too long')
+    return value
 
 
 def refusal(exc):

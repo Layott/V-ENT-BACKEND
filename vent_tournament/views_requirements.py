@@ -24,6 +24,10 @@ from . import requirements as req
 from .models import EntryRequirement, EntrySubmission, Tournament
 
 from . import lookup
+from vent_auth import inputs
+
+#: Each kind can be asked once, so a longer list is refused before it is read.
+MOST_REQUIREMENTS = len(req.KINDS)
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +115,7 @@ def set_entry_requirements(request, tournament_id):
                     'NOT_YOURS', status.HTTP_403_FORBIDDEN)
 
     raw = request.data.get('requirements')
-    if not isinstance(raw, list):
+    if not isinstance(raw, list) or len(raw) > MOST_REQUIREMENTS:
         return _err('Send the requirements as a list, in the order they apply.',
                     'VALIDATION_FAILED', field='requirements')
 
@@ -222,8 +226,8 @@ def submit_requirement(request, tournament_id, requirement_id):
         return _err('This one is checked automatically; there is nothing to send.',
                     'NOT_SUBMITTABLE')
 
-    value = request.data.get('value')
-    if value in (None, '', {}, []):
+    value = inputs.read_json(request.data, 'value')
+    if value is None:
         return _err('Fill this in before sending it.', 'VALIDATION_FAILED', field='value')
 
     # Sending again replaces what was there and puts it back in the queue, so
@@ -288,7 +292,7 @@ def review_queue(request, tournament_id):
         return _err('This is not your tournament\'s queue.', 'NOT_YOURS',
                     status.HTTP_403_FORBIDDEN)
 
-    wanted = request.GET.get('status', 'pending')
+    wanted = inputs.read_choice(request.GET, 'status', ('pending', 'approved', 'refused', 'all'), default='pending')
     rows = EntrySubmission.objects.filter(
         requirement__tournament=tournament
     ).select_related('requirement', 'user')
@@ -335,12 +339,12 @@ def review_submission(request, tournament_id, submission_id):
     if submission is None:
         return _err('No such submission.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
-    decision = str(request.data.get('decision') or '').strip().lower()
+    decision = inputs.read_text(request.data, 'decision', max_length=20).lower()
     if decision not in ('approved', 'refused'):
         return _err('Decision must be approved or refused.', 'VALIDATION_FAILED',
                     field='decision')
 
-    note = str(request.data.get('note') or '')[:1000]
+    note = inputs.read_text(request.data, 'note', max_length=inputs.LONGEST_TEXT, strip=False)[:1000]
     if decision == 'refused' and not note:
         # Refusing without a reason leaves somebody to guess what to change,
         # and they will send exactly the same thing again.

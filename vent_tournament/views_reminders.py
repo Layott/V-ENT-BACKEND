@@ -35,6 +35,7 @@ from vent_auth.views_notifications import create_notification
 
 from .models import BracketMatch, Tournament, TournamentRegistration
 from .options import check_in_state
+from vent_auth import inputs
 
 logger = logging.getLogger(__name__)
 
@@ -282,9 +283,9 @@ def send_reminder(request, tournament_id):
 
     try:
         result = deliver(
-            tournament, str(request.data.get('kind') or 'check_in').strip(),
-            subject=request.data.get('subject'),
-            body=request.data.get('body'))
+            tournament, inputs.read_text(request.data, 'kind', max_length=20, default='check_in'),
+            subject=inputs.read_text(request.data, 'subject', max_length=inputs.LONGEST_TEXT),
+            body=inputs.read_text(request.data, 'body', max_length=inputs.LONGEST_TEXT))
     except ReminderRefused as refusal:
         http = (status.HTTP_429_TOO_MANY_REQUESTS
                 if refusal.code == 'RATE_LIMITED'

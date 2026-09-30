@@ -28,6 +28,7 @@ from rest_framework.response import Response
 from .models import UserGallery, Users
 from .views_helpers import session_timeout_minutes
 from . import uploads
+from . import inputs
 
 # The most a person may hold, per kind. The old limit was five for everything;
 # somebody building an esports portfolio should not have to delete a holiday
@@ -133,13 +134,12 @@ def upload_gallery(request):
     refused = uploads.files_refusal(request, ('images', 'image'))
     if refused:
         return refused
-    kind = (request.data.get('kind') or UserGallery.KIND_PERSONAL).strip().lower()
+    kind = inputs.read_text(request.data, 'kind', max_length=20, default=UserGallery.KIND_PERSONAL).lower()
     if kind not in dict(UserGallery.KIND_CHOICES):
         return _error('That is not a kind of picture.', 'VALIDATION_ERROR',
                       status.HTTP_400_BAD_REQUEST)
 
-    consent_raw = request.data.get('consent')
-    consented = consent_raw in (True, 'true', 'True', '1', 1, 'on', 'yes')
+    consented = inputs.read_bool(request.data, 'consent')
     if kind == UserGallery.KIND_ESPORTS and not consented:
         return _error(
             'An esports picture needs the release to be agreed to before it can '
@@ -154,7 +154,7 @@ def upload_gallery(request):
             % (limit, kind, left),
             'LIMIT_EXCEEDED', status.HTTP_400_BAD_REQUEST)
 
-    caption = (request.data.get('caption') or '').strip()[:140]
+    caption = inputs.read_text(request.data, 'caption', max_length=inputs.LONGEST_TEXT)[:140]
     now = timezone.now()
     made = []
     for image in images:
@@ -184,7 +184,7 @@ def withdraw_release(request):
     if err:
         return err
 
-    item = UserGallery.objects.filter(id=request.data.get('image_id'), user=user).first()
+    item = UserGallery.objects.filter(id=inputs.read_int(request.data, 'image_id', minimum=1, required=True), user=user).first()
     if item is None:
         return _error('Image not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 

@@ -24,6 +24,7 @@ from vent_auth.actors import actor_from_request
 from . import match_shape, stage_engine, stage_settings
 from .access import may_record_results
 from .models import BracketMatch
+from vent_auth import inputs
 
 
 def _ok(data, message='OK'):
@@ -79,7 +80,7 @@ def set_time(request, match_id):
                     'FORBIDDEN', status.HTTP_403_FORBIDDEN)
     if match.status not in ('scheduled', 'in_progress'):
         return _err('This match is not open.', 'MATCH_NOT_OPEN', status.HTTP_409_CONFLICT)
-    raw = str(request.data.get('scheduled_at') or '').strip()
+    raw = inputs.read_text(request.data, 'scheduled_at', max_length=40)
     when = parse_datetime(raw) if raw else None
     if when is None or when.tzinfo is None:
         return _err('Say when the match starts.', 'MATCH_TIME_INVALID', field='scheduled_at')
@@ -132,8 +133,8 @@ def set_room(request, match_id):
     if match.status not in ('scheduled', 'in_progress'):
         return _err('This match is not open.', 'MATCH_NOT_OPEN', status.HTTP_409_CONFLICT)
 
-    code = str(request.data.get('room_code') or '').strip()
-    password = str(request.data.get('room_password') or '').strip()
+    code = inputs.read_text(request.data, 'room_code', max_length=64)
+    password = inputs.read_text(request.data, 'room_password', max_length=64)
     if not code:
         return _err('Say what the room is.', 'ROOM_CODE_REQUIRED', field='room_code')
     if len(code) > 64 or len(password) > 64:

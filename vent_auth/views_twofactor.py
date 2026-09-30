@@ -38,6 +38,7 @@ from rest_framework.response import Response
 from . import login_2fa, totp as totp_lib
 from .throttle import limited
 from .models import UserTOTP
+from . import inputs
 
 SESSION_TIMEOUT_MINUTES = 120
 
@@ -113,7 +114,7 @@ def two_factor_confirm(request):
     if err:
         return err
 
-    code = str(request.data.get('code') or '').strip()
+    code = inputs.read_text(request.data, 'code', max_length=20)
     if not code:
         return _error('Enter the code from your authenticator app.',
                       'CODE_REQUIRED', status.HTTP_400_BAD_REQUEST)
@@ -167,7 +168,7 @@ def two_factor_disable(request):
         # have; failing here would make an idempotent action look broken.
         return _ok({'confirmed': False}, 'Two-factor is off.')
 
-    code = str(request.data.get('code') or '').strip()
+    code = inputs.read_text(request.data, 'code', max_length=20)
     if not code:
         return _error('Enter a current code to turn two-factor off.',
                       'CODE_REQUIRED', status.HTTP_400_BAD_REQUEST)

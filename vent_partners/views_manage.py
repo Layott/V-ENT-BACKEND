@@ -25,6 +25,7 @@ from .models import (
     Partner, PartnerApiKey, REVIEWED_SCOPES, SCOPES, SELF_SERVE_SCOPES,
     needs_review, self_serve, valid_scopes,
 )
+from vent_auth import inputs
 
 logger = logging.getLogger(__name__)
 
@@ -130,8 +131,8 @@ def apply_partner(request):
     if err:
         return err
 
-    name = (request.data.get('name') or '').strip()
-    contact_email = (request.data.get('contact_email') or '').strip().lower()
+    name = inputs.read_text(request.data, 'name', max_length=inputs.LONGEST_TEXT)
+    contact_email = inputs.read_text(request.data, 'contact_email', max_length=254).lower()
     if not name or not contact_email:
         return _err('A partner name and a contact email are required.', 'MISSING_FIELDS')
 
@@ -142,27 +143,28 @@ def apply_partner(request):
             status.HTTP_409_CONFLICT,
         )
 
-    wants_sso = bool(request.data.get('wants_sso'))
+    wants_sso = inputs.read_bool(request.data, 'wants_sso')
     requested = valid_scopes(request.data.get('requested_scopes'))
 
     partner = Partner.objects.create(
         name=name[:140],
         slug=_unique_slug(name),
         owner=user,
-        contact_name=(request.data.get('contact_name') or user.full_name or user.username)[:140],
+        contact_name=(inputs.read_text(request.data, 'contact_name', max_length=inputs.LONGEST_TEXT)
+                      or user.full_name or user.username)[:140],
         contact_email=contact_email,
-        website=(request.data.get('website') or '')[:200],
-        description=(request.data.get('description') or '')[:2000],
-        intended_use=(request.data.get('intended_use') or '')[:2000],
+        website=inputs.read_text(request.data, 'website', max_length=inputs.LONGEST_TEXT, strip=False)[:200],
+        description=inputs.read_text(request.data, 'description', max_length=inputs.LONGEST_TEXT, strip=False)[:2000],
+        intended_use=inputs.read_text(request.data, 'intended_use', max_length=inputs.LONGEST_TEXT, strip=False)[:2000],
         requested_scopes=requested,
         # SSO asks for more, and asking for it does not grant it.
         sso_status='requested' if wants_sso else 'none',
-        legal_name=(request.data.get('legal_name') or '')[:200],
-        registration_number=(request.data.get('registration_number') or '')[:80],
-        privacy_policy_url=(request.data.get('privacy_policy_url') or '')[:200],
-        terms_url=(request.data.get('terms_url') or '')[:200],
-        data_protection_contact=(request.data.get('data_protection_contact') or '')[:254],
-        redirect_uris=[u for u in (request.data.get('redirect_uris') or []) if _valid_redirect(u)][:10],
+        legal_name=inputs.read_text(request.data, 'legal_name', max_length=inputs.LONGEST_TEXT, strip=False)[:200],
+        registration_number=inputs.read_text(request.data, 'registration_number', max_length=inputs.LONGEST_TEXT, strip=False)[:80],
+        privacy_policy_url=inputs.read_text(request.data, 'privacy_policy_url', max_length=inputs.LONGEST_TEXT, strip=False)[:200],
+        terms_url=inputs.read_text(request.data, 'terms_url', max_length=inputs.LONGEST_TEXT, strip=False)[:200],
+        data_protection_contact=inputs.read_text(request.data, 'data_protection_contact', max_length=inputs.LONGEST_TEXT, strip=False)[:254],
+        redirect_uris=[u for u in _uri_list(request.data, 'redirect_uris') if _valid_redirect(u)][:10],
     )
 
     # The base tier grants itself. Everything in it is already public, so a
@@ -199,6 +201,25 @@ def apply_partner(request):
     return _ok(_partner_row(partner, include_private=True),
                'Application received. An admin reviews it before anything is granted.',
                status.HTTP_201_CREATED)
+
+
+#: The fields a partner edits on their own record, each with its column's length.
+EDITABLE = {
+    'website': 200, 'description': 2000, 'intended_use': 2000,
+    'contact_name': 140, 'contact_email': 254, 'legal_name': 200,
+    'registration_number': 80, 'privacy_policy_url': 200, 'terms_url': 200,
+    'data_protection_contact': 254,
+}
+
+
+def _uri_list(data, key):
+    """Addresses sent as a list, or one address as text; each one read as text."""
+    raw = data.get(key) or []
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list) or len(raw) > 20:
+        raise inputs.BadInput(key, 'not a short list')
+    return [inputs.read_text({key: u}, key, max_length=500) for u in raw]
 
 
 def _valid_redirect(uri):
@@ -240,8 +261,8 @@ def _own_partner(request, partner_id):
     if partner is None:
         return None, None, _err('No such partner.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     if partner.owner_id != user.user_id and not _is_admin(user):
-        return None, None, _err('That is not your partner account.', 'FORBIDDEN',
-                                status.HTTP_403_FORBIDDEN)
+        # The same answer as a partner that does not exist (R88).
+        return None, None, _err('No such partner.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     return user, partner, None
 
 
@@ -265,7 +286,7 @@ def create_key(request, partner_id):
 
     key, plaintext = PartnerApiKey.issue(
         partner,
-        name=(request.data.get('name') or 'Default key')[:120],
+        name=inputs.read_text(request.data, 'name', max_length=inputs.LONGEST_TEXT, strip=False, default='Default key')[:120],
         scopes=granted,
         created_by=user,
     )
@@ -299,17 +320,18 @@ def update_partner(request, partner_id):
     if err:
         return err
 
-    editable = ['website', 'description', 'intended_use', 'contact_name', 'contact_email',
-                'legal_name', 'registration_number', 'privacy_policy_url', 'terms_url',
-                'data_protection_contact']
+    editable = list(EDITABLE)
     changed = []
     for field in editable:
         if field in request.data:
-            setattr(partner, field, (request.data.get(field) or ''))
+            # Each to its own column; these were stored at any length, which
+            # MySQL refuses as a 500 rather than a sentence.
+            setattr(partner, field, inputs.read_text(
+                request.data, field, max_length=inputs.LONGEST_TEXT)[:EDITABLE[field]])
             changed.append(field)
 
     if 'redirect_uris' in request.data:
-        wanted = request.data.get('redirect_uris') or []
+        wanted = _uri_list(request.data, 'redirect_uris')
         # Dropping the ones that do not pass and saying "Saved." is the worst of
         # both: the partner is told it worked, the address is not there, and the
         # sign-in they then test is refused for a reason nothing on screen
@@ -325,7 +347,7 @@ def update_partner(request, partner_id):
         partner.redirect_uris = list(dict.fromkeys(str(u).strip() for u in wanted))
         changed.append('redirect_uris')
 
-    if request.data.get('request_sso') and partner.sso_status in ('none', 'rejected'):
+    if inputs.read_bool(request.data, 'request_sso') and partner.sso_status in ('none', 'rejected'):
         partner.sso_status = 'requested'
         changed.append('sso_status')
 
@@ -374,7 +396,7 @@ def admin_list(request):
     if err:
         return err
     qs = Partner.objects.select_related('owner').prefetch_related('api_keys')
-    state = request.GET.get('status')
+    state = inputs.read_text(request.GET, 'status', max_length=20)
     if state:
         qs = qs.filter(status=state)
     return _ok({
@@ -399,13 +421,13 @@ def admin_review(request, partner_id):
     if partner is None:
         return _err('No such partner.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
-    decision = (request.data.get('decision') or '').strip().lower()
+    decision = inputs.read_text(request.data, 'decision', max_length=254).lower()
     if decision not in ('approved', 'rejected', 'suspended', 'pending'):
         return _err('Decision must be approved, rejected, suspended or pending.', 'BAD_DECISION')
 
     with transaction.atomic():
         partner.status = decision
-        partner.review_note = (request.data.get('note') or '')[:2000]
+        partner.review_note = inputs.read_text(request.data, 'note', max_length=inputs.LONGEST_TEXT, strip=False)[:2000]
         partner.reviewed_by = admin
         partner.reviewed_at = timezone.now()
 
@@ -456,7 +478,7 @@ def admin_sso_review(request, partner_id):
     if partner is None:
         return _err('No such partner.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
-    decision = (request.data.get('decision') or '').strip().lower()
+    decision = inputs.read_text(request.data, 'decision', max_length=254).lower()
     if decision not in ('approved', 'rejected'):
         return _err('Decision must be approved or rejected.', 'BAD_DECISION')
 
@@ -490,7 +512,8 @@ def admin_sso_review(request, partner_id):
         )
 
     partner.sso_status = 'rejected'
-    partner.review_note = (request.data.get('note') or partner.review_note)[:2000]
+    partner.review_note = (inputs.read_text(request.data, 'note', max_length=inputs.LONGEST_TEXT)
+                           or partner.review_note)[:2000]
     partner.reviewed_by = admin
     partner.reviewed_at = timezone.now()
     partner.save()
@@ -543,7 +566,7 @@ def admin_set_scopes(request, partner_id):
         action_type='set_partner_scopes',
         target_model='Partner',
         target_id=str(partner.pk),
-        reason=(request.data.get('reason') or '')[:2000],
+        reason=inputs.read_text(request.data, 'reason', max_length=inputs.LONGEST_TEXT, strip=False)[:2000],
         metadata={'scopes': granted},
     )
 
@@ -581,7 +604,7 @@ def admin_set_redirects(request, partner_id):
     after = before
 
     if 'redirect_uris' in request.data:
-        wanted = request.data.get('redirect_uris') or []
+        wanted = _uri_list(request.data, 'redirect_uris')
         rejected = [u for u in wanted if not _valid_redirect(u)]
         if rejected:
             return _err(
@@ -589,12 +612,8 @@ def admin_set_redirects(request, partner_id):
                 'BAD_REDIRECT')
         after = list(dict.fromkeys(str(u).strip() for u in wanted))
     else:
-        add = request.data.get('add') or []
-        if isinstance(add, str):
-            add = [add]
-        remove = request.data.get('remove') or []
-        if isinstance(remove, str):
-            remove = [remove]
+        add = _uri_list(request.data, 'add')
+        remove = _uri_list(request.data, 'remove')
 
         rejected = [u for u in add if not _valid_redirect(u)]
         if rejected:
@@ -621,7 +640,7 @@ def admin_set_redirects(request, partner_id):
         action_type='set_partner_redirects',
         target_model='Partner',
         target_id=str(partner.pk),
-        reason=(request.data.get('reason') or '')[:2000],
+        reason=inputs.read_text(request.data, 'reason', max_length=inputs.LONGEST_TEXT, strip=False)[:2000],
         metadata={'before': before, 'after': after},
     )
 
@@ -660,7 +679,7 @@ def admin_set_verification(request, partner_id):
     changed = []
 
     if 'verification_url' in request.data:
-        url = str(request.data.get('verification_url') or '').strip()
+        url = inputs.read_text(request.data, 'verification_url', max_length=inputs.LONGEST_TEXT)
         if url and not url.startswith('https://'):
             # A username check carries a credential and an identifier. It does
             # not go over plain http, and localhost is not an exception here
@@ -670,8 +689,8 @@ def admin_set_verification(request, partner_id):
         changed.append('verification_url')
 
     if 'verification_secret' in request.data:
-        partner.verification_secret = str(
-            request.data.get('verification_secret') or '')[:120]
+        partner.verification_secret = inputs.read_text(
+            request.data, 'verification_secret', max_length=inputs.LONGEST_TEXT, strip=False)[:120]
         changed.append('verification_secret')
 
     if not changed:
@@ -684,7 +703,7 @@ def admin_set_verification(request, partner_id):
         action_type='set_partner_verification',
         target_model='Partner',
         target_id=str(partner.pk),
-        reason=(request.data.get('reason') or '')[:2000],
+        reason=inputs.read_text(request.data, 'reason', max_length=inputs.LONGEST_TEXT, strip=False)[:2000],
         # The secret is never written to the log, only the fact that it changed.
         metadata={'url': partner.verification_url,
                   'secret_changed': 'verification_secret' in changed},
@@ -744,7 +763,7 @@ def admin_rotate_key(request, partner_id, key_id):
         action_type='rotate_partner_key',
         target_model='PartnerApiKey',
         target_id=str(old.pk),
-        reason=(request.data.get('reason') or '')[:2000],
+        reason=inputs.read_text(request.data, 'reason', max_length=inputs.LONGEST_TEXT, strip=False)[:2000],
         metadata={'partner': partner.pk, 'replaced_by': key.pk},
     )
 
@@ -795,7 +814,7 @@ def admin_issue_key(request, partner_id):
 
     key, plaintext = PartnerApiKey.issue(
         partner,
-        name=(request.data.get('name') or 'Issued by an admin')[:120],
+        name=inputs.read_text(request.data, 'name', max_length=inputs.LONGEST_TEXT, strip=False, default='Issued by an admin')[:120],
         scopes=granted,
         created_by=admin,
     )
@@ -805,7 +824,7 @@ def admin_issue_key(request, partner_id):
         action_type='issue_partner_key',
         target_model='PartnerApiKey',
         target_id=str(key.pk),
-        reason=(request.data.get('reason') or '')[:2000],
+        reason=inputs.read_text(request.data, 'reason', max_length=inputs.LONGEST_TEXT, strip=False)[:2000],
         metadata={'partner': partner.pk, 'scopes': granted},
     )
 

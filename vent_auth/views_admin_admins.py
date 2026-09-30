@@ -36,6 +36,7 @@ from .decorators import (ADMIN_ROLES, ROLE_LABEL, ROLE_PERMISSIONS,
                          admin_role_required, effective_admin_role)
 from .models import AdminAction, Users
 from vent_auth import fuzzy
+from . import inputs
 
 MANAGE_ROLES = ROLE_PERMISSIONS['manage_admins']
 
@@ -125,7 +126,7 @@ def admin_admins(request):
     """Every account that can open the console, and what each one may do."""
     rows = Users.objects.filter(is_staff=True).order_by('username')
 
-    term = (request.GET.get('q') or '').strip()
+    term = inputs.read_text(request.GET, 'q', max_length=100)
     if term:
         rows = fuzzy.filter(rows, term, ['username', 'full_name'])
 
@@ -179,10 +180,10 @@ def admin_grant_role(request):
     for other people from a console is how shared passwords start.
     """
     admin = request.admin_user
-    username = str(request.data.get('username') or '').strip()
-    wanted = str(request.data.get('admin_role') or '').strip()
-    revoke = bool(request.data.get('revoke'))
-    reason = str(request.data.get('reason') or '').strip()[:500]
+    username = inputs.read_text(request.data, 'username', max_length=129)
+    wanted = inputs.read_text(request.data, 'admin_role', max_length=40)
+    revoke = inputs.read_bool(request.data, 'revoke')
+    reason = inputs.read_text(request.data, 'reason', max_length=inputs.LONGEST_TEXT)[:500]
 
     if not username:
         return _err('Say which account.', 'VALIDATION_ERROR')

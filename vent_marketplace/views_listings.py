@@ -20,6 +20,7 @@ from . import catalogue, listings as listing_rules
 from .models import Listing, ListingMedia, Review
 from vent_auth import uploads
 from vent_auth import fuzzy
+from vent_auth import inputs
 
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
@@ -153,29 +154,29 @@ def browse(request):
             .select_related('seller')
             .prefetch_related('media'))
 
-    search = (request.GET.get('q') or '').strip()
+    search = inputs.read_text(request.GET, 'q', max_length=100)
 
     for field in ('kind', 'category'):
-        value = (request.GET.get(field) or '').strip()
+        value = inputs.read_text(request.GET, field, max_length=40)
         if value:
             rows = rows.filter(**{field: value})
 
-    game = (request.GET.get('game') or '').strip()
+    game = inputs.read_text(request.GET, 'game', max_length=40)
     if game:
         rows = rows.filter(game__game_title__iexact=game)
 
-    org = (request.GET.get('organization') or '').strip()
+    org = inputs.read_text(request.GET, 'organization', max_length=200)
     if org:
         rows = rows.filter(organization__slug=org)
 
-    tournament = (request.GET.get('tournament') or '').strip()
+    tournament = inputs.read_text(request.GET, 'tournament', max_length=200)
     if tournament:
         rows = rows.filter(tournament__slug=tournament)
 
     for field, lookup in (('min_price', 'price__gte'), ('max_price', 'price__lte')):
-        raw = (request.GET.get(field) or '').strip()
-        if raw.isdigit():
-            rows = rows.filter(**{lookup: int(raw)})
+        bound = inputs.read_int(request.GET, field, minimum=0, maximum=10 ** 12)
+        if bound is not None:
+            rows = rows.filter(**{lookup: bound})
 
     # Hoisted first, then newest. That is what the seller paid for, and it is
     # the whole of what they paid for: no other ranking is quietly bought.
@@ -187,10 +188,10 @@ def browse(request):
 
     out = [_row(listing) for listing in rows]
 
-    min_rating = (request.GET.get('min_rating') or '').strip()
-    if min_rating:
+    min_rating = inputs.read_float(request.GET, 'min_rating', minimum=0, maximum=5)
+    if min_rating is not None:
         try:
-            floor = float(min_rating)
+            floor = min_rating
             keep = []
             for row, listing in zip(out, rows):
                 record = _seller_record(listing.seller)
@@ -271,7 +272,7 @@ def create_listing(request):
                     field=getattr(exc, 'field', None))
 
     bid_days = cleaned.pop('bid_days', None)
-    publish = bool(request.data.get('publish'))
+    publish = inputs.read_bool(request.data, 'publish')
 
     if publish:
         allowed, limit = listing_rules.may_publish(user)
@@ -363,7 +364,7 @@ def set_status(request, reference):
         return _err('This is not your listing to change.', 'NOT_YOURS',
                     status.HTTP_403_FORBIDDEN)
 
-    wanted = str(request.data.get('status') or '').strip()
+    wanted = inputs.read_text(request.data, 'status', max_length=20)
     if wanted not in ('active', 'paused', 'removed'):
         return _err('Live, paused, or taken down.', 'VALIDATION_FAILED',
                     field='status')
@@ -405,14 +406,14 @@ def add_media(request, reference):
     refused = uploads.files_refusal(request, 'file', kinds=('image', 'gif', 'video'), max_bytes=12 * 1024 * 1024)
     if refused:
         return refused
-    portfolio = str(request.data.get('portfolio') or '').lower() in ('1', 'true', 'yes')
+    portfolio = inputs.read_bool(request.data, 'portfolio')
     if portfolio and not premium.has_premium(user):
         return Response(premium.refuse('media_export'),
                         status=status.HTTP_402_PAYMENT_REQUIRED)
 
     media = ListingMedia.objects.create(
         listing=listing, file=upload, portfolio=portfolio,
-        caption=str(request.data.get('caption') or '')[:140],
+        caption=inputs.read_text(request.data, 'caption', max_length=inputs.LONGEST_TEXT, strip=False)[:140],
         order=listing.media.count())
     return _ok({'id': media.id, 'url': media.file.url,
                 'portfolio': media.portfolio}, 'Added.',

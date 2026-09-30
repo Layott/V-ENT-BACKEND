@@ -33,6 +33,7 @@ from rest_framework.response import Response
 from vent_auth.actors import actor_from_request, may_override
 
 from .models import EventDayLimit
+from vent_auth import inputs
 
 
 def _ok(data, message='OK'):
@@ -65,6 +66,10 @@ def _event_and_permission(request, event_id):
     return event, user, None
 
 
+#: More ticket types or days than an event has; a bigger map is not a form.
+MOST_ROWS = 400
+
+
 def _read_limit(raw, field):
     """A limit, or None for "no rule at this scope".
 
@@ -76,7 +81,7 @@ def _read_limit(raw, field):
     if raw in (None, ''):
         return None, None
     try:
-        limit = int(raw)
+        limit = inputs.read_int({field: raw}, field)
     except (TypeError, ValueError):
         return None, _err('That has to be a number.', 'INVALID_NUMBER',
                           field=field)
@@ -211,9 +216,12 @@ def email_limits(request, event_id):
 
     # --------------------------------------------------------- one type each
     tiers = request.data.get('tiers')
+    if isinstance(tiers, dict) and len(tiers) > MOST_ROWS:
+        return _err('Too many ticket types in one save.', 'VALIDATION_ERROR', field='tiers')
     if isinstance(tiers, dict):
         for raw_id, raw_limit in tiers.items():
-            tier = event.ticket_tiers.filter(pk=str(raw_id)).first()
+            tier_id = inputs.read_int({'tiers': raw_id}, 'tiers', minimum=1)
+            tier = event.ticket_tiers.filter(pk=tier_id).first() if tier_id else None
             if tier is None:
                 return _err('No such ticket type on this event.', 'NOT_FOUND',
                             status.HTTP_404_NOT_FOUND, field='tiers')
@@ -241,6 +249,8 @@ def email_limits(request, event_id):
 
     # ---------------------------------------------------------- one day each
     days = request.data.get('days')
+    if isinstance(days, dict) and len(days) > MOST_ROWS:
+        return _err('Too many days in one save.', 'VALIDATION_ERROR', field='days')
     if isinstance(days, dict):
         known = set(_days_of(event))
         for raw_day, raw_limit in days.items():

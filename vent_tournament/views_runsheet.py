@@ -49,6 +49,7 @@ from .models import RunSheet, RunSheetDay, RunSheetItem
 from .production_access import (
     REFUSAL_CODE, find_owner, kind_of, may_run_production, viewer as _viewer)
 from vent_auth import uploads
+from vent_auth import inputs
 
 #: An xlsx of a run of show is tens of kilobytes. A megabyte is already a sheet
 #: with pictures pasted into it, which imports fine but is worth a ceiling.
@@ -219,32 +220,32 @@ def run_sheet(request, kind, ref):
             sheet.event = owner
         else:
             sheet.tournament = owner
-        sheet.name = str(request.data.get('name') or '')[:140]
+        sheet.name = inputs.read_text(request.data, 'name', max_length=inputs.LONGEST_TEXT, strip=False)[:140]
         sheet.save()
 
     changed = []
     if 'name' in request.data:
-        sheet.name = str(request.data.get('name') or '')[:140]
+        sheet.name = inputs.read_text(request.data, 'name', max_length=inputs.LONGEST_TEXT, strip=False)[:140]
         changed.append('name')
     if 'subtitle' in request.data:
-        sheet.subtitle = str(request.data.get('subtitle') or '')[:240]
+        sheet.subtitle = inputs.read_text(request.data, 'subtitle', max_length=inputs.LONGEST_TEXT, strip=False)[:240]
         changed.append('subtitle')
     if 'visibility' in request.data:
-        wanted = str(request.data.get('visibility') or '').strip()
+        wanted = inputs.read_text(request.data, 'visibility', max_length=inputs.LONGEST_TEXT)
         if wanted not in dict(RunSheet.VISIBILITY):
             return _err('That is not one of the sharing settings.',
                         'INVALID_VISIBILITY', field='visibility')
         sheet.visibility = wanted
         changed.append('visibility')
     if 'show_owners' in request.data:
-        sheet.show_owners = request.data.get('show_owners') is not False
+        sheet.show_owners = inputs.read_bool(request.data, 'show_owners', default=True)
         changed.append('show_owners')
     if 'show_notes' in request.data:
-        sheet.show_notes = request.data.get('show_notes') is True
+        sheet.show_notes = inputs.read_bool(request.data, 'show_notes')
         changed.append('show_notes')
     if 'time_zone' in request.data:
-        sheet.time_zone = str(request.data.get('time_zone') or
-                              'Africa/Lagos')[:64]
+        sheet.time_zone = inputs.read_timezone(request.data, 'time_zone',
+                                               default='Africa/Lagos')
         changed.append('time_zone')
 
     if changed:
@@ -290,7 +291,7 @@ def import_run_sheet(request, kind, ref):
     if not _staff(request, owner):
         return _refuse(kind)
 
-    mode = str(request.data.get('mode') or 'replace').strip().lower()
+    mode = inputs.read_text(request.data, 'mode', max_length=254, default='replace').lower()
     if mode not in ('replace', 'append'):
         return _err('Import mode has to be replace or append.',
                     'INVALID_MODE', field='mode')
@@ -323,13 +324,17 @@ def import_run_sheet(request, kind, ref):
                     return _err('That file could not be read as text.',
                                 'UNREADABLE_TEXT', field='file')
             one = runsheet_import.from_text(
-                text, str(request.data.get('label') or 'Day 1'))
+                text, inputs.read_text(request.data, 'label', max_length=80, default='Day 1'))
             days = [one] if one else []
         else:
             return _err('Upload an .xlsx or a .csv.', 'UNSUPPORTED_FILE',
                         field='file')
     else:
-        text = str(request.data.get('text') or '')
+        # Its own limit below (MAX_PASTE_CHARS, a whole show pasted from a
+        # sheet), longer than any one field, so only the type is read here.
+        text = request.data.get('text') or ''
+        if not isinstance(text, str):
+            raise inputs.BadInput('text', 'not text')
         if not text.strip():
             return _err('Paste the rows, or choose a file.', 'NOTHING_TO_IMPORT',
                         field='text')
@@ -337,7 +342,7 @@ def import_run_sheet(request, kind, ref):
             return _err('That is more than one run of show. Split it up.',
                         'PASTE_TOO_LARGE', field='text')
         one = runsheet_import.from_text(
-            text, str(request.data.get('label') or 'Day 1'))
+            text, inputs.read_text(request.data, 'label', max_length=80, default='Day 1'))
         days = [one] if one else []
 
     days = [d for d in (days or []) if d and d['items']]
@@ -409,7 +414,7 @@ def days(request, kind, ref):
     sheet, owner, err = _sheet_or_refuse(request, kind, ref, create=True)
     if err:
         return err
-    label = str(request.data.get('label') or '').strip()
+    label = inputs.read_text(request.data, 'label', max_length=inputs.LONGEST_TEXT)
     if not label:
         label = 'Day %s' % (sheet.days.count() + 1)
     day_date, err = _read_date(request.data.get('date'))
@@ -417,7 +422,7 @@ def days(request, kind, ref):
         return err
     RunSheetDay.objects.create(
         sheet=sheet, label=label[:80], date=day_date,
-        note=str(request.data.get('note') or '')[:240],
+        note=inputs.read_text(request.data, 'note', max_length=inputs.LONGEST_TEXT, strip=False)[:240],
         position=sheet.days.count())
     return _ok({'sheet': serialize(sheet, True, owner), 'can_manage': True},
                'Day added.')
@@ -449,7 +454,7 @@ def day_detail(request, kind, ref, day_id):
 
     changed = []
     if 'label' in request.data:
-        label = str(request.data.get('label') or '').strip()
+        label = inputs.read_text(request.data, 'label', max_length=inputs.LONGEST_TEXT)
         if not label:
             return _err('A day needs a name.', 'VALIDATION_FAILED',
                         field='label')
@@ -462,7 +467,7 @@ def day_detail(request, kind, ref, day_id):
         day.date = day_date
         changed.append('date')
     if 'note' in request.data:
-        day.note = str(request.data.get('note') or '')[:240]
+        day.note = inputs.read_text(request.data, 'note', max_length=inputs.LONGEST_TEXT, strip=False)[:240]
         changed.append('note')
     if not changed:
         return _err('Nothing to change.', 'NO_FIELDS_TO_UPDATE')
@@ -484,17 +489,17 @@ def _read_time(raw, field):
 def _apply_item_fields(row, data):
     """The fields a cue carries, read off a payload. Shared by create and edit."""
     if 'phase' in data:
-        row.phase = str(data.get('phase') or '')[:80]
+        row.phase = inputs.read_text(data, 'phase', max_length=inputs.LONGEST_TEXT, strip=False)[:80]
     if 'activity' in data:
-        row.activity = str(data.get('activity') or '').strip()[:400]
+        row.activity = inputs.read_text(data, 'activity', max_length=inputs.LONGEST_TEXT)[:400]
     if 'owner' in data:
-        row.owner = str(data.get('owner') or '')[:120]
+        row.owner = inputs.read_text(data, 'owner', max_length=inputs.LONGEST_TEXT, strip=False)[:120]
     if 'match' in data:
-        row.match = str(data.get('match') or '')[:120]
+        row.match = inputs.read_text(data, 'match', max_length=inputs.LONGEST_TEXT, strip=False)[:120]
     if 'note' in data:
-        row.note = str(data.get('note') or '')[:2000]
+        row.note = inputs.read_text(data, 'note', max_length=inputs.LONGEST_TEXT, strip=False)[:2000]
     if 'is_confirmed' in data:
-        row.is_confirmed = data.get('is_confirmed') is not False
+        row.is_confirmed = inputs.read_bool(data, 'is_confirmed', default=True)
     for field in ('starts_at', 'ends_at'):
         if field in data:
             value, err = _read_time(data.get(field), field)
@@ -502,6 +507,9 @@ def _apply_item_fields(row, data):
                 return err
             setattr(row, field, value)
     if 'minutes' in data:
+        if isinstance(data.get('minutes'), (int, float)):
+            # NaN and infinity arrive as JSON numbers and round() keeps them.
+            inputs.read_float(data, 'minutes', minimum=0, maximum=100_000)
         row.minutes = runsheet_import._as_minutes(data.get('minutes'))
     elif row.minutes is None:
         row.minutes = runsheet_import._minutes_between(row.starts_at,
@@ -516,8 +524,9 @@ def items(request, kind, ref):
         return err
 
     day = None
-    if request.data.get('day_id'):
-        day = sheet.days.filter(pk=request.data.get('day_id')).first()
+    day_id = inputs.read_int(request.data, 'day_id', minimum=1)
+    if day_id:
+        day = sheet.days.filter(pk=day_id).first()
         if day is None:
             return _gone()
     if day is None:
@@ -525,7 +534,7 @@ def items(request, kind, ref):
     if day is None:
         day = RunSheetDay.objects.create(sheet=sheet, label='Day 1', position=0)
 
-    activity = str(request.data.get('activity') or '').strip()
+    activity = inputs.read_text(request.data, 'activity', max_length=inputs.LONGEST_TEXT)
     if not activity:
         return _err('Say what happens.', 'VALIDATION_FAILED', field='activity')
 

@@ -26,7 +26,6 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
     # The URL an organiser pastes into OBS or vMix. Root-mounted and short,
     # because it is typed into a machine at a venue, and public by token,
     # because a browser source cannot sign in.
@@ -80,3 +79,12 @@ urlpatterns = [
 # the first surface to render a /media/ image directly, which exposed the gap.
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+# Django's own admin is not mounted in production (CEO, 30 September 2026,
+# inbox 400). Uploaded overlay HTML runs its script on this origin by design,
+# and a staff member signed in here would have lent it their session. It had
+# never been used: 0 log entries, 0 sessions, 0 superusers. The platform's
+# admin is the console on the frontend. DJANGO_ADMIN_ENABLED=1 in .env mounts
+# it again when a developer needs it.
+if settings.DJANGO_ADMIN_ENABLED:
+    urlpatterns.insert(0, path("admin/", admin.site.urls))

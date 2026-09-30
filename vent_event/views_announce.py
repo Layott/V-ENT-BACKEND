@@ -34,6 +34,7 @@ from vent_auth.models import Users
 from vent_auth.views_notifications import create_notification
 
 from .models import Event, EventAnnouncement, EventManager, Ticket
+from vent_auth import inputs
 
 logger = logging.getLogger(__name__)
 
@@ -139,9 +140,9 @@ def announcements(request, event_id):
         return _error('Only the event organizer can message ticket holders.',
                       'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
-    subject = str(request.data.get('subject') or '').strip()
-    body = str(request.data.get('body') or '').strip()
-    audience = str(request.data.get('audience') or 'all').strip()
+    subject = inputs.read_text(request.data, 'subject', max_length=inputs.LONGEST_TEXT)
+    body = inputs.read_text(request.data, 'body', max_length=inputs.LONGEST_TEXT)
+    audience = inputs.read_text(request.data, 'audience', max_length=20, default='all')
 
     if not subject:
         return _error('Give the message a subject.', 'VALIDATION_ERROR')

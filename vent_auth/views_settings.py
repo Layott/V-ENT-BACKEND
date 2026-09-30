@@ -4,11 +4,13 @@ Mounted at ROOT (no /auth prefix) because the FE calls `/setting/`, `/device/…
 `/user/<id>/update/` directly. Auth is the standard Bearer login_session_token.
 """
 import logging
+import re
 
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from . import inputs
 from .models import Users, UserSetting
 from .views_profile import _user_from_bearer
 
@@ -30,7 +32,13 @@ DEFAULT_SETTINGS = {
         'show_online_status': True,
         'show_wallet_balance': False,
         'allow_team_invites': True,
-        'allow_direct_messages': True,
+        # The same defaults privacy_of() reads with, so the panel shows what
+        # is actually being obeyed.
+        'allow_direct_messages': 'anyone',   # anyone | followers | nobody
+        'show_email': False,
+        'show_location': True,
+        'show_birthday': False,
+        'indexable': True,
     },
     'security': {
         'two_factor_enabled': False,
@@ -75,6 +83,14 @@ _SECTION_KEYS = ('notifications', 'privacy', 'security', 'payments')
 def _merged(data):
     """Deep-merge stored data over DEFAULT_SETTINGS so every key is present."""
     out = {}
+    data = {k: (dict(v) if isinstance(v, dict) else v) for k, v in (data or {}).items()}
+    # A value saved under an old name reads as the name that is obeyed.
+    for section, names in LEGACY_NAMES.items():
+        held = data if section is None else (data.get(section) or {})
+        for old, (where, new) in names.items():
+            target = data if where is None else data.setdefault(where, {})
+            if old in held and new not in target:
+                target[new] = held[old]
     for k, v in DEFAULT_SETTINGS.items():
         if isinstance(v, dict):
             out[k] = {**v, **(data.get(k) or {})}
@@ -133,6 +149,104 @@ def _with_real_twofactor(settings, user):
     return {**settings, 'security': security}
 
 
+def _currency(src, key):
+    """A three letter currency code, like NGN, or '' for the site's default."""
+    value = inputs.read_text(src, key, max_length=3).upper()
+    if value and not re.fullmatch(r'[A-Z]{3}', value):
+        raise inputs.BadInput(key, 'not a currency code')
+    return value
+
+
+def _walkthrough(src, key):
+    raw = src.get(key)
+    if not isinstance(raw, dict):
+        raise inputs.BadInput(key, 'not a set of named values')
+    seen = raw.get('chapters_seen') or []
+    if not isinstance(seen, list) or len(seen) > 100:
+        raise inputs.BadInput(key, 'too many chapters')
+    return {
+        'completed_at': inputs.read_text(raw, 'completed_at', max_length=40) or None,
+        'skipped': inputs.read_bool(raw, 'skipped'),
+        'version': inputs.read_int(raw, 'version', minimum=0, maximum=10000, default=0),
+        'chapters_seen': [inputs.read_text({'c': c}, 'c', max_length=60) for c in seen],
+    }
+
+
+def _choice(*choices):
+    return lambda src, key: inputs.read_choice(src, key, choices)
+
+
+def _flag(src, key):
+    return inputs.read_bool(src, key)
+
+
+#: What each settings section may hold, and how each value is read (owner rule
+#: R69). Until 30 September 2026 these endpoints stored every key a body
+#: carried, of any size, into the account's settings. Anything not listed here
+#: is dropped and named back in `ignored`, the way the notification grid already
+#: worked. `two_factor_enabled` is absent on purpose: it is read from UserTOTP,
+#: never from a request.
+SECTION_FIELDS = {
+    'privacy': {
+        'profile_visibility': _choice('public', 'followers', 'private'),
+        'allow_direct_messages': _choice('anyone', 'followers', 'nobody'),
+        'show_online_status': _flag,
+        'show_wallet_balance': _flag,
+        'allow_team_invites': _flag,
+        'show_email': _flag,
+        'show_location': _flag,
+        'show_birthday': _flag,
+        'indexable': _flag,
+    },
+    'security': {
+        'login_alerts': _flag,
+    },
+    'payments': {
+        'default_method': _choice('wallet', 'card', 'bank'),
+        'default_currency': _currency,
+        'auto_topup': _flag,
+    },
+    None: {
+        'language': _choice('en', 'fr', 'pt'),
+        'region': lambda src, key: inputs.read_text(src, key, max_length=8),
+        'timezone': inputs.read_timezone,
+        'date_format': lambda src, key: inputs.read_choice(
+            src, key, ('DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'), default=''),
+        'walkthrough': _walkthrough,
+    },
+}
+
+#: Names a screen sent that the readers never looked for. The Privacy panel
+#: saved `allow_dm_from` and `search_indexable` while privacy_of() read
+#: `allow_direct_messages` and `indexable`, and the Language panel saved
+#: `currency` at the top while money.js read payments.default_currency, so all
+#: three switches were stored and obeyed by nothing. Old names still arrive
+#: from a page loaded before the fix; they are written where they are read.
+LEGACY_NAMES = {
+    'privacy': {'allow_dm_from': ('privacy', 'allow_direct_messages'),
+                'search_indexable': ('privacy', 'indexable')},
+    None: {'currency': ('payments', 'default_currency')},
+}
+
+
+def clean_settings(section, incoming):
+    """`{section: {key: value}}` for what may be stored, and the ignored names."""
+    fields = SECTION_FIELDS[section]
+    legacy = LEGACY_NAMES.get(section, {})
+    out, ignored = {}, []
+    for key in incoming:
+        name = str(key)
+        if name in fields:
+            out.setdefault(section, {})[name] = fields[name](incoming, name)
+        elif name in legacy:
+            where, real = legacy[name]
+            out.setdefault(where, {})[real] = SECTION_FIELDS[where][real](
+                {real: incoming[key]}, real)
+        else:
+            ignored.append(name)
+    return out, sorted(ignored)
+
+
 def _update_section(request, section):
     user, err = _user_from_bearer(request)
     if err:
@@ -140,15 +254,16 @@ def _update_section(request, section):
     obj = _get_or_create(user)
     data = dict(obj.data or {})
     incoming = request.data if isinstance(request.data, dict) else {}
-    if section:
-        data[section] = {**(data.get(section) or {}), **incoming}
-    else:
-        # top-level merge (language / region / timezone + any generic keys)
-        data.update(incoming)
+    cleaned, ignored = clean_settings(section, incoming)
+    for where, values in cleaned.items():
+        if where is None:
+            data.update(values)
+        else:
+            data[where] = {**(data.get(where) or {}), **values}
     obj.data = data
     obj.save(update_fields=['data', 'updated_at'])
     merged = _merged(data)
-    payload = {'settings': merged}
+    payload = {'settings': merged, 'ignored': ignored}
     if section:
         payload[section] = merged[section]
     return Response({
@@ -231,7 +346,8 @@ def update_payments(request):
 # Account info (settings → Account panel posts to /user/<id>/update/)
 # ---------------------------------------------------------------------------
 
-_ACCOUNT_FIELDS = ('full_name', 'country', 'state')
+#: The account fields this form edits, each with its column's length.
+_ACCOUNT_FIELDS = {'full_name': 148, 'country': 256, 'state': 256}
 
 
 @api_view(['POST'])
@@ -244,9 +360,9 @@ def update_user_account(request, user_id):
         return Response({ 'code': 'FORBIDDEN','status': 'error', 'message': 'Forbidden.'},
                         status=status.HTTP_403_FORBIDDEN)
     changed = []
-    for f in _ACCOUNT_FIELDS:
+    for f, most in _ACCOUNT_FIELDS.items():
         if f in request.data and request.data.get(f) is not None:
-            setattr(user, f, request.data.get(f))
+            setattr(user, f, inputs.read_text(request.data, f, max_length=most))
             changed.append(f)
     # Saying where you are settles it. The country stops being a guess the
     # moment somebody sets it themselves, so the screen stops offering to
@@ -414,7 +530,7 @@ def change_username(request):
     if err:
         return err
 
-    raw = request.data.get('username')
+    raw = inputs.read_text(request.data, 'username', max_length=inputs.LONGEST_TEXT, strip=False)
     problem = username_problem(raw)
     if problem:
         return Response({'status': 'error', 'message': problem},
@@ -528,7 +644,7 @@ def birthday(request):
         return Response({'status': 'error', 'code': 'BIRTHDAY_LOCKED', 'data': {},
                          'message': 'Your date of birth is already set. Contact support to correct it.'},
                         status=status.HTTP_409_CONFLICT)
-    raw = str((request.data or {}).get('date_of_birth') or '').strip()
+    raw = inputs.read_text(request.data, 'date_of_birth', max_length=20)
     try:
         born = _dt.date.fromisoformat(raw)
     except ValueError:

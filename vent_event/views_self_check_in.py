@@ -38,6 +38,7 @@ from vent_auth.models import Users
 from .models import Event, Ticket
 
 from .attendance import SELF_GATE   # one definition; see attendance.py
+from vent_auth import inputs
 
 
 def _error(message, code, http=status.HTTP_400_BAD_REQUEST, extra=None):
@@ -135,7 +136,7 @@ def self_check_in(request, code):
     viewer = _viewer(request)
     owns_it = viewer is not None and ticket.user_id == viewer.user_id
     if not owns_it:
-        given = str(request.data.get('email') or '').strip().lower()
+        given = inputs.read_text(request.data, 'email', max_length=254).lower()
         held = (ticket.attendee_email or '').strip().lower()
         if not held:
             # Nothing to check against. The door is the only honest answer.
@@ -221,13 +222,12 @@ def self_check_in_settings(request, event_id):
 
         fields = []
         if 'enabled' in request.data:
-            event.self_check_in = bool(request.data.get('enabled'))
+            event.self_check_in = inputs.read_bool(request.data, 'enabled')
             fields.append('self_check_in')
 
         if 'opens_minutes_before' in request.data:
-            raw = request.data.get('opens_minutes_before')
             try:
-                minutes = int(raw)
+                minutes = inputs.read_int(request.data, 'opens_minutes_before', required=True)
             except (TypeError, ValueError):
                 return _error('That has to be a number of minutes.',
                               'INVALID_MINUTES', status.HTTP_400_BAD_REQUEST,

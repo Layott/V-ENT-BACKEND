@@ -38,6 +38,7 @@ from rest_framework.response import Response
 from vent_auth.models import Users
 
 from .models import Event, Ticket, TicketTransfer
+from vent_auth import inputs
 
 
 def _error(message, code, http=status.HTTP_400_BAD_REQUEST):
@@ -110,7 +111,7 @@ def transfer_ticket(request, code):
         # email address that belongs to nobody is a person to be reached
         # rather than an error.
         from vent_auth.invites import invitee_for
-        to_user, to_email, problem = invitee_for(request.data.get('to'))
+        to_user, to_email, problem = invitee_for(inputs.read_text(request.data, 'to', max_length=254))
         if problem:
             return _error(problem, 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
         if not to_email:
@@ -142,11 +143,11 @@ def transfer_ticket(request, code):
             from_email=ticket.attendee_email or '',
             to_email=to_email,
             from_name=ticket.attendee_name or '',
-            to_name=(str(request.data.get('name') or '').strip()
+            to_name=(inputs.read_text(request.data, 'name', max_length=inputs.LONGEST_TEXT)
                      or (to_user.full_name if to_user else '')
                      or (to_user.username if to_user else ''))[:120],
             old_code=old_code, new_code=new_code,
-            note=str(request.data.get('note') or '')[:200],
+            note=inputs.read_text(request.data, 'note', max_length=inputs.LONGEST_TEXT, strip=False)[:200],
         )
 
         ticket.code = new_code

@@ -28,6 +28,7 @@ from vent_auth.models import Users
 from . import lookup
 from vent_auth.text import count as _count
 from vent_auth import uploads
+from vent_auth import inputs
 
 SESSION_TIMEOUT = timedelta(minutes=session_timeout_minutes())
 
@@ -169,7 +170,7 @@ def generate_bracket(request, tournament_id):
         missing = tournament.registrations.filter(
             status__in=('pending', 'confirmed'), checked_in_at__isnull=True,
         ).count()
-        if missing and not request.data.get('ignore_check_in'):
+        if missing and not inputs.read_bool(request.data, 'ignore_check_in'):
             return _err(
                 f'{missing} entrants never checked in. Close check-in first so they are '
                 'forfeited, or send ignore_check_in to seed them anyway.',
@@ -179,7 +180,8 @@ def generate_bracket(request, tournament_id):
     # The organiser already chose a seeding method when they built the
     # tournament. Honour it, and let an explicit request override it.
     stored = tournament_options.clean(tournament.options)['seeding_method']
-    seed_strategy = request.data.get('seed_strategy') or request.data.get('seeding') or stored
+    seed_strategy = (inputs.read_text(request.data, 'seed_strategy', max_length=30)
+                     or inputs.read_text(request.data, 'seeding', max_length=30) or stored)
     if seed_strategy == 'seed_field':
         seed_strategy = 'ranked'
     manual_order = request.data.get('manual_order')
@@ -237,12 +239,14 @@ def report_match_score(request, match_id):
     match = get_object_or_404(BracketMatch.objects.select_related('tournament', 'participant_1', 'participant_2'), id=match_id)
     tournament = match.tournament
 
-    if tournament.score_confirmation_mode == 'organizer_only':
-        return _err('This tournament records results via the organizer', 'ORGANIZER_ONLY_MODE', http.HTTP_409_CONFLICT)
-
+    # Whose match it is first (R88): a stranger is refused the same way
+    # whatever state the match or the tournament is in.
     slot = match.participant_owned_by(user)
     if slot is None:
         return _err('You are not a participant in this match', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
+
+    if tournament.score_confirmation_mode == 'organizer_only':
+        return _err('This tournament records results via the organizer', 'ORGANIZER_ONLY_MODE', http.HTTP_409_CONFLICT)
 
     if match.status in ('completed', 'bye'):
         return _err('This match is already finished', 'STATE_CONFLICT', http.HTTP_409_CONFLICT)
@@ -251,7 +255,8 @@ def report_match_score(request, match_id):
 
     score_p1 = request.data.get('score_p1')
     score_p2 = request.data.get('score_p2')
-    evidence_url = (request.data.get('screenshot_url') or request.data.get('evidence_url') or '').strip()
+    evidence_url = (inputs.read_text(request.data, 'screenshot_url', max_length=1000)
+                    or inputs.read_text(request.data, 'evidence_url', max_length=1000))
 
     # An uploaded screenshot beats a pasted link: the player has the picture on
     # the device they just played on, and a link they host themselves is the one
@@ -327,14 +332,14 @@ def confirm_match_score(request, match_id):
     match = get_object_or_404(BracketMatch.objects.select_related('tournament', 'participant_1', 'participant_2'), id=match_id)
     tournament = match.tournament
 
+    slot = match.participant_owned_by(user)
+    if slot is None:
+        return _err('You are not a participant in this match', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
+
     if tournament.score_confirmation_mode == 'organizer_only':
         return _err('This tournament records results via the organizer', 'ORGANIZER_ONLY_MODE', http.HTTP_409_CONFLICT)
     if match.status != 'pending_opponent_confirm':
         return _err('No score is awaiting confirmation on this match', 'STATE_CONFLICT', http.HTTP_409_CONFLICT)
-
-    slot = match.participant_owned_by(user)
-    if slot is None:
-        return _err('You are not a participant in this match', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
 
     submission = (
         MatchScore.objects.filter(match=match, confirmed=False, superseded_by__isnull=True)
@@ -345,12 +350,11 @@ def confirm_match_score(request, match_id):
     if submission.submitted_by_id == user.user_id:
         return _err('The opponent must confirm the score you reported', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
 
-    agree = request.data.get('agree')
-    if isinstance(agree, str):
-        agree = agree.lower() in ('1', 'true', 'yes')
+    agree = inputs.read_bool(request.data, 'agree')
 
     if not agree:
-        description = (request.data.get('dispute_description') or request.data.get('description') or '').strip()
+        description = (inputs.read_text(request.data, 'dispute_description', max_length=inputs.LONGEST_TEXT)
+                       or inputs.read_text(request.data, 'description', max_length=inputs.LONGEST_TEXT))
         if not description:
             return _err('A reason is required when rejecting the score', 'VALIDATION_FAILED', http.HTTP_400_BAD_REQUEST,
                         field_errors={'dispute_description': ['required']})
@@ -440,7 +444,7 @@ def raise_dispute(request, match_id):
         return _err('The time to dispute this result has passed.', 'DISPUTE_WINDOW_CLOSED',
                     http.HTTP_409_CONFLICT)
 
-    description = (request.data.get('description') or '').strip()
+    description = inputs.read_text(request.data, 'description', max_length=inputs.LONGEST_TEXT)
     if not description:
         return _err('A description is required', 'VALIDATION_FAILED', http.HTTP_400_BAD_REQUEST,
                     field_errors={'description': ['required']})
@@ -451,7 +455,8 @@ def raise_dispute(request, match_id):
     evidence_urls = request.data.get('evidence_urls') or []
     if not isinstance(evidence_urls, list):
         return _err('evidence_urls must be a list', 'VALIDATION_FAILED', http.HTTP_400_BAD_REQUEST)
-    evidence_urls = [str(u) for u in evidence_urls[:5]]
+    evidence_urls = [inputs.read_text({'evidence_urls': u}, 'evidence_urls', max_length=1000)
+                     for u in evidence_urls[:5]]
 
     if TournamentDispute.objects.filter(match=match, raised_by=user, status__in=('open', 'under_review')).exists():
         return _err('You already have an open dispute on this match', 'DISPUTE_ALREADY_OPEN',
@@ -578,14 +583,14 @@ def distribute_prizes(request, tournament_id):
     if not is_creator and not user.is_staff:
         return _err('Only the organizer or an admin can distribute prizes', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
 
-    force_recompute = bool(request.data.get('force_recompute')) and user.is_staff
+    force_recompute = inputs.read_bool(request.data, 'force_recompute') and user.is_staff
 
     # The warning the spec asks for, made structural rather than left to the
     # screen. Without `confirm` this answers with the list of who gets what and
     # changes nothing, so a payout cannot happen on one press with nothing seen
     # first. Same shape as the soft-delete guard: CONFIRM_REQUIRED plus the
     # facts needed to decide.
-    if not request.data.get('confirm'):
+    if not inputs.read_bool(request.data, 'confirm'):
         plan = prize_service.plan(tournament)
         return _err('Check who is being paid what, then confirm.',
                     'CONFIRM_REQUIRED', http.HTTP_409_CONFLICT, data=plan)
@@ -633,7 +638,7 @@ def cancel_tournament(request, tournament_id):
         return _err('Matches have already been played - an admin must cancel this tournament',
                     'STATE_CONFLICT', http.HTTP_409_CONFLICT)
 
-    reason = (request.data.get('reason') or '').strip()[:500]
+    reason = inputs.read_text(request.data, 'reason', max_length=inputs.LONGEST_TEXT)[:500]
     entry_fee_coins = int(tournament.entry_fee_price) if tournament.entry_fee == 'Paid' else 0
 
     refunded_count = 0

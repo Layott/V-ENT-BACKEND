@@ -105,8 +105,8 @@ def _target_wallet(payload):
     the money.
     """
     try:
-        return wallets.resolve_target(payload.get('to_kind'),
-                                      payload.get('to')), None
+        return wallets.resolve_target(inputs.read_text(payload, 'to_kind', max_length=20),
+                                      inputs.read_text(payload, 'to', max_length=200)), None
     except wallets.WalletError as exc:
         http = (status.HTTP_404_NOT_FOUND if exc.code == 'NOT_FOUND'
                 else status.HTTP_400_BAD_REQUEST)
@@ -144,10 +144,10 @@ def _handle(request, owner, wallet, may_read, may_spend, what, viewer=None):
         return _err('You can see this wallet but not spend from it.',
                     'NOT_ALLOWED', status.HTTP_403_FORBIDDEN)
 
-    action = str(request.data.get('action') or 'send').lower()
+    action = inputs.read_text(request.data, 'action', max_length=20, default='send').lower()
 
     if action == 'set_pin':
-        pin = str(request.data.get('pin') or '')
+        pin = inputs.read_text(request.data, 'pin', max_length=12, strip=False)
         if not pin.isdigit() or not 4 <= len(pin) <= 6:
             return _err('A PIN is 4 to 6 digits.', 'VALIDATION_ERROR')
         wallet.pin_hash = make_password(pin)
@@ -177,8 +177,8 @@ def _handle(request, owner, wallet, may_read, may_spend, what, viewer=None):
         # are the second surface, built later, and the guard was not carried
         # across. Refusing an absent PIN before anything moves is what makes
         # the two behave alike.
-        pin = request.data.get('pin')
-        if pin is None or str(pin).strip() == '':
+        pin = inputs.read_text(request.data, 'pin', max_length=12, strip=False)
+        if not pin.strip():
             return _err('Enter the wallet PIN to send anything.',
                         'PIN_REQUIRED')
 
@@ -202,9 +202,9 @@ def _handle(request, owner, wallet, may_read, may_spend, what, viewer=None):
             # The code belongs to the PERSON pressing send, not to the team.
             # A shared wallet has no device of its own, and the person who
             # moved the money is who anybody would want to ask about it.
-            wallets.check_second_factor(viewer, request.data.get('code'))
+            wallets.check_second_factor(viewer, inputs.read_text(request.data, 'code', max_length=20) or None)
             _debit, credit = wallets.transfer(wallet, target, request.data.get('amount'),
-                             note=str(request.data.get('note') or '')[:200],
+                             note=inputs.read_text(request.data, 'note', max_length=inputs.LONGEST_TEXT, strip=False)[:200],
                              pin=pin)
         except wallets.WalletError as exc:
             return _err(str(exc), exc.code)

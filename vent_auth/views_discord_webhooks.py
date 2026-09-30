@@ -37,6 +37,7 @@ from vent.settings import FRONTEND_URL
 from . import discord
 from .models_discord import DiscordWebhook
 from .views_profile import _user_from_bearer
+from . import inputs
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +107,7 @@ def webhooks(request, kind, ref):
             'message': 'Discord channels.',
         })
 
-    url = str(request.data.get('url') or '').strip()
+    url = inputs.read_text(request.data, 'url', max_length=500)
     if not url.startswith('https://discord.com/api/webhooks/') \
             and not url.startswith('https://discordapp.com/api/webhooks/'):
         return Response(
@@ -124,7 +125,7 @@ def webhooks(request, kind, ref):
 
     hook = DiscordWebhook(
         url=url,
-        label=str(request.data.get('label') or '')[:80],
+        label=inputs.read_text(request.data, 'label', max_length=inputs.LONGEST_TEXT, strip=False)[:80],
         events=wanted,
         added_by=user,
         **filt,
@@ -181,10 +182,10 @@ def webhook_detail(request, kind, ref, hook_id):
 
     fields = []
     if 'active' in request.data:
-        hook.active = bool(request.data.get('active'))
+        hook.active = inputs.read_bool(request.data, 'active')
         fields.append('active')
     if 'label' in request.data:
-        hook.label = str(request.data.get('label') or '')[:80]
+        hook.label = inputs.read_text(request.data, 'label', max_length=inputs.LONGEST_TEXT, strip=False)[:80]
         fields.append('label')
     if isinstance(request.data.get('events'), list):
         valid = {c[0] for c in DiscordWebhook.EVENT_CHOICES}

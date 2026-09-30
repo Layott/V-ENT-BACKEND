@@ -27,6 +27,7 @@ from vent_auth.actors import actor_from_request, may_override
 
 from .models import Sponsor, SponsorLink
 from vent_auth import uploads
+from vent_auth import inputs
 
 MAX_NAME = 100
 MAX_URL = 500
@@ -111,7 +112,7 @@ def event_sponsors(request, event_id):
         return _ok({'sponsors': [serialize_sponsor(s, request) for s in rows]},
                    'Sponsors and partners')
 
-    name = (request.data.get('name') or '').strip()
+    name = inputs.read_text(request.data, 'name', max_length=inputs.LONGEST_TEXT)
     if not name:
         return _err('Give the sponsor a name.', 'VALIDATION_ERROR', field='name')
 
@@ -124,10 +125,10 @@ def event_sponsors(request, event_id):
     sponsor = Sponsor.objects.create(
         event=event,
         name=name[:MAX_NAME],
-        kind=_clean_kind(request.data.get('kind')),
+        kind=_clean_kind(inputs.read_text(request.data, 'kind', max_length=40)),
         logo=request.FILES.get('logo'),
-        logo_url=(request.data.get('logo_url') or '').strip()[:MAX_URL] or None,
-        website=(request.data.get('website') or '').strip()[:MAX_URL] or None,
+        logo_url=inputs.read_text(request.data, 'logo_url', max_length=inputs.LONGEST_TEXT)[:MAX_URL] or None,
+        website=inputs.read_text(request.data, 'website', max_length=inputs.LONGEST_TEXT)[:MAX_URL] or None,
         sort_order=(last.sort_order + 1) if last else 0,
     )
     return _ok({'sponsor': serialize_sponsor(sponsor, request)},
@@ -148,17 +149,17 @@ def event_sponsor(request, event_id, sponsor_id):
         return _ok({'removed': sponsor_id}, 'Removed.')
 
     if 'name' in request.data:
-        name = (request.data.get('name') or '').strip()
+        name = inputs.read_text(request.data, 'name', max_length=inputs.LONGEST_TEXT)
         if not name:
             return _err('Give the sponsor a name.', 'VALIDATION_ERROR',
                         field='name')
         sponsor.name = name[:MAX_NAME]
 
     if 'kind' in request.data:
-        sponsor.kind = _clean_kind(request.data.get('kind'), sponsor.kind)
+        sponsor.kind = _clean_kind(inputs.read_text(request.data, 'kind', max_length=40), sponsor.kind)
 
     if 'website' in request.data:
-        sponsor.website = (request.data.get('website') or '').strip()[:MAX_URL] or None
+        sponsor.website = inputs.read_text(request.data, 'website', max_length=inputs.LONGEST_TEXT)[:MAX_URL] or None
 
     # A new file replaces the old one. An empty value is left alone rather than
     # treated as "remove the logo": a form that submits every field would then
@@ -169,8 +170,8 @@ def event_sponsor(request, event_id, sponsor_id):
     if request.FILES.get('logo'):
         sponsor.logo = request.FILES['logo']
         sponsor.logo_url = None
-    elif (request.data.get('logo_url') or '').strip():
-        sponsor.logo_url = request.data['logo_url'].strip()[:MAX_URL]
+    elif inputs.read_text(request.data, 'logo_url', max_length=inputs.LONGEST_TEXT):
+        sponsor.logo_url = inputs.read_text(request.data, 'logo_url', max_length=inputs.LONGEST_TEXT)[:MAX_URL]
 
     sponsor.save()
     return _ok({'sponsor': serialize_sponsor(sponsor, request)}, 'Saved.')
