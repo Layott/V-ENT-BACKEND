@@ -1727,6 +1727,9 @@ class BroadcastSession(models.Model):
     # whether a surface stays behind. Any one graphic may differ; see
     # `presentation.resolve`.
     defaults = models.JSONField(default=dict, blank=True)
+    # The overlay style (inbox 393): fonts, colours and logos every designed
+    # overlay follows unless changed on that overlay. See overlay_style.py.
+    style = models.JSONField(default=dict, blank=True)
 
     # Which LOOK the graphics are drawn in.
     #
@@ -1886,6 +1889,10 @@ class BroadcastElement(models.Model):
     # Graphics that draw a clip or a picture the organiser uploaded, rather
     # than data the platform computes.
     MEDIA_KINDS = ['media']
+
+    # Drawn in the browser from a design the organiser edits (inbox 390). Their
+    # settings are carried into the next broadcast (inbox 393).
+    DESIGNED_KINDS = ['starting_soon', 'transition']
 
     @classmethod
     def kinds_for(cls, kind_of_owner):
