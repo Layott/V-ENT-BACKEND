@@ -137,6 +137,12 @@ def user_search(request):
         # Somebody who is not findable should not be found here either.
         if not can_view_profile(viewer, user):
             continue
+        # "Indexable in search" off (inbox 399): not found by browsing or by a
+        # close match, only by somebody who already knows the exact username,
+        # so a friend can still message or pay them.
+        if (not privacy_of(user).get('indexable', True)
+                and query.lstrip('@').lower() != user.username.lower()):
+            continue
 
         profile = UserProfile.objects.filter(user=user).order_by('profile_id').first()
         rows.append({

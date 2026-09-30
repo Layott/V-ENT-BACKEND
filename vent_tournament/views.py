@@ -795,6 +795,24 @@ MOST_PLACES = 1024
 MOST_COINS = Decimal('100000000')
 
 
+def prize_row(prize):
+    """One place of the prize table, as every screen reads it (inbox 403).
+
+    `prize` is the coins that pay out. `amount` and `currency` are what the
+    organiser typed: reopening a draft drew the coin figure beside the naira
+    the organiser had chosen, and saving it again converted it a second time.
+    """
+    return {
+        "id": prize.id,
+        "position": prize.position,
+        "prize": str(prize.prize),
+        "amount": str(prize.amount_original) if prize.amount_original is not None else None,
+        "currency": prize.currency or "VC",
+        "extras": prize.extras,
+        "extras_amount": str(prize.extras_amount) if prize.extras_amount is not None else None,
+    }
+
+
 def _prize_error(code, field, message):
     return Response({'status': 'error', 'code': code, 'field': field,
                      'message': message, 'data': {}},
@@ -1512,15 +1530,7 @@ def get_all_tournaments(request):
     # Prize Distributions Serializer
     def get_prize_list(tournament):
         prize_distributions = TournamentPrizeDistribution.objects.filter(tournament=tournament)
-        return [
-            {
-                "id": prize.id,
-                "position": prize.position,
-                "prize": str(prize.prize),
-                "extras": prize.extras
-            }
-            for prize in prize_distributions
-        ]
+        return [prize_row(prize) for prize in prize_distributions]
 
     # Matches Serializer
     def get_match_list(tournament):
@@ -1651,15 +1661,7 @@ def view_tournament(request, tournament_id):
 
         # Prize Distributions
         prize_distributions = TournamentPrizeDistribution.objects.filter(tournament=tournament)
-        prize_list = [
-            {
-                "id": prize.id,
-                "position": prize.position,
-                "prize": str(prize.prize),
-                "extras": prize.extras
-            }
-            for prize in prize_distributions
-        ]
+        prize_list = [prize_row(prize) for prize in prize_distributions]
 
         # Matches
         matches = Match.objects.filter(tournament=tournament)

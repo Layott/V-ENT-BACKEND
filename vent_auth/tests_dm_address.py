@@ -83,7 +83,7 @@ class DmAddressTests(TestCase):
         stranger = _user('cee')
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {_token(stranger)}')
         res = self.client.get(f'/dm/{convo.slug}/')
-        self.assertEqual(res.status_code, 403, res.data)
+        self.assertEqual(res.status_code, 404, res.data)  # the same as a key that does not exist (R88)
 
     def test_an_unknown_token_is_not_found_rather_than_a_crash(self):
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {_token(self.recipient)}')

@@ -950,6 +950,9 @@ def public_profile(request, user_id):
             'user_id': user.user_id,
             'username': user.username,
             'full_name': user.full_name,
+            # "Indexable in search" (inbox 399): the profile page reads this
+            # and asks search engines to leave it out.
+            'indexable': bool(privacy.get('indexable', True)),
             'country': user.country if privacy.get('show_location', True) else None,
             'state': user.state if privacy.get('show_location', True) else None,
             'email': user.email if privacy.get('show_email') else None,
