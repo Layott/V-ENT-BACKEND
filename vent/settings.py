@@ -35,6 +35,10 @@ SECRET_KEY = os.environ.get("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
+# Django's /admin/: mounted locally, off in production unless asked for
+# (vent/urls.py, inbox 400).
+DJANGO_ADMIN_ENABLED = DEBUG or os.environ.get('DJANGO_ADMIN_ENABLED') == '1'
+
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 # Whether subscriptions are open, as a decision rather than an accident.
