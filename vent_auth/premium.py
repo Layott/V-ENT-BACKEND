@@ -45,6 +45,9 @@ FEATURES = {
     'advanced_streaming': 'Live data and graphics into a stream',
     'financial_analytics': 'Entry fees, sponsorship and payouts, broken down',
     'media_export': 'Logos and media files, in a bundle',
+    # CEO, 30 September 2026 (inbox 391, 397): the studio's designed overlays,
+    # transitions and elements downloaded as pictures and videos.
+    'overlay_downloads': 'Overlays, transitions and elements downloaded as pictures and videos',
 }
 
 

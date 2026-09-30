@@ -7,6 +7,8 @@ feed, and carried into the next broadcast with each overlay's own settings.
 """
 from django.test import SimpleTestCase, TestCase
 
+from vent_auth import premium
+
 from . import overlay_style
 from .models import BroadcastElement
 from .tests_studio import StudioTests
@@ -81,3 +83,18 @@ class Served(TestCase):
         # Nothing comes across on air, and nothing that is not a design.
         self.assertFalse(rows['starting_soon'].is_active)
         self.assertNotIn('scorebar', rows)
+
+
+class PremiumDownloads(TestCase):
+    """Inbox 391 and 397: downloading overlays is a premium feature."""
+    setUp = StudioTests.setUp
+    start = StudioTests.start
+
+    def test_the_session_says_whether_the_owner_may_download(self):
+        self.assertIn('overlay_downloads', premium.FEATURES)
+        s = self.start().json()['data']['session']
+        self.assertFalse(s['may_download_overlays'])
+        self.organiser.is_premium = True
+        self.organiser.save(update_fields=['is_premium'])
+        s = self.start('Day 2').json()['data']['session']
+        self.assertTrue(s['may_download_overlays'])
