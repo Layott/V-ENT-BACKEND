@@ -81,7 +81,7 @@ class TournamentStudioMatrixTests(TestCase):
         kinds = [k for k, _ in BroadcastElement.TOURNAMENT_KINDS]
         # 19 until 4 September, then the desk lower third, the matchday card
         # and the two camera frames off the CEO's stream elements sheet.
-        self.assertEqual(len(kinds), 25, 'the catalogue changed; update this')
+        self.assertEqual(len(kinds), 33, 'the catalogue changed; update this')
 
         for kind in kinds:
             res = self.push(kind, {'active': True, 'payload': {'title': 'X'}})
@@ -247,7 +247,7 @@ class EventStudioMatrixTests(TestCase):
         # frames, which belong to whoever is broadcasting rather than to a
         # tournament. The matchday card is not among them: it draws a day of
         # aggregate fixtures, which an event has none of.
-        self.assertEqual(len(kinds), 14, 'the catalogue changed; update this')
+        self.assertEqual(len(kinds), 22, 'the catalogue changed; update this')
         for kind in kinds:
             res = self.push(kind, {'active': True, 'payload': {'title': 'X'}})
             self.assertEqual(res.status_code, 200,
