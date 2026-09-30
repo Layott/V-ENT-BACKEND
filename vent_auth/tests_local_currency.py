@@ -79,6 +79,17 @@ class QuoteTests(Base):
                 fx.redeem(q['quote'], 'GHS', Decimal('5000'))
         self.assertEqual(caught.exception.code, 'QUOTE_EXPIRED')
 
+    def test_below_the_floor_a_currency_is_not_offered(self):
+        """0.99 USD is refused by Flutterwave; 1,000 naira is about 0.74."""
+        AdminSetting.put(fx.SETTING_SECTION, currencies=['GHS', 'XOF', 'USD'])
+        with patch.dict(RATES, {'USD': Decimal('1353.39')}):
+            with self.assertRaises(fx.CurrencyError) as caught:
+                fx.quote(Decimal('1000'), 'USD')
+            self.assertEqual(caught.exception.code, 'CURRENCY_BELOW_MINIMUM')
+            self.assertEqual(fx.quote(Decimal('5000'), 'USD')['amount'], '3.70')
+            res = self.client.get('/auth/pay/currencies/?amount_ngn=1000')
+            self.assertNotIn('USD', [c['code'] for c in res.json()['data']['currencies']])
+
     def test_the_default_is_the_payers_own_currency(self):
         self.assertEqual(fx.for_country('Ghana'), 'GHS')
         self.assertEqual(fx.for_country('Senegal'), 'XOF')

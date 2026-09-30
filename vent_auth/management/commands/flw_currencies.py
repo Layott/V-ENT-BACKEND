@@ -6,7 +6,7 @@
 A currency is offered to payers only after Flutterwave has accepted a checkout
 in it on THIS account: a rate existing says nothing about whether the account
 may collect in that currency. The probe asks for a hosted checkout link for
-1,000 naira's worth with that currency's methods; a link is not a charge, and
+20,000 naira's worth with that currency's methods; a link is not a charge, and
 an unused link expires on its own. The answer is recorded in the admin
 settings under `flutterwave.currencies` with the date, and NGN is always on.
 """
@@ -42,7 +42,11 @@ class Command(BaseCommand):
                 continue
             try:
                 per_unit = fx.rate(code)
-                amount = fx.amount_in(code, Decimal('1000'), per_unit)
+                # 20,000 naira's worth: 1,000 was under the 1.00 floor in USD,
+                # GBP and EUR, which Flutterwave refuses as "parameters missing"
+                # and which read as the currency itself being refused.
+                amount = max(fx.amount_in(code, Decimal('20000'), per_unit),
+                             fx.MINIMUM.get(code, Decimal('0')))
                 flutterwave._call('POST', '/payments', {
                     'tx_ref': flutterwave.new_reference('PROBE'),
                     'amount': str(amount),
@@ -53,7 +57,7 @@ class Command(BaseCommand):
                     'payment_options': ', '.join(fx.CURRENCIES[code]['methods'].split(',')),
                 })
                 accepted.append(code)
-                self.stdout.write('%s accepted (%s %s for 1,000 NGN)' % (code, amount, code))
+                self.stdout.write('%s accepted (%s %s for 20,000 NGN)' % (code, amount, code))
             except (flutterwave.Refused, fx.CurrencyError) as exc:
                 refused[code] = str(exc)[:120]
                 self.stdout.write('%s refused: %s' % (code, str(exc)[:120]))
