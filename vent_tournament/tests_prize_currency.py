@@ -77,3 +77,23 @@ class ContinueDraftGameTests(PrizeCurrencyTests):
         self.assertEqual(res.status_code, 200, res.content[:300])
         self.tournament.refresh_from_db()
         self.assertEqual(self.tournament.tournament_description, 'kept')
+
+
+class EditIsAllOrNothingTests(PrizeCurrencyTests):
+    """A refusal late in an edit writes nothing (inbox 406): the prize table is
+    rewritten early in the request and used to stay rewritten."""
+
+    def test_a_refused_edit_leaves_the_prize_table_alone(self):
+        before = self.coins()
+        res = self.client.put(
+            '/tournament/edit-tournament/%d/' % self.tournament.tournament_id,
+            data={'prize_currency': 'VC', 'tournament_description': 'changed',
+                  'prize_data': [{'position': 1, 'amount': '999', 'currency': 'VC'}],
+                  'game': 'No Such Game At All'},
+            content_type='application/json', **self.auth)
+        self.assertEqual(res.status_code, 400, res.content[:300])
+        self.assertEqual(res.data['code'], 'GAME_NOT_FOUND')
+        self.tournament.refresh_from_db()
+        self.assertEqual(self.coins(), before)
+        self.assertEqual(self.tournament.tournament_description, 'x')
+        self.assertEqual(self.tournament.prize_currency, 'NGN')

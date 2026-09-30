@@ -53,11 +53,12 @@ def _err(message, code, http=status.HTTP_400_BAD_REQUEST, field=None):
 
 
 def _viewer(request):
-    header = request.headers.get('Authorization') or ''
-    if not header.startswith('Bearer '):
-        return None
-    token = header.split(' ', 1)[1].strip()
-    return Users.objects.filter(login_session_token=token).first() if token else None
+    """The signed-in person, or None. Through the one bearer check, so an
+    expired session is refused here as it is everywhere else (1 Oct 2026:
+    this door looked the token up and never asked how old it was)."""
+    from .views_profile import _user_from_bearer
+    user, err = _user_from_bearer(request)
+    return None if err is not None else user
 
 
 def _target(username):
@@ -269,3 +270,32 @@ def my_safety_state(request, username):
             status__in=('open', 'reviewing')).exists(),
         'reasons': [{'key': k, 'label': v} for k, v in UserReport.REASONS],
     }, 'Safety state')
+
+
+@api_view(['GET'])
+def my_safety_people(request):
+    """GET /safety/people/ - everybody this person has blocked or muted.
+
+    Settings > Privacy > Manage block list (CEO, 1 October 2026, inbox 405).
+    Blocking worked from a profile for weeks and there was nowhere to see who
+    you had blocked, or to take it back without finding their profile again.
+    Only your own rows: the person is always the session, never a parameter.
+    """
+    from .views_community import _person
+    user = _viewer(request)
+    if user is None:
+        return _err('Sign in to see who you have blocked.', 'NOT_AUTHENTICATED',
+                    status.HTTP_401_UNAUTHORIZED)
+    now = timezone.now()
+    blocked = (UserBlock.objects.filter(blocker=user).select_related('blocked')
+               .order_by('-created_at'))
+    muted = (UserMute.objects.filter(muter=user)
+             .filter(Q(until__isnull=True) | Q(until__gt=now))
+             .select_related('muted').order_by('-created_at'))
+    return _ok({
+        'blocked': [dict(_person(request, row.blocked), since=row.created_at.isoformat())
+                    for row in blocked],
+        'muted': [dict(_person(request, row.muted), since=row.created_at.isoformat(),
+                       until=row.until.isoformat() if row.until else None)
+                  for row in muted],
+    }, 'Blocked and muted')

@@ -242,3 +242,36 @@ class SafetyStateTests(TestCase):
         res = self.client.get('/user/%s/safety/' % self.them.username)
         self.assertEqual(res.status_code, 200)
         self.assertFalse(res.json()['data']['blocked'])
+
+
+class BlockListTests(BlockTests):
+    """Settings > Privacy > Manage block list (inbox 405, 1 Oct 2026)."""
+
+    def people(self, auth=None):
+        return self.client.get('/safety/people/', **(auth if auth is not None else self.my_auth))
+
+    def test_a_block_is_listed_and_taking_it_back_removes_it(self):
+        self.block(True)
+        res = self.people()
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual([p['username'] for p in res.data['data']['blocked']], [self.them.username])
+        self.assertIn('avatar', res.data['data']['blocked'][0])
+        self.block(False)
+        self.assertEqual(self.people().data['data']['blocked'], [])
+
+    def test_a_blocked_person_cannot_message(self):
+        self.block(True)
+        res = self.client.post('/dm/new/send/', {'username': self.me.username, 'body': 'hi'},
+                               content_type='application/json', **self.their_auth)
+        self.assertIn(res.status_code, (403, 404), res.data)
+
+    def test_the_list_is_only_ever_your_own(self):
+        self.block(True)
+        self.assertEqual(self.people(self.their_auth).data['data']['blocked'], [])
+        self.assertEqual(self.people({}).status_code, 401)
+
+    def test_an_expired_session_cannot_block(self):
+        Users.objects.filter(pk=self.me.pk).update(
+            login_session_created_at=timezone.now() - timedelta(days=400))
+        self.assertEqual(self.block(True).status_code, 401)
+        self.assertFalse(UserBlock.objects.exists())
