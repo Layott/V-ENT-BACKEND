@@ -33,6 +33,16 @@ class DesignedKinds(TestCase):
                 self.assertIn('transition', kinds)
         self.assertLessEqual(max(len(k) for k, _ in BroadcastElement.KINDS), 20)
 
+    def test_every_designed_kind_is_on_both_studios(self):
+        """Inbox 394: the whole GENERAL OVERLAYS set, and a design carried into
+        the next broadcast must be one either kind of broadcast can show."""
+        self.assertEqual(len(BroadcastElement.DESIGNED_KINDS), 10)
+        for owner in ('tournament', 'event'):
+            kinds = [k for k, _ in BroadcastElement.kinds_for(owner)]
+            for kind in BroadcastElement.DESIGNED_KINDS:
+                with self.subTest(owner=owner, kind=kind):
+                    self.assertIn(kind, kinds)
+
 
 class TournamentDesigned(TestCase):
     """On a tournament broadcast, with the studio tests' own set-up and calls."""

@@ -1851,6 +1851,15 @@ class BroadcastElement(models.Model):
         # (the settings) and `play` (bumped to replay a transition on air).
         ('starting_soon', 'Starting soon'),
         ('transition', 'Transition'),
+        # The rest of the GENERAL OVERLAYS set (inbox 394).
+        ('brb', 'Be right back'),
+        ('stream_ended', 'Stream ended'),
+        ('champions', 'Champions'),
+        ('streamer_single', 'Streamer frame'),
+        ('streamer_double', 'Two streamers frame'),
+        ('streamer_gameplay', 'Streamer and game frame'),
+        ('name_tag', 'Name tag'),
+        ('match_lower_third', 'Match lower third'),
     ]
     EVENT_KINDS = [
         ('now_next', 'Now and next'),
@@ -1873,6 +1882,15 @@ class BroadcastElement(models.Model):
         # Every broadcast starts and cuts between scenes, tournament or event.
         ('starting_soon', 'Starting soon'),
         ('transition', 'Transition'),
+        # The rest of the GENERAL OVERLAYS set (inbox 394).
+        ('brb', 'Be right back'),
+        ('stream_ended', 'Stream ended'),
+        ('champions', 'Champions'),
+        ('streamer_single', 'Streamer frame'),
+        ('streamer_double', 'Two streamers frame'),
+        ('streamer_gameplay', 'Streamer and game frame'),
+        ('name_tag', 'Name tag'),
+        ('match_lower_third', 'Match lower third'),
     ]
     # The column's choices: every kind either side may use. Written out rather
     # than computed, because a class body cannot see its own names from inside
@@ -1892,7 +1910,9 @@ class BroadcastElement(models.Model):
 
     # Drawn in the browser from a design the organiser edits (inbox 390). Their
     # settings are carried into the next broadcast (inbox 393).
-    DESIGNED_KINDS = ['starting_soon', 'transition']
+    DESIGNED_KINDS = ['starting_soon', 'transition', 'brb', 'stream_ended', 'champions',
+                      'streamer_single', 'streamer_double', 'streamer_gameplay',
+                      'name_tag', 'match_lower_third']
 
     @classmethod
     def kinds_for(cls, kind_of_owner):
