@@ -48,6 +48,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from . import presentation
+from vent_auth import premium
 from . import overlay_style
 from . import text_layers
 from .models import (
@@ -271,6 +272,11 @@ def _session_payload(session, request):
         'theme': session.theme,
         # The overlay style every designed overlay follows (inbox 393).
         'style': session.style or {},
+        # Whether the downloads are this owner's (inbox 397). The pictures and
+        # videos are made in the organiser's browser from what the browser
+        # source already draws, so this decides what the console offers; it
+        # cannot stop a screen recording, and nothing here pretends it can.
+        'may_download_overlays': premium.has_premium(session.owner),
         'themes': [{'value': v, 'label': label}
                    for v, label in BroadcastSession.THEMES],
         'version': _version(session, elements),
