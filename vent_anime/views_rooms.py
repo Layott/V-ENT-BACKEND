@@ -18,6 +18,7 @@ from . import access, catalogue, rooms
 from .models import (Chapter, ReadingRoom, RoomAnnotation, RoomInvite,
                      RoomMember, RoomMessage, RoomSignal, Series)
 from .views_series import _err, _ok, _person, _viewer
+from vent_auth import inputs
 
 
 def _need_user(request):
@@ -281,7 +282,7 @@ def room_chat(request, token):
         room=room, author=user,
         kind='reaction' if emoji else 'chat',
         body=body[:1000], emoji=emoji[:16],
-        page_number=int(request.data.get('page') or room.page_number))
+        page_number=inputs.read_int(request.data, 'page', default=room.page_number))
     if member is not None:
         member.messages_sent += 1
         member.save(update_fields=['messages_sent'])
@@ -326,12 +327,12 @@ def room_annotations(request, token):
 
     row = RoomAnnotation.objects.create(
         room=room, author=user, chapter=room.chapter,
-        page_number=int(request.data.get('page') or room.page_number),
+        page_number=inputs.read_int(request.data, 'page', default=room.page_number),
         kind=kind,
-        x=float(request.data.get('x') or 0),
-        y=float(request.data.get('y') or 0),
-        w=float(request.data.get('w') or 0),
-        h=float(request.data.get('h') or 0),
+        x=inputs.read_float(request.data, 'x', default=0),
+        y=inputs.read_float(request.data, 'y', default=0),
+        w=inputs.read_float(request.data, 'w', default=0),
+        h=inputs.read_float(request.data, 'h', default=0),
         text=str(request.data.get('text') or '')[:500],
         path=request.data.get('path') or [])
     room.bump()

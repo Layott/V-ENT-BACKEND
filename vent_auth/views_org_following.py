@@ -30,6 +30,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from .models import OrgFollower, Users
+from . import inputs
 
 
 def _ok(data, message=''):
@@ -103,7 +104,7 @@ def following_feed(request):
                    'You are not following any organizations yet.')
 
     try:
-        limit = max(1, min(int(request.GET.get('limit') or 40), 100))
+        limit = max(1, min(inputs.read_int(request.GET, 'limit', default=40), 100))
     except (TypeError, ValueError):
         limit = 40
 

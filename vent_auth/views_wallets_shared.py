@@ -28,6 +28,7 @@ from rest_framework.response import Response
 from . import wallets
 from .models import (OrgMember, Organization, TeamMembers, Teams,
                      UserWallet, Users)
+from . import inputs
 
 
 def _ok(data, message=''):
@@ -220,7 +221,7 @@ def _handle(request, owner, wallet, may_read, may_spend, what, viewer=None):
                 create_notification(
                     target.user, 'wallet',
                     'You received %d VC from %s' % (
-                        int(request.data.get('amount') or 0),
+                        inputs.read_int(request.data, 'amount', default=0),
                         wallets.describe(wallet)),
                     link='/wallets',
                     metadata={'from': wallets.describe(wallet)})

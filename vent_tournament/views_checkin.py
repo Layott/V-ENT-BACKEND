@@ -31,6 +31,7 @@ from .services import wallet as wallet_service
 from .models import Tournament, TournamentRegistration
 
 from . import lookup
+from vent_auth import inputs
 
 
 def _ok(data, message='OK'):
@@ -310,7 +311,7 @@ def extend_check_in(request, tournament_id):
                     status.HTTP_403_FORBIDDEN)
 
     try:
-        minutes = int(request.data.get('minutes') or 0)
+        minutes = inputs.read_int(request.data, 'minutes', default=0)
     except (TypeError, ValueError):
         minutes = 0
     if minutes < 1 or minutes > 240:

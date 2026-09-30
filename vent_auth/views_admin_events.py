@@ -37,6 +37,7 @@ from rest_framework.response import Response
 
 from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .models import AdminAction
+from . import inputs
 
 logger = logging.getLogger(__name__)
 
@@ -443,8 +444,8 @@ def admin_event_tickets(request, event_ref):
         qs = qs.filter(status=wanted)
 
     try:
-        page = max(1, int(request.GET.get('page', 1)))
-        page_size = min(100, max(1, int(request.GET.get('page_size', 25))))
+        page = max(1, inputs.read_int(request.GET, 'page', default=1))
+        page_size = min(100, max(1, inputs.read_int(request.GET, 'page_size', default=25)))
     except (TypeError, ValueError):
         page, page_size = 1, 25
     offset = (page - 1) * page_size

@@ -16,6 +16,7 @@ from . import squad_rules as rules_engine
 from .models import GameCard, Lineup, LineupRules, LineupSlot, SquadRules
 from .views import _err, _ok, _tournament, _viewer, serialize_lineup
 from vent_auth.errors import server_error
+from vent_auth import inputs
 
 
 def _rules_payload(rules, window):
@@ -88,7 +89,7 @@ def lineup_rules(request, tournament_id):
 
     if 'changes_allowed' in request.data:
         try:
-            rules.changes_allowed = max(0, int(request.data.get('changes_allowed') or 0))
+            rules.changes_allowed = max(0, inputs.read_int(request.data, 'changes_allowed', default=0))
         except (TypeError, ValueError):
             return _err('That is a number of swaps.', 'VALIDATION_ERROR',
                         field='changes_allowed')

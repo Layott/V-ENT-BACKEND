@@ -26,6 +26,8 @@ from vent_auth.models import Users
 
 from .models import StudioAsset
 from .production_access import find_owner, may_run_production, viewer as _viewer
+from vent_auth import uploads
+from vent_auth import inputs
 
 # What a browser source can actually play, and what a phone can actually
 # upload over a Nigerian connection. Both halves matter.
@@ -58,6 +60,10 @@ FONT_TYPES = {'.woff2': 'font', '.woff': 'font', '.ttf': 'font', '.otf': 'font'}
 
 ACCEPTED = dict(VIDEO_TYPES, **IMAGE_TYPES)
 ACCEPTED.update(FONT_TYPES)
+
+# What the bytes of each accepted kind may be (vent_auth.uploads). The
+# extension says which kind was claimed; the sniff decides whether it is true.
+ASSET_KINDS = {'video': ('video',), 'image': ('image', 'gif'), 'font': ('font',)}
 
 MAX_FILE_BYTES = 200 * 1024 * 1024      # one clip
 MAX_LIBRARY_BYTES = 2 * 1024 * 1024 * 1024   # everything one studio holds
@@ -153,6 +159,9 @@ def _assets(request, owner, kind):
         return _err('One file can be up to %d MB.' % (MAX_FILE_BYTES // (1024 * 1024)),
                     'FILE_TOO_LARGE', field='file')
 
+    refused = uploads.files_refusal(request, 'file', kinds=ASSET_KINDS[ACCEPTED[extension]], max_bytes=MAX_FILE_BYTES)
+    if refused:
+        return refused
     used = sum(a.size_bytes for a in rows)
     if used + upload.size > MAX_LIBRARY_BYTES:
         return _err(
@@ -174,7 +183,7 @@ def _assets(request, owner, kind):
                         status.HTTP_404_NOT_FOUND, field='player')
 
     try:
-        duration = int(request.data.get('duration_ms') or 0)
+        duration = inputs.read_int(request.data, 'duration_ms', default=0)
     except (TypeError, ValueError):
         duration = 0
 

@@ -23,6 +23,7 @@ from vent_auth.actors import actor_from_request, may_override
 
 from .models import ScheduledReminder, Tournament
 from .views_reminders import KINDS
+from vent_auth import inputs
 
 # More than this and an organiser is writing a newsletter, not a reminder.
 MAX_PER_TOURNAMENT = 10
@@ -141,7 +142,7 @@ def scheduled_reminders(request, tournament_id):
                         'out.', 'VALIDATION_ERROR')
     else:
         try:
-            offset_minutes = int(request.data.get('offset_minutes', 60))
+            offset_minutes = inputs.read_int(request.data, 'offset_minutes', default=60)
         except (TypeError, ValueError):
             return _err('The offset has to be a number of minutes.',
                         'VALIDATION_ERROR')

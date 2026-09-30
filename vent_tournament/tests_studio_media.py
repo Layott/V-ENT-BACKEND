@@ -26,6 +26,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from vent_auth.models import Games, TeamMembers, Teams, Users, UserWallet
+from vent_auth import testfiles
 from vent_event.models import Event
 
 from . import presentation
@@ -50,7 +51,7 @@ def a_clip(name='walkon.mp4', content=b'\x00\x00\x00\x18ftypmp42'):
 
 
 def a_picture(name='crest.png'):
-    return SimpleUploadedFile(name, b'\x89PNG\r\n\x1a\n', content_type='image/png')
+    return SimpleUploadedFile(name, testfiles.png(), content_type='image/png')
 
 
 class PresentationTests(TestCase):

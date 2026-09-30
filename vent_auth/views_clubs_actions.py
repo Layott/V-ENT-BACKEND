@@ -23,6 +23,7 @@ from .views_clubs import (
     MAX_BODY, _capabilities, _club_or_error, _may_read, _membership, _moved,
     _serialize_member, _serialize_message, _serialize_topic,
 )
+from . import inputs
 
 
 # ---------------------------------------------------------------------------
@@ -484,7 +485,7 @@ def club_mute_member(request, club_ref):
                       'FORBIDDEN', status.HTTP_403_FORBIDDEN)
 
     try:
-        minutes = int(request.data.get('minutes', 60))
+        minutes = inputs.read_int(request.data, 'minutes', default=60)
     except (TypeError, ValueError):
         return _error('minutes must be a number.', 'VALIDATION',
                       status.HTTP_400_BAD_REQUEST)

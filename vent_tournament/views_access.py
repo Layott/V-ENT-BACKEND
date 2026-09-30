@@ -34,6 +34,7 @@ from vent_auth import premium
 from . import documents
 from .models import Tournament, TournamentInvite, TournamentRegistration
 from vent_auth.text import count as _count
+from vent_auth import inputs
 
 # No I, O, 0 or 1. These get read off a phone screen and typed by somebody in a
 # hurry, and those four are the pairs that get mistyped.
@@ -154,7 +155,7 @@ def invites(request, tournament_id):
     given = request.data.get('codes')
     label = str(request.data.get('label') or '')[:120]
     try:
-        max_uses = max(1, int(request.data.get('max_uses') or 1))
+        max_uses = max(1, inputs.read_int(request.data, 'max_uses', default=1))
     except (TypeError, ValueError):
         return _err('Uses has to be a whole number.', 'INVALID_NUMBER')
 
@@ -169,7 +170,7 @@ def invites(request, tournament_id):
                   for c in given.replace(',', '\n').splitlines() if c.strip()]
     else:
         try:
-            count = int(request.data.get('count') or 0)
+            count = inputs.read_int(request.data, 'count', default=0)
         except (TypeError, ValueError):
             return _err('How many has to be a whole number.', 'INVALID_NUMBER')
         if count < 1:

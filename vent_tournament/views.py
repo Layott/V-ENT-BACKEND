@@ -48,6 +48,7 @@ from . import formats as _formats
 # Used by the Discord announce hook below, which must never let a logging
 # call be the thing that raises inside its own except block.
 import logging
+from vent_auth import uploads
 logger = logging.getLogger(__name__)
 
 
@@ -915,6 +916,12 @@ def create_tournament(request):
             tournament_logo = request.FILES.get('tournament_logo')
             tournament_banner = request.FILES.get('tournament_banner')
             rules_document = request.FILES.get('rules_document')
+            refused = uploads.files_refusal(request, ('tournament_logo', 'tournament_banner', 'sponsor_logos'))
+            if refused:
+                return refused
+            refused = uploads.files_refusal(request, 'rules_document', kinds=('pdf', 'document'), max_bytes=12 * 1024 * 1024)
+            if refused:
+                return refused
             tournament_access = request.data.get('tournament_access')
             team_size = request.data.get('team_size', 1)
             min_number_of_participants = request.data.get('min_number_of_participants', 0)
@@ -2194,6 +2201,12 @@ def edit_tournament(request, tournament_id):
         if not is_owner and not acting_as_admin:
             return Response({ 'code': 'ONLY_TOURNAMENT_ORGANIZER_CAN','status': 'error', 'message': 'Only the tournament organizer can edit this tournament'}, status=status.HTTP_403_FORBIDDEN)
 
+        refused = uploads.files_refusal(request, ('tournament_logo', 'tournament_banner', 'sponsor_logos'))
+        if refused:
+            return refused
+        refused = uploads.files_refusal(request, 'rules_document', kinds=('pdf', 'document'), max_bytes=12 * 1024 * 1024)
+        if refused:
+            return refused
         # Editable fields (partial update - only update what's provided)
         editable_text = [
             'tournament_title', 'tournament_description', 'tournament_rules',

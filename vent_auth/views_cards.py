@@ -30,6 +30,7 @@ from rest_framework.response import Response
 from .models import SavedCard, Transaction, UserWallet
 from .views_profile import _user_from_bearer
 from .views_wallet import PAYSTACK_BASE, _ngn_to_coins, _paystack_headers
+from . import inputs
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +149,7 @@ def charge_saved_card(request):
         return err
 
     try:
-        amount_ngn = int(request.data.get('amount_ngn') or 0)
+        amount_ngn = inputs.read_int(request.data, 'amount_ngn', default=0)
     except (TypeError, ValueError):
         amount_ngn = 0
     if amount_ngn < 1000:

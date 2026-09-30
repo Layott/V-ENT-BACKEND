@@ -615,9 +615,11 @@ class SponsorLogoTests(CreateTournamentWithSponsorsEndpointTests):
 
     def _files(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from vent_auth import testfiles
         png = SimpleUploadedFile(
             'logo.png',
-            b'\x89PNG\r\n\x1a\n' + b'0' * 40,
+            testfiles.png(),
             content_type='image/png',
         )
         blank = SimpleUploadedFile(

@@ -21,6 +21,8 @@ from .models import (
     Scrim,
     Conversation, DirectMessage,
 )
+from . import uploads
+from . import inputs
 
 SESSION_TIMEOUT_MINUTES = 120
 PAGE_SIZE = 20
@@ -160,7 +162,7 @@ def post_list(request):
         qs = qs.filter(club_id__in=list(club_ids))
 
     try:
-        page = max(int(request.GET.get('page', 1)), 1)
+        page = max(inputs.read_int(request.GET, 'page', default=1), 1)
     except (TypeError, ValueError):
         page = 1
     start = (page - 1) * PAGE_SIZE
@@ -194,6 +196,9 @@ def post_create(request):
     # empty - the same fault as the organisation logo on 4 September.
     image = request.FILES.get('image')
 
+    refused = uploads.files_refusal(request, 'image')
+    if refused:
+        return refused
     if not body and not image:
         return _error('Write something or attach a picture first.',
                       'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
@@ -808,7 +813,7 @@ def scrim_create(request):
     # Squad is four a side, so a solo Clash Squad post would waste the time of
     # whoever accepted it.
     try:
-        team_size = int(request.data.get('team_size') or (1 if solo else mode['sizes'][-1]))
+        team_size = inputs.read_int(request.data, 'team_size', default=(1 if solo else mode['sizes'][-1]))
     except (TypeError, ValueError):
         return _error('Team size must be a number.', 'VALIDATION_ERROR',
                       status.HTTP_400_BAD_REQUEST)

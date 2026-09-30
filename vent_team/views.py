@@ -19,6 +19,7 @@ from vent_auth.models import (
     TeamJoinRequest,
 )
 from .serializers import serialize_team_card, serialize_team_detail, absolute_media_url, _collect_members
+from vent_auth import inputs
 
 SESSION_TIMEOUT_MINUTES = 120
 PAGE_SIZE = 12
@@ -115,7 +116,7 @@ def _decode_base64_image(data_url, name_slug):
 def _paginate(request, queryset):
     paginator = Paginator(queryset, PAGE_SIZE)
     try:
-        page_number = int(request.GET.get('page', 1))
+        page_number = inputs.read_int(request.GET, 'page', default=1)
     except (ValueError, TypeError):
         page_number = 1
     try:

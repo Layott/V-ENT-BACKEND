@@ -35,6 +35,7 @@ from . import wallets
 from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .models import (AdminAction, OrgMember, Organization, OrgWallet,
                      Users)
+from . import inputs
 
 READ_ROLES = ROLE_PERMISSIONS['view_organizations']
 MANAGE_ROLES = ROLE_PERMISSIONS['manage_organizations']
@@ -371,7 +372,7 @@ def admin_transfer_funds(request):
         target_model='Wallet', target_id=str(target.pk), reason=reason,
         metadata={'from': wallets.describe(source),
                   'to': wallets.describe(target),
-                  'amount': int(request.data.get('amount') or 0)})
+                  'amount': inputs.read_int(request.data, 'amount', default=0)})
     return _ok({'from': wallets.describe(source),
                 'to': wallets.describe(target)}, 'Moved.')
 

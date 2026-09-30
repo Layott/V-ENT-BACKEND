@@ -42,6 +42,7 @@ from vent_auth.models import Teams, TeamMembers, Users
 
 from .models import (
     Tournament, TournamentRegistration, TournamentSquad, SquadMember)
+from vent_auth import uploads
 
 
 def _error(message, code, http=status.HTTP_400_BAD_REQUEST, extra=None):
@@ -168,6 +169,9 @@ def squads(request, tournament_id):
         return _error('There is already a squad with that name in this '
                       'tournament.', 'ALREADY_EXISTS', status.HTTP_409_CONFLICT)
 
+    refused = uploads.files_refusal(request, 'logo')
+    if refused:
+        return refused
     squad = TournamentSquad.objects.create(
         tournament=tournament, name=name,
         tag=str(request.data.get('tag') or '').strip()[:8].upper(),

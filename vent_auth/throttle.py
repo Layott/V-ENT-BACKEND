@@ -24,6 +24,8 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 
+from . import security_log
+
 logger = logging.getLogger(__name__)
 
 
@@ -87,6 +89,7 @@ def limited(name, per_minute):
         def guarded(request, *args, **kwargs):
             if getattr(settings, 'AUTH_THROTTLE_ENABLED', True) \
                     and too_many(request, name, per_minute):
+                security_log.refused('rate_limited', request, door=name)
                 return Response(
                     {'status': 'error', 'code': 'TOO_MANY_ATTEMPTS',
                      'message': 'Too many attempts. Wait a minute and try again.',

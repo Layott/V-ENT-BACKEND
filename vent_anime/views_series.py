@@ -23,6 +23,8 @@ from . import access, catalogue, money
 from .models import (AnimeAd, Bookmark, Chapter, ChapterComment, Page,
                      PromoMessage, ReaderSettings, ReadingProgress, Series,
                      SeriesFollow, SeriesRating, SeriesSubscription, Volume)
+from vent_auth import uploads
+from vent_auth import inputs
 
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
@@ -236,10 +238,12 @@ def series_list(request):
             kind=kind, pricing=pricing, visibility=visibility,
             status=request.data.get('status') or 'ongoing',
             genres=genres[:8], tags=[str(t)[:40] for t in tags][:12],
-            chapter_price_vc=int(request.data.get('chapter_price_vc') or 0),
-            subscription_price_vc=int(
-                request.data.get('subscription_price_vc') or 0),
+            chapter_price_vc=inputs.read_int(request.data, 'chapter_price_vc', default=0),
+            subscription_price_vc=inputs.read_int(request.data, 'subscription_price_vc', default=0),
         )
+        refused = uploads.files_refusal(request, 'cover')
+        if refused:
+            return refused
         if request.FILES.get('cover'):
             series.cover = request.FILES['cover']
         series.save()
@@ -343,7 +347,7 @@ def series_detail(request, reference):
             setattr(series, field, value)
     for field in ('chapter_price_vc', 'subscription_price_vc'):
         if field in request.data:
-            setattr(series, field, max(0, int(request.data.get(field) or 0)))
+            setattr(series, field, max(0, inputs.read_int(request.data, field, default=0)))
     if 'genres' in request.data:
         genres = request.data.get('genres') or []
         if isinstance(genres, str):
@@ -354,6 +358,9 @@ def series_detail(request, reference):
         if isinstance(tags, str):
             tags = [t.strip() for t in tags.split(',') if t.strip()]
         series.tags = [str(t)[:40] for t in tags][:12]
+    refused = uploads.files_refusal(request, 'cover')
+    if refused:
+        return refused
     if request.FILES.get('cover'):
         series.cover = request.FILES['cover']
     series.save()
@@ -369,7 +376,7 @@ def series_volumes(request, reference):
     if viewer is None or series.author_id != viewer.user_id:
         return _err('That is not yours.', 'NOT_YOURS',
                     status.HTTP_403_FORBIDDEN)
-    number = int(request.data.get('number') or 0)
+    number = inputs.read_int(request.data, 'number', default=0)
     if number <= 0:
         return _err('Which volume?', 'NUMBER_REQUIRED')
     volume, created = Volume.objects.get_or_create(
@@ -405,14 +412,17 @@ def series_chapters(request, reference):
     volume = None
     if request.data.get('volume'):
         volume = Volume.objects.filter(
-            series=series, number=int(request.data['volume'])).first()
+            series=series, number=inputs.read_int(request.data, 'volume', required=True)).first()
 
+    refused = uploads.files_refusal(request, 'pages')
+    if refused:
+        return refused
     published_at = _as_instant(request.data.get('published_at'))
     chapter = Chapter(
         series=series, volume=volume, number=number,
         title=str(request.data.get('title') or '')[:200],
         published_at=published_at or None,
-        early_access_vc=max(0, int(request.data.get('early_access_vc') or 0)),
+        early_access_vc=max(0, inputs.read_int(request.data, 'early_access_vc', default=0)),
     )
     chapter.save()
 
@@ -488,7 +498,7 @@ def chapter_detail(request, reference):
         chapter.published_at = _as_instant(request.data.get('published_at'))
     if 'early_access_vc' in request.data:
         chapter.early_access_vc = max(
-            0, int(request.data.get('early_access_vc') or 0))
+            0, inputs.read_int(request.data, 'early_access_vc', default=0))
     chapter.save()
     return _ok(_chapter_row(request, chapter, viewer), 'Saved.')
 

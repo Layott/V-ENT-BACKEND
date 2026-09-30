@@ -18,6 +18,7 @@ from vent_auth.slugs import lookup_kwargs, resolve_or_redirect
 
 from . import catalogue, listings as listing_rules
 from .models import Listing, ListingMedia, Review
+from vent_auth import uploads
 
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
@@ -401,6 +402,9 @@ def add_media(request, reference):
     if upload is None:
         return _err('Choose a file.', 'VALIDATION_FAILED', field='file')
 
+    refused = uploads.files_refusal(request, 'file', kinds=('image', 'gif', 'video'), max_bytes=12 * 1024 * 1024)
+    if refused:
+        return refused
     portfolio = str(request.data.get('portfolio') or '').lower() in ('1', 'true', 'yes')
     if portfolio and not premium.has_premium(user):
         return Response(premium.refuse('media_export'),

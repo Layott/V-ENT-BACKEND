@@ -18,6 +18,7 @@ from vent_auth.models import UserWallet, Transaction
 from .models import Event, Vendor, VendorProduct, VendorOrder, VendorOrderItem
 from .permissions import may_run_event
 from .views_tickets import _authenticate, _error, _ok, _ngn_to_coins, CODE_ALPHABET
+from vent_auth import inputs, uploads
 
 
 def _event_by_ref(ref, **extra):
@@ -291,8 +292,12 @@ def create_product(request, vendor_id):
     if not name:
         return _error('A product name is required.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
     try:
-        price = float(request.data.get('price', request.data.get('price_ngn', 0)) or 0)
-        stock = int(request.data.get('stock', 0) or 0)
+        # read_float refuses NaN and infinity, which float() takes and which
+        # then passed `price < 0` and were stored (R69, 30 September 2026).
+        price = inputs.read_float(request.data, 'price', default=None)
+        if price is None:
+            price = inputs.read_float(request.data, 'price_ngn', default=0)
+        stock = inputs.read_int(request.data, 'stock', default=0)
     except (TypeError, ValueError):
         return _error('Price and stock must be numbers.', 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
     if price < 0 or stock < 0:
@@ -310,6 +315,9 @@ def create_product(request, vendor_id):
     if why:
         return _error(why, 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
 
+    refused = uploads.files_refusal(request, 'image')
+    if refused:
+        return refused
     product = VendorProduct.objects.create(
         vendor=vendor,
         name=name[:140],

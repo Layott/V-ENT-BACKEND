@@ -18,6 +18,8 @@ from vent_auth import org_link
 from vent_auth.models import Games, Users
 from .models import Event, TicketTier, Sponsor, SponsorLink, SocialLink, VendorInvite
 from .serializers import serialize_event_card, serialize_event_detail
+from vent_auth import uploads
+from vent_auth import inputs
 
 
 def _event_by_ref(ref, **extra):
@@ -268,6 +270,9 @@ def create_event(request):
 
         series = GameSeries.objects.filter(series_id=series_id, game=game).first()
 
+    refused = uploads.files_refusal(request, None)
+    if refused:
+        return refused
     try:
         with transaction.atomic():
             event = Event.objects.create(
@@ -456,7 +461,7 @@ def get_all_events(request):
 
     paginator = Paginator(filtered, PAGE_SIZE)
     try:
-        page_number = int(request.GET.get('page', 1))
+        page_number = inputs.read_int(request.GET, 'page', default=1)
     except (ValueError, TypeError):
         page_number = 1
     try:
@@ -743,7 +748,7 @@ def edit_event(request, event_id):
             event.capacity = None
         else:
             try:
-                event.capacity = int(float(raw))
+                event.capacity = int(inputs.finite_float(raw, 'capacity'))
             except (TypeError, ValueError):
                 return _error('capacity must be a number.', 'INVALID_NUMBER',
                               status.HTTP_400_BAD_REQUEST)
@@ -824,6 +829,9 @@ def edit_event(request, event_id):
         event.is_listed = str(data.get('is_listed')).lower() in ('1', 'true', 'yes')
         updated.append('is_listed')
 
+    refused = uploads.files_refusal(request, None)
+    if refused:
+        return refused
     if request.FILES.get('logo'):
         event.logo = request.FILES['logo']
         updated.append('logo')

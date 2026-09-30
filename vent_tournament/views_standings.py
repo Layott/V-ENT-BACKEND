@@ -17,6 +17,7 @@ from vent_auth.decorators import resolve_admin
 
 from .models import BracketMatch, LeagueRules, TieFixture, Tournament
 from .services import league
+from vent_auth import inputs
 
 
 def _ok(data, message='OK'):
@@ -261,7 +262,7 @@ def set_league_rules(request, tournament_id):
     for field in ('points_win', 'points_draw', 'points_loss', 'players_per_team'):
         if field in request.data:
             try:
-                setattr(rules, field, int(request.data[field]))
+                setattr(rules, field, inputs.read_int(request.data, field, required=True))
             except (TypeError, ValueError):
                 return _err(f'{field} must be a whole number', 'VALIDATION_FAILED')
 
@@ -410,7 +411,7 @@ def league_adjustment(request, tournament_id):
     if not reason:
         return _err('An adjustment needs a reason.', 'REASON_REQUIRED')
     try:
-        value = int(request.data.get('value'))
+        value = inputs.read_int(request.data, 'value', required=True)
     except (TypeError, ValueError):
         return _err('The amount has to be a whole number.', 'VALIDATION_FAILED')
     if value == 0:

@@ -29,6 +29,7 @@ from rest_framework.response import Response
 from vent_auth.models import TeamInvite, TeamMembers, Teams, Users
 
 from . import permissions as perms
+from vent_auth import inputs
 
 
 # ---------------------------------------------------------------------------
@@ -311,7 +312,7 @@ def team_invites(request, team_id):
 
     if kind == 'link':
         try:
-            max_uses = int(request.data.get('max_uses') or 0)
+            max_uses = inputs.read_int(request.data, 'max_uses', default=0)
         except (TypeError, ValueError):
             return _err('The number of uses must be a number.', 'VALIDATION_ERROR')
         if max_uses < 0:
@@ -319,7 +320,7 @@ def team_invites(request, team_id):
 
         expires_at = None
         try:
-            days = int(request.data.get('expires_in_days') or 0)
+            days = inputs.read_int(request.data, 'expires_in_days', default=0)
         except (TypeError, ValueError):
             return _err('The expiry must be a number of days.', 'VALIDATION_ERROR')
         if days > 0:

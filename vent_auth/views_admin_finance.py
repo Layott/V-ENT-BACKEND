@@ -39,6 +39,7 @@ from rest_framework.response import Response
 
 from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .models import Transaction, WithdrawalRequest
+from . import inputs
 
 READ_ROLES = ROLE_PERMISSIONS['view_transactions']
 
@@ -120,7 +121,7 @@ def transactions_queryset(request):
 
     def _number(name):
         try:
-            return int(request.GET.get(name))
+            return inputs.read_int(request.GET, name, required=True)
         except (TypeError, ValueError):
             return None
 
@@ -162,11 +163,11 @@ def admin_transactions(request):
     rows = transactions_queryset(request)
 
     try:
-        page = max(1, int(request.GET.get('page', 1)))
+        page = max(1, inputs.read_int(request.GET, 'page', default=1))
     except (TypeError, ValueError):
         page = 1
     try:
-        size = min(200, max(1, int(request.GET.get('page_size', 25))))
+        size = min(200, max(1, inputs.read_int(request.GET, 'page_size', default=25)))
     except (TypeError, ValueError):
         size = 25
 
@@ -246,7 +247,7 @@ def admin_finance_summary(request):
     window before it is what makes a number mean anything on its own.
     """
     try:
-        days = min(365, max(1, int(request.GET.get('days', 30))))
+        days = min(365, max(1, inputs.read_int(request.GET, 'days', default=30)))
     except (TypeError, ValueError):
         days = 30
 

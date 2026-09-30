@@ -18,6 +18,7 @@ from vent_auth.models import Organization, OrgMember, Users
 
 from .models import Event, EventManager, EventPromo, EventReferral, TicketTier
 from .permissions import may_run_event
+from vent_auth import inputs
 
 
 def event_by_ref(ref):
@@ -77,7 +78,7 @@ def _commission_or_error(raw):
     rather than at the moment somebody typed 1000 by mistake.
     """
     try:
-        pct = float(raw or 0)
+        pct = inputs.finite_float(raw or 0, 'commission')
     except (TypeError, ValueError):
         return None, _err('The commission must be a number.', 'VALIDATION_FAILED')
     if pct < 0:
@@ -229,7 +230,7 @@ def event_referrals(request, event_id):
                     status.HTTP_409_CONFLICT)
 
     try:
-        allocation = int(request.data.get('allocation') or 0)
+        allocation = inputs.read_int(request.data, 'allocation', default=0)
     except (TypeError, ValueError):
         return _err('The allocation must be a number.', 'VALIDATION_FAILED')
     if allocation < 0:
@@ -299,7 +300,7 @@ def event_referral_detail(request, event_id, referral_id):
 
     if 'allocation' in request.data:
         try:
-            allocation = int(request.data.get('allocation') or 0)
+            allocation = inputs.read_int(request.data, 'allocation', default=0)
         except (TypeError, ValueError):
             return _err('The allocation must be a number.', 'VALIDATION_FAILED')
         if allocation and allocation < referral.sold:
@@ -362,7 +363,7 @@ def event_promos(request, event_id):
         return _err('A promo is either a percentage or an amount.', 'VALIDATION_FAILED')
 
     try:
-        value = float(request.data.get('value') or 0)
+        value = inputs.read_float(request.data, 'value', default=0)
     except (TypeError, ValueError):
         return _err('The discount must be a number.', 'VALIDATION_FAILED')
     if value <= 0:
@@ -371,7 +372,7 @@ def event_promos(request, event_id):
         return _err('A percentage discount cannot be more than 100.', 'VALIDATION_FAILED')
 
     try:
-        max_tickets = int(request.data.get('max_tickets') or 0)
+        max_tickets = inputs.read_int(request.data, 'max_tickets', default=0)
     except (TypeError, ValueError):
         return _err('The ticket limit must be a number.', 'VALIDATION_FAILED')
 
@@ -430,7 +431,7 @@ def event_promo_detail(request, event_id, promo_id):
 
     if 'value' in request.data:
         try:
-            value = float(request.data.get('value') or 0)
+            value = inputs.read_float(request.data, 'value', default=0)
         except (TypeError, ValueError):
             return _err('The discount must be a number.', 'VALIDATION_FAILED')
         if value <= 0:
@@ -450,7 +451,7 @@ def event_promo_detail(request, event_id, promo_id):
 
     if 'max_tickets' in request.data:
         try:
-            max_tickets = int(request.data.get('max_tickets') or 0)
+            max_tickets = inputs.read_int(request.data, 'max_tickets', default=0)
         except (TypeError, ValueError):
             return _err('The ticket limit must be a number.', 'VALIDATION_FAILED')
         if max_tickets and max_tickets < promo.used_tickets:

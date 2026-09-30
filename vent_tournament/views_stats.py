@@ -14,6 +14,7 @@ from rest_framework.response import Response
 
 from . import stats
 from .models import Tournament
+from vent_auth import inputs
 
 
 def _ok(data, message='OK'):
@@ -62,8 +63,8 @@ def tournament_head_to_head(request, tournament_id):
     if refusal:
         return refusal
     try:
-        first = int(request.query_params.get('a', ''))
-        second = int(request.query_params.get('b', ''))
+        first = inputs.read_int(request.query_params, 'a', required=True)
+        second = inputs.read_int(request.query_params, 'b', required=True)
     except (TypeError, ValueError):
         return _err('Pick two entrants to compare.', 'H2H_PICK_TWO', status.HTTP_400_BAD_REQUEST)
     if first == second:

@@ -21,6 +21,7 @@ from rest_framework.response import Response
 
 from .models import Users, Notification
 from .views_profile import _user_from_bearer
+from . import inputs
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +184,7 @@ def list_notifications(request):
         return err
 
     try:
-        page = max(1, int(request.GET.get('page', 1)))
+        page = max(1, inputs.read_int(request.GET, 'page', default=1))
     except (ValueError, TypeError):
         page = 1
 

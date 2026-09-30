@@ -35,6 +35,7 @@ from rest_framework.response import Response
 from .models import Vendor, VendorOrder, VendorProduct
 from .views_tickets import _authenticate, _error, _ngn_to_coins, _ok
 from .views_vendors import read_variants
+from vent_auth import uploads
 
 PAGE_SIZE = 100
 
@@ -233,6 +234,9 @@ def my_stall_detail(request, vendor_id):
                               'NOT_APPROVED', status.HTTP_409_CONFLICT)
             stall.status = wanted
             fields.append('status')
+        refused = uploads.files_refusal(request, ('logo', 'banner'))
+        if refused:
+            return refused
         for key, f in (('logo', 'logo'), ('banner', 'banner')):
             if key in request.FILES:
                 setattr(stall, f, request.FILES[key])
@@ -330,6 +334,9 @@ def my_product(request, vendor_id, product_id):
         if why:
             return _error(why, 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
         fields.append('variants')
+    refused = uploads.files_refusal(request, 'image')
+    if refused:
+        return refused
     if 'image' in request.FILES:
         product.image = request.FILES['image']
         fields.append('image')

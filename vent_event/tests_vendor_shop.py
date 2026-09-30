@@ -11,7 +11,6 @@ your own stalls, a way to change a product, and a way to fulfil an order - and
 all three are tested here on what they DO rather than on the status code they
 answer with.
 """
-import base64
 import uuid
 from decimal import Decimal
 
@@ -21,6 +20,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from vent_auth.models import Games, Users, UserWallet
+from vent_auth import testfiles
 from vent_event.models import (Event, Vendor, VendorOrder, VendorProduct)
 
 PIN = '1234'
@@ -156,10 +156,9 @@ class ProductCreateCarriesEverythingTests(ShopBase):
     12 September the create endpoint read name, price and stock only, so the
     picture was dropped and the screen PATCHed the choices in afterwards."""
 
-    # A 1x1 PNG, base64 so no escape sequence has to survive a shell.
-    PNG = base64.b64decode(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4DwABAQEAWDs'
-        'IsAAAAABJRU5ErkJggg==')
+    # A real PNG. The base64 one kept here until 30 September 2026 had a bad
+    # checksum, which the upload door now reads and refuses, as it should.
+    PNG = testfiles.png()
 
     def create(self, **fields):
         return self.client.post('/event/vendor/%s/products/' % self.stall.slug,

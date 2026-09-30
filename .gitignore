@@ -24,6 +24,7 @@ lib64/
 
 # Virtual environments
 venv/
+venv-*/
 env/
 ENV/
 vent/Lib/
@@ -74,3 +75,11 @@ tools/.futbin-state.json
 tools/.walk-event-*.json
 tools/.walk-stages-*.json
 tools/.walk-brackets-2-state.json
+
+# Keys and service credentials never enter the repo (owner rule R62)
+*.pem
+*.key
+*.p12
+*.pfx
+*service-account*.json
+*credentials*.json

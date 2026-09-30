@@ -27,6 +27,7 @@ from vent_auth.models import Users
 
 from . import lookup
 from vent_auth.text import count as _count
+from vent_auth import uploads
 
 SESSION_TIMEOUT = timedelta(minutes=session_timeout_minutes())
 
@@ -110,15 +111,16 @@ def _notify_dispute_raised(tournament):
 
 # Kept in step with the frontend's uploadSpecs: PNG, JPG or WebP, up to 5 MB.
 EVIDENCE_MAX_BYTES = 5 * 1024 * 1024
-EVIDENCE_TYPES = {'image/png', 'image/jpeg', 'image/webp'}
 
 
 def _check_evidence_file(upload):
     """None when the file is fine, otherwise the sentence to send back."""
-    if upload.content_type and upload.content_type not in EVIDENCE_TYPES:
-        return 'The screenshot must be a PNG, JPG or WebP image.'
-    if upload.size > EVIDENCE_MAX_BYTES:
+    # The bytes, not the content type the device claimed (R70).
+    code = uploads.image_refusal(upload, EVIDENCE_MAX_BYTES)
+    if code == 'IMAGE_TOO_LARGE':
         return 'The screenshot must be 5 MB or smaller.'
+    if code:
+        return 'The screenshot must be a PNG, JPG or WebP image.'
     return None
 
 

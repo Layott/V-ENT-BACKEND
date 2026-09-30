@@ -29,6 +29,7 @@ from vent_auth.actors import actor_from_request, may_override
 from . import lookup
 from .models import PrizeSchedule
 from .services import prizes as prize_service
+from vent_auth import inputs
 
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
@@ -138,7 +139,7 @@ def prize_schedule(request, tournament_id):
                     data={'field': 'run_at'})
 
     try:
-        warn_hours = int(request.data.get('warn_hours', 24))
+        warn_hours = inputs.read_int(request.data, 'warn_hours', default=24)
     except (TypeError, ValueError):
         return _err('How long before is a number of hours.', 'VALIDATION_FAILED',
                     data={'field': 'warn_hours'})
