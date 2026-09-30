@@ -28,6 +28,7 @@ from . import views_door
 from . import views_sessions
 from . import views_waitlist
 from . import views_tiers
+from . import views_site
 from . import views_limits
 from . import views_short_links
 from .views import create_event, get_all_events, view_event, edit_event
@@ -127,6 +128,8 @@ urlpatterns = [
     path("<str:event_id>/holds/<int:hold_id>/issue/", views_holds.issue_hold, name="issue_hold"),
     path("<str:event_id>/money/", views_holds.event_money, name="event_money"),
     path("<str:event_id>/tiers/", views_tiers.create_tier, name="create_tier"),
+    # The event's own website and embeds (inbox 360). Read in the event payload.
+    path("<str:event_id>/site/", views_site.event_site, name="event_site"),
     # How many tickets one address may hold, per type, per day, or across the
     # whole event. One endpoint for all three scopes, because a screen that
     # edits them together should not have to write them one request at a time.

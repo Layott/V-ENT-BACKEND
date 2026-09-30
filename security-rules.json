@@ -182,6 +182,16 @@
       "rule": "R69",
       "path": "vent_auth/views_currency.py",
       "reason": "the one input, amount_ngn, is read through vent_auth.inputs.read_decimal (required, finite, between 0.01 and 50,000,000) and refused as INVALID_INPUT otherwise; nothing is written, it only quotes. tests_local_currency proves the refusals ('', abc, -5, NaN, too large). Read by hand 30 Sept 2026"
+    },
+    {
+      "rule": "R69",
+      "path": "vent_event/views_site.py",
+      "reason": "the body is parsed by vent_event/site.apply, one import away: read_bool, read_text(max_length=120 and 7), read_choice over THEMES and LAYOUTS, a #rrggbb pattern and a section list checked key by key; anything else raises BadInput and is answered INVALID_INPUT naming the field (vent_event/tests_event_site.py, ten refusals)"
+    },
+    {
+      "rule": "R64",
+      "path": "vent_auth/flutterwave_currency.py",
+      "reason": "a helper module with no route: it writes a ForeignCharge row and the probed currency list only when called, and every caller is a money door that has already identified the payer (views_wallet topup_initiate, pay.start, views_guest guest_buy) or the flw_currencies management command run on the box"
     }
   ],
   "auth": {
