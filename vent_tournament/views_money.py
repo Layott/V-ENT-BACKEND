@@ -25,6 +25,7 @@ from vent_event.models import EventLedgerEntry
 
 from . import lookup
 from . import options as tournament_options
+from vent_auth import inputs
 
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
@@ -179,7 +180,7 @@ def settle(request, tournament_id):
         return err
 
     run = ledger.settle(tournament, run_by=user,
-                        note=str(request.data.get('note') or ''))
+                        note=inputs.read_text(request.data, 'note', max_length=200))
     return _ok({
         'settlement_id': run.id,
         'amount_vc': run.amount_vc,

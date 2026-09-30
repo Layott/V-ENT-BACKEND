@@ -43,6 +43,7 @@ from vent_auth.models import Teams, TeamMembers, Users
 from .models import (
     Tournament, TournamentRegistration, TournamentSquad, SquadMember)
 from vent_auth import uploads
+from vent_auth import inputs
 
 
 def _error(message, code, http=status.HTTP_400_BAD_REQUEST, extra=None):
@@ -160,7 +161,7 @@ def squads(request, tournament_id):
                 .prefetch_related('members__user', 'members__represents_team'))
         return _ok({'squads': [serialize_squad(s, request) for s in rows]})
 
-    name = str(request.data.get('name') or '').strip()[:80]
+    name = inputs.read_text(request.data, 'name', max_length=inputs.LONGEST_TEXT)[:80]
     if not name:
         return _error('Give the squad a name.', 'VALIDATION_ERROR',
                       extra={'field': 'name'})
@@ -174,7 +175,7 @@ def squads(request, tournament_id):
         return refused
     squad = TournamentSquad.objects.create(
         tournament=tournament, name=name,
-        tag=str(request.data.get('tag') or '').strip()[:8].upper(),
+        tag=inputs.read_text(request.data, 'tag', max_length=inputs.LONGEST_TEXT)[:8].upper(),
         logo=request.FILES.get('logo'),
         created_by=_viewer(request))
     return Response({'status': 'success',
@@ -216,7 +217,7 @@ def squad_members(request, tournament_id, squad_id):
     if squad is None:
         return _error('Squad not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
-    username = str(request.data.get('username') or '').strip()
+    username = inputs.read_text(request.data, 'username', max_length=129)
     if not username:
         return _error('Name the player.', 'VALIDATION_ERROR',
                       extra={'field': 'username'})
@@ -242,7 +243,7 @@ def squad_members(request, tournament_id, squad_id):
 
     already_entered = TournamentRegistration.objects.filter(
         tournament=tournament, user=player).exists()
-    if already_entered and not request.data.get('anyway'):
+    if already_entered and not inputs.read_bool(request.data, 'anyway'):
         return _error('%s is already entered in this tournament on their own. '
                       'Add them anyway?' % player.username,
                       'ALREADY_ENTERED_ALONE', status.HTTP_409_CONFLICT)
@@ -257,7 +258,7 @@ def squad_members(request, tournament_id, squad_id):
             .filter(tournament=tournament, team__isnull=False,
                     team__teammembers__user=player)
             .select_related('team').first())
-    if club is not None and not request.data.get('anyway'):
+    if club is not None and not inputs.read_bool(request.data, 'anyway'):
         return _error('%s already plays for %s in this tournament. Putting '
                       'them in this squad as well would have them face '
                       'themselves.' % (player.username, club.team.team_name),
@@ -268,7 +269,7 @@ def squad_members(request, tournament_id, squad_id):
         squad=squad, user=player,
         represents_team=home,
         represents_name=(home.team_name if home is not None else ''),
-        is_captain=bool(request.data.get('captain')))
+        is_captain=inputs.read_bool(request.data, 'captain'))
     return _ok({'squad': serialize_squad(squad, request)}, 'Added.')
 
 
@@ -333,8 +334,8 @@ def entrants(request, tournament_id):
     if refusal is not None:
         return refusal
 
-    team_ref = str(request.data.get('team') or '').strip()
-    username = str(request.data.get('username') or '').strip()
+    team_ref = inputs.read_text(request.data, 'team', max_length=200)
+    username = inputs.read_text(request.data, 'username', max_length=129)
     if bool(team_ref) == bool(username):
         return _error('Name either a team or a player.', 'VALIDATION_ERROR')
 

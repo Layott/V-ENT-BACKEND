@@ -17,6 +17,7 @@ from . import battles, catalogue
 from .models import AttributeVote, Battle, BattleCharacter, BattleComment
 from .views_series import _err, _ok, _person, _viewer
 from vent_auth import uploads
+from vent_auth import inputs
 
 #: The permission that decides who may run a battle. `moderate_content` rather
 #: than a new name: deciding which characters enter and when voting closes is
@@ -109,20 +110,20 @@ def battle_list(request):
         if not _is_admin(request, user):
             return _err('That is not yours to do.', 'DO_NOT_PERMISSION_PERFORM',
                         status.HTTP_403_FORBIDDEN)
-        title = str(request.data.get('title') or '').strip()
+        title = inputs.read_text(request.data, 'title', max_length=inputs.LONGEST_TEXT)
         if not title:
             return _err('Give it a title.', 'TITLE_REQUIRED')
         battle = Battle(title=title[:160],
-                        description=str(request.data.get('description') or '')[:4000],
+                        description=inputs.read_text(request.data, 'description', max_length=inputs.LONGEST_TEXT, strip=False)[:4000],
                         created_by=user,
-                        opens_at=request.data.get('opens_at') or None,
-                        closes_at=request.data.get('closes_at') or None)
+                        opens_at=inputs.read_datetime(request.data, 'opens_at'),
+                        closes_at=inputs.read_datetime(request.data, 'closes_at'))
         battle.save()
         return _ok(_battle_row(request, battle, user), 'Battle open.',
                    status.HTTP_201_CREATED)
 
     qs = Battle.objects.all()
-    state = request.GET.get('state')
+    state = inputs.read_text(request.GET, 'state', max_length=20)
     if state in catalogue.BATTLE_STATES:
         qs = qs.filter(state=state)
     return _ok({'battles': [_battle_row(request, b, viewer) for b in qs[:100]]},
@@ -145,7 +146,7 @@ def battle_detail(request, reference):
         if not _is_admin(request, user):
             return _err('That is not yours to do.', 'DO_NOT_PERMISSION_PERFORM',
                         status.HTTP_403_FORBIDDEN)
-        state = request.data.get('state')
+        state = inputs.read_text(request.data, 'state', max_length=20, default=None)
         if state is not None:
             if state not in catalogue.BATTLE_STATES:
                 return _err('That is not a state a battle can be in.',
@@ -153,9 +154,12 @@ def battle_detail(request, reference):
             battle.state = state
             if state == 'closed':
                 battle.decided_at = timezone.now()
-        for field in ('title', 'description'):
+        # Each cut to its own column: the title is 160, and cutting it at the
+        # description's 4000 let a long title reach the database and fail there.
+        for field, most in (('title', 160), ('description', 4000)):
             if field in request.data:
-                setattr(battle, field, str(request.data.get(field) or '')[:4000])
+                setattr(battle, field, inputs.read_text(
+                    request.data, field, max_length=inputs.LONGEST_TEXT, strip=False)[:most])
         battle.save()
 
     return _ok(_battle_row(request, battle, viewer, deep=True), 'A battle.')
@@ -174,7 +178,7 @@ def battle_nominate(request, reference):
         return _err('Nominations are closed for that one.',
                     'NOMINATIONS_CLOSED')
 
-    name = str(request.data.get('name') or '').strip()
+    name = inputs.read_text(request.data, 'name', max_length=inputs.LONGEST_TEXT)
     if not name:
         return _err('Who?', 'NAME_REQUIRED')
     if BattleCharacter.objects.filter(battle=battle, name__iexact=name).exists():
@@ -185,7 +189,7 @@ def battle_nominate(request, reference):
         return refused
     character = BattleCharacter(
         battle=battle, name=name[:140],
-        source=str(request.data.get('source') or '')[:140],
+        source=inputs.read_text(request.data, 'source', max_length=inputs.LONGEST_TEXT, strip=False)[:140],
         nominated_by=user,
         # An admin approves. A nomination nobody approved is visible to the
         # person who made it and to nobody else.
@@ -210,11 +214,11 @@ def battle_approve(request, reference):
     if battle is None:
         return _err('No such battle.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     character = BattleCharacter.objects.filter(
-        battle=battle, name=request.data.get('name')).first()
+        battle=battle, name=inputs.read_text(request.data, 'name', max_length=140)).first()
     if character is None:
         return _err('No such nomination.', 'NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)
-    character.is_approved = bool(request.data.get('approved', True))
+    character.is_approved = inputs.read_bool(request.data, 'approved', default=True)
     character.save(update_fields=['is_approved'])
     return _ok({'name': character.name, 'approved': character.is_approved},
                'Decided.')
@@ -233,7 +237,7 @@ def battle_vote(request, reference):
         return _err('Voting is not open on that one.', 'VOTING_CLOSED')
 
     character = BattleCharacter.objects.filter(
-        battle=battle, name=request.data.get('character'),
+        battle=battle, name=inputs.read_text(request.data, 'character', max_length=140),
         is_approved=True).first()
     if character is None:
         return _err('That character is not in this battle.', 'NOT_FOUND',
@@ -247,7 +251,7 @@ def battle_vote(request, reference):
         if attribute not in catalogue.ATTRIBUTES:
             return _err('%s is not an attribute.' % attribute, 'BAD_ATTRIBUTE')
         try:
-            score = int(value)
+            score = inputs.read_int({'scores': value}, 'scores', required=True)
         except (TypeError, ValueError):
             return _err('A score is a number.', 'BAD_SCORE')
         if not catalogue.VOTE_MIN <= score <= catalogue.VOTE_MAX:
@@ -271,7 +275,7 @@ def battle_comments(request, reference):
         user, err = _need_user(request)
         if err:
             return err
-        body = str(request.data.get('body') or '').strip()
+        body = inputs.read_text(request.data, 'body', max_length=inputs.LONGEST_TEXT)
         if not body:
             return _err('Say something.', 'BODY_REQUIRED')
         row = BattleComment.objects.create(battle=battle, author=user,

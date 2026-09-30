@@ -48,6 +48,7 @@ from .decorators import ROLE_PERMISSIONS, admin_role_required
 from vent_auth import fuzzy
 from .models import (AdminAction, Club, ClubMessage, Post, PostComment, Thread,
                      ThreadReply, UserGallery, UserReport)
+from . import inputs
 
 MODERATE_ROLES = ROLE_PERMISSIONS['moderate_content']
 BAN_ROLES = ROLE_PERMISSIONS['ban_users']
@@ -123,13 +124,13 @@ def admin_reports(request):
     rows = UserReport.objects.select_related(
         'reporter', 'reported', 'reviewed_by')
 
-    state = (request.GET.get('status') or 'open').strip().lower()
+    state = inputs.read_text(request.GET, 'status', max_length=20, default='open').lower()
     if state and state != 'all':
         if state not in dict(UserReport.STATUS):
             return _err('That is not a report status.', 'VALIDATION_ERROR')
         rows = rows.filter(status=state)
 
-    term = (request.GET.get('q') or '').strip()
+    term = inputs.read_text(request.GET, 'q', max_length=100)
     if term:
         rows = fuzzy.filter(rows, term, ['reported__username', 'reporter__username', 'detail'])
 
@@ -166,11 +167,11 @@ def admin_report_action(request, report_id):
         return _err('No report with that number.', 'NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)
 
-    action = str(request.data.get('action') or '').strip().lower()
+    action = inputs.read_text(request.data, 'action', max_length=20).lower()
     if action not in REPORT_ACTIONS:
         return _err('Say what to do with it.', 'VALIDATION_ERROR')
 
-    note = str(request.data.get('note') or '').strip()[:2000]
+    note = inputs.read_text(request.data, 'note', max_length=inputs.LONGEST_TEXT)[:2000]
     if action in ('action', 'dismiss') and not note:
         # A decision with no reason on it is a decision nobody can review, and
         # the person it was made about is the one who cannot see why.
@@ -184,7 +185,7 @@ def admin_report_action(request, report_id):
                             'reviewed_at'])
 
     banned = False
-    if request.data.get('also_ban'):
+    if inputs.read_bool(request.data, 'also_ban'):
         from .decorators import effective_admin_role
         if effective_admin_role(admin) not in BAN_ROLES:
             return _err('Your role does not ban accounts.', 'NOT_ALLOWED',
@@ -268,8 +269,8 @@ def admin_content(request):
     merged river: the actions differ per kind, and a table whose buttons change
     row by row is a table people misread.
     """
-    kind = (request.GET.get('kind') or 'threads').strip().lower()
-    term = (request.GET.get('q') or '').strip()
+    kind = inputs.read_text(request.GET, 'kind', max_length=20, default='threads').lower()
+    term = inputs.read_text(request.GET, 'q', max_length=100)
 
     if kind == 'posts':
         rows = Post.objects.select_related('author', 'club')
@@ -327,8 +328,8 @@ def admin_content_action(request, kind, ref):
     the person whose post went missing.
     """
     admin = request.admin_user
-    action = str(request.data.get('action') or '').strip().lower()
-    reason = str(request.data.get('reason') or '').strip()[:500]
+    action = inputs.read_text(request.data, 'action', max_length=20).lower()
+    reason = inputs.read_text(request.data, 'reason', max_length=inputs.LONGEST_TEXT)[:500]
 
     if action == 'delete' and not reason:
         return _err('Say why this is being removed.', 'REASON_REQUIRED')
@@ -517,13 +518,13 @@ def admin_notify_user(request, user_id):
         return _err('No account with that address.', 'NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)
 
-    body = str(request.data.get('message') or '').strip()
+    body = inputs.read_text(request.data, 'message', max_length=inputs.LONGEST_TEXT)
     if not body:
         return _err('The message is empty.', 'VALIDATION_ERROR')
     if len(body) > 500:
         return _err('Keep it under 500 characters.', 'VALIDATION_ERROR')
 
-    subject = str(request.data.get('subject') or '').strip() or 'A message from V-ENT'
+    subject = inputs.read_text(request.data, 'subject', max_length=inputs.LONGEST_TEXT) or 'A message from V-ENT'
 
     row = create_notification(user, 'system', subject[:160], body=body,
                               link='/notifications',

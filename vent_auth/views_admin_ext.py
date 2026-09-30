@@ -19,6 +19,7 @@ from .models import Users, Transaction, AdminAction
 from .decorators import ROLE_PERMISSIONS, admin_role_required
 from .views_admin import _log_action, _approve_payout_core, _paginate
 from vent_auth.text import count as _count
+from . import inputs
 
 
 # ---------------------------------------------------------------------------
@@ -117,8 +118,8 @@ def admin_recent_activity(request):
 def admin_bulk_user_action(request):
     """Bulk ban/unban (contract §10). Body {action:"ban"|"unban", ids:[...]}."""
     admin = request.admin_user
-    action = request.data.get('action')
-    ids = request.data.get('ids') or []
+    action = inputs.read_text(request.data, 'action', max_length=10)
+    ids = inputs.read_ids(request.data, 'ids', max_items=500)
 
     if action not in ('ban', 'unban'):
         return Response(
@@ -168,8 +169,8 @@ def admin_disqualify_registration(request, tournament_id):
     from vent_tournament.models import Tournament, TournamentRegistration
 
     tournament = get_object_or_404(Tournament, tournament_id=tournament_id)
-    registration_id = request.data.get('registration_id')
-    team_name = request.data.get('team_name')
+    registration_id = inputs.read_int(request.data, 'registration_id', minimum=1)
+    team_name = inputs.read_text(request.data, 'team_name', max_length=60)
 
     reg = None
     if registration_id:
@@ -224,7 +225,7 @@ def admin_disqualify_registration(request, tournament_id):
 
     _log_action(admin=request.admin_user, action_type='disqualify',
                 target_model='TournamentRegistration', target_id=reg.id,
-                reason=request.data.get('reason', ''),
+                reason=inputs.read_text(request.data, 'reason', max_length=inputs.LONGEST_TEXT),
                 metadata={'tournament_id': tournament_id, 'team_name': team_name,
                           'forfeited_matches': forfeited})
 
@@ -246,7 +247,7 @@ def admin_bulk_approve_payouts(request):
     """Bulk-approve payouts (contract §17). Body {ids:[...]}. Reuses the single
     approve core incl. the KYC gate; skips + doesn't count any that fail."""
     admin = request.admin_user
-    ids = request.data.get('ids') or []
+    ids = inputs.read_ids(request.data, 'ids', max_items=500)
 
     if not isinstance(ids, list) or not ids:
         return Response(
@@ -254,7 +255,7 @@ def admin_bulk_approve_payouts(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    note = request.data.get('note', 'bulk approve')
+    note = inputs.read_text(request.data, 'note', max_length=inputs.LONGEST_TEXT, default='bulk approve')
     count = 0
     for wid in ids:
         ok, _reason = _approve_payout_core(admin, wid, note)
@@ -388,7 +389,7 @@ def admin_disputes_list(request):
         .order_by('-created_at')
     )
 
-    status_filter = request.GET.get('status', 'open')
+    status_filter = inputs.read_text(request.GET, 'status', max_length=20, default='open')
     if status_filter and status_filter != 'all':
         qs = qs.filter(status=status_filter)
 
@@ -409,8 +410,8 @@ def admin_resolve_dispute_by_id(request, dispute_id):
     (contract §2.3). Logs the action and notifies the user who raised it."""
     from vent_tournament.models import TournamentDispute
 
-    resolution = request.data.get('resolution')  # 'resolved' or 'dismissed'
-    note = request.data.get('note', '')
+    resolution = inputs.read_text(request.data, 'resolution', max_length=20)  # 'resolved' or 'dismissed'
+    note = inputs.read_text(request.data, 'note', max_length=inputs.LONGEST_TEXT)
 
     if resolution not in ('resolved', 'dismissed'):
         return Response(

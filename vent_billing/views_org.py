@@ -22,6 +22,7 @@ from . import charging, clock, ledger, lifecycle, serializers, states
 from .models import Invoice, Subscription
 from .permissions import error, may_manage_plan, ok, require_viewer
 from .views_plans import _plan_by_ref
+from vent_auth import inputs
 
 
 def _resolve(request, ref):
@@ -61,7 +62,7 @@ def members(request, ref):
     rows = Subscription.objects.filter(plan=plan).select_related(
         'subscriber', 'plan', 'plan__org', 'plan__owner', 'card', 'pending_plan')
 
-    state = (request.query_params.get('state') or '').strip()
+    state = inputs.read_text(request.query_params, 'state', max_length=20)
     if state in dict(states.CHOICES):
         rows = rows.filter(state=state)
 
@@ -137,7 +138,7 @@ def settle(request, ref):
     if err:
         return err
     run = ledger.settle(plan, run_by=who,
-                        note=str(request.data.get('note') or ''))
+                        note=inputs.read_text(request.data, 'note', max_length=200))
     return ok({
         'settlement_id': run.id,
         'amount_vc': run.amount_vc,
@@ -197,7 +198,7 @@ def refund(request, token):
         return error('Only the organiser can refund this.', 'FORBIDDEN',
                      status.HTTP_403_FORBIDDEN)
 
-    reason = str(request.data.get('reason') or '').strip()
+    reason = inputs.read_text(request.data, 'reason', max_length=inputs.LONGEST_TEXT)
     if not reason:
         # A refund with no reason is a line nobody can explain later, and this
         # is money leaving an organiser's balance.
@@ -207,7 +208,7 @@ def refund(request, token):
         return error('Only a charge that was collected can be refunded.',
                      'NOT_REFUNDABLE')
 
-    keep = bool(request.data.get('keep_access'))
+    keep = inputs.read_bool(request.data, 'keep_access')
     charging.refund(invoice, reason=reason, actor=who, end_access=not keep)
     invoice.refresh_from_db()
     return ok({'invoice': serializers.invoice_row(invoice),
@@ -238,7 +239,7 @@ def end_membership(request, token):
                      status.HTTP_403_FORBIDDEN)
 
     lifecycle.cancel(sub, actor=who, by_organiser=True,
-                     reason=str(request.data.get('reason') or '')[:200])
+                     reason=inputs.read_text(request.data, 'reason', max_length=inputs.LONGEST_TEXT)[:200])
     return ok(serializers.subscription_row(sub, request=request,
                                            for_organiser=True),
               'That membership will not renew.')
@@ -257,7 +258,7 @@ def org_overview(request):
         return err
 
     from .views_plans import _org_by_ref
-    org = _org_by_ref(request.query_params.get('org'))
+    org = _org_by_ref(inputs.read_text(request.query_params, 'org', max_length=200))
     if org is None:
         return error('Organization not found.', 'NOT_FOUND',
                      status.HTTP_404_NOT_FOUND)

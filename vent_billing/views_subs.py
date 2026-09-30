@@ -21,6 +21,7 @@ from .models import Invoice, Subscription
 from .permissions import error, ok, require_viewer
 from .views_plans import _plan_by_ref
 from vent_auth import coins as vent_coins
+from vent_auth import inputs
 
 
 def _mine(who, token):
@@ -127,7 +128,7 @@ def cancel(request, token):
                      status.HTTP_404_NOT_FOUND)
 
     lifecycle.cancel(sub, actor=who,
-                     reason=str(request.data.get('reason') or '')[:200])
+                     reason=inputs.read_text(request.data, 'reason', max_length=2000)[:200])
     return ok(serializers.subscription_row(sub, request=request),
               'Cancelled. You keep access until the end of the period.')
 
@@ -171,7 +172,7 @@ def change_plan(request, token):
         return error('That subscription could not be found.', 'NOT_FOUND',
                      status.HTTP_404_NOT_FOUND)
 
-    plan, _moved = _plan_by_ref(request.data.get('plan'))
+    plan, _moved = _plan_by_ref(inputs.read_text(request.data, 'plan', max_length=120))
     if plan is None:
         return error('That plan could not be found.', 'NOT_FOUND',
                      status.HTTP_404_NOT_FOUND)

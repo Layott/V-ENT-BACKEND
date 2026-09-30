@@ -27,6 +27,7 @@ from vent_auth.actors import actor_from_request, may_override
 
 from . import availability
 from .models import WaitlistEntry
+from vent_auth import inputs
 
 # How long somebody has to take an offer. Long enough to see a notification and
 # act, short enough that a sold-out event does not sit frozen behind one person
@@ -162,8 +163,9 @@ def join_waitlist(request, event_id):
                     'queue to join.', 'NOT_SOLD_OUT', status.HTTP_409_CONFLICT)
 
     tier = None
-    if request.data.get('tier') not in ('', None):
-        tier = event.ticket_tiers.filter(pk=request.data.get('tier')).first()
+    tier_id = inputs.read_int(request.data, 'tier', minimum=1)
+    if tier_id is not None:
+        tier = event.ticket_tiers.filter(pk=tier_id).first()
 
     entry, created = WaitlistEntry.objects.get_or_create(
         event=event, user=user, defaults={'tier': tier})

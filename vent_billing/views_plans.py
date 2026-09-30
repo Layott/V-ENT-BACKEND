@@ -24,6 +24,7 @@ from .models import Plan
 from .permissions import (
     error, may_manage_org, may_manage_plan, ok, require_viewer, viewer,
 )
+from vent_auth import inputs
 
 
 def _plan_by_ref(ref):
@@ -61,8 +62,8 @@ def plan_list(request):
     who = viewer(request)
     rows = Plan.objects.select_related('org', 'owner')
 
-    org_ref = request.query_params.get('org')
-    owner_ref = request.query_params.get('owner')
+    org_ref = inputs.read_text(request.query_params, 'org', max_length=200)
+    owner_ref = inputs.read_text(request.query_params, 'owner', max_length=200)
     if org_ref:
         org = _org_by_ref(org_ref)
         if org is None:
@@ -159,26 +160,30 @@ def catalogue(request):
                'intervals': [clock.MONTHLY, clock.YEARLY]})
 
 
+#: A price no membership has: ten billion naira. Past it a number is a typo or
+#: an overflow, not a price.
+MOST_NGN = 10_000_000_000
+
+
 def _read_plan_fields(data):
     """(fields, error). Shared by create and edit so they cannot drift."""
     from vent_auth.views_wallet import NGN_PER_COIN
 
-    name = str(data.get('name') or '').strip()
+    name = inputs.read_text(data, 'name', max_length=inputs.LONGEST_TEXT)
     if not name:
         return None, error('Give the plan a name.', 'VALIDATION_ERROR')
     if len(name) > 120:
         return None, error('That name is too long.', 'VALIDATION_ERROR')
 
-    interval = str(data.get('interval') or clock.MONTHLY).strip()
+    interval = inputs.read_text(data, 'interval', max_length=20, default=clock.MONTHLY)
     if interval not in clock.INTERVALS:
         return None, error('Say whether this is billed monthly or yearly.',
                            'INVALID_INTERVAL')
 
     raw_ngn = data.get('price_ngn')
-    raw_vc = data.get('price_vc')
     try:
         if raw_ngn not in (None, ''):
-            price_ngn = int(raw_ngn)
+            price_ngn = inputs.read_int(data, 'price_ngn', maximum=MOST_NGN)
             if price_ngn < 0:
                 raise ValueError
             if price_ngn % NGN_PER_COIN:
@@ -194,29 +199,29 @@ def _read_plan_fields(data):
                     ngn_per_coin=NGN_PER_COIN)
             price_vc = price_ngn // NGN_PER_COIN
         else:
-            price_vc = int(raw_vc or 0)
+            price_vc = inputs.read_int(data, 'price_vc', maximum=MOST_NGN // NGN_PER_COIN, default=0)
             if price_vc < 0:
                 raise ValueError
     except (TypeError, ValueError):
         return None, error('That price is not a number.', 'VALIDATION_ERROR')
 
     try:
-        trial_days = int(data.get('trial_days') or 0)
+        trial_days = inputs.read_int(data, 'trial_days', default=0)
     except (TypeError, ValueError):
         trial_days = 0
     if trial_days < 0 or trial_days > 90:
         return None, error('A trial can be up to 90 days.', 'INVALID_TRIAL')
 
-    status_value = str(data.get('status') or Plan.STATUS_DRAFT).strip()
+    status_value = inputs.read_text(data, 'status', max_length=20, default=Plan.STATUS_DRAFT)
     if status_value not in dict(Plan.STATUS_CHOICES):
         return None, error('That is not a state a plan can be in.',
                            'VALIDATION_ERROR')
 
     return {
         'name': name,
-        'tagline': str(data.get('tagline') or '')[:200],
-        'description': str(data.get('description') or ''),
-        'member_content': str(data.get('member_content') or ''),
+        'tagline': inputs.read_text(data, 'tagline', max_length=inputs.LONGEST_TEXT, strip=False)[:200],
+        'description': inputs.read_text(data, 'description', max_length=inputs.LONGEST_TEXT, strip=False),
+        'member_content': inputs.read_text(data, 'member_content', max_length=inputs.LONGEST_TEXT, strip=False),
         'interval': interval,
         'price_vc': price_vc,
         'trial_days': trial_days,
@@ -243,7 +248,7 @@ def create_plan(request):
         return err
 
     org = None
-    org_ref = request.data.get('org')
+    org_ref = inputs.read_text(request.data, 'org', max_length=200)
     if org_ref:
         org = _org_by_ref(org_ref)
         if org is None:

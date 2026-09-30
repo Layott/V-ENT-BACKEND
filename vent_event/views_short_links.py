@@ -43,6 +43,7 @@ from vent_auth.actors import actor_from_request, may_override
 from vent_auth.slugs import TOKEN_ALPHABET
 
 from .models import ShortLink
+from vent_auth import inputs
 
 # Five characters from a 32 character alphabet: 33.5 million codes.
 #
@@ -166,7 +167,7 @@ def short_links(request, event_id):
         return _ok({'links': [_serialize(l) for l in event.short_links.all()],
                     'origin': _frontend_origin()}, 'Short links')
 
-    target = str(request.data.get('target') or '').strip()
+    target = inputs.read_text(request.data, 'target', max_length=inputs.LONGEST_TEXT)
     if not target:
         # The ordinary case, and the one the button on the share card sends:
         # shorten this event's ticket link.
@@ -180,7 +181,7 @@ def short_links(request, event_id):
         return _err('That address is too long to shorten.', 'INVALID_TARGET',
                     field='target')
 
-    label = str(request.data.get('label') or '').strip()[:80]
+    label = inputs.read_text(request.data, 'label', max_length=inputs.LONGEST_TEXT)[:80]
 
     existing = event.short_links.filter(target=target, is_active=True).first()
     if existing is not None:
@@ -318,7 +319,7 @@ def tournament_short_links(request, tournament_id):
         return _ok({'links': [_serialize(l) for l in tournament.short_links.all()],
                     'origin': _frontend_origin()}, 'Short links')
 
-    target = str(request.data.get('target') or '').strip()
+    target = inputs.read_text(request.data, 'target', max_length=inputs.LONGEST_TEXT)
     if not target:
         # What the share card asks for: shorten this tournament's own page.
         target = '/tournaments/%s' % (tournament.slug or tournament.pk)
@@ -330,7 +331,7 @@ def tournament_short_links(request, tournament_id):
         return _err('That address is too long to shorten.', 'INVALID_TARGET',
                     field='target')
 
-    label = str(request.data.get('label') or '').strip()[:80]
+    label = inputs.read_text(request.data, 'label', max_length=inputs.LONGEST_TEXT)[:80]
 
     existing = tournament.short_links.filter(target=target, is_active=True).first()
     if existing is not None:

@@ -37,6 +37,7 @@ from rest_framework.response import Response
 from vent_auth.models import Users
 
 from .models import Event, EventManager, Ticket, TicketTier
+from vent_auth import inputs
 
 #: One request should not be able to empty a room by accident.
 MAX_PER_REQUEST = 100
@@ -109,13 +110,14 @@ def comp_tickets(request, event_id):
                       'NOT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
     tier = TicketTier.objects.filter(
-        event=event, pk=request.data.get('tier_id')).first()
+        event=event, pk=inputs.read_int(request.data, 'tier_id', minimum=1)).first()
     if tier is None:
         return _error('Pick which type of ticket to send.', 'VALIDATION_ERROR')
 
     # Accept a list, or the block of text somebody pasted out of a spreadsheet.
     raw = request.data.get('emails')
     if isinstance(raw, str):
+        raw = inputs.read_text(request.data, 'emails', max_length=inputs.LONGEST_TEXT)
         raw = [part for chunk in raw.replace(';', ',').replace('\n', ',').split(',')
                for part in [chunk.strip()] if part]
     if not isinstance(raw, list) or not raw:
@@ -140,7 +142,7 @@ def comp_tickets(request, event_id):
         return _error('Send to %d addresses at a time.' % MAX_PER_REQUEST,
                       'TOO_MANY')
 
-    note = str(request.data.get('note') or '').strip()[:280]
+    note = inputs.read_text(request.data, 'note', max_length=inputs.LONGEST_TEXT)[:280]
 
     issued = []
     skipped = []

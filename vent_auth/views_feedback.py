@@ -26,6 +26,7 @@ from rest_framework.response import Response
 
 from . import bot_check
 from .models import Feedback, Users
+from . import inputs
 
 # Long enough to say what happened, short enough that nobody pastes a log file.
 MAX_MESSAGE = 4000
@@ -100,7 +101,7 @@ def feedback(request):
     user = _viewer(request)
     ip = _ip(request)
 
-    message = str(request.data.get('message') or '').strip()
+    message = inputs.read_text(request.data, 'message', max_length=inputs.LONGEST_TEXT)
     if len(message) < MIN_MESSAGE:
         return _error('Tell us a little more than that.', 'MESSAGE_TOO_SHORT',
                       field='message')
@@ -112,20 +113,20 @@ def feedback(request):
         return _error('You have just sent one. Give it a minute.',
                       'TOO_MANY', status.HTTP_429_TOO_MANY_REQUESTS)
 
-    area = str(request.data.get('area') or 'other')
+    area = inputs.read_text(request.data, 'area', max_length=40, default='other')
     if area not in dict(Feedback.AREAS):
         area = 'other'
-    kind = str(request.data.get('kind') or 'broken')
+    kind = inputs.read_text(request.data, 'kind', max_length=40, default='broken')
     if kind not in dict(Feedback.KINDS):
         kind = 'broken'
 
-    email = str(request.data.get('email') or '').strip()[:254]
+    email = inputs.read_text(request.data, 'email', max_length=254)
 
     # Where they were, and the sender's address alongside it so an anonymous
     # rate limit has something to count. Kept in one column rather than adding
     # a second: the page is the useful half and the address only exists to stop
     # a flood.
-    page = str(request.data.get('page') or '').strip()[:150]
+    page = inputs.read_text(request.data, 'page', max_length=inputs.LONGEST_TEXT)[:150]
     stored_page = ('ip:%s|%s' % (ip, page)) if ip else page
 
     row = Feedback.objects.create(

@@ -18,9 +18,13 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from vent_auth import inputs
 from vent_auth.actors import actor_from_request, may_override
 
 from .models import BracketMatch, Tournament
+
+#: More fixtures than any bracket has; a longer list is not a running order.
+MOST_FIXTURES = 1000
 
 
 def _ok(data, message='OK'):
@@ -146,7 +150,7 @@ def set_running_order(request, tournament_id):
         return err
 
     rows = request.data.get('fixtures')
-    if not isinstance(rows, list):
+    if not isinstance(rows, list) or len(rows) > MOST_FIXTURES:
         return _err('Send the fixtures as a list.', 'VALIDATION_ERROR')
 
     # Every id checked against this tournament before anything is written. A
@@ -156,7 +160,7 @@ def set_running_order(request, tournament_id):
     for row in rows:
         if not isinstance(row, dict):
             return _err('Each fixture is a set of named values.', 'VALIDATION_ERROR')
-        match_id = row.get('match_id')
+        match_id = inputs.read_int(row, 'match_id', minimum=1)
         if match_id is None:
             return _err('Each fixture needs its match_id.', 'VALIDATION_ERROR')
 
@@ -173,7 +177,7 @@ def set_running_order(request, tournament_id):
         except (TypeError, ValueError):
             return _err('The position has to be a whole number.', 'INVALID_NUMBER')
 
-        wanted[int(match_id)] = (day, max(0, order))
+        wanted[match_id] = (day, max(0, order))
 
     mine = {m.pk: m for m in BracketMatch.objects.filter(
         tournament=tournament, pk__in=list(wanted))}

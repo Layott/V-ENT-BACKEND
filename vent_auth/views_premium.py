@@ -21,6 +21,7 @@ from .actors import actor_from_request
 from .models import UserWallet
 from .org_link import mine as my_orgs
 from vent_auth import coins as vent_coins
+from . import inputs
 
 
 def _ok(data, message='OK'):
@@ -87,8 +88,8 @@ def premium_buy(request):
     try:
         purchase = premium_sale.buy(
             user,
-            months=request.data.get('months') or 1,
-            org_slug=request.data.get('organisation') or None,
+            months=inputs.read_int(request.data, 'months', minimum=1, maximum=12, default=1),
+            org_slug=inputs.read_text(request.data, 'organisation', max_length=200) or None,
         )
     except premium_sale.PremiumSaleError as exc:
         # 409 for "you already have it", 402 for "you cannot afford it", 400
@@ -136,5 +137,5 @@ def premium_interest(request):
         return _err('Premium is on sale, so there is nothing to register.',
                     'PREMIUM_ON_SALE')
 
-    row = premium_sale.register_interest(user, request.data.get('surface') or '')
+    row = premium_sale.register_interest(user, inputs.read_text(request.data, 'surface', max_length=60))
     return _ok({'times': row.times}, 'Noted.')

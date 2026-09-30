@@ -37,6 +37,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from .models import UserBlock, UserMute, UserReport, Users
+from . import inputs
 
 
 def _ok(data, message=''):
@@ -128,8 +129,7 @@ def block_user(request, username):
     if target.pk == user.pk:
         return _err('You cannot block yourself.', 'CANNOT_BLOCK_SELF')
 
-    wants = request.data.get('block')
-    wants = True if wants is None else bool(wants)
+    wants = inputs.read_bool(request.data, 'block', default=True)
 
     if wants:
         UserBlock.objects.get_or_create(blocker=user, blocked=target)
@@ -174,8 +174,7 @@ def mute_user(request, username):
     if target.pk == user.pk:
         return _err('You cannot mute yourself.', 'CANNOT_MUTE_SELF')
 
-    wants = request.data.get('mute')
-    wants = True if wants is None else bool(wants)
+    wants = inputs.read_bool(request.data, 'mute', default=True)
 
     if not wants:
         UserMute.objects.filter(muter=user, muted=target).delete()
@@ -185,7 +184,7 @@ def mute_user(request, username):
     days = request.data.get('days')
     if days not in (None, ''):
         try:
-            days = int(days)
+            days = inputs.read_int(request.data, 'days')
         except (TypeError, ValueError):
             return _err('How long has to be a number of days.', 'INVALID_NUMBER',
                         field='days')
@@ -221,7 +220,7 @@ def report_user(request, username):
     if target.pk == user.pk:
         return _err('You cannot report yourself.', 'CANNOT_REPORT_SELF')
 
-    reason = str(request.data.get('reason') or 'other').strip()
+    reason = inputs.read_text(request.data, 'reason', max_length=40, default='other')
     if reason not in dict(UserReport.REASONS):
         return _err('Pick one of the listed reasons.', 'INVALID_REASON',
                     field='reason')
@@ -237,8 +236,8 @@ def report_user(request, username):
 
     row = UserReport.objects.create(
         reporter=user, reported=target, reason=reason,
-        detail=str(request.data.get('detail') or '')[:2000],
-        context=str(request.data.get('context') or '')[:120],
+        detail=inputs.read_text(request.data, 'detail', max_length=inputs.LONGEST_TEXT, strip=False)[:2000],
+        context=inputs.read_text(request.data, 'context', max_length=inputs.LONGEST_TEXT)[:120],
     )
     return _ok({'report_id': row.id, 'already': False},
                'Reported. A moderator will look at this.')

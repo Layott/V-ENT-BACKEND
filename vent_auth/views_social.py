@@ -22,6 +22,7 @@ from .views_helpers import (
     create_user_wallet,
 )
 from .throttle import limited
+from . import inputs
 
 logger = logging.getLogger(__name__)
 
@@ -98,20 +99,22 @@ def social_auth(request):
     account). `provider` may be sent and must be `google`; `provider_id` and
     `email` in the body are ignored, the token decides both.
     """
-    provider = str(request.data.get('provider') or 'google').strip().lower()
+    provider = inputs.read_text(request.data, 'provider', max_length=20, default='google').lower()
     if provider != 'google':
         # Facebook was removed 2026-08-17 (CEO: keep Google only).
         return _refuse('Only Google sign-in is available.', 'PROVIDER_NOT_SUPPORTED',
                        status.HTTP_400_BAD_REQUEST)
 
-    claims, refusal = _google_identity(request.data.get('id_token'))
+    claims, refusal = _google_identity(inputs.read_text(request.data, 'id_token', max_length=8192) or None)
     if refusal is not None:
         return refusal
     provider_id = str(claims['sub'])
     email = str(claims['email']).strip().lower()
-    full_name = (request.data.get('full_name') or claims.get('name') or '').strip()
-    country = request.data.get('country')
-    profile_picture_url = request.data.get('profile_picture_url') or claims.get('picture') or ''
+    full_name = (inputs.read_text(request.data, 'full_name', max_length=148)
+                 or str(claims.get('name') or '').strip()[:148])
+    country = inputs.read_text(request.data, 'country', max_length=256) or None
+    profile_picture_url = (inputs.read_text(request.data, 'profile_picture_url', max_length=1000)
+                           or claims.get('picture') or '')
 
     try:
         user = Users.objects.filter(email=email).first()

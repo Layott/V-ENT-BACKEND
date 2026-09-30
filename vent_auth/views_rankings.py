@@ -21,6 +21,7 @@ from . import ranking_core
 from . import regions
 from vent_auth.errors import server_error
 from vent_auth import fuzzy
+from . import inputs
 
 
 WIN_POINTS = ranking_core.WIN_POINTS
@@ -127,11 +128,11 @@ def _filters(request):
 @api_view(['GET'])
 def rankings(request):
     try:
-        game = request.GET.get('game')
+        game = inputs.read_text(request.GET, 'game', max_length=60)
         if game in ('all', 'All Games', ''):
             game = None
-        country = request.GET.get('country') or None
-        region = request.GET.get('region')
+        country = inputs.read_text(request.GET, 'country', max_length=120) or None
+        region = inputs.read_text(request.GET, 'region', max_length=60)
         if region in ('global', ''):
             region = None
 
@@ -139,7 +140,7 @@ def rankings(request):
         # checked against 'global', and then never used in a single query, so
         # picking West Africa returned the whole world. It filters now.
         region_countries = regions.countries_in(region) if region else []
-        search = (request.GET.get('search') or '').strip()
+        search = inputs.read_text(request.GET, 'search', max_length=100)
 
         me = _session_user(request)
         # One place works out who won what, because an entry requirement now

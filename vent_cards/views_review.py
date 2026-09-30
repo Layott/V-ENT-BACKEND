@@ -22,6 +22,7 @@ from . import windows
 from .models import GameCard, Lineup, SquadRules
 from .views import _err, _ok, _tournament, _viewer, serialize_lineup
 from .views_lineups import _my_lineup
+from vent_auth import inputs
 
 
 def _may_manage(user, tournament):
@@ -110,11 +111,11 @@ def review_lineup(request, tournament_id, username):
         return _err('They have not submitted it yet.', 'NOT_SUBMITTED',
                     status.HTTP_409_CONFLICT)
 
-    decision = str(request.data.get('decision') or '').strip().lower()
+    decision = inputs.read_text(request.data, 'decision', max_length=20).lower()
     if decision not in ('accept', 'reject'):
         return _err('Say accept or reject.', 'VALIDATION_ERROR', field='decision')
 
-    note = str(request.data.get('note') or '').strip()[:280]
+    note = inputs.read_text(request.data, 'note', max_length=inputs.LONGEST_TEXT)[:280]
     if decision == 'reject' and not note:
         return _err('Say why, so they can fix it.', 'REASON_REQUIRED',
                     field='note')
@@ -178,7 +179,7 @@ def squad_rules_view(request, tournament_id):
             setattr(rules, field, None if field == 'max_card_rating' else 0)
             continue
         try:
-            value = int(raw)
+            value = inputs.read_int(request.data, field, maximum=2_000_000_000)
         except (TypeError, ValueError):
             return _err('That is a number.', 'VALIDATION_ERROR', field=field)
         if value < 0:
@@ -186,9 +187,9 @@ def squad_rules_view(request, tournament_id):
         setattr(rules, field, value)
 
     if 'required_nation' in request.data:
-        rules.required_nation = str(request.data.get('required_nation') or '')[:120]
+        rules.required_nation = inputs.read_text(request.data, 'required_nation', max_length=inputs.LONGEST_TEXT, strip=False)[:120]
     if 'notes' in request.data:
-        rules.notes = str(request.data.get('notes') or '')[:280]
+        rules.notes = inputs.read_text(request.data, 'notes', max_length=inputs.LONGEST_TEXT, strip=False)[:280]
 
     if 'banned_item_types' in request.data:
         raw = request.data.get('banned_item_types') or []

@@ -19,17 +19,11 @@ from vent_auth.models import GameMode, Games
 from . import formats as fmt
 from . import scoring
 from . import structure as struct
+from vent_auth import inputs
 
 
 def _ok(data, message='OK'):
     return Response({'status': 'success', 'data': data, 'message': message})
-
-
-def _as_int(raw, default=0):
-    try:
-        return int(str(raw).strip())
-    except (TypeError, ValueError):
-        return default
 
 
 def _with_structure(entries, participants, seats):
@@ -71,8 +65,17 @@ def format_catalogue(request):
     fixture is a tie of several. Numbers and codes only, so the screen showing
     them can be in any of the three languages.
     """
-    participants = _as_int(request.GET.get('participants'))
-    seats = max(1, _as_int(request.GET.get('seats'), 1))
+    # A public catalogue: a word or an absurd number in the query means "no
+    # shape asked for", never an error (tests_structure), but it is still read
+    # as a bounded whole number rather than handed on as sent.
+    def lenient(key, default, most):
+        try:
+            return inputs.read_int(request.GET, key, minimum=default, maximum=most,
+                                   default=default)
+        except inputs.BadInput:
+            return default
+    participants = lenient('participants', 0, 4096)
+    seats = lenient('seats', 1, 64)
     return _ok({
         'formats': _with_structure(fmt.catalogue(), participants, seats),
         'tiebreakers': [
@@ -104,7 +107,7 @@ def game_modes(request, game_id=None):
         )
 
     qs = GameMode.objects.filter(game=game, is_active=True)
-    series_id = request.GET.get('series')
+    series_id = inputs.read_int(request.GET, 'series', minimum=1)
     if series_id:
         # A mode with no series applies to every edition, which is the usual
         # case; one that names a series is only offered for that edition.

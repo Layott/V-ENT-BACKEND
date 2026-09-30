@@ -27,6 +27,7 @@ from rest_framework.response import Response
 from .models import Users, UserProfile
 from .views_profile import _user_from_bearer, can_view_profile, privacy_of
 from vent_auth import fuzzy
+from . import inputs
 
 MAX_RESULTS = 12
 MIN_QUERY = 2
@@ -109,7 +110,7 @@ def user_search(request):
     Open to signed-out visitors too, because the same rows are what a public
     search page needs; `can_message` is simply false for all of them.
     """
-    query = (request.GET.get('q') or '').strip()
+    query = inputs.read_text(request.GET, 'q', max_length=100)
     if len(query) < MIN_QUERY:
         return Response({
             'status': 'success',

@@ -21,6 +21,7 @@ from . import rules as rules_mod
 from .models import BracketMatch, LeagueRules, Tournament, TournamentRuleset
 
 from . import lookup
+from vent_auth import inputs
 
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
@@ -209,7 +210,7 @@ def reset_tournament_rules(request, tournament_id):
         return _err('These are not your tournament\'s rules to change.',
                     'NOT_YOURS', status.HTTP_403_FORBIDDEN)
 
-    wanted = request.data.get('format') or tournament.bracket_type
+    wanted = inputs.read_text(request.data, 'format', max_length=50) or tournament.bracket_type
     ruleset = _ruleset_for(tournament)
     ruleset.data = rules_mod.preset_for(wanted, _game(tournament))
     ruleset.updated_by = user

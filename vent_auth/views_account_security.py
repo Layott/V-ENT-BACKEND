@@ -24,6 +24,7 @@ from rest_framework.response import Response
 from .models import Users
 from .views_profile import _user_from_bearer
 from vent_auth import coins as vent_coins
+from . import inputs
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +154,7 @@ def export_data(request):
         return err
 
     payload = _export_payload(user)
-    wanted = (request.GET.get('format') or 'json').lower()
+    wanted = inputs.read_text(request.GET, 'format', max_length=10, default='json').lower()
     stamp = timezone.now().strftime('%Y-%m-%d')
 
     if wanted in ('xlsx', 'excel'):
@@ -246,7 +247,7 @@ def delete_account(request):
     if err:
         return err
 
-    if not request.data.get('confirm'):
+    if not inputs.read_bool(request.data, 'confirm'):
         return _err('Send confirm to start the deletion.', 'CONFIRM_REQUIRED')
 
     with transaction.atomic():
@@ -301,7 +302,7 @@ def founder_badge(request):
         return _err('This is only available to founding members of V-ENT.', 'NOT_A_FOUNDER',
                     status.HTTP_403_FORBIDDEN)
 
-    user.show_founder_badge = bool(request.data.get('show', True))
+    user.show_founder_badge = inputs.read_bool(request.data, 'show', default=True)
     user.save(update_fields=['show_founder_badge'])
     return _ok(
         {'is_founder': True, 'show_founder_badge': user.show_founder_badge},

@@ -29,6 +29,7 @@ from .models import VendorSlot, VendorSlotPurchase
 from .views_promos import _actor_for_event, event_by_ref
 from .views_tickets import _error, _ok
 from .views_vendors import _vendor_by_ref, serialize_vendor
+from vent_auth import inputs
 
 DECISIONS = {
     # decision: (statuses it may be taken from, status it lands on)
@@ -87,8 +88,10 @@ def decide_stall(request, event_id, vendor_id):
         return _error('Vendor not found for this event.', 'NOT_FOUND',
                       status.HTTP_404_NOT_FOUND)
 
-    decision = (request.data.get('decision') or '').strip().lower()
-    booth = request.data.get('booth')
+    decision = inputs.read_text(request.data, 'decision', max_length=20).lower()
+    booth = None
+    if 'booth' in request.data:
+        booth = inputs.read_text(request.data, 'booth', max_length=40)
     if not decision and booth is None:
         return _error('Say what to do with the stall.', 'VALIDATION_ERROR',
                       status.HTTP_400_BAD_REQUEST)

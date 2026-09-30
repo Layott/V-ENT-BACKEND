@@ -40,8 +40,12 @@ from rest_framework.response import Response
 from vent_auth.models import Users
 
 from . import attendance
+
+#: The sheets the export offers; anything else is refused, not guessed at.
+SHEETS = ('attendees', 'tiers', 'funnel', 'sales')
 from . import funnel as _funnel
 from .models import Event, EventManager, Ticket, TicketTier
+from vent_auth import inputs
 
 SESSION_TIMEOUT_MINUTES = 60 * 24 * 30
 
@@ -318,7 +322,7 @@ def export_metrics(request, event_id):
     if err:
         return err
 
-    sheet = str(request.GET.get('sheet') or 'attendees').lower()
+    sheet = inputs.read_choice(request.GET, 'sheet', SHEETS, default='attendees')
     stem = event.slug or str(event.event_id)
 
     if sheet == 'attendees':

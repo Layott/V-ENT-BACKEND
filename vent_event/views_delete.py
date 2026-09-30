@@ -20,6 +20,7 @@ from vent_auth.actors import actor_from_request, may_override
 from vent_auth import softdelete
 
 from .models import Event
+from vent_auth import inputs
 
 
 def _ok(data, message='OK', http_status=status.HTTP_200_OK):
@@ -77,7 +78,7 @@ def delete_event(request, event_id):
                     status.HTTP_403_FORBIDDEN)
 
     paid, unpaid = _counts(event)
-    confirmed = bool(request.data.get('confirm'))
+    confirmed = inputs.read_bool(request.data, 'confirm')
     refusal = softdelete.deletion_guard(paid, unpaid, confirmed)
     if refusal:
         code, http_status, payload = refusal
@@ -92,7 +93,7 @@ def delete_event(request, event_id):
             code, http_status, payload)
 
     softdelete.mark_deleted(event, by=user,
-                            reason=str(request.data.get('reason') or ''))
+                            reason=inputs.read_text(request.data, 'reason', max_length=200))
     return _ok({'event_id': event.pk, 'slug': event.slug,
                 **softdelete.deletion_row(event)}, 'Event deleted.')
 
@@ -125,7 +126,7 @@ def cancel_event(request, event_id):
     if not event.is_active:
         return _err('This event is already cancelled.', 'ALREADY_CANCELLED',
                     status.HTTP_409_CONFLICT)
-    reason = str(request.data.get('reason') or '').strip()
+    reason = inputs.read_text(request.data, 'reason', max_length=inputs.LONGEST_TEXT)
     if not reason:
         return _err('Say why it is being cancelled; everybody holding a ticket is told.',
                     'REASON_REQUIRED', status.HTTP_400_BAD_REQUEST)

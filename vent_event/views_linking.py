@@ -20,6 +20,7 @@ from rest_framework import status
 
 from vent_auth.models import Users
 from .models import Event, EventTournamentLink, Ticket, TicketTier
+from vent_auth import inputs
 
 
 def _event_by_ref(ref, **extra):
@@ -256,7 +257,7 @@ def link_tournament(request, event_id):
 
     from vent_tournament.models import Tournament
 
-    tournament_id = request.data.get('tournament_id')
+    tournament_id = inputs.read_text(request.data, 'tournament_id', max_length=200)
     if not tournament_id:
         return _error('tournament_id is required.', 'VALIDATION_FAILED', status.HTTP_400_BAD_REQUEST)
 
@@ -272,7 +273,7 @@ def link_tournament(request, event_id):
         return _error('Publish the tournament before linking it to an event.',
                       'STATE_CONFLICT', status.HTTP_409_CONFLICT)
 
-    shared = bool(request.data.get('shared_ticketing', False))
+    shared = inputs.read_bool(request.data, 'shared_ticketing')
 
     existing = link_for_tournament(tournament.tournament_id)
     if existing:
@@ -301,7 +302,7 @@ def unlink_tournament(request, event_id):
     if err:
         return err
 
-    tournament_id = request.data.get('tournament_id')
+    tournament_id = inputs.read_text(request.data, 'tournament_id', max_length=200)
     if not tournament_id:
         return _error('tournament_id is required.', 'VALIDATION_FAILED', status.HTTP_400_BAD_REQUEST)
 
@@ -338,7 +339,7 @@ def set_shared_ticketing(request, event_id, tournament_id):
     if raw is None:
         return _error('shared_ticketing is required.', 'VALIDATION_FAILED',
                       status.HTTP_400_BAD_REQUEST)
-    shared = raw if isinstance(raw, bool) else str(raw).lower() in ('1', 'true', 'yes')
+    shared = inputs.read_bool(request.data, 'shared_ticketing')
 
     link.shared_ticketing = shared
 
@@ -348,7 +349,7 @@ def set_shared_ticketing(request, event_id, tournament_id):
     # Sent alongside the flag rather than through a second endpoint, because
     # they are one decision the organiser makes in one sitting.
     if 'entry_mode' in request.data:
-        mode = str(request.data.get('entry_mode') or '').strip()
+        mode = inputs.read_text(request.data, 'entry_mode', max_length=40)
         valid = {c[0] for c in EventTournamentLink.ENTRY_CHOICES}
         if mode not in valid:
             return _error('Entry is one of: %s.' % ', '.join(sorted(valid)),
@@ -358,8 +359,8 @@ def set_shared_ticketing(request, event_id, tournament_id):
 
     def _tier_or_error(key):
         """A tier on THIS event, or None to clear it."""
-        raw = request.data.get(key)
-        if raw in (None, '', 0, '0'):
+        raw = inputs.read_int(request.data, key, minimum=0)
+        if not raw:
             return None, None
         tier = TicketTier.objects.filter(event=event, pk=raw).first()
         if tier is None:
@@ -380,7 +381,7 @@ def set_shared_ticketing(request, event_id, tournament_id):
             link.reward_from_round = None
         else:
             try:
-                link.reward_from_round = max(1, int(raw))
+                link.reward_from_round = max(1, inputs.read_int(request.data, 'reward_from_round', maximum=64))
             except (TypeError, ValueError):
                 return _error('The round has to be a number.', 'INVALID_NUMBER',
                               status.HTTP_400_BAD_REQUEST)

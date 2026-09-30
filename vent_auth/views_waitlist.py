@@ -35,6 +35,7 @@ from .views_helpers import (
     create_default_profile_picture,
     create_user_wallet,
 )
+from . import inputs
 
 logger = logging.getLogger(__name__)
 
@@ -86,10 +87,10 @@ def waitlist_claim_preview(request, token):
 @api_view(['POST'])
 def waitlist_claim(request):
     """Turn a reservation into a real, active, signed-in account."""
-    token = (request.data.get('token') or '').strip()
-    password = request.data.get('password') or ''
+    token = inputs.read_text(request.data, 'token', max_length=200)
+    password = inputs.read_text(request.data, 'password', max_length=256, strip=False)
     # Only read for the handful of reservations that never picked a username.
-    requested_username = (request.data.get('username') or '').strip().lower()
+    requested_username = inputs.read_text(request.data, 'username', max_length=129).lower()
 
     if not token or not password:
         return Response({ 'code': 'CLAIM_TOKEN_PASSWORD_REQUIRED',

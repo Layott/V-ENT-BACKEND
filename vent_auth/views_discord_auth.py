@@ -55,6 +55,7 @@ from rest_framework.response import Response
 
 from vent.settings import FRONTEND_URL
 from . import emails
+from . import inputs
 from .models import PlatformAccount, Users
 from .views_helpers import (create_user_wallet, generate_session_token,
                             generate_unique_username)
@@ -107,7 +108,7 @@ def discord_signin_start(request):
     # `next` is carried through the signed state rather than as a bare query
     # parameter, so it cannot be swapped for somebody else's destination on the
     # way back.
-    nxt = str(request.query_params.get('next') or '')[:200]
+    nxt = inputs.read_text(request.query_params, 'next', max_length=inputs.LONGEST_TEXT)[:200]
     state = signing.dumps({'next': nxt, 'at': timezone.now().isoformat()},
                           salt=STATE_SALT)
 
@@ -177,8 +178,8 @@ def _sign_in(user, request, created=False):
 @permission_classes([AllowAny])
 def discord_signin_callback(request):
     """GET /auth/discord/callback/ - Discord sends the browser back here."""
-    code = request.query_params.get('code')
-    state = request.query_params.get('state') or ''
+    code = inputs.read_text(request.query_params, 'code', max_length=200) or None
+    state = inputs.read_text(request.query_params, 'state', max_length=2000)
     try:
         signing.loads(state, salt=STATE_SALT, max_age=STATE_MAX_AGE)
     except signing.BadSignature:

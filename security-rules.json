@@ -212,5 +212,20 @@
       "may_run_production(",
       "may_override("
     ]
+  },
+  "validation": {
+    "$comment": "vent_auth/inputs.py is the project's own validator: each read_* checks type, length or range and raises BadInput, answered INVALID_INPUT by inputs.exception_handler (R69, 30 Sept 2026)",
+    "markers": [
+      "read_int(",
+      "read_float(",
+      "read_decimal(",
+      "read_text(",
+      "read_choice(",
+      "read_bool(",
+      "read_datetime(",
+      "read_ids(",
+      "finite_float(",
+      "read_json("
+    ]
   }
 }

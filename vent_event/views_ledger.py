@@ -36,6 +36,7 @@ from vent_auth.models import Users
 
 from . import ledger
 from .models import Event, EventLedgerEntry, EventReferral
+from vent_auth import inputs
 
 
 def _error(message, code, http=status.HTTP_400_BAD_REQUEST):
@@ -161,7 +162,7 @@ def set_fee_bearer(request, event_id):
     if err:
         return err
 
-    choice = str(request.data.get('fee_bearer') or '').strip()
+    choice = inputs.read_text(request.data, 'fee_bearer', max_length=20)
     if choice not in (Event.FEE_ORGANISER, Event.FEE_BUYER):
         return _error('Say whether the organiser or the buyer pays the fee.',
                       'VALIDATION_ERROR')
@@ -185,7 +186,7 @@ def settle(request, event_id):
         return err
 
     run = ledger.settle(event, run_by=viewer,
-                        note=str(request.data.get('note') or ''))
+                        note=inputs.read_text(request.data, 'note', max_length=200))
     return _ok({
         'settlement_id': run.id,
         'amount_vc': run.amount_vc,
