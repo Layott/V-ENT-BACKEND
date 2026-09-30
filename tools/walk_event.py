@@ -194,6 +194,9 @@ def setup():
         'capacity': 60,
         'capacity_mode': 'per_day',
         'max_tickets_per_email': 4,
+        # Everybody may come (18 would close going together, which the
+        # buyers stage uses); sent so the wizard's field is on the walk.
+        'min_age': 0,
         'self_check_in': True,
         'self_check_in_opens_minutes': 120,
         'ticket_types': [
