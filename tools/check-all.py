@@ -200,6 +200,12 @@ CATCHERS = [
     ('matcher parity',
      'fuzzy.js passes every shared case and its fixtures equal the backend copy',
      FRONTEND, ['node', 'scripts/check-fuzzy.mjs'], True),
+    ('history lines',
+     'every wallet history line the server can name is said in en, fr and pt (inbox 388)',
+     FRONTEND, ['node', 'scripts/check-statement-lines.mjs'], True),
+    ('history lines self-test',
+     'the catcher catches a missing key, a dropped placeholder and a code with no English',
+     FRONTEND, ['node', 'scripts/check-statement-lines.mjs', '--self-test'], True),
 
     # "8/-", "8/0" and "8/undefined" for one uncapped tournament on four
     # screens, 28 September 2026, after "0/32 slots" and "0/64" before it.
