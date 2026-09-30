@@ -170,6 +170,25 @@ CATCHERS = [
      'no unfinished plural, a bracketed s, in a sentence a person reads',
      FRONTEND, ['node', 'scripts/check-plurals.mjs'], True),
 
+    # "PHYSICAL" on a French event page: a stored code drawn as a word. Found
+    # 30 September 2026 on the embeds walk, then in 28 places (inbox 364).
+    ('raw enums',
+     'no status or type code drawn as text; it goes through src/lib/labels.js',
+     FRONTEND, ['node', 'scripts/check-raw-enums.mjs'], True),
+    ('raw enums self-test',
+     'the raw-enum catcher catches a code drawn as text and leaves lookups alone',
+     FRONTEND, ['node', 'scripts/check-raw-enums.mjs', '--self-test'], True),
+
+    # "Start date is required." on a French page: English handed straight to
+    # the screen from a validator or a setter. 47 in 14 files, 30 September
+    # 2026 (inbox 364), the login and signup forms among them.
+    ('literal messages',
+     'no error or notice sentence handed to the screen without a key',
+     FRONTEND, ['node', 'scripts/check-literal-messages.mjs'], True),
+    ('literal messages self-test',
+     'the literal-message catcher catches bare English and leaves tt() alone',
+     FRONTEND, ['node', 'scripts/check-literal-messages.mjs', '--self-test'], True),
+
     # "8/-", "8/0" and "8/undefined" for one uncapped tournament on four
     # screens, 28 September 2026, after "0/32 slots" and "0/64" before it.
     # Every count against a cap goes through slotsText in src/lib/slots.js.

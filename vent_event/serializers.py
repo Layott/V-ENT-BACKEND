@@ -166,7 +166,12 @@ def serialize_event_card(request, event):
         'attendees_count': sum((t.sold or 0) for t in tiers),
         'interaction_count': event.interaction_count,
         'game': event.game.game_title if event.game else None,
-        'ticket_types': [serialize_ticket_tier(t) for t in tiers],
+        # The public list only. A type behind an access code or an
+        # influencer's link is a presale; listing it here, on every card and
+        # the detail page, told anybody reading the JSON its name and price
+        # while the ticket endpoint hid it (found 30 September 2026, inbox
+        # 364). The organiser reads the full list from GET /event/<ref>/tiers/.
+        'ticket_types': [serialize_ticket_tier(t) for t in tiers if not t.is_hidden],
         # Whether there is a published run of show to link to. On the CARD as
         # well as the detail, because the sitemap reads the listing and a page
         # nothing points at is a page nobody finds. A field that is added to
