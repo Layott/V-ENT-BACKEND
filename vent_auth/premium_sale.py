@@ -54,6 +54,7 @@ from vent_tournament.services import wallet as wallet_service
 
 from .models import (AdminSetting, Organization, PremiumInterest,  # noqa: F401
                      PremiumPurchase, UserWallet, Users)
+from . import coins
 
 #: A month, for billing. 30 days rather than a calendar month, because "the
 #: 31st of next month" does not exist six times a year and the alternative is a
@@ -169,8 +170,8 @@ def buy(user, *, months=1, org_slug=None):
             raise PremiumSaleError(
                 'INSUFFICIENT_FUNDS',
                 'You need %s VENT COINS and have %s.'
-                % (cost, wallet.wallet_balance),
-                needed_vc=cost, balance_vc=wallet.wallet_balance)
+                % (cost, coins.label(wallet.wallet_balance)),
+                needed_vc=cost, balance_vc=coins.as_json(wallet.wallet_balance))
 
         # Extend from whichever is later: what is already paid for, or now. A
         # lapsed subscription starts again today rather than backdating itself

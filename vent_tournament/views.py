@@ -638,7 +638,7 @@ def join_tournament(request):
                     return Response({'status': 'error', 'code': 'INSUFFICIENT_BALANCE',
                                      'message': 'Insufficient VENT COINS balance',
                                      'needed_vc': charge_coins,
-                                     'balance_vc': locked_wallet.wallet_balance},
+                                     'balance_vc': vent_coins.as_json(locked_wallet.wallet_balance)},
                                     status=status.HTTP_422_UNPROCESSABLE_ENTITY)
                 locked_wallet.wallet_balance -= charge_coins
                 locked_wallet.save(update_fields=['wallet_balance'])
@@ -2161,6 +2161,7 @@ from vent_auth.actors import actor_from_request as _actor_from_request
 
 from . import lookup
 from vent_auth.errors import bad_input, server_error
+from vent_auth import coins as vent_coins
 
 
 def _may_override(user):

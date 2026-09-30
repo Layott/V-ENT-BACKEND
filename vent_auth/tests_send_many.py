@@ -52,8 +52,9 @@ class SendManyTests(TestCase):
 
     def test_fractions_self_and_duplicates_refused(self):
         for rows, code in [
-            ([{'to': 'smada', 'amount': '0.2'}], 'AMOUNT_MUST_WHOLE'),
-            ([{'to': 'smada', 'amount': 0.2}], 'AMOUNT_MUST_WHOLE'),
+            ([{'to': 'smada', 'amount': '0.201'}], 'AMOUNT_TOO_PRECISE'),
+            ([{'to': 'smada', 'amount': 'two'}], 'AMOUNT_MUST_NUMBER'),
+            ([{'to': 'smada', 'amount': True}], 'AMOUNT_REQUIRED'),
             ([{'to': 'smada', 'amount': 0}], 'AMOUNT_MUST_POSITIVE'),
             ([{'to': 'smsender', 'amount': 1}], 'CANNOT_SEND_YOURSELF'),
             ([{'to': 'smada', 'amount': 1}, {'to': 'smada', 'amount': 1}], 'DUPLICATE_RECIPIENT'),

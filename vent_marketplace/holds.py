@@ -41,6 +41,7 @@ from vent_event.ledger import fee_on          # one rounding rule, not two
 from vent_tournament.services import wallet as wallet_service
 
 from .models import Purchase
+from vent_auth import coins
 
 
 class PurchaseError(Exception):
@@ -115,7 +116,7 @@ def hold(listing, buyer, quantity=1, amount=None):
             raise PurchaseError(
                 'INSUFFICIENT_FUNDS',
                 'You need %s VENT COINS and have %s.'
-                % (total, wallet.wallet_balance))
+                % (total, coins.label(wallet.wallet_balance)))
 
         tx = wallet_service.debit(
             wallet, total,

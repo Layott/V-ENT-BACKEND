@@ -40,6 +40,7 @@ from .models import Event, Vendor, VendorSlot, VendorSlotPurchase
 from .views_promos import _actor_for_event, event_by_ref
 from .views_tickets import _authenticate, _error, _ngn_to_coins, _ok
 from vent_auth import inputs
+from vent_auth import coins
 
 
 def _slot_row(slot, viewer=None):
@@ -289,9 +290,9 @@ def buy_slot(request, event_id, slot_id):
                 # card for exactly the shortfall. See vent_auth/pay.py.
                 return _error(
                     f'You need {price_vc} VC - your balance is '
-                    f'{wallet.wallet_balance} VC.',
+                    f'{coins.label(wallet.wallet_balance)} VC.',
                     'INSUFFICIENT_BALANCE', status.HTTP_400_BAD_REQUEST,
-                    extra={'needed_vc': price_vc, 'balance_vc': wallet.wallet_balance})
+                    extra={'needed_vc': price_vc, 'balance_vc': coins.as_json(wallet.wallet_balance)})
 
             # Pay the organiser. Refused rather than taken when there is
             # nowhere to put it, for the same reason as a vendor order.

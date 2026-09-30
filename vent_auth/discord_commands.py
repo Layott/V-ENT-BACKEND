@@ -40,6 +40,7 @@ import os
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from vent_auth import fuzzy
+from . import coins
 
 logger = logging.getLogger(__name__)
 
@@ -291,7 +292,7 @@ def _me(discord_id):
     fields = [('Username', user.username, True)]
     wallet = getattr(user, 'wallet', None)
     if wallet is not None:
-        fields.append(('Wallet', f'{wallet.wallet_balance} VENT COINS', True))
+        fields.append(('Wallet', f'{coins.label(wallet.wallet_balance)} VENT COINS', True))
     fields.append(('Direct messages',
                    'on' if row.dm_enabled else 'off', True))
 

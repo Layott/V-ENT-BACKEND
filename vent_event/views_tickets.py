@@ -22,6 +22,7 @@ from vent_auth.models import Users, UserWallet, Transaction
 from . import checkout
 from .models import Event, TicketTier, Ticket
 from vent_auth.text import count as _count
+from vent_auth import coins
 
 
 def _event_by_ref(ref, **extra):
@@ -637,9 +638,9 @@ def buy_ticket(request, event_id):
                 # The numbers ride with the code so the screen can offer a
                 # card for exactly the shortfall. See vent_auth/pay.py.
                 return _error(
-                    f'You need {total_vc} VC for this purchase - your balance is {wallet.wallet_balance} VC.',
+                    f'You need {total_vc} VC for this purchase - your balance is {coins.label(wallet.wallet_balance)} VC.',
                     'INSUFFICIENT_BALANCE', status.HTTP_400_BAD_REQUEST,
-                    extra={'needed_vc': total_vc, 'balance_vc': wallet.wallet_balance},
+                    extra={'needed_vc': total_vc, 'balance_vc': coins.as_json(wallet.wallet_balance)},
                 )
             wallet.wallet_balance -= total_vc
             wallet.save(update_fields=['wallet_balance'])

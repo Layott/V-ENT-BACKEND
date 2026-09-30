@@ -1050,7 +1050,8 @@ def is_following(viewer, kind, target_id):
 class UserWallet(models.Model):
     user_wallet_id = models.CharField(primary_key=True, max_length=10)
     user = models.OneToOneField(Users, on_delete=models.CASCADE, related_name='wallet')
-    wallet_balance = models.IntegerField(default=0)
+    #: DECIMAL(14, 2): hundredths of a coin since 30 September 2026. See coins.py.
+    wallet_balance = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     pin_hash = models.CharField(max_length=128, blank=True, null=True)  # hashed 4-digit PIN via make_password
     #: Wrong PINs in a row, and until when the wallet refuses every PIN.
     #: Owner rule R58/R59, 17 September 2026: five wrong tries lock it for
@@ -1077,7 +1078,8 @@ class TeamWallet(models.Model):
     """
     team_wallet_id = models.CharField(primary_key=True, max_length=10)
     team = models.OneToOneField(Teams, on_delete=models.CASCADE, related_name='wallet')
-    wallet_balance = models.IntegerField(default=0)
+    #: DECIMAL(14, 2): hundredths of a coin since 30 September 2026. See coins.py.
+    wallet_balance = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     #: Legacy, unused. See the note above.
     team_wallet_pin = models.IntegerField(null=True, blank=True)
     pin_hash = models.CharField(max_length=128, null=True, blank=True)
@@ -1089,7 +1091,7 @@ class TeamWallet(models.Model):
     pin_locked_until = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
-        return '%s wallet (%d VC)' % (self.team.team_name, self.wallet_balance)
+        return '%s wallet (%s VC)' % (self.team.team_name, self.wallet_balance)
 
 
 class OrgWallet(models.Model):
@@ -1099,7 +1101,8 @@ class OrgWallet(models.Model):
     """
     org_wallet_id = models.CharField(primary_key=True, max_length=10)
     org = models.OneToOneField(Organization, on_delete=models.CASCADE, related_name='wallet')
-    wallet_balance = models.IntegerField(default=0)
+    #: DECIMAL(14, 2): hundredths of a coin since 30 September 2026. See coins.py.
+    wallet_balance = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     #: Legacy, unused. See TeamWallet.
     org_wallet_pin = models.IntegerField(null=True, blank=True)
     pin_hash = models.CharField(max_length=128, null=True, blank=True)
@@ -1111,7 +1114,7 @@ class OrgWallet(models.Model):
     pin_locked_until = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
-        return '%s wallet (%d VC)' % (self.org.org_name, self.wallet_balance)
+        return '%s wallet (%s VC)' % (self.org.org_name, self.wallet_balance)
 
 
 class SocialLink(models.Model):
@@ -1235,8 +1238,9 @@ class Transaction(models.Model):
         null=True, blank=True,
     )
     type = models.CharField(max_length=20, choices=TYPE_CHOICES)
-    # Positive for credits (top_up, prize, receive, refund), negative for debits
-    amount = models.IntegerField()
+    # Positive for credits (top_up, prize, receive, refund), negative for debits.
+    # Hundredths of a coin since 30 September 2026, see coins.py.
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
     description = models.CharField(max_length=255)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     # Paystack reference. Unique so a single payment reference can credit the

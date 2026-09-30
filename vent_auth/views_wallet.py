@@ -17,12 +17,15 @@ from rest_framework.response import Response
 from django.contrib.auth.hashers import make_password
 from . import kyc as kyc_service
 from . import payouts
-from . import wallets
+from . import coins, wallets
 from .models import (Users, UserWallet, TeamWallet, OrgWallet, Transaction,
                      WithdrawalRequest, KYCDocument, PayoutAddress)
 from vent_auth.errors import gateway_down, gateway_refused
 from . import inputs
 from .flutterwave_currency import choice as _fx_choice
+# Also under a second name for the one view whose own variable is called
+# `coins` (pay_shortfall), so the module stays reachable inside it.
+from vent_auth import coins as vent_coins
 
 
 # ---------------------------------------------------------------------------
@@ -61,9 +64,13 @@ def _ngn_to_coins(amount_ngn: int) -> int:
     return int(amount_ngn) // NGN_PER_COIN
 
 
-def coins_to_ngn(coins: int) -> int:
-    """What a coin balance is worth in NGN. The inverse of _ngn_to_coins."""
-    return int(coins) * NGN_PER_COIN
+def coins_to_ngn(amount) -> int:
+    """What a coin balance is worth in NGN. The inverse of _ngn_to_coins.
+
+    Balances hold hundredths of a coin since 30 September 2026, so 0.8 VC is
+    800 naira; `int(amount)` first would have made it 0.
+    """
+    return int(coins.exact(amount) * NGN_PER_COIN)
 
 
 def _get_user_from_token(request):
@@ -180,7 +187,7 @@ def wallet_summary(wallet, zone_name=''):
     done = wallet.transactions.filter(status='completed')
 
     def total(qs):
-        return int(qs.aggregate(n=Sum('amount'))['n'] or 0)
+        return coins.as_json(qs.aggregate(n=Sum('amount'))['n'] or 0)
     return {
         'month_in': total(done.filter(amount__gt=0, created_at__gte=month_start)),
         'month_out': -total(done.filter(amount__lt=0, created_at__gte=month_start)),
@@ -324,7 +331,7 @@ def pay_shortfall(request):
     if short <= 0:
         return Response({'status': 'success',
                          'data': {'paid': True, 'coins_added': 0,
-                                  'balance_vc': wallet.wallet_balance,
+                                  'balance_vc': vent_coins.as_json(wallet.wallet_balance),
                                   'already_covered': True},
                          'message': 'There are enough VENT COINS already.'},
                         status=status.HTTP_200_OK)
@@ -714,19 +721,11 @@ def send_funds(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    try:
-        amount = int(amount)
-    except (ValueError, TypeError):
-        return Response(
-            { 'code': 'AMOUNT_MUST_INTEGER','status': 'error', 'message': 'amount must be an integer'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    if amount <= 0:
-        return Response(
-            { 'code': 'AMOUNT_MUST_POSITIVE','status': 'error', 'message': 'amount must be positive'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+    # Hundredths of a coin (coins.py): 0.2 VC is 200 naira, and the CEO asked
+    # for amounts under 1000 naira to move (30 September 2026).
+    amount, refused = _coins_or_refusal(amount)
+    if refused:
+        return refused
 
     try:
         wallets.check_pin(wallet, pin)
@@ -786,9 +785,9 @@ def send_funds(request):
             from vent_auth.views_notifications import create_notification
             create_notification(
                 to_user, 'wallet',
-                f'You received {amount} VC from @{sender_username}',
+                f'You received {coins.label(amount)} VC from @{sender_username}',
                 link='/wallets',
-                metadata={'amount': amount, 'from': sender_username},
+                metadata={'amount': coins.as_json(amount), 'from': sender_username},
             )
         except Exception:
             pass
@@ -796,7 +795,7 @@ def send_funds(request):
     return Response({
         'status': 'success',
         'data': {
-            'new_balance': new_balance,
+            'new_balance': coins.as_json(new_balance),
             'sent_to': named,
             'transaction_id': debit.id,
         }
@@ -818,6 +817,23 @@ def _refuse(code, message, http=status.HTTP_400_BAD_REQUEST, **extra):
     return Response(body, status=http)
 
 
+#: What each coins.parse refusal says. The screen translates by the code.
+_AMOUNT_SAYS = {
+    'AMOUNT_REQUIRED': 'Say how much to send.',
+    'AMOUNT_MUST_NUMBER': 'The amount has to be a number, like 5 or 0.25.',
+    'AMOUNT_TOO_PRECISE': 'Coins go to two decimal places at most, like 0.25.',
+    'AMOUNT_MUST_POSITIVE': 'amount must be positive',
+}
+
+
+def _coins_or_refusal(value, **extra):
+    """(amount, None) for a sendable amount, or (None, the refusal)."""
+    try:
+        return coins.parse(value), None
+    except coins.AmountError as exc:
+        return None, _refuse(exc.code, _AMOUNT_SAYS[exc.code], **extra)
+
+
 @api_view(['POST'])
 def send_many(request):
     """Send coins to several people, teams or organisations at once (inbox 386).
@@ -826,7 +842,7 @@ def send_many(request):
     the same time?"
 
     One PIN and one second factor for the whole send. Every recipient is
-    checked (exists, is not the sender, appears once, a whole positive amount)
+    checked (exists, is not the sender, appears once, a positive amount in hundredths)
     before anything moves, the total is checked against the balance, and the
     transfers run in one database transaction: all of them land or none do,
     so nobody is left paid while a friend in the same send is not.
@@ -855,12 +871,9 @@ def send_many(request):
             return _refuse('INVALID_INPUT', 'Some of the details could not be read.', field='recipients')
         to_kind = row.get('to_kind') or 'user'
         to_ref = row.get('to')
-        amount = row.get('amount')
-        if isinstance(amount, bool) or not isinstance(amount, (int, str)) or not str(amount).strip().isdigit():
-            return _refuse('AMOUNT_MUST_WHOLE', 'VENT COINS are sent in whole coins.', index=index)
-        amount = int(amount)
-        if amount <= 0:
-            return _refuse('AMOUNT_MUST_POSITIVE', 'amount must be positive', index=index)
+        amount, refused = _coins_or_refusal(row.get('amount'), index=index)
+        if refused:
+            return refused
         try:
             target = wallets.resolve_target(to_kind, to_ref)
         except wallets.WalletError as exc:
@@ -886,8 +899,8 @@ def send_many(request):
     wallet.refresh_from_db()
     if wallet.wallet_balance < total:
         return _refuse('INSUFFICIENT_BALANCE',
-                       'There is not enough in that wallet: %d VC available.' % wallet.wallet_balance,
-                       available=wallet.wallet_balance, total=total)
+                       'There is not enough in that wallet: %s VC available.' % coins.label(wallet.wallet_balance),
+                       available=coins.as_json(wallet.wallet_balance), total=coins.as_json(total))
 
     sender_username = wallet.user.username
     done = []
@@ -914,8 +927,8 @@ def send_many(request):
             continue
         try:
             from vent_auth.views_notifications import create_notification
-            create_notification(to_user, 'wallet', f'You received {amount} VC from @{sender_username}',
-                                link='/wallets', metadata={'amount': amount, 'from': sender_username})
+            create_notification(to_user, 'wallet', f'You received {coins.label(amount)} VC from @{sender_username}',
+                                link='/wallets', metadata={'amount': coins.as_json(amount), 'from': sender_username})
         except Exception:
             pass
 
@@ -923,9 +936,9 @@ def send_many(request):
     return Response({
         'status': 'success',
         'data': {
-            'new_balance': wallet.wallet_balance,
-            'total': total,
-            'sent': [{'to': named, 'amount': amount, 'transaction_id': txn}
+            'new_balance': coins.as_json(wallet.wallet_balance),
+            'total': coins.as_json(total),
+            'sent': [{'to': named, 'amount': coins.as_json(amount), 'transaction_id': txn}
                      for _user, named, amount, txn in done],
             'transaction_id': done[0][3] if done else None,
         },

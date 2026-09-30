@@ -45,6 +45,7 @@ from django.utils import timezone
 from . import paystack
 from .errors import GATEWAY_REFUSED
 from .models import SavedCard, Transaction, UserWallet
+from vent_auth import coins as vent_coins
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +131,7 @@ def options(user):
         # Which gateways can take a payment right now, for the screen to offer
         # a choice only when there is one (CEO, 29 September 2026).
         'providers': providers(),
-        'balance_vc': wallet.wallet_balance if wallet else 0,
+        'balance_vc': vent_coins.as_json(wallet.wallet_balance) if wallet else 0,
         'ngn_per_coin': ngn_per_coin(),
         'saved_card': {
             'id': card.id,

@@ -59,6 +59,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.core.serializers import serialize
 from django.db import transaction
 from django.db.models import ProtectedError
+from vent_auth import coins
 
 #: Accounts that run the live door at a real event. rivalryops1 and rivalryops2
 #: are what the scanner phones sign in as, and an event day that starts with
@@ -194,7 +195,9 @@ class Command(BaseCommand):
 
         wallet = UserWallet.objects.filter(user=user).first()
         return {
-            'wallet_balance_vc': wallet.wallet_balance if wallet else None,
+            # A number JSON can write, and one that prints 4200 rather than
+            # 4200.00: the manifest is json.dump and the plan is read by a person.
+            'wallet_balance_vc': coins.as_json(wallet.wallet_balance) if wallet else None,
             'ledger_lines': (Transaction.objects.filter(wallet=wallet).count()
                              if wallet else 0),
             'withdrawal_requests': (
