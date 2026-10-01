@@ -170,3 +170,56 @@ Payout and KYC decisions are in the locked "account" row. New follower and DM
 notifications. `tools/check-notification-rows.py` in check-all.
 Push on production is configured; nobody has subscribed yet: the CEO can turn
 it on under Settings > Notifications and press "Send a test".
+
+## 1 October: everything left on the list (396, 404 to 408), DEPLOYED
+
+BE #215 (ed91ae9b) + FE #228 (08086163) merged and deployed after backup
+db-2026-10-01-0202: build TBogT3kOp9qxRWTB5d3it on 3000 and 3001, migration
+vent_tournament 0061. Full suite 4712 OK. Ledger: gates/60 and gates/58 all
+met. Walk log: tasks/audit/everything-left-walk-2026-10-01.md.
+
+- **404** demo prizes cleared on production (9 rows, four demo tournaments set
+  to no_prize, backup db-2026-10-01-0054 first). Live page reads 0 VC.
+- **405** Settings > Privacy > Manage block list is a real list
+  (`GET /settings/safety/people/`, BlockList.js). Walked on production as the
+  CEO's account in French: empty state, no "coming soon". Read-only, nothing
+  changed.
+- **406** `edit_tournament` is one transaction, rolled back on any refusal.
+- **408** server codes through t(): battle state, manga kind, admin role,
+  report reason. `scripts/check-server-labels.mjs` in check-all.
+- **396** `src/lib/overlays/library.js`: title card (51 presets plus a number
+  for MATCH # / DAY # / GAME #), versus card, award card (24), corner bug
+  (logo, handle, or a QR drawn in the browser through the new
+  `template.preparePictures` engine hook), stat counter (four rows, any
+  corner), social post at the PDF sizes through `template.size` and
+  `engine.sizeOf`. The studio standings graphic draws the battle royale
+  stage table (`battle_royale_for` in views_overlay_feed, forwarded by the
+  studio feed; StudioTableTests). `docs/overlay-coverage.json` maps all 337
+  PDF items; `check-overlay-coverage.mjs` fails an unmapped one. Two are
+  NOT BUILT, with the reason in the register: the MLBB draft and ban/pick
+  screens (V-ENT records no draft).
+- Studio buttons and chips are 44px on a phone (they were 38px).
+
+Proof: Chrome desktop (French console), a 390 frame (375 of 375, nothing
+under 44px), the emulator signed in as demo_temi over DevTools (412 of 412),
+`walk-designed-overlays.mjs` 37/37 including "Story post downloaded at
+1080x1920" read off the PNG header. The QR decodes to https://v-ent.co with
+OpenCV (same library, same options; the page's CSP refused posting the
+canvas out, which is correct).
+
+Wrong turns: I dropped `H` from the library's engine import as unused; it
+was used only for bottom corners, so a bottom corner bug or stat counter
+would have crashed. Lint did not see it, the walks only drew defaults;
+`check-undefined` caught it on commit. Lesson in tasks/lessons.md. First
+drafts drew "TE vs TE" initials and empty photo slots; replaced before ship.
+
+Still open: inbox 55, 56 (overlay files) and 69 (ten Rivalry names) wait on
+the CEO. Older ledgers gates/34 to 38 count as unmet in unlazy's gate-check
+because their CHECK lines call `V-ENT-BACKEND/venv/Scripts/python.exe`,
+which no longer exists (the env is `~/.venvs/vent-dj52`). Their boxes were
+ticked with evidence and the tests they name passed in the 4712 above; the
+CHECK paths are stale, not the work.
+
+Local state: the backend on :8000 runs with ANIME_ENABLED=1 (for the battle
+walk); restart without it for normal work. demo_temi's premium was revoked
+after the walker. walk-br-cup has a local live broadcast made for the walk.
