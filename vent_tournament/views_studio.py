@@ -758,8 +758,8 @@ def feed(request, token):
                                         run_stamp),
         }, 'Studio feed')
 
-    from .views_overlay_feed import (BLANK_RIVALRY, overlay_feed,
-                                     run_of_show_for)
+    from .views_overlay_feed import (BLANK_BATTLE_ROYALE, BLANK_RIVALRY,
+                                     overlay_feed, run_of_show_for)
     inner = overlay_feed(raw, session.tournament.slug or session.tournament.tournament_id)
     data = (getattr(inner, 'data', {}) or {}).get('data') or {}
 
@@ -788,6 +788,9 @@ def feed(request, token):
         # block, and it is empty with `enabled` false for a tournament that is
         # not an aggregate one.
         'rivalry': data.get('rivalry') or dict(BLANK_RIVALRY),
+        # The battle royale points table (inbox 396), drawn by `standings`
+        # when the tournament has no league table.
+        'battle_royale': data.get('battle_royale') or dict(BLANK_BATTLE_ROYALE),
         'run_of_show': run_of_show,
         'assets': assets,
         'version': '%s|%s|%s|%s' % (_version(session, elements),

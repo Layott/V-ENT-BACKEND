@@ -124,6 +124,7 @@ urlpatterns = [
     path('user/<str:username>/mute/', safety.mute_user),
     path('user/<str:username>/report/', safety.report_user),
     path('user/<str:username>/safety/', safety.my_safety_state),
+    path('safety/people/', safety.my_safety_people),
     path('dm/list/', community.dm_list),
     path('dm/new/send/', community.dm_send, {'conversation_id': 'new'}),
     # `str`, not `int`: the address is the conversation's token. A numeric id

@@ -889,6 +889,52 @@ def _run_of_show_from_sheet(sheet, include_private=False):
     return block, _digest(raw)
 
 
+#: The block a tournament with no battle royale stage carries, every key
+#: present, so the standings graphic falls through to its other tables.
+BLANK_BATTLE_ROYALE = {'enabled': False, 'stage': '', 'rows': []}
+
+
+def battle_royale_for(tournament, logos):
+    """The battle royale points table, for the standings graphic (inbox 396).
+
+    The asset library PDF asks for the PUBG and Free Fire tables on air:
+    overall standings with placement points, kill points and the total. The
+    numbers are `br_engine.standings`, the same rows the public page ranks, so
+    the graphic cannot disagree with it. The stage shown is the one running,
+    else the last finished, else the first. Returns the block and a stamp.
+    """
+    from . import br_engine
+
+    stages = [s for s in tournament.stages.order_by('order', 'id') if br_engine.is_br(s)]
+    if not stages:
+        return dict(BLANK_BATTLE_ROYALE), ''
+    stage = (next((s for s in stages if s.status == 'running'), None)
+             or next((s for s in reversed(stages) if s.status == 'complete'), None)
+             or stages[0])
+    try:
+        ranked = br_engine.standings(stage)
+    except Exception:                                       # noqa: BLE001
+        # A graphic is never taken down by a lookup; the empty block draws the
+        # other tables or the designed empty state.
+        return dict(BLANK_BATTLE_ROYALE), ''
+    rows = [{
+        'rank': r['rank'],
+        'name': r['name'],
+        'logo': logos.get(r['registration_id'], ''),
+        'lobby': r['lobby_name'] or '',
+        'maps_played': r['maps_played'],
+        'booyahs': r['booyahs'],
+        'kills': r['kills'],
+        'placement_points': r['placement_points'],
+        'kill_points': r['kill_points'],
+        'points': r['points'],
+        'champion': bool(r['champion']),
+    } for r in ranked]
+    stamp = '%s:%s:%s:%s' % (stage.id, len(rows), sum(r['points'] for r in rows),
+                             sum(r['kills'] for r in rows))
+    return {'enabled': True, 'stage': stage.label, 'rows': rows}, stamp
+
+
 @api_view(['GET'])
 def overlay_feed(request, tournament_id):
     tournament = _tournament(tournament_id)
@@ -919,12 +965,14 @@ def overlay_feed(request, tournament_id):
     table = _standings(tournament)
 
     teams = []
+    logos = {}
     for registration in registrations:
         identity = side_identity(registration, request)
         if identity is None:
             continue
 
         stats = table.get(registration.id, {})
+        logos[registration.id] = identity['logo']
         teams.append({
             # `tag` is what an overlay is pointed at with `?t=`, so it has to be
             # short, stable and unique inside one tournament.
@@ -984,6 +1032,8 @@ def overlay_feed(request, tournament_id):
         for s in tournament.sponsors.all()
     ]
 
+    battle_royale, br_stamp = battle_royale_for(tournament, logos)
+
     return Response({'status': 'success', 'data': {
         'tournament': {
             'title': tournament.tournament_title,
@@ -1010,6 +1060,9 @@ def overlay_feed(request, tournament_id):
         # empty for a tournament that is not one, so a graphic pointed at the
         # wrong tournament draws its empty state instead of nothing at all.
         'rivalry': rivalry,
+        # The battle royale points table, for a tournament with a battle
+        # royale stage; `enabled` false and empty otherwise (inbox 396).
+        'battle_royale': battle_royale,
         # What is on and what follows, from the run of show. Empty here unless
         # the organiser published the sheet; the studio gets it either way.
         'run_of_show': run_of_show,
@@ -1048,7 +1101,7 @@ def overlay_feed(request, tournament_id):
             len(lineups),
             max([str(l.get('updated_at') or '') for l in lineups] or ['']),
             rivalry_stamp,
-            run_stamp),
+            run_stamp) + ('-' + br_stamp if br_stamp else ''),
     }, 'message': ''})
 
 

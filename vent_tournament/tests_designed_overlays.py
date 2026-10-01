@@ -34,9 +34,9 @@ class DesignedKinds(TestCase):
         self.assertLessEqual(max(len(k) for k, _ in BroadcastElement.KINDS), 20)
 
     def test_every_designed_kind_is_on_both_studios(self):
-        """Inbox 394: the whole GENERAL OVERLAYS set, and a design carried into
+        """Inbox 394 and 396: the whole GENERAL OVERLAYS set and the asset library, and a design carried into
         the next broadcast must be one either kind of broadcast can show."""
-        self.assertEqual(len(BroadcastElement.DESIGNED_KINDS), 10)
+        self.assertEqual(len(BroadcastElement.DESIGNED_KINDS), 16)
         for owner in ('tournament', 'event'):
             kinds = [k for k, _ in BroadcastElement.kinds_for(owner)]
             for kind in BroadcastElement.DESIGNED_KINDS:

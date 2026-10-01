@@ -2271,7 +2271,21 @@ def _may_override(user):
 
 @api_view(['PUT'])
 def edit_tournament(request, tournament_id):
-    """PUT /tournament/edit-tournament/{id}/ - edit a published or draft tournament."""
+    """PUT /tournament/edit-tournament/{id}/ - edit a published or draft tournament.
+
+    All or nothing (CEO, 1 October 2026, inbox 406). The edit writes as it
+    reads (the prize table, the winner prize, the league settings, then the
+    columns), so a refusal late in the request used to leave the early writes
+    in place. Any answer that is not a success rolls the whole request back.
+    """
+    with transaction.atomic():
+        response = _edit_tournament(request, tournament_id)
+        if response.status_code >= 400:
+            transaction.set_rollback(True)
+    return response
+
+
+def _edit_tournament(request, tournament_id):
     try:
         # Either session proves who you are here: the organiser arrives with a
         # website session, an admin correcting somebody else's tournament

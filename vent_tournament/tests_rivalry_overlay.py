@@ -61,7 +61,10 @@ EVENT_KINDS_BEFORE = ['now_next', 'programme', 'lower_third', 'sponsors',
                       # The rest of the GENERAL OVERLAYS set (inbox 394).
                       'brb', 'stream_ended', 'champions', 'streamer_single',
                       'streamer_double', 'streamer_gameplay', 'name_tag',
-                      'match_lower_third']
+                      'match_lower_third',
+                      # The asset library families (inbox 396).
+                      'title_card', 'versus_card', 'award_card', 'corner_bug',
+                      'stat_counter', 'social_post']
 
 #: The columns the contract names, exactly. Set equality rather than a
 #: containment check: a column the frontend draws and the feed stopped sending
