@@ -424,3 +424,36 @@ class ChainTests(TestCase):
             # swap the stage's default chain for another one.
             self.assertEqual(s['tiebreakers'], before['settings']['tiebreakers'])
             self.assertEqual(s['tiebreakers'], stage_settings.BR_DEFAULT_TIEBREAKERS)
+
+
+class StudioTableTests(TestCase):
+    """Inbox 396: the asset library's PUBG and Free Fire tables on air. The
+    standings graphic reads the overlay feed, and the feed carries the same
+    rows the public table ranks."""
+
+    def test_the_overlay_feed_carries_the_battle_royale_table(self):
+        t, creator, regs, stage = br_stage(4, {'lobby_size': 4, 'maps': 2, 'per_kill': 1})
+        draw(stage, creator)
+        m1 = BRMap.objects.filter(lobby__stage=stage).order_by('number').first()
+        a, b, c, d = regs
+        enter(m1, {a: (1, 5), b: (2, 7), c: (3, 0), d: (4, 1)}, creator)
+        body = APIClient().get('/tournament/%s/overlay-feed/' % t.slug).json()
+        block = body['data']['battle_royale']
+        self.assertTrue(block['enabled'])
+        self.assertEqual(block['stage'], stage.label)
+        first = block['rows'][0]
+        # 12 placement + 5 kill points, a booyah, ranked first.
+        self.assertEqual((first['rank'], first['booyahs'], first['kills']), (1, 1, 5))
+        self.assertEqual((first['placement_points'], first['kill_points'], first['points']),
+                         (12, 5, 17))
+        self.assertEqual(len(block['rows']), 4)
+        version = body['data']['version']
+        enter(m1, {a: (1, 6), b: (2, 7), c: (3, 0), d: (4, 1)}, creator)
+        again = APIClient().get('/tournament/%s/overlay-feed/' % t.slug).json()['data']
+        # A kill corrected moves the version, so the graphic on air redraws.
+        self.assertNotEqual(again['version'], version)
+
+    def test_a_tournament_with_no_battle_royale_stage_says_so(self):
+        t, creator, regs = field(4, 'single_elimination')
+        block = APIClient().get('/tournament/%s/overlay-feed/' % t.slug).json()['data']['battle_royale']
+        self.assertEqual(block, {'enabled': False, 'stage': '', 'rows': []})

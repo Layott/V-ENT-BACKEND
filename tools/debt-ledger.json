@@ -24,6 +24,16 @@
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
+  "asset library coverage": {
+    "count": 0,
+    "first_seen": "2026-10-01",
+    "since": "2026-10-01"
+  },
+  "asset library coverage self-test": {
+    "count": 0,
+    "first_seen": "2026-10-01",
+    "since": "2026-10-01"
+  },
   "avatars": {
     "count": 0,
     "first_seen": "2026-09-07",
@@ -418,6 +428,16 @@
     "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
+  },
+  "server labels": {
+    "count": 0,
+    "first_seen": "2026-10-01",
+    "since": "2026-10-01"
+  },
+  "server labels self-test": {
+    "count": 0,
+    "first_seen": "2026-10-01",
+    "since": "2026-10-01"
   },
   "signed out": {
     "count": 0,

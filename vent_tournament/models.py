@@ -1860,6 +1860,14 @@ class BroadcastElement(models.Model):
         ('streamer_gameplay', 'Streamer and game frame'),
         ('name_tag', 'Name tag'),
         ('match_lower_third', 'Match lower third'),
+        # The asset library families (inbox 396, the broadcast asset PDF):
+        # each one carries the PDF's items as presets.
+        ('title_card', 'Title card'),
+        ('versus_card', 'Versus card'),
+        ('award_card', 'Award card'),
+        ('corner_bug', 'Corner bug'),
+        ('stat_counter', 'Stat counter'),
+        ('social_post', 'Social post'),
     ]
     EVENT_KINDS = [
         ('now_next', 'Now and next'),
@@ -1891,6 +1899,14 @@ class BroadcastElement(models.Model):
         ('streamer_gameplay', 'Streamer and game frame'),
         ('name_tag', 'Name tag'),
         ('match_lower_third', 'Match lower third'),
+        # The asset library families (inbox 396, the broadcast asset PDF):
+        # each one carries the PDF's items as presets.
+        ('title_card', 'Title card'),
+        ('versus_card', 'Versus card'),
+        ('award_card', 'Award card'),
+        ('corner_bug', 'Corner bug'),
+        ('stat_counter', 'Stat counter'),
+        ('social_post', 'Social post'),
     ]
     # The column's choices: every kind either side may use. Written out rather
     # than computed, because a class body cannot see its own names from inside
@@ -1912,7 +1928,9 @@ class BroadcastElement(models.Model):
     # settings are carried into the next broadcast (inbox 393).
     DESIGNED_KINDS = ['starting_soon', 'transition', 'brb', 'stream_ended', 'champions',
                       'streamer_single', 'streamer_double', 'streamer_gameplay',
-                      'name_tag', 'match_lower_third']
+                      'name_tag', 'match_lower_third',
+                      'title_card', 'versus_card', 'award_card', 'corner_bug',
+                      'stat_counter', 'social_post']
 
     @classmethod
     def kinds_for(cls, kind_of_owner):

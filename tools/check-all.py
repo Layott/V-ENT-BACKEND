@@ -212,6 +212,23 @@ CATCHERS = [
     ('history lines self-test',
      'the catcher catches a missing key, a dropped placeholder and a code with no English',
      FRONTEND, ['node', 'scripts/check-statement-lines.mjs', '--self-test'], True),
+    # "Voting is open" on a French page, 1 October 2026 (inbox 408): a server's
+    # English *_label drawn as it came. Seen before in the 30 September sweep of
+    # codes and sentences not through t(), so it gets a catcher.
+    ('server labels',
+     'no server *_label is drawn on a page without going through t() (inbox 408)',
+     FRONTEND, ['node', 'scripts/check-server-labels.mjs'], True),
+    ('server labels self-test',
+     'the catcher catches a bare label and leaves t(), names and attributes alone',
+     FRONTEND, ['node', 'scripts/check-server-labels.mjs', '--self-test'], True),
+    # The broadcast asset library PDF (inbox 396): every one of its items has
+    # a graphic, or is named as not built with the reason.
+    ('asset library coverage',
+     'every item of the asset library PDF maps to a studio graphic and preset (inbox 396)',
+     FRONTEND, ['node', 'scripts/check-overlay-coverage.mjs'], True),
+    ('asset library coverage self-test',
+     'the catcher catches an unmapped item, a stale row, an unknown kind or preset, a missing reason',
+     FRONTEND, ['node', 'scripts/check-overlay-coverage.mjs', '--self-test'], True),
 
     # "8/-", "8/0" and "8/undefined" for one uncapped tournament on four
     # screens, 28 September 2026, after "0/32 slots" and "0/64" before it.
