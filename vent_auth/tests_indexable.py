@@ -45,6 +45,18 @@ class IndexableTests(TestCase):
         self.assertEqual(self.names('quiet'), ['quietlyloud'])
         self.assertIn('quietplayer', self.names('@quietplayer'))
 
+    def test_a_name_picker_finds_them_from_a_rough_spelling(self):
+        """Inbox 416: a teammate typing a name finds them; the switch is about search."""
+        res = self.client.get('/user/search/', {'q': 'quiet', 'purpose': 'pick'})
+        self.assertIn('quietplayer', [u['username'] for u in res.data['data']['users']])
+        res = self.client.get('/user/search/', {'q': 'quietplayr', 'purpose': 'pick'})
+        self.assertIn('quietplayer', [u['username'] for u in res.data['data']['users']])
+
+    def test_a_stranger_asking_as_a_picker_gets_the_public_rule(self):
+        self.client.credentials()
+        res = self.client.get('/user/search/', {'q': 'quiet', 'purpose': 'pick'})
+        self.assertNotIn('quietplayer', [u['username'] for u in res.data['data']['users']])
+
     def test_a_row_saved_under_the_old_name_is_obeyed(self):
         UserSetting.objects.filter(user=self.hidden).update(data={'privacy': {'search_indexable': False}})
         self.assertFalse(self.client.get('/user/quietplayer/profile/').data['data']['indexable'])

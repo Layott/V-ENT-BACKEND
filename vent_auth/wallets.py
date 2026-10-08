@@ -297,17 +297,15 @@ def resolve_target(kind, ref):
         return wallet
 
     if kind == 'team':
-        from .models import Teams
-        team = (Teams.objects.filter(slug=ref).first()
-                or Teams.objects.filter(team_name__iexact=ref).first())
+        from .refs import team_by_ref
+        team = team_by_ref(ref)
         if team is None:
             raise WalletError('No team called %s.' % ref, 'NOT_FOUND')
         return wallet_for_team(team)
 
     if kind == 'org':
-        from .models import Organization
-        org = (Organization.objects.filter(slug=ref).first()
-               or Organization.objects.filter(org_name__iexact=ref).first())
+        from .refs import org_by_ref
+        org = org_by_ref(ref)
         if org is None:
             raise WalletError('No organisation called %s.' % ref, 'NOT_FOUND')
         return wallet_for_org(org)

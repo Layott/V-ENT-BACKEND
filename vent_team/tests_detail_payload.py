@@ -56,6 +56,14 @@ class TeamDetailPayloadTests(TestCase):
     def test_the_owner_is_told_they_are_the_owner(self):
         self.assertTrue(self._detail(self.owner_auth)['viewer_is_owner'])
 
+    def test_only_the_team_owner_reads_as_owner(self):
+        """A stale 'owner' row for somebody else drew two owners (8 Oct walk)."""
+        old, _ = signed_in('old_captain')
+        TeamMembers.objects.create(team=self.team, user=old, role='owner', is_captain=True)
+        roles = {m['username']: m['role'] for m in self._detail()['members']}
+        self.assertEqual(roles['avalanche_boss'], 'owner')
+        self.assertEqual(roles['old_captain'], 'captain')
+
     def test_a_stranger_is_not(self):
         self.assertFalse(self._detail(self.stranger_auth)['viewer_is_owner'])
 

@@ -24,6 +24,7 @@ from .models import (
 from . import uploads
 from . import inputs
 from vent_auth import fuzzy
+from .refs import team_by_ref
 
 SESSION_TIMEOUT_MINUTES = 120
 PAGE_SIZE = 20
@@ -855,7 +856,7 @@ def scrim_create(request):
                 return _error('You cannot challenge yourself.', 'VALIDATION_ERROR',
                               status.HTTP_400_BAD_REQUEST)
         else:
-            opponent_team = Teams.objects.filter(team_name__iexact=opponent_name).first()
+            opponent_team = team_by_ref(opponent_name)
             if opponent_team is None:
                 return _error(f'No team called "{opponent_name}".', 'NOT_FOUND',
                               status.HTTP_404_NOT_FOUND)

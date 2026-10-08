@@ -111,11 +111,15 @@ def _collect_members(request, team):
         uid = m.user_id
         if uid == owner.user_id:
             continue  # owner already seeded above
+        # Only team_owner is the owner. A row still saying 'owner' for
+        # somebody else (seeded captains, 8 Oct walk) drew two owners on one
+        # team; it reads as the captain or member they actually are.
+        role = m.role if m.role != 'owner' else ('captain' if m.is_captain else 'member')
         members[uid] = {
             'user_id': uid,
             'username': m.user.username,
             'full_name': m.user.full_name,
-            'role': m.role,
+            'role': role,
             'joined_at': m.join_date,
             'win_rate': 0,
             'profile_pic': None,
