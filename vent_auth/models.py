@@ -555,6 +555,13 @@ class PlatformAccount(models.Model):
     provider_user_id = models.CharField(max_length=64, blank=True, default='',
                                         db_index=True)
 
+    #: The account's own picture, as the platform serves it (Discord's CDN,
+    #: Steam's). CEO, 8 October 2026 (inbox 417): "You shouldn't as a user
+    #: have to input your usernames or id for discord or steams, it should
+    #: show once you connect." The name and the face both come from the
+    #: platform; blank when it has none or would not say.
+    avatar_url = models.CharField(max_length=400, blank=True, default='')
+
     #: Whether this person wants V-ENT to send them a direct message on
     #: Discord. Off until they say so: an unasked-for DM from a platform is
     #: the fastest way to be blocked.
