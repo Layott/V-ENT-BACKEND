@@ -753,70 +753,40 @@ def _favorite_games_payload(user, request):
     ]
 
 
+PLATFORM_LABELS = {'discord': 'Discord', 'steam': 'Steam'}
+
+
 def _gaming_accounts_payload(user):
-    """Platform handles, keyed by slug for the panel that renders them."""
-    from .models import PlatformAccount
+    """The accounts this person has PROVEN are theirs, as a list for the profile.
 
-    return {
-        row.platform: {
-            'display_name': row.display_name,
-            'gamertag': row.gamertag,
-            'connected': row.connected,
-            'verified': row.verified,
-        }
-        for row in PlatformAccount.objects.filter(user=user)
-    }
+    Only rows Discord or Steam confirmed at sign-in (verified and connected).
+    A handle typed into the old Gaming Accounts boxes is not shown anywhere:
+    it was never proven, and showing it beside proven ones made the two look
+    the same (CEO, 8 October 2026, inbox 417: "You shouldn't as a user have to
+    input your usernames or id for discord or steams, it should show once you
+    connect"). The rows stay in the table, unshown.
 
-
-@api_view(['POST'])
-def update_gaming_accounts(request):
-    """POST /auth/update-gaming-accounts/ - Bearer + {accounts: {slug: {...}}}.
-
-    The panel has posted here since it was built. The endpoint did not exist, so
-    every save answered 404 and nothing anyone typed was ever stored.
+    A list because the profile draws a list; the old dict keyed by platform
+    reached a page that only reads arrays, so no account ever showed.
     """
     from .models import PlatformAccount
 
-    user, err = _user_from_bearer(request)
-    if err:
-        return err
-
-    accounts = request.data.get('accounts')
-    if not isinstance(accounts, dict):
-        return Response(
-            { 'code': 'ACCOUNTS_MUST_OBJECT_KEYED','status': 'error', 'message': 'accounts must be an object keyed by platform'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    with transaction.atomic():
-        for slug, value in accounts.items():
-            slug = str(slug).strip().lower()[:32]
-            if not slug or not isinstance(value, dict):
-                continue
-            display_name = (value.get('display_name') or value.get('displayName') or '').strip()[:64]
-            gamertag = (value.get('gamertag') or '').strip()[:64]
-            connected = bool(value.get('connected'))
-
-            # An entry emptied out is an entry removed, rather than a row saying
-            # nothing sitting in the table forever.
-            if not display_name and not gamertag and not connected:
-                PlatformAccount.objects.filter(user=user, platform=slug).delete()
-                continue
-
-            PlatformAccount.objects.update_or_create(
-                user=user, platform=slug,
-                defaults={
-                    'display_name': display_name,
-                    'gamertag': gamertag,
-                    'connected': connected,
-                },
-            )
-
-    return Response({
-        'status': 'success',
-        'message': 'Gaming accounts updated',
-        'data': {'gaming_accounts': _gaming_accounts_payload(user)},
-    }, status=status.HTTP_200_OK)
+    out = []
+    for row in (PlatformAccount.objects
+                .filter(user=user, verified=True, connected=True)
+                .order_by('platform')):
+        out.append({
+            'platform': row.platform,
+            'label': PLATFORM_LABELS.get(row.platform, row.platform.title()),
+            'handle': row.display_name or row.gamertag,
+            'username': row.gamertag,
+            'avatar': row.avatar_url,
+            # Steam's own page for the account, which is public. Discord has
+            # no public profile page to point at.
+            'url': ('https://steamcommunity.com/profiles/%s' % row.gamertag
+                    if row.platform == 'steam' and row.gamertag.isdigit() else ''),
+        })
+    return out
 
 
 @api_view(['GET'])

@@ -42,6 +42,19 @@ DISCORD_TOKEN = 'https://discord.com/api/oauth2/token'
 DISCORD_ME = 'https://discord.com/api/users/@me'
 STEAM_OPENID = 'https://steamcommunity.com/openid/login'
 STEAM_SUMMARY = 'https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/'
+# A public Steam profile answers in XML with its name and picture and needs no
+# key. The CEO cannot get a Web API key for now (8 October 2026), so this is
+# where a linked Steam account's name comes from until one is set.
+STEAM_PROFILE_XML = 'https://steamcommunity.com/profiles/%s/?xml=1'
+DISCORD_AVATAR = 'https://cdn.discordapp.com/avatars/%s/%s.png?size=128'
+
+# Where the browser comes back to after Discord or Steam: the page somebody
+# pressed Connect on. Named, never taken from the request, so the return
+# address cannot be pointed anywhere else.
+BACK = {
+    'settings': '/settings?panel=linked',
+    'profile': '/edit-user-profile?panel=accounts',
+}
 
 
 def _discord_credentials():
@@ -73,20 +86,77 @@ def provider_status():
     }
 
 
-def _sign(user):
-    return signing.dumps({'uid': user.user_id}, salt=STATE_SALT)
+def _sign(user, back='settings'):
+    return signing.dumps({'uid': user.user_id,
+                          'back': back if back in BACK else 'settings'}, salt=STATE_SALT)
+
+
+def _state(state):
+    """(user id, where to return) from a signed state, or (None, 'settings')."""
+    try:
+        data = signing.loads(state, salt=STATE_SALT, max_age=STATE_MAX_AGE)
+    except signing.BadSignature:
+        return None, 'settings'
+    back = data.get('back')
+    return data.get('uid'), back if back in BACK else 'settings'
 
 
 def _unsign(state):
+    return _state(state)[0]
+
+
+def _finish(outcome, provider, back='settings'):
+    """Send the browser back where Connect was pressed, with the result on it."""
+    path = BACK.get(back, BACK['settings'])
+    return redirect(f'{FRONTEND_URL}{path}&{urlencode({provider: outcome})}')
+
+
+def _steam_profile(steam_id):
+    """(name, picture) for a Steam account, from the Web API when a key is set,
+    otherwise from the public profile XML. ('', '') when Steam will not say.
+
+    The XML is read by pattern from at most 64 KB rather than parsed, so a
+    hostile or broken answer cannot expand into anything; and a picture is
+    kept only from Steam's own image hosts.
+    """
+    import re
+
+    key = _steam_key()
+    if key:
+        try:
+            summary = http.get(STEAM_SUMMARY, params={'key': key, 'steamids': steam_id}, timeout=15)
+            players = summary.json().get('response', {}).get('players', [])
+            if players:
+                return (players[0].get('personaname') or '')[:64], _steam_picture(
+                    players[0].get('avatarmedium') or '')
+        except Exception:
+            logger.warning('steam summary lookup failed', exc_info=True)
     try:
-        return signing.loads(state, salt=STATE_SALT, max_age=STATE_MAX_AGE).get('uid')
-    except signing.BadSignature:
-        return None
+        res = http.get(STEAM_PROFILE_XML % steam_id, timeout=15)
+        if res.status_code != 200:
+            return '', ''
+        text = (res.text or '')[:65536]
+    except Exception:
+        logger.warning('steam profile lookup failed', exc_info=True)
+        return '', ''
+
+    def field(name):
+        m = re.search(r'<%s>\s*(?:<!\[CDATA\[(.*?)\]\]>|([^<]*))\s*</%s>' % (name, name), text, re.S)
+        return ((m.group(1) if m and m.group(1) is not None else (m.group(2) if m else '')) or '').strip()
+
+    return field('steamID')[:64], _steam_picture(field('avatarMedium'))
 
 
-def _finish(outcome, provider):
-    """Send the browser back to the settings page with the result on it."""
-    return redirect(f'{FRONTEND_URL}/settings?panel=linked&{urlencode({provider: outcome})}')
+def _steam_picture(url):
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(url or '')
+    except ValueError:
+        return ''
+    host = (parsed.hostname or '').lower()
+    if parsed.scheme != 'https' or not (host.endswith('.steamstatic.com') or host.endswith('.akamaihd.net')):
+        return ''
+    return url[:400]
 
 
 @api_view(['GET'])
@@ -98,9 +168,12 @@ def link_status(request):
 
     linked = {
         row.platform: {
-            'connected': row.connected,
+            # Connected means proven: a handle typed into the old profile boxes
+            # sat here as "Connected" beside real links (walk, 8 Oct, inbox 417).
+            'connected': bool(row.connected and row.verified),
             'verified': row.verified,
             'label': row.display_name or row.gamertag,
+            'avatar': row.avatar_url,
             # So the settings panel can draw the direct-message switch in the
             # right position without a second request, and can say why it is
             # unavailable rather than showing a control that cannot work.
@@ -179,7 +252,8 @@ def link_start(request, provider):
         return err
 
     provider = provider.lower()
-    state = _sign(user)
+    back = inputs.read_text(request.query_params, 'back', max_length=16)
+    state = _sign(user, back)
 
     if provider == 'discord':
         client_id, secret = _discord_credentials()
@@ -267,13 +341,13 @@ def discord_callback(request):
     from .models import Users
 
     code = inputs.read_text(request.query_params, 'code', max_length=500) or None
-    uid = _unsign(inputs.read_text(request.query_params, 'state', max_length=2000))
+    uid, back = _state(inputs.read_text(request.query_params, 'state', max_length=2000))
     if not code or not uid:
-        return _finish('failed', 'discord')
+        return _finish('failed', 'discord', back)
 
     user = Users.objects.filter(user_id=uid).first()
     if user is None:
-        return _finish('failed', 'discord')
+        return _finish('failed', 'discord', back)
 
     client_id, secret = _discord_credentials()
     try:
@@ -286,31 +360,36 @@ def discord_callback(request):
         }, headers={'Content-Type': 'application/x-www-form-urlencoded'}, timeout=15)
         if token_res.status_code != 200:
             logger.warning('discord token exchange failed: %s', token_res.text[:200])
-            return _finish('failed', 'discord')
+            return _finish('failed', 'discord', back)
 
         access = token_res.json().get('access_token')
         me = http.get(DISCORD_ME, headers={'Authorization': f'Bearer {access}'}, timeout=15)
         if me.status_code != 200:
-            return _finish('failed', 'discord')
+            return _finish('failed', 'discord', back)
         profile = me.json()
     except Exception:
         logger.exception('discord linking failed')
-        return _finish('failed', 'discord')
+        return _finish('failed', 'discord', back)
 
     handle = profile.get('username') or ''
+    discord_id = str(profile.get('id') or '')
+    avatar_hash = str(profile.get('avatar') or '')
+    avatar = (DISCORD_AVATAR % (discord_id, avatar_hash)
+              if discord_id.isdigit() and avatar_hash.replace('_', '').isalnum() else '')
     claimed = _claim_or_taken(user, 'discord', handle, {
         # Discord's own id for this account. A handle is renameable and
         # reusable; the snowflake is neither, so it is what a direct message is
         # addressed to and what recognises a returning person at sign-in.
-        'provider_user_id': str(profile.get('id') or ''),
+        'provider_user_id': discord_id,
         'display_name': profile.get('global_name') or handle,
         'gamertag': handle,
+        'avatar_url': avatar,
         'connected': True,
         # Discord told us this handle belongs to whoever just signed in
         # there, which is the whole difference between this and typing it.
         'verified': True,
     })
-    return _finish('linked' if claimed else 'taken', 'discord')
+    return _finish('linked' if claimed else 'taken', 'discord', back)
 
 
 @api_view(['GET'])
@@ -319,13 +398,13 @@ def steam_callback(request):
     """Steam's OpenID 2.0 return. The assertion has to be checked back with Steam."""
     from .models import Users
 
-    uid = _unsign(inputs.read_text(request.query_params, 'state', max_length=2000))
+    uid, back = _state(inputs.read_text(request.query_params, 'state', max_length=2000))
     if not uid:
-        return _finish('failed', 'steam')
+        return _finish('failed', 'steam', back)
 
     user = Users.objects.filter(user_id=uid).first()
     if user is None:
-        return _finish('failed', 'steam')
+        return _finish('failed', 'steam', back)
 
     # Hand every openid.* parameter back with mode=check_authentication. Steam
     # answers is_valid:true only for an assertion it actually issued, which is
@@ -336,34 +415,27 @@ def steam_callback(request):
         verify = http.post(STEAM_OPENID, data=params, timeout=15)
         if 'is_valid:true' not in verify.text:
             logger.warning('steam assertion rejected')
-            return _finish('failed', 'steam')
+            return _finish('failed', 'steam', back)
     except Exception:
         logger.exception('steam verification failed')
-        return _finish('failed', 'steam')
+        return _finish('failed', 'steam', back)
 
     claimed = inputs.read_text(request.query_params, 'openid.claimed_id', max_length=500)
     steam_id = claimed.rstrip('/').split('/')[-1]
     if not steam_id.isdigit():
-        return _finish('failed', 'steam')
+        return _finish('failed', 'steam', back)
 
-    display = ''
-    key = _steam_key()
-    if key:
-        try:
-            summary = http.get(STEAM_SUMMARY, params={'key': key, 'steamids': steam_id}, timeout=15)
-            players = summary.json().get('response', {}).get('players', [])
-            if players:
-                display = players[0].get('personaname') or ''
-        except Exception:
-            logger.warning('steam summary lookup failed', exc_info=True)
+    display, picture = _steam_profile(steam_id)
 
     claimed = _claim_or_taken(user, 'steam', steam_id, {
+        'provider_user_id': steam_id,
         'display_name': display,
         'gamertag': steam_id,
+        'avatar_url': picture,
         'connected': True,
         'verified': True,
     })
-    return _finish('linked' if claimed else 'taken', 'steam')
+    return _finish('linked' if claimed else 'taken', 'steam', back)
 
 
 @api_view(['POST'])

@@ -248,7 +248,8 @@ urlpatterns = [
     path("social-auth/", social_auth, name="social_auth"),
     path("edit-favorite-games/", edit_favorite_games, name="edit_favorite_games"),
     path("update-favorite-games/", update_favorite_games, name="update_favorite_games"),
-    path("update-gaming-accounts/", update_gaming_accounts, name="update_gaming_accounts"),
+    # update-gaming-accounts/ is gone (inbox 417, 8 Oct 2026): a Discord or Steam
+    # account is only ever set by signing in to it, never typed.
     # Linking an external account for real: Discord OAuth2, Steam OpenID.
     # Saved cards. A card is saved by being used once, never by typing its
     # number into a V-ENT form.
