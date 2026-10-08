@@ -159,6 +159,42 @@ class SummaryTests(FunnelBase):
         self.assertEqual(c['checkout_to_sold'], 50.0)
         self.assertEqual(c['open_to_sold'], 10.0)
 
+    def _buy(self, purchase, n):
+        for i in range(n):
+            Ticket.objects.create(event=self.event, tier=self.tier,
+                                  code='FB%s%02d' % (purchase[-4:], i),
+                                  price_vc=5, price_ngn=5000, purchase=purchase)
+
+    def test_paid_counts_purchases_not_tickets(self):
+        """One visitor buying two tickets is one person who paid (inbox 410)."""
+        funnel.record(self.event, 'page_open')
+        funnel.record(self.event, 'checkout_start')
+        self._buy('pur-aaaa', 2)
+        data = funnel.summary(self.event)
+        self.assertEqual(data['sold'], 2)
+        self.assertEqual(data['buyers'], 1)
+        self.assertEqual(data['steps'][-1], {'step': 'sold', 'count': 2,
+                                             'people': 1})
+        self.assertEqual(data['conversion']['checkout_to_sold'], 100.0)
+        self.assertEqual(data['conversion']['open_to_sold'], 100.0)
+        self.assertEqual(data['untracked'], [])
+
+    def test_no_rate_ever_reads_above_100(self):
+        """The case filmed on 1 October: two purchases of two tickets, one
+        checkout counted, five opens. It read 400% and 80%."""
+        for _ in range(5):
+            funnel.record(self.event, 'page_open')
+        funnel.record(self.event, 'checkout_start')
+        self._buy('pur-bbbb', 2)
+        self._buy('pur-cccc', 2)
+        data = funnel.summary(self.event)
+        c = data['conversion']
+        self.assertTrue(all(v is None or v <= 100 for v in c.values()))
+        self.assertIsNone(c['checkout_to_sold'])
+        self.assertEqual(data['untracked'], ['checkout_to_sold'])
+        self.assertEqual(c['open_to_sold'], 40.0)
+        self.assertTrue(data['sales_predate_tracking'])
+
     def test_a_rate_with_nothing_above_it_is_unanswerable_not_zero(self):
         """Zero per cent and "nobody has been here" are different facts, and
         rounding the second into the first reads as a broken checkout."""

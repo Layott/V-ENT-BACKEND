@@ -63,10 +63,30 @@ def record(event, step, first_time=False, ref='', when=None):
     return row
 
 
+def _live_tickets(event):
+    return (Ticket.objects.filter(event=event)
+            .exclude(status__in=('refunded', 'cancelled')))
+
+
 def _sold(event):
     """Tickets that exist and were not undone. Counted, never accumulated."""
-    return (Ticket.objects.filter(event=event)
-            .exclude(status__in=('refunded', 'cancelled')).count())
+    return _live_tickets(event).count()
+
+
+def _buyers(event):
+    """Purchases that paid, one per checkout however many tickets it bought.
+
+    The steps above are visits, so the rate into "paid" has to be people
+    paying, not tickets. Dividing tickets by checkouts read "400% reached
+    checkout, then paid" for one visitor who bought two tickets twice (inbox
+    410, 8 October 2026). A ticket with no purchase key is its own purchase:
+    it was added by hand, so nothing grouped it with another.
+    """
+    keys = set()
+    for tid, purchase, reference in _live_tickets(event).values_list(
+            'id', 'purchase', 'payment_reference'):
+        keys.add(purchase or reference or 'ticket-%d' % tid)
+    return len(keys)
 
 
 def summary(event):
@@ -85,15 +105,17 @@ def summary(event):
         agg['people'] += r['people']
 
     sold = _sold(event)
+    buyers = _buyers(event)
 
     steps = [{'step': s,
               'count': totals.get(s, {}).get('count', 0),
               'people': totals.get(s, {}).get('people', 0)}
              for s in STEPS]
     # `sold` sits at the end of the same list so a screen draws one funnel
-    # rather than a funnel and a footnote. It carries the same shape, and
-    # `people` equals `count` because a ticket is a ticket.
-    steps.append({'step': 'sold', 'count': sold, 'people': sold})
+    # rather than a funnel and a footnote. It carries the same shape: `count`
+    # is tickets, which money reconciles against, and `people` is the
+    # purchases that bought them.
+    steps.append({'step': 'sold', 'count': sold, 'people': buyers})
 
     by_day = {}
     for r in rows:
@@ -134,28 +156,39 @@ def summary(event):
     buys = totals.get(EventFunnelDay.STEP_BUY, {}).get('count', 0)
     checkouts = totals.get(EventFunnelDay.STEP_CHECKOUT, {}).get('count', 0)
 
+    conversion = {
+        'open_to_buy': rate(buys, opens),
+        'buy_to_checkout': rate(checkouts, buys),
+        'checkout_to_sold': rate(buyers, checkouts),
+        'open_to_sold': rate(buyers, opens),
+    }
+    # More arrived at a step than were counted at the one above it. That
+    # happens (a sale through a link that never opened the page, a beacon an
+    # ad blocker ate), and the number it gives is not a rate. It is left out
+    # and named, never shown above 100% and never pinned to 100%.
+    untracked = sorted(k for k, v in conversion.items() if v is not None and v > 100)
+    for k in untracked:
+        conversion[k] = None
+
     return {
         'steps': steps,
         'sold': sold,
         'by_day': [by_day[k] for k in sorted(by_day)],
         'stalls': sorted(stalls.values(), key=lambda s: -s['visits']),
-        'conversion': {
-            'open_to_buy': rate(buys, opens),
-            'buy_to_checkout': rate(checkouts, buys),
-            'checkout_to_sold': rate(sold, checkouts),
-            'open_to_sold': rate(sold, opens),
-        },
+        'buyers': buyers,
+        'conversion': conversion,
+        'untracked': untracked,
         # Said plainly once, in the payload, so nothing downstream has to
         # remember it: the top of this funnel is what browsers reported and the
         # bottom is what the tickets table holds.
         'sold_is_counted': True,
-        # More tickets than page opens, which is arithmetically possible and
-        # always means the same thing: sales exist that predate the counting,
-        # or people bought through a route that never loaded the event page.
-        # Reported rather than capped at 100 - a rate silently pinned to 100%
-        # would hide the fact that the tracking is incomplete, and that is
-        # exactly what an organiser needs to know before trusting the rest.
-        'sales_predate_tracking': bool(sold and sold > opens),
+        # More purchases than the steps above them counted, which is
+        # arithmetically possible and always means the same thing: sales exist
+        # that predate the counting, or people bought through a route that
+        # never loaded the event page. Reported rather than capped at 100: a
+        # rate silently pinned to 100% would hide that the tracking is
+        # incomplete, which an organiser needs to know before trusting the rest.
+        'sales_predate_tracking': bool(untracked) or bool(buyers and buyers > opens),
     }
 
 
