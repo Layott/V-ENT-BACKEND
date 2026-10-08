@@ -252,6 +252,15 @@ CATCHERS = [
     ('load once self-test',
      'the load-once catcher still catches a view that never refreshes',
      FRONTEND, ['node', 'scripts/check-load-once.mjs', '--self-test'], True),
+    # A plain box asking for somebody's username, seen twice: the CEO asked on
+    # 4 September for pickers everywhere, and on 8 October (inbox 416) the team
+    # invite and nine more were still plain boxes.
+    ('name pickers',
+     'every box that takes a person, team or organisation lists close matches',
+     FRONTEND, ['node', 'scripts/check-name-pickers.mjs'], True),
+    ('name pickers self-test',
+     'the name-picker catcher still catches a plain username box',
+     FRONTEND, ['node', 'scripts/check-name-pickers.mjs', '--self-test'], True),
     # A page title or description in one language for every reader (52
     # layouts on 30 September 2026, inbox 375; the ticket page before it).
     ('metadata language',

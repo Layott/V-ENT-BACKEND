@@ -90,6 +90,13 @@ class InvitationTests(TestCase):
         self.assertEqual(TournamentInvitation.objects.get().team_id,
                          self.team.team_id)
 
+    def test_a_team_picked_from_the_list_is_invited_by_its_slug(self):
+        """The name picker hands back a slug (inbox 416)."""
+        res = self._invite(team=self.team.slug)
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(TournamentInvitation.objects.get().team_id,
+                         self.team.team_id)
+
     def test_the_recipient_is_told(self):
         from vent_auth.models import Notification
         self._invite(username='inv_player')

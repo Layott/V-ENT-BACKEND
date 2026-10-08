@@ -125,6 +125,19 @@ class ScrimCreateTests(TestCase):
         self.assertTrue(row['team_a']['solo'])
         self.assertEqual(row['team_a']['name'], self.me.username)
 
+    def test_a_team_named_by_its_slug_is_challenged_directly(self):
+        """The name picker hands back a slug (inbox 416); a name still works."""
+        rival_owner, _ = a_user('rivalowner')
+        rival = Teams.objects.create(
+            team_name='Rival %s' % uuid.uuid4().hex[:5], game=self.free_fire,
+            description='x', team_creator=rival_owner, team_owner=rival_owner,
+            penalty_points=0, number_of_members=1,
+        )
+        res = self._post(team_id=self.team.team_id, game='Free Fire',
+                         mode='clash_squad', opponent=rival.slug)
+        self.assertEqual(res.status_code, 201, res.content[:400])
+        self.assertEqual(Scrim.objects.get().challenged_id, rival.team_id)
+
     def test_a_team_scrim_still_needs_a_team_you_belong_to(self):
         stranger, stranger_auth = a_user('stranger')
         res = self.client.post(

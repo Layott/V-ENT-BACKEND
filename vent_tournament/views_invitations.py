@@ -34,6 +34,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 
 from vent_auth.models import Teams, Users
+from vent_auth.refs import team_by_ref
 
 from .models import Tournament, TournamentInvitation
 
@@ -221,9 +222,7 @@ def invitations(request, tournament_id):
             return _error('You do not need to invite yourself.',
                           'VALIDATION_ERROR')
     else:
-        invited_team = Teams.objects.filter(team_name__iexact=team_ref).first()
-        if invited_team is None and str(team_ref).isdigit():
-            invited_team = Teams.objects.filter(team_id=int(team_ref)).first()
+        invited_team = team_by_ref(team_ref)
         if invited_team is None:
             return _error('No team by that name.', 'NOT_FOUND',
                           status.HTTP_404_NOT_FOUND)

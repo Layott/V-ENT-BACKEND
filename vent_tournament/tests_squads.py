@@ -267,6 +267,11 @@ class DirectEntrantTests(TestCase):
         # Nobody was asked to pay, so nobody was charged.
         self.assertFalse(registration.entry_fee_paid)
 
+    def test_a_team_picked_from_the_list_goes_in_by_its_slug(self):
+        """The name picker hands back a slug (inbox 416)."""
+        res = self.client.post(self.url, data={'team': self.team.slug}, **self.auth)
+        self.assertIn(res.status_code, (200, 201), res.data)
+
     def test_a_player_goes_straight_in(self):
         res = self.client.post(self.url, data={'username': 'de_player'},
                                **self.auth)

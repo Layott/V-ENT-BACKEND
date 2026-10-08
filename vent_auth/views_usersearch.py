@@ -121,6 +121,15 @@ def user_search(request):
     viewer, _ignored = _user_from_bearer(request)
     viewer = None if _ignored else viewer
 
+    # A name picker (invite to a team, add a player, send coins) is somebody
+    # signed in doing something WITH a person, and the CEO asked that it find
+    # people from a rough spelling (inbox 416, 8 October 2026). "Indexable in
+    # search" keeps a profile out of search engines and the public search; it
+    # does not hide somebody from a teammate typing their name. A stranger
+    # with no session gets the public rule whatever they ask for.
+    picking = (inputs.read_text(request.GET, 'purpose', max_length=10) == 'pick'
+               and viewer is not None)
+
     # Closest first: exact, then the start of a name, then anywhere, then a
     # typo or two ("winlila" finds Winlola). Ordering by username keeps equal
     # matches stable between keystrokes. Forgiving: close and partial names match too (vent_auth/fuzzy.py, inbox 383).
@@ -140,7 +149,8 @@ def user_search(request):
         # "Indexable in search" off (inbox 399): not found by browsing or by a
         # close match, only by somebody who already knows the exact username,
         # so a friend can still message or pay them.
-        if (not privacy_of(user).get('indexable', True)
+        if (not picking
+                and not privacy_of(user).get('indexable', True)
                 and query.lstrip('@').lower() != user.username.lower()):
             continue
 

@@ -39,6 +39,7 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
 from vent_auth.models import Teams, TeamMembers, Users
+from vent_auth.refs import team_by_ref
 
 from .models import (
     Tournament, TournamentRegistration, TournamentSquad, SquadMember)
@@ -340,9 +341,7 @@ def entrants(request, tournament_id):
         return _error('Name either a team or a player.', 'VALIDATION_ERROR')
 
     if team_ref:
-        team = Teams.objects.filter(team_name__iexact=team_ref).first()
-        if team is None and team_ref.isdigit():
-            team = Teams.objects.filter(team_id=int(team_ref)).first()
+        team = team_by_ref(team_ref)
         if team is None:
             return _error('No team by that name.', 'NOT_FOUND',
                           status.HTTP_404_NOT_FOUND)
