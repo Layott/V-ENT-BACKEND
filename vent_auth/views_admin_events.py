@@ -337,8 +337,11 @@ def _tell_everybody_about_the_state(event, action, reason, admin, refunds_summar
     if action == 'cancel':
         money = ''
         if refunds_summary:
+            # No gateway named: refunds.py sends a card payment back through
+            # whichever one took it, and production has had no Paystack key
+            # since Flutterwave went live (inbox 411).
             money = (' %s paid tickets were refunded (%s VC to wallets, card payments '
-                     'through Paystack).' % (refunds_summary['refunded'], refunds_summary['coins']))
+                     'to the card that paid).' % (refunds_summary['refunded'], refunds_summary['coins']))
             if refunds_summary['failed']:
                 money += (' %d card refunds were refused by the gateway and are being '
                           'retried.' % len(refunds_summary['failed']))
@@ -357,7 +360,7 @@ def _tell_everybody_about_the_state(event, action, reason, admin, refunds_summar
         holder_body = ('The event you hold a ticket for was cancelled. '
                        'Reason: %s. Your ticket no longer admits anybody. What you '
                        'paid is on its way back: to your wallet if you paid from it, '
-                       'or to your card through Paystack within a few days.'
+                       'or to the card you paid with within a few days.'
                        % reason)
     else:
         organiser_title = '%s is back on' % event.name
