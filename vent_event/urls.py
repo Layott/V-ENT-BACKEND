@@ -41,6 +41,7 @@ from .views_vendor_shop import (
     my_order_status,
 )
 from .views_vendor_slots import event_slots, event_slot_detail, buy_slot
+from .views_slot_pictures import slot_pictures, slot_picture_detail, slot_pictures_order, venue_layout
 from .views_vendors import (
     event_vendors, vendor_detail, create_vendor, create_product,
     create_order, my_vendor_orders, vendor_orders, collect_order, contact_vendor, quote_order,
@@ -65,6 +66,10 @@ urlpatterns = [
     # route cannot be swallowed by the detail one.
     path("<str:event_id>/slots/", event_slots, name="event_slots"),
     path("<str:event_id>/slots/<int:slot_id>/buy/", buy_slot, name="buy_slot"),
+    path("<str:event_id>/slots/<int:slot_id>/pictures/", slot_pictures, name="slot_pictures"),
+    path("<str:event_id>/slots/<int:slot_id>/pictures/order/", slot_pictures_order, name="slot_pictures_order"),
+    path("<str:event_id>/slots/<int:slot_id>/pictures/<int:picture_id>/", slot_picture_detail, name="slot_picture_detail"),
+    path("<str:event_id>/venue-layout/", venue_layout, name="venue_layout"),
     path("<str:event_id>/slots/<int:slot_id>/", event_slot_detail, name="event_slot_detail"),
     path("<str:event_id>/vendors/", event_vendors, name="event_vendors"),
     path("<str:event_id>/vendors/create/", create_vendor, name="create_vendor"),
