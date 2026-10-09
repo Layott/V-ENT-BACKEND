@@ -87,6 +87,9 @@ class Event(models.Model):
     logo = models.ImageField(upload_to=OpaqueName('event_logos/'), null=True, blank=True)  # Event logo upload path
     banner = models.ImageField(upload_to=OpaqueName('event_banners/'), null=True, blank=True)  # Event banner upload path
     banner_url = models.URLField(max_length=500, null=True, blank=True)  # External banner URL (used when no file upload)
+    # Where the pitches and stalls are: one optional picture of the layout,
+    # shown above the pitches for sale (CEO, 8 October 2026, inbox 419).
+    venue_layout = models.ImageField(upload_to=OpaqueName('venue_layouts/'), null=True, blank=True)
     is_active = models.BooleanField(default=True)  # To mark if the event is active or not
     # Off the public listing, the sitemap, the partner feed and the Discord
     # search, and still open at its own address: a private launch, a test
@@ -1033,6 +1036,30 @@ class VendorSlot(models.Model):
                     kwargs['update_fields'] = list(
                         set(kwargs['update_fields']) | {'rules_version'})
         super().save(*args, **kwargs)
+
+
+class VendorSlotPicture(models.Model):
+    """What a pitch or stall will look like.
+
+    CEO, 8 October 2026 (inbox 419): "organizers should be able to upload
+    pictures of how it'll look and then users should be able to view it."
+
+    The pictures belong to the pitch TYPE, so twenty identical 3x3m food
+    stalls share one set. Up to six; the first by position is the cover.
+    """
+
+    MAX_PER_SLOT = 6
+
+    slot = models.ForeignKey('VendorSlot', on_delete=models.CASCADE, related_name='pictures')
+    image = models.ImageField(upload_to=OpaqueName('slot_pictures/'))
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['position', 'id']
+
+    def __str__(self):
+        return 'Picture %s of %s' % (self.position + 1, self.slot)
 
 
 class VendorSlotPurchase(models.Model):

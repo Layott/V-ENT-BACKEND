@@ -277,6 +277,9 @@ class EverythingSetAtCreationCanBeChangedTests(TestCase):
             # (inbox 360). Not creation settings at all: off until published.
             'site_enabled', 'site_headline', 'site_accent', 'site_theme',
             'site_layout', 'site_sections',
+            # POST/DELETE /event/<ref>/venue-layout/, on the pitches and stalls
+            # tab beside the pitches it shows (inbox 419).
+            'venue_layout',
             # admin only, never the organiser's to set
             'is_featured',
             # Legacy columns kept for old rows. start_date and end_date are

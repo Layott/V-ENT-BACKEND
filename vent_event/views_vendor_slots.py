@@ -43,7 +43,22 @@ from vent_auth import inputs
 from vent_auth import coins
 
 
-def _slot_row(slot, viewer=None):
+def _media(request, filefield):
+    if not filefield:
+        return None
+    try:
+        url = filefield.url
+    except ValueError:
+        return None
+    return request.build_absolute_uri(url) if request is not None else url
+
+
+def layout_url(event, request=None):
+    """The venue layout picture, or None."""
+    return _media(request, event.venue_layout)
+
+
+def _slot_row(slot, viewer=None, request=None):
     """One slot, as a listing card.
 
     `remaining` and `is_sold_out` are both sent. A screen that has to work out
@@ -75,6 +90,10 @@ def _slot_row(slot, viewer=None):
         'already_mine': bool(
             viewer and VendorSlotPurchase.objects.filter(
                 slot=slot, buyer=viewer).exclude(vendor__status='closed').exists()),
+        # What it will look like, in the organiser's order; the first is the
+        # cover (inbox 419).
+        'pictures': [{'id': p.id, 'url': _media(request, p.image)}
+                     for p in slot.pictures.all()],
     }
 
 
@@ -107,8 +126,9 @@ def event_slots(request, event_id):
         if err is not None:
             qs = qs.filter(is_active=True)
         return _ok({
-            'slots': [_slot_row(s, viewer) for s in qs],
+            'slots': [_slot_row(s, viewer, request) for s in qs.prefetch_related('pictures')],
             'can_manage': err is None,
+            'venue_layout': layout_url(event, request),
         }, 'Vendor slots.')
 
     organiser, err = _actor_for_event(request, event)
@@ -145,7 +165,7 @@ def event_slots(request, event_id):
         rules=(request.data.get('rules') or '').strip(),
         requires_approval=bool(request.data.get('requires_approval', True)),
     )
-    return Response({'status': 'success', 'data': {'slot': _slot_row(slot)},
+    return Response({'status': 'success', 'data': {'slot': _slot_row(slot, request=request)},
                      'message': f'{slot.name} is on sale.'},
                     status=status.HTTP_201_CREATED)
 
@@ -173,7 +193,7 @@ def event_slot_detail(request, event_id, slot_id):
             # record of what they agreed to with it.
             slot.is_active = False
             slot.save(update_fields=['is_active'])
-            return _ok({'slot': _slot_row(slot)},
+            return _ok({'slot': _slot_row(slot, request=request)},
                        'Taken off sale. The stalls already sold are untouched.')
         slot.delete()
         return _ok({'deleted': True}, 'Slot removed.')
@@ -217,7 +237,7 @@ def event_slot_detail(request, event_id, slot_id):
 
     if fields:
         slot.save(update_fields=fields)
-    return _ok({'slot': _slot_row(slot)}, 'Saved.')
+    return _ok({'slot': _slot_row(slot, request=request)}, 'Saved.')
 
 
 @api_view(['POST'])
@@ -348,7 +368,7 @@ def buy_slot(request, event_id, slot_id):
     return Response({
         'status': 'success',
         'data': {'vendor': serialize_vendor(request, vendor),
-                 'slot': _slot_row(slot, user)},
+                 'slot': _slot_row(slot, user, request)},
         'message': ('Your stall is set up. The organiser will approve it '
                     'shortly.' if slot.requires_approval
                     else 'Your stall is set up. Start adding what you sell.'),
