@@ -300,6 +300,9 @@ class BinTests(RecordsBase):
         self.assertFalse(Club.objects.filter(pk=self.club.pk).exists())
         self.assertFalse(ClubMember.objects.filter(pk=self.member.pk).exists())
         entry = RecordBin.objects.get()
+        self.assertEqual(entry.object_pk, str(self.club.pk))      # not "None": read before the delete
+        self.assertEqual(entry.label, self.club.name)
+        self.assertEqual(AdminAction.objects.get(action_type='record_delete').target_id, str(self.club.pk))
         self.assertEqual(entry.purge_after.date(), (timezone.now() + timedelta(days=90)).date())
         self.assertTrue(AdminAction.objects.filter(action_type='record_delete').exists())
         listed = self.get('bin/', self.support_auth).json()['data']['rows']

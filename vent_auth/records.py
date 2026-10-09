@@ -642,6 +642,10 @@ def move_to_bin(obj, admin, reason):
     preview = delete_preview(obj)
     if not preview['allowed']:
         raise RecordError('This cannot be deleted here.', preview['code'], data=preview)
+    # Read before the delete: Django sets a deleted object's pk to None, and
+    # the bin entry and the audit line written after it read "None" (found on
+    # the 9 October walk).
+    pk, label = str(obj.pk), label_of(obj)[:160]
 
     with transaction.atomic():
         if preview.get('soft'):
@@ -671,12 +675,12 @@ def move_to_bin(obj, admin, reason):
             snapshot = {'objects': objects, 'nulls': nulls}
             obj.delete()
         entry = RecordBin.objects.create(
-            model_label=key_of(model), object_pk=str(obj.pk), label=label_of(obj)[:160],
+            model_label=key_of(model), object_pk=pk, label=label,
             counts=preview['counts'], snapshot=snapshot, reason=reason[:500],
             deleted_by=admin, purge_after=timezone.now() + timedelta(days=BIN_DAYS))
         AdminAction.objects.create(
             admin=admin, action_type='record_delete', target_model=key_of(model)[:50],
-            target_id=str(obj.pk)[:100], reason=reason,
+            target_id=pk[:100], reason=reason,
             metadata={'bin': entry.pk, 'counts': preview['counts']})
     return entry
 
