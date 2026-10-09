@@ -9,6 +9,7 @@ from . import views_settings as v
 from . import views_safety as safety
 from . import views_org_following as org_following
 from . import views_usersearch as usersearch
+from . import views_roadmap as roadmap
 from . import views_profile as prof
 from . import views_account_security as sec
 from . import views_rankings as rank
@@ -158,6 +159,8 @@ urlpatterns = [
     # Finding a person by name, so a direct message can be addressed by
     # picking somebody rather than by spelling their handle correctly.
     path('user/search/', usersearch.user_search),
+    # "Tell me when it opens" on the roadmap pages (inbox 421).
+    path('roadmap/interest/', roadmap.module_interest),
 
     # Devices / sessions
     path('setting/login-activity/', v.login_activity),

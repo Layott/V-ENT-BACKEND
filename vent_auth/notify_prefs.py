@@ -66,6 +66,9 @@ CATEGORY_ROW = {
     'marketplace': 'marketplace',
     'anime_room': 'anime', 'anime_promo': 'anime', 'anime_chapter': 'anime',
     'system': 'account',
+    # "Tell me when it opens" (inbox 421): asked for by the person, one press,
+    # and stopped from the same page, so it rides with account notices.
+    'roadmap': 'account',
 }
 
 # The old grid's rows, so a choice made before 30 September still counts.
