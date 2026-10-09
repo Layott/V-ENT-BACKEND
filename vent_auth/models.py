@@ -2831,6 +2831,32 @@ class PremiumInterest(models.Model):
         return 'Wants premium: %s' % self.user.username
 
 
+class ModuleInterest(models.Model):
+    """Somebody asked to be told when a module that is not open yet opens.
+
+    CEO, 8 October 2026 (inbox 421): "For the pages that are not yet built and
+    open, we can put something there that will show what we want to build in
+    the future for those pages/features." Each of those pages offers "Tell me
+    when it opens"; this is what that button writes, and
+    `manage.py notify_module_open <module>` is what keeps the promise.
+    """
+
+    MODULES = ('shop', 'wager', 'marketplace', 'anime')
+
+    user = models.ForeignKey('Users', on_delete=models.CASCADE, related_name='module_interests')
+    module = models.CharField(max_length=20)
+    created_at = models.DateTimeField(auto_now_add=True)
+    #: When they were told it opened. A second run of the command skips them.
+    notified_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('user', 'module')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return '%s wants %s' % (self.user.username, self.module)
+
+
 class UsedChallenge(models.Model):
     """A bot-check puzzle that has been answered once (vent_auth.bot_check).
 
