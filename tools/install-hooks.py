@@ -48,14 +48,25 @@ echo ""
 echo "V-ENT catchers ------------------------------------------------------"
 # The catchers of the tree being committed: a worktree carries its own
 # tools/check-all.py. A frontend commit has none and uses the backend's.
+# Git exports GIT_DIR to a hook, so a plain `git -C <other repo>` would answer
+# about THIS repo: the lookups below clear it first. Without that a backend
+# commit named itself as the frontend and a frontend commit never found its
+# backend and fell back to the stale main checkout (9 October 2026).
 top=$(git rev-parse --show-toplevel)
 branch=$(git rev-parse --abbrev-ref HEAD)
 if [ -f "$top/tools/check-all.py" ]; then
   checker="$top/tools/check-all.py"
+  # A backend commit is judged with the frontend on the same branch, when a
+  # worktree of it exists, so a pair is checked as a pair.
+  fe=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$top/../V-ENT-FRONTEND" worktree list --porcelain 2>/dev/null \
+       | awk -v b="branch refs/heads/$branch" '/^worktree /{w=$2} $0==b{print w}')
+  if [ -n "$fe" ]; then VENT_FRONTEND="$fe"; export VENT_FRONTEND; fi
 else
+  # A frontend commit is judged as itself: the tree being committed.
+  VENT_FRONTEND="$top"; export VENT_FRONTEND
   # A frontend commit is judged with the backend on the same branch, when a
   # worktree of it exists (feature/x beside feature/x), else the main checkout.
-  be=$(git -C "$top/../V-ENT-BACKEND" worktree list --porcelain 2>/dev/null \
+  be=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$top/../V-ENT-BACKEND" worktree list --porcelain 2>/dev/null \
        | awk -v b="branch refs/heads/$branch" '/^worktree /{w=$2} $0==b{print w}')
   if [ -n "$be" ] && [ -f "$be/tools/check-all.py" ]; then checker="$be/tools/check-all.py"; else checker="%s"; fi
 fi
