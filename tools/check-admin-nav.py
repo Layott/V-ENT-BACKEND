@@ -47,8 +47,13 @@ def _workspace_root():
 
 
 ROOT = _workspace_root()
-BACKEND = (os.environ.get('VENT_BACKEND') or os.path.join(ROOT, 'V-ENT-BACKEND'))
-FRONTEND = os.path.join(ROOT, 'V-ENT-FRONTEND')
+# The trees being checked: this file's own backend (a worktree is a different
+# branch from the main checkout), and the frontend the commit hook names in
+# VENT_FRONTEND. The main checkouts only when neither is known (9 October 2026).
+_OWN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND = (os.environ.get('VENT_BACKEND')
+           or (_OWN if os.path.isfile(os.path.join(_OWN, 'manage.py')) else os.path.join(ROOT, 'V-ENT-BACKEND')))
+FRONTEND = os.environ.get('VENT_FRONTEND') or os.path.join(ROOT, 'V-ENT-FRONTEND')
 
 NAV = os.path.join(FRONTEND, 'src', 'components', 'admin', 'AdminNav.js')
 ADMIN_PAGES = os.path.join(FRONTEND, 'src', 'app', '(admin)', 'admin')
@@ -62,6 +67,9 @@ UNLISTED = {
     'communities/[slug]': 'opened from a row on /admin/communities',
     'events/[slug]': 'opened from a row on /admin/events',
     'users/[id]': 'opened from a row on /admin/users',
+    'records/[model]': 'opened from a kind on /admin/records',
+    'records/[model]/[pk]': 'opened from a row of a kind, a search hit or a linked record',
+    'records/bin': 'opened from "The bin" on /admin/records',
 }
 
 PERMS_IN_NAV = re.compile(r"perms:\s*\[([^\]]*)\]")

@@ -1441,6 +1441,62 @@ class AdminAction(models.Model):
         return f"{self.action_type} by {self.admin.username} @ {self.performed_at}"
 
 
+class RecordBin(models.Model):
+    """A record deleted from the admin console, kept for 90 days (inbox 420).
+
+    `snapshot` holds every row the delete took with it, serialized, plus the
+    columns other rows had set to NULL, so a restore puts all of it back
+    exactly. Tournaments and events delete softly already; for those the
+    snapshot is `{"soft": true}` and a restore clears `deleted_at`. Rows here
+    are never returned whole: the bin screen shows the label and the counts.
+    See vent_auth/records.py.
+    """
+    model_label = models.CharField(max_length=100)
+    object_pk = models.CharField(max_length=64)
+    label = models.CharField(max_length=160, blank=True, default='')
+    counts = models.JSONField(default=dict)
+    snapshot = models.JSONField(default=dict)
+    reason = models.CharField(max_length=500, blank=True, default='')
+    deleted_by = models.ForeignKey(Users, null=True, blank=True, on_delete=models.SET_NULL,
+                                   related_name='+')
+    deleted_at = models.DateTimeField(auto_now_add=True)
+    purge_after = models.DateTimeField(db_index=True)
+    restored_at = models.DateTimeField(null=True, blank=True)
+    restored_by = models.ForeignKey(Users, null=True, blank=True, on_delete=models.SET_NULL,
+                                    related_name='+')
+
+    class Meta:
+        ordering = ['-deleted_at']
+
+    def __str__(self):
+        return f"{self.model_label} {self.object_pk} in the bin"
+
+
+class RecordVersion(models.Model):
+    """One edit made in the admin console: what each column was and became.
+
+    `changes` is {field: [before, after]} in the console's own JSON form, so a
+    revert can put the before back exactly. A revert is itself a version that
+    names the one it undoes.
+    """
+    model_label = models.CharField(max_length=100, db_index=True)
+    object_pk = models.CharField(max_length=64, db_index=True)
+    label = models.CharField(max_length=160, blank=True, default='')
+    changes = models.JSONField(default=dict)
+    reason = models.CharField(max_length=500, blank=True, default='')
+    changed_by = models.ForeignKey(Users, null=True, blank=True, on_delete=models.SET_NULL,
+                                   related_name='+')
+    changed_at = models.DateTimeField(auto_now_add=True)
+    reverts = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL,
+                                related_name='reverted_by')
+
+    class Meta:
+        ordering = ['-changed_at']
+
+    def __str__(self):
+        return f"{self.model_label} {self.object_pk} changed"
+
+
 # ---------------------------------------------------------------------------
 # User settings
 # ---------------------------------------------------------------------------
