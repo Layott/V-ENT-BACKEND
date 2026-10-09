@@ -22,6 +22,11 @@ from .views_twofactor import (
 from .views_admin_rates import (
     admin_rates, admin_rate_detail, admin_refresh_rates,
 )
+from .views_records import (
+    admin_records, admin_records_search, admin_records_list, admin_record,
+    admin_record_delete, admin_record_correct, admin_records_bin,
+    admin_records_bin_restore, admin_records_bin_purge, admin_records_version_revert,
+)
 from .views_admin_games import (
     admin_games, admin_game_detail, admin_game_series, admin_series_detail,
     admin_game_modes, admin_mode_detail,
@@ -198,6 +203,18 @@ urlpatterns = [
          name="admin_event_refunds"),
     path("admin/events/<str:event_ref>/", admin_events.admin_event_detail,
          name="admin_event_detail"),
+    # Every record on the site (inbox 420). The fixed paths come before the
+    # <key> ones so "bin", "search" and "versions" are never read as a model.
+    path("admin/records/", admin_records, name="admin_records"),
+    path("admin/records/search/", admin_records_search, name="admin_records_search"),
+    path("admin/records/bin/", admin_records_bin, name="admin_records_bin"),
+    path("admin/records/bin/<int:entry_id>/restore/", admin_records_bin_restore, name="admin_records_bin_restore"),
+    path("admin/records/bin/<int:entry_id>/", admin_records_bin_purge, name="admin_records_bin_purge"),
+    path("admin/records/versions/<int:version_id>/revert/", admin_records_version_revert, name="admin_records_version_revert"),
+    path("admin/records/<str:key>/", admin_records_list, name="admin_records_list"),
+    path("admin/records/<str:key>/<str:pk>/", admin_record, name="admin_record"),
+    path("admin/records/<str:key>/<str:pk>/delete/", admin_record_delete, name="admin_record_delete"),
+    path("admin/records/<str:key>/<str:pk>/correct/", admin_record_correct, name="admin_record_correct"),
     path("admin/games/", admin_games, name="admin_games"),
     path("admin/games/<int:game_id>/", admin_game_detail, name="admin_game_detail"),
     path("admin/games/<int:game_id>/series/", admin_game_series, name="admin_game_series"),
