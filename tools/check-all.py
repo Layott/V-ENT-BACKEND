@@ -261,6 +261,15 @@ CATCHERS = [
     ('name pickers self-test',
      'the name-picker catcher still catches a plain username box',
      FRONTEND, ['node', 'scripts/check-name-pickers.mjs', '--self-test'], True),
+    # A page clearing the sidebar with its own number, seen twice: 115 stylesheets hard-coded
+    # the old 180px tablet sidebar, and every page that forgot sat underneath it (inbox 414,
+    # 8 October 2026). Pages use var(--shell-offset); the shell switches at 1024px.
+    ('shell offset',
+     'no page clears the sidebar with its own number; the shell switches at 1024px',
+     FRONTEND, ['node', 'scripts/check-shell-offset.mjs'], True),
+    ('shell offset self-test',
+     'the shell-offset catcher still catches a hard-coded tablet sidebar',
+     FRONTEND, ['node', 'scripts/check-shell-offset.mjs', '--self-test'], True),
     # A page title or description in one language for every reader (52
     # layouts on 30 September 2026, inbox 375; the ticket page before it).
     ('metadata language',
