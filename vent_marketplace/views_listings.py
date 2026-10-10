@@ -28,8 +28,9 @@ def _ok(data, message='OK', http_status=status.HTTP_200_OK):
                     status=http_status)
 
 
-def _err(message, code, http_status=status.HTTP_400_BAD_REQUEST, field=None):
-    body = {'status': 'error', 'data': {}, 'message': message, 'code': code}
+def _err(message, code, http_status=status.HTTP_400_BAD_REQUEST, field=None,
+         data=None):
+    body = {'status': 'error', 'data': data or {}, 'message': message, 'code': code}
     if field:
         body['field'] = field
     return Response(body, status=http_status)
@@ -280,7 +281,7 @@ def create_listing(request):
             return _err(
                 'A free account keeps %s listing live at a time. Pause the '
                 'other one, or ask about premium.' % limit,
-                'LISTING_LIMIT', status.HTTP_409_CONFLICT)
+                'LISTING_LIMIT', status.HTTP_409_CONFLICT, data={'limit': limit})
 
     listing = Listing(seller=user, status='active' if publish else 'draft',
                       **cleaned)
@@ -374,7 +375,7 @@ def set_status(request, reference):
         if not allowed:
             return _err(
                 'A free account keeps %s listing live at a time.' % limit,
-                'LISTING_LIMIT', status.HTTP_409_CONFLICT)
+                'LISTING_LIMIT', status.HTTP_409_CONFLICT, data={'limit': limit})
 
     listing.status = wanted
     listing.save(update_fields=['status'])

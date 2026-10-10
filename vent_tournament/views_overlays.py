@@ -825,7 +825,8 @@ def _create_overlay(request, tournament=None, event=None, user=None):
         return _error('An overlay is an HTML file.', 'NOT_HTML')
     if upload.size > MAX_BYTES:
         return _error('That file is larger than %dMB.'
-                      % (MAX_BYTES // 1024 // 1024), 'TOO_LARGE')
+                      % (MAX_BYTES // 1024 // 1024), 'TOO_LARGE',
+                      extra={'max_mb': MAX_BYTES // 1024 // 1024})
     refused = uploads.files_refusal(request, 'file', kinds=('html',), max_bytes=MAX_BYTES)
     if refused:
         return refused

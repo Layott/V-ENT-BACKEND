@@ -104,6 +104,11 @@
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
+  "design bans self-test": {
+    "count": 0,
+    "first_seen": "2026-10-10",
+    "since": "2026-10-10"
+  },
   "dev distdir": {
     "count": 0,
     "first_seen": "2026-09-08",
@@ -438,6 +443,16 @@
     "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
+  },
+  "server codes": {
+    "count": 0,
+    "first_seen": "2026-10-10",
+    "since": "2026-10-10"
+  },
+  "server codes self-test": {
+    "count": 0,
+    "first_seen": "2026-10-10",
+    "since": "2026-10-10"
   },
   "server labels": {
     "count": 0,

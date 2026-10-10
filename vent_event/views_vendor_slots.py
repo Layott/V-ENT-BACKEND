@@ -275,7 +275,7 @@ def buy_slot(request, event_id, slot_id):
         # the classic way to sell one thing twice.
         if slot.is_sold_out:
             return _error(f'{slot.name} is sold out.', 'SOLD_OUT',
-                          status.HTTP_409_CONFLICT)
+                          status.HTTP_409_CONFLICT, extra={'name': slot.name})
 
         # A stall that was turned down or closed does not count: the person
         # can buy another pitch. Without this a rejection was permanent.

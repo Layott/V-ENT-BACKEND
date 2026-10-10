@@ -65,8 +65,8 @@ RELEASE_TERMS = {
 }
 
 
-def _error(message, code, http_status):
-    return Response({'status': 'error', 'data': {}, 'message': message, 'code': code},
+def _error(message, code, http_status, data=None):
+    return Response({'status': 'error', 'data': data or {}, 'message': message, 'code': code},
                     status=http_status)
 
 
@@ -152,7 +152,8 @@ def upload_gallery(request):
         return _error(
             'You can hold %d of the %s kind, and you have room for %d more.'
             % (limit, kind, left),
-            'LIMIT_EXCEEDED', status.HTTP_400_BAD_REQUEST)
+            'LIMIT_EXCEEDED', status.HTTP_400_BAD_REQUEST,
+            data={'limit': limit, 'left': left})
 
     caption = inputs.read_text(request.data, 'caption', max_length=inputs.LONGEST_TEXT)[:140]
     now = timezone.now()

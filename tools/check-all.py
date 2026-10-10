@@ -365,6 +365,12 @@ CATCHERS = [
     ('design bans',
      'no hairline borders, no glow, no vibecoded defaults',
      FRONTEND, ['node', 'scripts/check-design.mjs'], False),
+    # Its self-test had been failing (3 of 26) with nothing running it, so a
+    # divider counted twice and the em-dash case expected a hyphen to fail.
+    # Fixed 10 October 2026 with the accent-stripe rule; now it is run.
+    ('design bans self-test',
+     'the design catcher still catches each ban and grants each exception',
+     FRONTEND, ['node', 'scripts/check-design.mjs', '--self-test'], True),
 
     # Written 4 September 2026, merged 12 September. Every one of these
     # existed and was NOT in this list, which is the same as not existing:
@@ -636,6 +642,15 @@ CATCHERS = [
     ('gateway text self-test',
      'the raw-error catcher still catches str(exc) in a response',
      BACKEND, [sys.executable, 'tools/check-raw-errors.py', '--self-test'], True),
+    # A refusal in English on a French page: 258 of 561 codes had no api.*
+    # key on 10 October 2026 (inbox 423). Also holds a translation that names
+    # a value the refusal does not send, which falls back to English silently.
+    ('server codes',
+     'every refusal the server sends reads in en, fr and pt',
+     BACKEND, [sys.executable, 'tools/check-server-codes.py'], True),
+    ('server codes self-test',
+     'the server codes catcher still catches a code with no translation',
+     BACKEND, [sys.executable, 'tools/check-server-codes.py', '--self-test'], True),
     # Two blocks in an email with no space between them (CEO, 29 September
     # 2026, the sign-in alert's button touching its paragraph; inbox 355).
     ('email spacing',

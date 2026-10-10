@@ -106,7 +106,7 @@ def scheduled_reminders(request, tournament_id):
     if pending >= MAX_PER_TOURNAMENT:
         return _err('There are already %d reminders waiting to go out. Send or '
                     'cancel some before adding more.' % pending,
-                    'TOO_MANY_SCHEDULED')
+                    'TOO_MANY_SCHEDULED', extra={'pending': pending})
 
     kind = str(request.data.get('kind') or 'check_in').strip()
     if kind not in KINDS:
