@@ -551,7 +551,8 @@ def create_order(request, vendor_id):
                                   'NOT_FOUND', status.HTTP_404_NOT_FOUND)
                 if product.stock < qty:
                     _refuse(f'Only {product.stock} × {product.name} left.',
-                                  'INSUFFICIENT_STOCK', status.HTTP_409_CONFLICT)
+                                  'INSUFFICIENT_STOCK', status.HTTP_409_CONFLICT,
+                                  extra={'remaining': product.stock, 'name': product.name})
 
                 # Which choice they asked for. Checked against what the product
                 # actually offers, so an order cannot carry a size the stall does

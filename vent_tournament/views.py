@@ -531,6 +531,8 @@ def join_tournament(request):
                 'data': {
                     'event_id': _link.event_id,
                     'event_slug': getattr(_link.event, 'slug', None),
+                    'event_name': _link.event.name,
+                    'tier_name': wanted,
                     'tier_id': _link.entry_tier_id,
                 },
             }, status=status.HTTP_402_PAYMENT_REQUIRED)

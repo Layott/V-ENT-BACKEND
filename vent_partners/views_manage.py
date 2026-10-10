@@ -34,8 +34,8 @@ def _ok(data, message='OK', http_status=status.HTTP_200_OK):
     return Response({'status': 'success', 'data': data, 'message': message}, status=http_status)
 
 
-def _err(message, code='ERROR', http_status=status.HTTP_400_BAD_REQUEST):
-    return Response({'status': 'error', 'code': code, 'message': message, 'data': None},
+def _err(message, code='ERROR', http_status=status.HTTP_400_BAD_REQUEST, data=None):
+    return Response({'status': 'error', 'code': code, 'message': message, 'data': data},
                     status=http_status)
 
 
@@ -490,10 +490,9 @@ def admin_sso_review(request, partner_id):
             if not getattr(partner, field)
         ]
         if missing:
-            return _err(
-                'SSO needs these first: ' + ', '.join(missing).replace('_', ' '),
-                'MISSING_SSO_DETAILS',
-            )
+            listed = ', '.join(missing).replace('_', ' ')
+            return _err('SSO needs these first: ' + listed, 'MISSING_SSO_DETAILS',
+                        data={'missing': listed})
         if not partner.redirect_uris:
             return _err('SSO needs at least one redirect URI.', 'MISSING_REDIRECT')
 

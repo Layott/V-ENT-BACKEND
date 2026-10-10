@@ -69,8 +69,8 @@ def _ok(data, message='OK', http=status.HTTP_200_OK):
                     status=http)
 
 
-def _err(message, code, http=status.HTTP_400_BAD_REQUEST):
-    return Response({'status': 'error', 'code': code, 'message': message, 'data': {}},
+def _err(message, code, http=status.HTTP_400_BAD_REQUEST, data=None):
+    return Response({'status': 'error', 'code': code, 'message': message, 'data': data or {}},
                     status=http)
 
 
@@ -180,7 +180,7 @@ def invites(request, tournament_id):
             return _err(
                 'That would be more than %s codes. Remove some first.'
                 % _code_limit(tournament), 'CODE_LIMIT',
-                status.HTTP_409_CONFLICT)
+                status.HTTP_409_CONFLICT, data={'limit': _code_limit(tournament)})
         wanted = []
         seen = set(TournamentInvite.objects.filter(tournament=tournament)
                    .values_list('code', flat=True))
@@ -197,7 +197,7 @@ def invites(request, tournament_id):
     if existing + len(wanted) > _code_limit(tournament):
         return _err('That would be more than %s codes. Remove some first.'
                     % _code_limit(tournament), 'CODE_LIMIT',
-                    status.HTTP_409_CONFLICT)
+                    status.HTTP_409_CONFLICT, data={'limit': _code_limit(tournament)})
 
     made = []
     with transaction.atomic():

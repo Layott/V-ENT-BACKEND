@@ -240,14 +240,16 @@ def squad_members(request, tournament_id, squad_id):
     if in_another is not None:
         return _error('%s is already in %s in this tournament.'
                       % (player.username, in_another.squad.name),
-                      'ALREADY_IN_A_SQUAD', status.HTTP_409_CONFLICT)
+                      'ALREADY_IN_A_SQUAD', status.HTTP_409_CONFLICT,
+                      extra={'player': player.username, 'squad': in_another.squad.name})
 
     already_entered = TournamentRegistration.objects.filter(
         tournament=tournament, user=player).exists()
     if already_entered and not inputs.read_bool(request.data, 'anyway'):
         return _error('%s is already entered in this tournament on their own. '
                       'Add them anyway?' % player.username,
-                      'ALREADY_ENTERED_ALONE', status.HTTP_409_CONFLICT)
+                      'ALREADY_ENTERED_ALONE', status.HTTP_409_CONFLICT,
+                      extra={'player': player.username})
 
     # And their club may be entered, which is the same problem wearing a
     # different hat. Found on production running the Rivalry Series: seat 1 of
@@ -263,7 +265,8 @@ def squad_members(request, tournament_id, squad_id):
         return _error('%s already plays for %s in this tournament. Putting '
                       'them in this squad as well would have them face '
                       'themselves.' % (player.username, club.team.team_name),
-                      'ALREADY_PLAYING_FOR_A_CLUB', status.HTTP_409_CONFLICT)
+                      'ALREADY_PLAYING_FOR_A_CLUB', status.HTTP_409_CONFLICT,
+                      extra={'player': player.username, 'club': club.team.team_name})
 
     home = home_of(player)
     SquadMember.objects.create(

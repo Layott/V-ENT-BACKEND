@@ -515,10 +515,12 @@ def buy_ticket(request, event_id):
 
         remaining = availability.tier_available(tier)
         if remaining <= 0:
-            return _error(f'{tier.name} is sold out.', 'SOLD_OUT', status.HTTP_409_CONFLICT)
+            return _error(f'{tier.name} is sold out.', 'SOLD_OUT', status.HTTP_409_CONFLICT,
+                          extra={'name': tier.name})
         if quantity > remaining:
             return _error(f'Only {remaining} left of {tier.name}.',
-                          'INSUFFICIENT_STOCK', status.HTTP_409_CONFLICT)
+                          'INSUFFICIENT_STOCK', status.HTTP_409_CONFLICT,
+                          extra={'remaining': remaining, 'name': tier.name})
 
         # Somebody holding a waitlist offer is buying into the room their own
         # offer is holding open, so the ceiling does not apply to them. Without

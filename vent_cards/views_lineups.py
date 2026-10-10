@@ -205,7 +205,8 @@ def my_lineup(request, tournament_id):
         if card.slug in seen_people:
             return _err('%s is already in the side as %s.'
                         % (card.name, seen_people[card.slug]),
-                        'DUPLICATE_PLAYER', field='card_id')
+                        'DUPLICATE_PLAYER', field='card_id',
+                        player=card.name, already_as=seen_people[card.slug])
         seen_people[card.slug] = card.name
 
         prepared.append((index, card))

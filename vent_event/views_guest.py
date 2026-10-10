@@ -252,10 +252,11 @@ def _room_or_error(event, tier, quantity):
     remaining = availability.tier_available(tier)
     if remaining <= 0:
         return _err('%s is sold out.' % tier.name, 'SOLD_OUT',
-                    status.HTTP_409_CONFLICT)
+                    status.HTTP_409_CONFLICT, data={'name': tier.name})
     if quantity > remaining:
         return _err('Only %s left of %s.' % (remaining, tier.name),
-                    'INSUFFICIENT_STOCK', status.HTTP_409_CONFLICT)
+                    'INSUFFICIENT_STOCK', status.HTTP_409_CONFLICT,
+                    data={'remaining': remaining, 'name': tier.name})
 
     # On the day this type admits, not across the whole engagement. A venue
     # that holds 400 holds 400 on each day of a two-day event. Guest checkout

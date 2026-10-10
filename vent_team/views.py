@@ -33,9 +33,9 @@ MEMBER_ROLES = {'captain', 'vice_captain', 'member', 'coach', 'manager', 'analys
 # Helpers
 # -----------------------
 
-def _error(message, code, http_status):
+def _error(message, code, http_status, data=None):
     return Response(
-        {'status': 'error', 'data': {}, 'message': message, 'code': code},
+        {'status': 'error', 'data': data or {}, 'message': message, 'code': code},
         status=http_status,
     )
 
@@ -524,6 +524,7 @@ def request_join(request, team_id):
                 f'You are already in {clash.team.team_name} for {team.game.game_title}. '
                 'A player can only be in one team per game, so leave that one first.',
                 'ALREADY_IN_A_TEAM_FOR_THIS_GAME', status.HTTP_409_CONFLICT,
+                data={'team': clash.team.team_name},
             )
 
     if TeamJoinRequest.objects.filter(team=team, applicant=user, status='pending').exists():
@@ -761,6 +762,7 @@ def accept_request(request, request_id):
                 f'{req.applicant.username} is already in {clash.team.team_name} for this game. '
                 'A player can only be in one team per game.',
                 'ALREADY_IN_A_TEAM_FOR_THIS_GAME', status.HTTP_409_CONFLICT,
+                data={'team': clash.team.team_name},
             )
 
     # And a team that is full stays full.
@@ -770,6 +772,7 @@ def accept_request(request, request_id):
             return _error(
                 f'{req.team.team_name} is full at {req.team.max_members} members.',
                 'TEAM_FULL', status.HTTP_409_CONFLICT,
+                data={'team': req.team.team_name, 'max_members': req.team.max_members},
             )
 
     with transaction.atomic():
@@ -895,6 +898,7 @@ def edit_team(request, team_id):
                     return _error(
                         f'This team already has {current} members, so the limit cannot be {requested}.',
                         'MAX_BELOW_ROSTER', status.HTTP_400_BAD_REQUEST,
+                        data={'current': current, 'requested': requested},
                     )
                 team.max_members = max(1, min(50, requested))
 
