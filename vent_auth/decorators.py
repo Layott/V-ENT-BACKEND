@@ -163,6 +163,14 @@ ROLE_PERMISSIONS = {
     # Marketplace and wager: named so the console can ASK about them, and
     # granted to nobody, because neither feature exists. When Phase 4 and
     # Phase 6 arrive these gain their managers and nothing else changes.
+    # The console's records, every model on the site (inbox 420, 8 October
+    # 2026). Looking is wider than changing: finance and support read records
+    # to answer questions about them. Changing or deleting any record is
+    # "Edit records"; throwing a deleted record away for good is a super
+    # admin's alone, because it is the one thing here that cannot be undone.
+    'view_records':          {'super_admin', 'admin', 'finance_admin', 'support_admin'},
+    'edit_records':          {'super_admin', 'admin'},
+    'purge_records':         {'super_admin'},
     'manage_marketplace':    set(),
     'manage_wagers':         set(),
     'manage_shop':           set(),

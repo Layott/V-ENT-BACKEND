@@ -49,7 +49,11 @@ def _workspace_root():
 
 ROOT = _workspace_root()
 
-FRONTEND = os.path.join(ROOT, 'V-ENT-FRONTEND')
+# The frontend being committed, when the hook knows it (a second worktree such
+# as V-ENT-FRONTEND-b is a different branch from V-ENT-FRONTEND; judging one
+# while committing the other stopped a commit on 9 October 2026 for faults
+# that belonged to neither). Otherwise the main checkout, as before.
+FRONTEND = os.environ.get('VENT_FRONTEND') or os.path.join(ROOT, 'V-ENT-FRONTEND')
 # The backend this file belongs to. A git worktree (V-ENT-BACKEND-flw, say)
 # is a second copy of the repo beside the first; checking the first from the
 # second judged code that was not being committed (29 September 2026).
