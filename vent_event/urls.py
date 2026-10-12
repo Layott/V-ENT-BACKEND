@@ -23,6 +23,7 @@ from . import views_comp
 from . import views_referrals
 from . import views_map
 from . import views_polls
+from . import views_games
 from . import views_self_check_in
 from . import views_door
 from . import views_sessions
@@ -61,6 +62,16 @@ urlpatterns = [
     path("get-all-events/", get_all_events, name="get_all_events"),
     path("view-event/<str:event_id>/", view_event, name="view_event"),
     path("edit-event/<str:event_id>/", edit_event, name="edit_event"),
+    # Party games (inbox 434, 435, 439). The catalogue first: its literal
+    # segments must not be read as an event called "party-games".
+    path("party-games/catalogue/", views_games.catalogue, name="party_games_catalogue"),
+    path("<str:event_id>/games/", views_games.games, name="event_games"),
+    path("<str:event_id>/games/mine/", views_games.my_games, name="event_games_mine"),
+    path("<str:event_id>/games/<int:game_id>/", views_games.game_detail, name="event_game_detail"),
+    path("<str:event_id>/games/<int:game_id>/entries/", views_games.game_entries_list,
+         name="event_game_entries"),
+    path("<str:event_id>/games/<int:game_id>/join/", views_games.join_game, name="event_game_join"),
+    path("<str:event_id>/games/<int:game_id>/leave/", views_games.leave_game, name="event_game_leave"),
     # Vendor shops
     # Pitches an organiser is SELLING. Literal segments first so the buy
     # route cannot be swallowed by the detail one.

@@ -1819,6 +1819,10 @@ class EventPollOption(models.Model):
                              related_name='options')
     text = models.CharField(max_length=140)
     position = models.PositiveIntegerField(default=0)
+    # A vote over party games: this option IS that game, so running the
+    # winners opens the games themselves (inbox 439). Null on any other poll.
+    game = models.ForeignKey('EventGame', on_delete=models.SET_NULL,
+                             null=True, blank=True, related_name='poll_options')
 
     class Meta:
         ordering = ['position', 'id']
@@ -2549,3 +2553,87 @@ class EventPing(models.Model):
     class Meta:
         unique_together = ('event', 'sender', 'recipient')
         ordering = ['-created_at']
+
+class EventGame(models.Model):
+    """A party game an organiser puts on at their event (inbox 434, 439).
+
+    Either one of the catalogue's fifty (`catalogue_key`, whose words and
+    animation live in the frontend catalogue) or the organiser's own (`custom_*`,
+    no animation). One model for both: a game is a game whoever wrote its rules.
+
+    Playing is for people holding a ticket to THIS event (inbox 435), recorded
+    as EventGameEntry against the ticket, never the account: most ticket
+    holders have no account, as with polls.
+    """
+
+    PROPOSED = 'proposed'   # put to a vote, not open for sign-ups yet
+    OPEN = 'open'           # people can sign up
+    CLOSED = 'closed'       # sign-ups closed, the game still happens
+    OFF = 'off'             # taken off; kept, because entries point at it
+    STATUS_CHOICES = [
+        (PROPOSED, 'In a vote'),
+        (OPEN, 'Open for sign-ups'),
+        (CLOSED, 'Sign-ups closed'),
+        (OFF, 'Taken off'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='games')
+    catalogue_key = models.CharField(max_length=40, blank=True, default='')
+    # The organiser's own game. Blank on a catalogue game.
+    custom_name = models.CharField(max_length=80, blank=True, default='')
+    custom_steps = models.TextField(blank=True, default='')
+    custom_needs = models.CharField(max_length=160, blank=True, default='')
+    custom_players = models.CharField(max_length=40, blank=True, default='')
+    custom_length = models.CharField(max_length=40, blank=True, default='')
+    starts_at = models.DateTimeField(null=True, blank=True)
+    place = models.CharField(max_length=120, blank=True, default='')
+    # How many may play; null is no limit. Past it, a waiting list.
+    places = models.PositiveIntegerField(null=True, blank=True)
+    prize = models.CharField(max_length=160, blank=True, default='')
+    # Inbox 449: an optional fee to play, in VENT COINS. 0 is free with the ticket.
+    fee_vc = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=OPEN)
+    position = models.PositiveIntegerField(default=0)
+    created_by = models.ForeignKey('vent_auth.Users', on_delete=models.SET_NULL,
+                                   null=True, blank=True, related_name='event_games')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['position', 'starts_at', 'id']
+
+    def __str__(self):
+        return f"{self.custom_name or self.catalogue_key} @ {self.event.name}"
+
+
+class EventGameEntry(models.Model):
+    """One ticket's place in one game: playing, waiting, or left.
+
+    Kept when somebody leaves (state 'left') rather than deleted, so the
+    organiser's list and any fee paid can always say what happened.
+    """
+
+    IN = 'in'
+    WAITING = 'waiting'
+    LEFT = 'left'
+    STATE_CHOICES = [(IN, 'Playing'), (WAITING, 'Waiting list'), (LEFT, 'Left')]
+
+    id = models.AutoField(primary_key=True)
+    game = models.ForeignKey(EventGame, on_delete=models.CASCADE, related_name='entries')
+    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name='game_entries')
+    state = models.CharField(max_length=8, choices=STATE_CHOICES, default=IN)
+    joined_at = models.DateTimeField(auto_now_add=True)
+    left_at = models.DateTimeField(null=True, blank=True)
+    # Inbox 449: what was paid to play, and the ledger reference that paid it.
+    fee_paid_vc = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    fee_reference = models.CharField(max_length=64, blank=True, default='')
+
+    class Meta:
+        ordering = ['joined_at', 'id']
+        constraints = [
+            models.UniqueConstraint(fields=['game', 'ticket'], name='one_entry_per_ticket_per_game'),
+        ]
+
+    def __str__(self):
+        return f"{self.ticket.code} -> {self.game_id} ({self.state})"

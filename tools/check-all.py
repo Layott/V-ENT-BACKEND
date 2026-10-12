@@ -388,6 +388,12 @@ CATCHERS = [
      'one catalogue of formats, not a second copy drifting',
      ROOT, [sys.executable, os.path.join(BACKEND, 'tools', 'check-format-catalogue.py')], True),
 
+    # Inbox 434 and 439: fifty party games in five places (the server's list,
+    # the frontend's keys, the animations, the words in three languages).
+    ('party games',
+     'one list of party games: server, animations, en, fr and pt agree',
+     ROOT, [sys.executable, os.path.join(BACKEND, 'tools', 'check-party-games.py')], True),
+
     ('required fields',
      'every caller sends what its endpoint requires',
      ROOT, [sys.executable, os.path.join(BACKEND, 'tools', 'check-required-fields.py')], True),
