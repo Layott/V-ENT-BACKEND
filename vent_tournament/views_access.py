@@ -41,7 +41,10 @@ from vent_auth import inputs
 ALPHABET = ''.join(c for c in string.ascii_uppercase + string.digits
                    if c not in 'IO01')
 
-FREE_CODE_LIMIT = 64
+#: How many codes one press may make for a tournament with no size set. Not a
+#: limit on the tournament (there is none since inbox 441): a bound on one
+#: request, so a typo of 100000 does not mint a hundred thousand rows.
+CODES_PER_REQUEST = 1000
 
 
 def _code_limit(tournament):
@@ -50,18 +53,22 @@ def _code_limit(tournament):
     CEO: "WHY IS THIS SHOWING 0/64 FOR AN EVENT THAT HAS 10 PLAYERS AND 5
     TEAMS, IT SHOULD BE MAPPED TO THE EVENT."
 
-    It was a flat 64 for every tournament, which on a five-team bracket is a
-    number with no relationship to anything the organiser set. A code is a way
-    IN, so the number of them worth minting is bounded by how many places
-    there are.
-
-    64 stays as the ceiling for a tournament that has not been given a size,
-    so this narrows the cap and never raises it.
+    A code is a way IN, so the number worth minting is the number of places.
+    There used to be a 64 ceiling on top of that; the CEO removed every limit
+    on entrants on 12 October 2026 (inbox 441: "no more limits"), so a
+    200-place tournament may hold 200 codes. A tournament with no size set has
+    no total, only the per-request bound above.
     """
     places = tournament.max_number_of_teams or tournament.player_size
     if not places:
-        return FREE_CODE_LIMIT
-    return max(1, min(FREE_CODE_LIMIT, int(places)))
+        return None
+    return max(1, int(places))
+
+
+def _over_limit(tournament, total):
+    """Whether `total` codes would be more places than this tournament has."""
+    limit = _code_limit(tournament)
+    return limit is not None and total > limit
 
 
 def _ok(data, message='OK', http=status.HTTP_200_OK):
@@ -176,7 +183,11 @@ def invites(request, tournament_id):
         if count < 1:
             return _err('Say how many codes to make, or send the codes themselves.',
                         'VALIDATION_ERROR')
-        if existing + count > _code_limit(tournament):
+        if count > CODES_PER_REQUEST:
+            return _err('At most %s codes at a time.' % CODES_PER_REQUEST,
+                        'CODE_LIMIT', status.HTTP_409_CONFLICT,
+                        data={'limit': CODES_PER_REQUEST})
+        if _over_limit(tournament, existing + count):
             return _err(
                 'That would be more than %s codes. Remove some first.'
                 % _code_limit(tournament), 'CODE_LIMIT',
@@ -194,7 +205,11 @@ def invites(request, tournament_id):
         return _err('No codes given.', 'VALIDATION_ERROR')
     # The same limit the screen displays. Showing 0/5 and then minting 64 is
     # two rules disagreeing about one number, which is worse than either.
-    if existing + len(wanted) > _code_limit(tournament):
+    if len(wanted) > CODES_PER_REQUEST:
+        return _err('At most %s codes at a time.' % CODES_PER_REQUEST,
+                    'CODE_LIMIT', status.HTTP_409_CONFLICT,
+                    data={'limit': CODES_PER_REQUEST})
+    if _over_limit(tournament, existing + len(wanted)):
         return _err('That would be more than %s codes. Remove some first.'
                     % _code_limit(tournament), 'CODE_LIMIT',
                     status.HTTP_409_CONFLICT, data={'limit': _code_limit(tournament)})

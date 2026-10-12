@@ -29,7 +29,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BACKEND = os.path.dirname(HERE)
-FRONTEND = os.path.join(os.path.dirname(BACKEND), 'V-ENT-FRONTEND')
+FRONTEND = os.environ.get('VENT_FRONTEND') or os.path.join(os.path.dirname(BACKEND), 'V-ENT-FRONTEND')
 FORMAT_LABEL = os.path.join(FRONTEND, 'src', 'lib', 'formatLabel.js')
 LEAGUE_SETUP = os.path.join(
     FRONTEND, 'src', 'components', 'create-tournament-component',

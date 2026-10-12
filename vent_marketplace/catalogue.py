@@ -91,7 +91,7 @@ PREMIUM_FIELDS = {
     'promo_material': 'media_export',     # flyers and banners on a sale
     'analytics': 'financial_analytics',   # views, inquiries, completions
     'hoist': 'advanced_streaming',        # promoting a listing for visibility
-    'bulk': 'unlimited_size',             # bulk listings
+    'bulk': 'bulk_listings',              # bulk listings
 }
 
 #: What the spec sets for everybody, and what it lifts for premium.

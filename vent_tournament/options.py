@@ -57,6 +57,10 @@ DEFAULTS = {
     'every_place': False,
     # Winner stays on: wins in a row that end it. 0 is one pass.
     'streak_target': 0,
+    # A table format: how many times each pair meets. 0 is the format's own
+    # answer (a League is home and away, a round robin once); 1 once, 2 home
+    # and away (inbox 440, 12 October 2026).
+    'legs': 0,
     'group_stage': False,
     'group_size': 4,
     'advance_per_group': 2,
@@ -94,6 +98,7 @@ INTEGERS = {
     'match_interval_minutes': (5, 600),
     'dispute_window_minutes': (30, 2880),
     'streak_target': (0, 20),
+    'legs': (0, 2),
 }
 
 

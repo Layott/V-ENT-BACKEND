@@ -37,7 +37,8 @@ from vent_tournament.views import (
 
 # The formats decided by a table rather than by a bracket. Everything the
 # wizard collects on its league step belongs to exactly these.
-TABLE_FORMATS = {'round_robin', 'aggregate_2v2', 'ladder'}
+# League joined on 12 October 2026 (inbox 440): the same table, home and away.
+TABLE_FORMATS = {'round_robin', 'league', 'aggregate_2v2', 'ladder'}
 
 
 class NormaliserAgreesWithTheFormatCatalogue(SimpleTestCase):

@@ -144,7 +144,9 @@ FORMATS = {
         label='Round robin',
         summary='Everyone plays everyone. The table decides it.',
         min_participants=3,
-        max_participants=20,
+        # No ceiling (CEO, 12 October 2026, inbox 441: "no more limits"). It
+        # was 20; a big field is the organiser's call, and the note below and
+        # the structure preview tell them what it costs in matches.
         advancement='table',
         scoring='points_3_1_0',
         tiebreakers=('head_to_head', 'goal_difference', 'goals_for', 'wins'),
@@ -158,6 +160,32 @@ FORMATS = {
             'Matches grow with the square of the field: eight teams is 28 '
             'matches, sixteen is 120. Past about twelve it wants splitting into '
             'groups.'
+        ),
+    ),
+    # CEO, 12 October 2026 (inbox 440): "Normal league format should be
+    # available also, league format is the one where every player plays
+    # against other players." The same table as a round robin and drawn by the
+    # same code (`advancement='table'` is what every engine path reads). What
+    # makes it a league is that it is played home and away unless the
+    # organiser says once (stage_settings and options default `legs` to 2
+    # here), that goal difference comes before head to head as in a football
+    # league table, and that people look for it by this name.
+    'league': Format(
+        key='league',
+        label='League',
+        summary=(
+            'Everyone plays everyone, home and away. Points decide the table.'
+        ),
+        min_participants=3,
+        advancement='table',
+        scoring='points_3_1_0',
+        tiebreakers=('goal_difference', 'goals_for', 'head_to_head', 'wins'),
+        can_feed_into=('single_elimination', 'double_elimination', 'stepladder',
+                       'page_playoff'),
+        notes=(
+            'Every pair meets twice, once on each side: ten teams is 90 '
+            'matches over 18 rounds. Choose once instead of home and away for '
+            'half that.'
         ),
     ),
     'swiss': Format(
@@ -233,7 +261,8 @@ FORMATS = {
             'next seed up. The top seed waits in the final.'
         ),
         min_participants=3,
-        max_participants=16,
+        # No ceiling (inbox 441). It was 16: a long ladder of matches is the
+        # organiser's choice to make.
         seeding='ranked',
         advancement='knockout',
         scoring='match_win',
@@ -272,7 +301,7 @@ FORMATS = {
             'streak the organiser set.'
         ),
         min_participants=3,
-        max_participants=32,
+        # No ceiling (inbox 441). It was 32.
         advancement='streak',
         scoring='match_win',
         # The table itself orders by wins, then the longest streak
@@ -334,7 +363,10 @@ FORMATS = {
 ALIASES = {
     'swiss_system': 'swiss',
     'swiss_rounds': 'swiss',
-    'league': 'round_robin',
+    # 'league' was an alias of round_robin until it became a format of its own
+    # (inbox 440, 12 October 2026). The spellings below still reach League.
+    'football_league': 'league',
+    'home_and_away': 'league',
     'roundrobin': 'round_robin',
     'rr': 'round_robin',
     'single': 'single_elimination',

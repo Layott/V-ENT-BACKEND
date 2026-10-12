@@ -36,7 +36,8 @@ class DescribeTests(TestCase):
         # rather than reading them from the same place the code does.
         self.assertEqual(rules['swiss']['min'], 4)
         self.assertEqual(rules['double_elimination']['min'], 4)
-        self.assertEqual(rules['round_robin']['max'], 20)
+        # No ceiling since the CEO removed every limit (inbox 441); it was 20.
+        self.assertEqual(rules['round_robin']['max'], 0)
         self.assertEqual(rules['gsl']['min'], 8)
         self.assertTrue(rules['single_elimination']['even_only'])
         self.assertFalse(rules['aggregate_2v2']['even_only'])
@@ -108,9 +109,12 @@ class DescribeTests(TestCase):
             'even')
         self.assertEqual(
             struct.describe('gsl', participants=4)['shape']['problem'], 'at_least')
+        # Page playoff is exactly four by definition: the one "at most" left.
         self.assertEqual(
-            struct.describe('round_robin', participants=40)['shape']['problem'],
+            struct.describe('page_playoff', participants=5)['shape']['problem'],
             'at_most')
+        self.assertIsNone(
+            struct.describe('round_robin', participants=40)['shape']['problem'])
         self.assertIsNone(
             struct.describe('round_robin', participants=12)['shape']['problem'])
 
@@ -214,7 +218,8 @@ class CatalogueEndpointTests(TestCase):
         res = self.client.get('/tournament/formats/')
         self.assertEqual(res.status_code, 200)
         # Eleven since 28 September 2026: stepladder, page playoff, winner stays on.
-        self.assertEqual(len(res.data['data']['formats']), 11)
+        # Twelve since 12 October 2026: League (inbox 440).
+        self.assertEqual(len(res.data['data']['formats']), 12)
 
     def test_every_entry_the_edit_screen_reads_is_still_there(self):
         res = self.client.get('/tournament/formats/')

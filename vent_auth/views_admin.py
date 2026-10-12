@@ -31,6 +31,7 @@ from .decorators import (
 )
 from . import inputs
 from vent_auth import fuzzy
+from vent_tournament.money import prize_shown
 
 
 # Pending-2FA tokens are signed, not stored: they carry only the user id and
@@ -783,7 +784,8 @@ def admin_list_tournaments(request):
         base
         .select_related('tournament_creator', 'tournament_game')
         .annotate(_participants=Count('registrations', distinct=True),
-                  _prize=Sum('prize_distributions__prize'))
+                  _prize=Sum('prize_distributions__prize'),
+                  _prize_typed=Sum('prize_distributions__amount_original'))
     )
 
     search = request.GET.get('search')
@@ -844,6 +846,8 @@ def admin_list_tournaments(request):
             'status': _tournament_status(t, now),
             'participants_count': t._participants or 0,
             'prize_pool': float(t._prize) if t._prize is not None else 0,
+            # As typed and in coins (inbox 444).
+            'prize': prize_shown(t.prize_currency, t._prize or 0, t._prize_typed),
             'created_at': t.start_date_and_time,
             **softdelete.deletion_row(t),
         }

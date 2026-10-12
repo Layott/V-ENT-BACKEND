@@ -33,9 +33,14 @@ class FormatDefinitionTests(SimpleTestCase):
         self.assertEqual(fmt.get('gsl').count_problem(6), 'at_least')
         self.assertIsNone(fmt.get('battle_royale').count_problem(2))
 
-    def test_round_robin_has_a_ceiling_because_matches_square(self):
-        """Sixteen teams is 120 matches. Past about twelve it wants groups."""
-        self.assertEqual(fmt.get('round_robin').count_problem(40), 'at_most')
+    def test_round_robin_has_no_ceiling_and_says_what_a_big_field_costs(self):
+        """It had a ceiling of 20; the CEO removed every limit (inbox 441).
+
+        The note still says sixteen teams is 120 matches, so the cost of a big
+        field is in front of the organiser rather than refused for them.
+        """
+        self.assertIsNone(fmt.get('round_robin').count_problem(40))
+        self.assertIn('120', fmt.get('round_robin').notes)
 
     def test_the_key_is_tolerant_of_how_it_was_written(self):
         """The model has held all three spellings, which broke format filters."""

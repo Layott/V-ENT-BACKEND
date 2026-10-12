@@ -49,6 +49,13 @@ PRESETS = {
         'tiebreakers': ['head_to_head', 'goal_difference', 'goals_for', 'wins'],
         'double_round': False,
     },
+    # Inbox 440: a League is the same table played home and away, broken on
+    # goal difference first as a football table is.
+    'league': {
+        'points': {'win': 3, 'draw': 1, 'loss': 0},
+        'tiebreakers': ['goal_difference', 'goals_for', 'head_to_head', 'wins'],
+        'double_round': True,
+    },
     'swiss': {
         'points': {'win': 1, 'draw': 0, 'loss': 0},
         'tiebreakers': ['buchholz', 'head_to_head', 'rounds_difference'],

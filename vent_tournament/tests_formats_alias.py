@@ -27,6 +27,8 @@ WIZARD_VALUES = [
     'stepladder',
     'page_playoff',
     'winner_stays_on',
+    # 12 October 2026 (inbox 440).
+    'league',
 ]
 
 
