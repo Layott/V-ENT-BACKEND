@@ -413,6 +413,13 @@ CATCHERS = [
      'nothing rises, scales or glows on hover',
      FRONTEND, ['node', 'scripts/check-hover-lift.mjs'], True),
 
+    # Inbox 433, 12 October 2026, the third time: usePathname() answers
+    # "/fr/home" on the page /home, so a menu found no current page and the
+    # console guard matched no section in French or Portuguese.
+    ('route path',
+     'every menu and guard compares the route, not the address with its language',
+     FRONTEND, ['node', 'scripts/check-route-path.mjs'], True),
+
     ('inert controls',
      'no button that does nothing when pressed',
      FRONTEND, ['node', 'scripts/check-inert-controls.mjs'], True),
