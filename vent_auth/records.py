@@ -99,6 +99,7 @@ MONEY = {
     'vent_event.vendororderitem': 'a line of an order',
     'vent_event.eventsettlement': 'event money paid out',
     'vent_event.eventledgerentry': 'an event ledger line',
+    'vent_event.eventgameentry': 'a place in a party game and any fee paid for it',
 }
 
 NOT_MONEY = {
@@ -124,6 +125,7 @@ NOT_MONEY = {
     'vent_event.abandonedcheckout': 'a basket nobody paid for',
     'vent_event.eventattendeeorigin': 'a rounded location; the word "cell" is not money',
     'vent_event.geocodedaddress': 'a map position',
+    'vent_event.eventgame': 'the prize and fee an organiser advertises for a party game',
     'vent_auth.feedback': 'a message, not money',
 }
 
@@ -212,6 +214,7 @@ NOT_SENSITIVE = {
     'vent_event.eventsession.session_id': 'an anonymous visit id for the sales funnel',
     'vent_event.shortlink.token': 'a public short link',
     'vent_event.eventpresence.pings_open': 'whether somebody accepts meet-up requests',
+    'vent_event.eventgame.catalogue_key': 'which of the fifty catalogue games it is',
 }
 
 SECRET_WORDS = re.compile(
