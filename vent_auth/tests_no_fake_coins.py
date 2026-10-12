@@ -97,6 +97,38 @@ class SeedPayoutsAreClosedTests(TestCase):
         self.assertEqual(wallet.wallet_balance, 0)
         self.assertIn('rejected 1 demo payout(s)', out.getvalue())
 
+    def test_the_line_a_seed_payout_held_is_closed_too(self):
+        """Inbox 437: the request was rejected and its -4,000 line stayed pending for ever."""
+        from .models import WithdrawalRequest
+        wallet = seed_user('temi2', 0)
+        WithdrawalRequest.objects.create(wallet=wallet, amount=4000, bank_name='GTBank',
+                                         account_number='0123456789', account_name='T',
+                                         status='rejected')
+        line = Transaction.objects.create(wallet=wallet, type='withdrawal', amount=-4000,
+                                          status='pending', description='Withdrawal to GTBank')
+        out = StringIO()
+        call_command('clear_unbought_coins', stdout=out)
+        line.refresh_from_db()
+        self.assertEqual(line.status, 'pending')
+        self.assertIn('would close payout line', out.getvalue())
+        call_command('clear_unbought_coins', '--apply', stdout=StringIO())
+        line.refresh_from_db()
+        wallet.refresh_from_db()
+        self.assertEqual(line.status, 'cancelled')
+        self.assertIn('never bought', line.description)
+        self.assertEqual(wallet.wallet_balance, 0)
+        again = StringIO()
+        call_command('clear_unbought_coins', '--apply', stdout=again)
+        self.assertIn('0 payout line(s)', again.getvalue())
+
+    def test_a_real_persons_payout_line_is_untouched(self):
+        user, wallet = make_user('reallinepayout')
+        line = Transaction.objects.create(wallet=wallet, type='withdrawal', amount=-5,
+                                          status='pending', description='Withdrawal to GTBank')
+        call_command('clear_unbought_coins', '--apply', stdout=StringIO())
+        line.refresh_from_db()
+        self.assertEqual(line.status, 'pending')
+
     def test_a_real_persons_payout_is_untouched(self):
         from .models import WithdrawalRequest
         user, wallet = make_user('realpayout')

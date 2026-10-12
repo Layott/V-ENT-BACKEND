@@ -82,12 +82,33 @@ class Command(BaseCommand):
             else:
                 closed += 1
 
+        # The request is one row and the coins it held are another, a pending
+        # withdrawal line on the statement. Closing the request alone left a
+        # seed account's line pending for ever, and the admin Money page counted
+        # it as 4,000 coins on their way out (inbox 437, 12 October 2026). The
+        # line is closed with the request, and with a request already closed by
+        # an earlier run; its coins are not put back, for the same reason.
+        held_lines = Transaction.objects.filter(
+            type='withdrawal', status='pending',
+            wallet__user__username__startswith=SEED_PREFIX,
+            wallet__user__email__endswith=SEED_DOMAIN).select_related('wallet__user')
+        lines_closed = 0
+        for line in held_lines:
+            self.stdout.write('%s payout line #%d %s %s VC' % (
+                'close' if apply else 'would close', line.id, line.wallet.user.username,
+                coins.label(abs(line.amount))))
+            if apply:
+                lines_closed += Transaction.objects.filter(pk=line.pk, status='pending').update(
+                    status='cancelled', description=('%s - %s' % (line.description, PAYOUT_NOTE))[:255])
+            else:
+                lines_closed += 1
+
         for wallet in UserWallet.objects.exclude(seed).filter(wallet_balance__gt=0).select_related('user'):
             paid_for = bought(wallet)
             if wallet.wallet_balance > paid_for:
                 self.stdout.write('LOOK AT %s: holds %s VC, bought %d VC (left unchanged)'
                                   % (wallet.user.username, coins.label(wallet.wallet_balance), paid_for))
 
-        self.stdout.write('%s %d demo wallet(s), %d VC; %s %d demo payout(s)' % (
+        self.stdout.write('%s %d demo wallet(s), %d VC; %s %d demo payout(s), %d payout line(s)' % (
             'cleared' if apply else 'would clear', cleared, total,
-            'rejected' if apply else 'would reject', closed))
+            'rejected' if apply else 'would reject', closed, lines_closed))

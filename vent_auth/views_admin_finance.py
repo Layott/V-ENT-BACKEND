@@ -171,10 +171,33 @@ def admin_transactions(request):
         size = 25
 
     total = rows.count()
-    sums = rows.aggregate(
+
+    # In, out and net are money that MOVED (inbox 437, 12 October 2026). They
+    # used to add every line in the filter whatever its state, so three
+    # cancelled top ups and a failed one read as coins in, and a payout line
+    # still marked pending read as coins out, beside a 30 day summary that
+    # counted completed lines only. Somebody who picks a state in the filter
+    # has asked about that state, so then the totals are that state's.
+    chosen = (request.GET.get('status') or '').strip().lower()
+    moved = rows if chosen and chosen != 'all' else rows.filter(status='completed')
+    sums = moved.aggregate(
         credited=Sum('amount', filter=Q(amount__gt=0)),
         debited=Sum('amount', filter=Q(amount__lt=0)),
     )
+    left_out = {'waiting_lines': 0, 'waiting_in_vc': 0, 'waiting_out_vc': 0,
+                'not_moved_lines': 0}
+    if moved is not rows:
+        waiting = rows.filter(status='pending').aggregate(
+            lines=Count('id'),
+            credited=Sum('amount', filter=Q(amount__gt=0)),
+            debited=Sum('amount', filter=Q(amount__lt=0)),
+        )
+        left_out = {
+            'waiting_lines': waiting['lines'] or 0,
+            'waiting_in_vc': waiting['credited'] or 0,
+            'waiting_out_vc': abs(waiting['debited'] or 0),
+            'not_moved_lines': rows.filter(status__in=('cancelled', 'failed')).count(),
+        }
     window = rows[(page - 1) * size: page * size]
 
     return _ok({
@@ -190,6 +213,8 @@ def admin_transactions(request):
             # head, and half of them do it wrong.
             'debited_vc': abs(sums['debited'] or 0),
             'net_vc': (sums['credited'] or 0) + (sums['debited'] or 0),
+            'completed_only': moved is not rows,
+            **left_out,
         },
         'types': [{'value': v, 'label': label}
                   for v, label in Transaction.TYPE_CHOICES],
@@ -308,8 +333,11 @@ def admin_finance_summary(request):
         requested_at__gte=start).aggregate(
             requested=Count('id'),
             approved=Count('id', filter=Q(status='approved')),
-            pending=Count('id', filter=Q(status='pending')),
             paid_vc=Sum('amount', filter=Q(status='approved')))
+    # "Still waiting" is a state of now, not of the window: a request made
+    # forty days ago and never answered is the one an admin most needs to see,
+    # and counting only the last thirty days read it as 0 (inbox 437).
+    payouts['pending'] = WithdrawalRequest.objects.filter(status='pending').count()
 
     return _ok({
         'window_days': days,
