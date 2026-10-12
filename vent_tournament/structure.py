@@ -198,12 +198,16 @@ def _shape_for(definition, drawn, n, seats, settings=None, groups=0):
     if definition.plays_all_at_once:
         return _points_shape(n, seats)
     if drawn == 'round_robin':
-        legs = int(settings.get('legs') or 1)
+        # A League is home and away unless told once (inbox 440).
+        legs = int(settings.get('legs') or (2 if definition.key == 'league' else 1))
         shape = (_groups_shape(n, seats, groups) if groups and groups > 1
                  else _table_shape(n, seats))
         if legs > 1:
             for k in ('rounds', 'matches', 'games', 'games_on_the_floor'):
                 shape[k] *= legs
+        # So a screen can say "twice, home and away" rather than "once" beside
+        # a doubled count (walk of inbox 440: "each meet once: 39800").
+        shape['legs'] = legs
         return shape
     if drawn == 'double_elimination':
         return _double_elimination_shape(

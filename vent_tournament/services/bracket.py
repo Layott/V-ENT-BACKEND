@@ -184,7 +184,7 @@ class BracketError(Exception):
 #: points table across lobbies, not a bracket; it is refused with a code rather
 #: than drawn as something else. Swiss and GSL used to fall through to single
 #: elimination silently, which is the fault this list exists to prevent.
-DRAWABLE = ('single_elimination', 'double_elimination', 'round_robin', 'ladder',
+DRAWABLE = ('single_elimination', 'double_elimination', 'round_robin', 'league', 'ladder',
             'aggregate_2v2', 'swiss', 'gsl', 'stepladder', 'page_playoff',
             'winner_stays_on')
 

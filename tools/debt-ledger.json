@@ -69,6 +69,11 @@
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
+  "country order": {
+    "count": 0,
+    "first_seen": "2026-10-12",
+    "since": "2026-10-12"
+  },
   "css classes": {
     "count": 0,
     "first_seen": "2026-09-07",
@@ -379,6 +384,11 @@
     "first_seen": "2026-09-13",
     "since": "2026-09-13"
   },
+  "prize display": {
+    "count": 0,
+    "first_seen": "2026-10-12",
+    "since": "2026-10-12"
+  },
   "prose": {
     "count": 0,
     "first_seen": "2026-09-07",
@@ -553,6 +563,11 @@
     "count": 0,
     "first_seen": "2026-09-08",
     "since": "2026-09-09"
+  },
+  "text arrows": {
+    "count": 0,
+    "first_seen": "2026-10-12",
+    "since": "2026-10-12"
   },
   "timezone picker": {
     "count": 0,

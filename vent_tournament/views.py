@@ -92,7 +92,33 @@ def _card_lookups(tournaments):
         .filter(tournament_id__in=ids)
         .values('tournament').annotate(total=Sum('prize'))
     }
+    # What the organiser typed, per tournament and currency (inbox 444). Put on
+    # each tournament as `_prize_shown` rather than returned, so the six callers
+    # of this function keep their two values and the card serializer below
+    # finds it without each of them passing it on.
+    typed = {
+        (row['tournament'], (row['currency'] or 'VC').upper()): row['total']
+        for row in TournamentPrizeDistribution.objects
+        .filter(tournament_id__in=ids, amount_original__isnull=False)
+        .values('tournament', 'currency').annotate(total=Sum('amount_original'))
+    }
+    from .money import prize_shown
+    for t in tournaments:
+        code = (t.prize_currency or 'VC').upper()
+        t._prize_shown = prize_shown(code, prizes.get(t.tournament_id, 0),
+                                     typed.get((t.tournament_id, code)))
     return counts, prizes
+
+
+def _prize_for(t, coins, rows=None):
+    """`money.prize_shown` for one tournament, from its prize rows."""
+    from .money import prize_shown
+    code = (t.prize_currency or 'VC').upper()
+    if rows is None:
+        rows = list(t.prize_distributions.all()) if t.pk else []
+    typed = [r.amount_original for r in rows
+             if r.amount_original is not None and (r.currency or 'VC').upper() == code]
+    return prize_shown(code, coins, sum(typed) if typed else None)
 
 
 def serialize_tournament_card(t, confirmed_count=0, prize_pool=0):
@@ -118,6 +144,9 @@ def serialize_tournament_card(t, confirmed_count=0, prize_pool=0):
         "format_label": bracket_label(t.bracket_type),
         "prize_type": t.prize_type,
         "prize_pool": prize_pool,
+        # The prize as typed and in coins (inbox 444); prize_pool stays the
+        # coins for anything still reading it.
+        "prize": getattr(t, '_prize_shown', None) or _prize_for(t, prize_pool),
         "current_participants": confirmed_count,
         "max_participants": t.max_number_of_teams or t.player_size,
         "participant_type": "team" if access.startswith("team") else "individual",
@@ -1747,6 +1776,7 @@ def view_tournament(request, tournament_id):
             "prize_pool_total": str(tournament.prize_pool_total) if tournament.prize_pool_total else None,
             "prize_pool_total_vc": str(tournament.prize_pool_total_vc) if tournament.prize_pool_total_vc else None,
             "prize_pool": prize_pool_total,
+            "prize": _prize_for(tournament, prize_pool_total, list(prize_distributions)),
             "max_participants": tournament.max_number_of_teams or tournament.player_size,
             "current_participants": confirmed_count,
             # What the organiser configured, so the page can show the rules it

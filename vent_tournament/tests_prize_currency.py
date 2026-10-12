@@ -97,3 +97,33 @@ class EditIsAllOrNothingTests(PrizeCurrencyTests):
         self.assertEqual(self.coins(), before)
         self.assertEqual(self.tournament.tournament_description, 'x')
         self.assertEqual(self.tournament.prize_currency, 'NGN')
+
+
+class PrizeShownAsTypedTests(PrizeCurrencyTests):
+    """Inbox 444: a pool typed in naira shows in naira, with its coins beside it.
+
+    CEO, 12 October 2026: "prizepool was inputted in Naira, but it shows in coins
+    after being publish and under review, it supposed to show in the currency it
+    was selected in".
+    """
+
+    def test_the_detail_carries_the_naira_and_the_coins(self):
+        res = self.client.get('/tournament/view-tournament/%s/' % self.tournament.slug, **self.auth)
+        data = res.data['data'].get('tournament') or res.data['data']
+        self.assertEqual(data['prize']['currency'], 'NGN')
+        self.assertEqual(data['prize']['amount'], '70000')
+        self.assertEqual(data['prize']['vc'], 70)
+        self.assertEqual(data['prize']['symbol'], '₦')
+
+    def test_every_card_carries_it_too(self):
+        from .views import _card_lookups, serialize_tournament_card
+        counts, prizes = _card_lookups([self.tournament])
+        card = serialize_tournament_card(self.tournament, 0, prizes.get(self.tournament.tournament_id, 0))
+        self.assertEqual((card['prize']['amount'], card['prize']['currency']), ('70000', 'NGN'))
+        self.assertEqual(card['prize_pool'], 70)
+
+    def test_a_prize_set_in_coins_is_just_coins(self):
+        from .money import prize_shown
+        self.assertEqual(prize_shown('VC', 25, None), {'vc': 25, 'currency': 'VC', 'amount': None, 'symbol': 'VC'})
+        self.assertEqual(prize_shown('NGN', 25, None)['currency'], 'VC')
+        self.assertEqual(prize_shown('XYZ', 25, '100')['currency'], 'VC')

@@ -26,7 +26,7 @@ def _ok(data, message='OK'):
     return Response({'status': 'success', 'data': data, 'message': message})
 
 
-def _with_structure(entries, participants, seats):
+def _with_structure(entries, participants, seats, legs=0):
     """Add what each format will actually BUILD to what it is called.
 
     The catalogue answered "round robin, minimum 3" and left the organiser to
@@ -39,7 +39,10 @@ def _with_structure(entries, participants, seats):
     """
     out = []
     for entry in entries:
-        described = struct.describe(entry['key'], participants, seats)
+        # `legs` is the wizard's "each pair meets once / home and away";
+        # 0 leaves each format its own answer (a League is home and away).
+        described = struct.describe(entry['key'], participants, seats,
+                                    settings={'legs': legs} if legs else None)
         merged = dict(entry)
         if described:
             merged.update({
@@ -74,10 +77,13 @@ def format_catalogue(request):
                                    default=default)
         except inputs.BadInput:
             return default
-    participants = lenient('participants', 0, 4096)
+    # No ceiling on entrants any more (inbox 441); this only bounds the
+    # arithmetic of a preview.
+    participants = lenient('participants', 0, 100000)
     seats = lenient('seats', 1, 64)
+    legs = lenient('legs', 0, 2)
     return _ok({
-        'formats': _with_structure(fmt.catalogue(), participants, seats),
+        'formats': _with_structure(fmt.catalogue(), participants, seats, legs),
         'tiebreakers': [
             {'key': k, 'label': v} for k, v in fmt.TIEBREAKERS.items()
         ],

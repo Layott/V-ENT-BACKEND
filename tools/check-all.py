@@ -58,6 +58,10 @@ FRONTEND = os.environ.get('VENT_FRONTEND') or os.path.join(ROOT, 'V-ENT-FRONTEND
 # is a second copy of the repo beside the first; checking the first from the
 # second judged code that was not being committed (29 September 2026).
 _OWN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Rows run THIS backend's tools (os.path.join(BACKEND, 'tools', ...)), not
+# 'V-ENT-BACKEND/tools/...': the main checkout sits on whatever branch it was
+# left on, and its copy of a catcher reads its own code. On 12 October 2026 it
+# refused a League the committed tree had and it had not (inbox 440).
 BACKEND = (_OWN if os.path.isfile(os.path.join(_OWN, 'manage.py'))
            else os.path.join(ROOT, 'V-ENT-BACKEND'))
 
@@ -382,24 +386,24 @@ CATCHERS = [
     # for eight days, which is the same fault one level up.
     ('format catalogue',
      'one catalogue of formats, not a second copy drifting',
-     ROOT, [sys.executable, 'V-ENT-BACKEND/tools/check-format-catalogue.py'], True),
+     ROOT, [sys.executable, os.path.join(BACKEND, 'tools', 'check-format-catalogue.py')], True),
 
     ('required fields',
      'every caller sends what its endpoint requires',
-     ROOT, [sys.executable, 'V-ENT-BACKEND/tools/check-required-fields.py'], True),
+     ROOT, [sys.executable, os.path.join(BACKEND, 'tools', 'check-required-fields.py')], True),
 
     ('entrant branches',
      'no hand-built if team else user branch answering wrong for a squad',
-     ROOT, [sys.executable, 'V-ENT-BACKEND/tools/check-entrant-branches.py'], True),
+     ROOT, [sys.executable, os.path.join(BACKEND, 'tools', 'check-entrant-branches.py')], True),
 
     ('duplicate checkers',
      'one copy of each checker, in the repo that is version controlled',
      ROOT, [sys.executable,
-            'V-ENT-BACKEND/tools/check-duplicate-checkers.py'], True),
+            os.path.join(BACKEND, 'tools', 'check-duplicate-checkers.py')], True),
 
     ('overlay runtime',
      'the overlay runtime fills what it says it fills',
-     ROOT, ['node', 'V-ENT-BACKEND/tools/check-overlay-runtime.mjs'], True),
+     ROOT, ['node', os.path.join(BACKEND, 'tools', 'check-overlay-runtime.mjs')], True),
 
     ('error copy',
      'no engineer sentence or raw server string shown to a person',
@@ -419,6 +423,15 @@ CATCHERS = [
     ('route path',
      'every menu and guard compares the route, not the address with its language',
      FRONTEND, ['node', 'scripts/check-route-path.mjs'], True),
+    ('country order',
+     'every country list on the site is alphabetical (inbox 443)',
+     FRONTEND, ['node', 'scripts/check-country-order.mjs'], True),
+    ('prize display',
+     'every prize is written by src/lib/prize.js: as typed, coins beside it (inbox 444)',
+     FRONTEND, ['node', 'scripts/check-prize-display.mjs'], True),
+    ('text arrows',
+     'no back arrow or pager chevron drawn as a character (inbox 447)',
+     FRONTEND, ['node', 'scripts/check-back-arrows.mjs'], True),
 
     ('inert controls',
      'no button that does nothing when pressed',
@@ -729,7 +742,7 @@ CATCHERS = [
     # a check that always fails is a check everybody learns to skip.
     ('stale gates',
      'a gate box unticked while its own check already passes',
-     ROOT, [sys.executable, 'V-ENT-BACKEND/tools/check-stale-gates.py'], False),
+     ROOT, [sys.executable, os.path.join(BACKEND, 'tools', 'check-stale-gates.py')], False),
 ]
 
 

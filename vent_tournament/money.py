@@ -20,6 +20,43 @@ CURRENCIES = {
 }
 
 
+def prize_shown(currency, coins, typed=None):
+    """A prize as the organiser set it, beside the coins it pays (inbox 444).
+
+    CEO, 12 October 2026: "prizepool was inputted in Naira, but it shows in
+    coins after being publish and under review, it supposed to show in the
+    currency it was selected in". The coins are what pays out (inbox 403) and
+    stay; `amount` and `currency` are what was typed, so a screen writes
+    "₦50,000 (50 VC)". `amount` is None for a prize set in coins, or for an old
+    row that never recorded what was typed, and then the coins are all there is.
+
+    Every payload that carries a prize carries this object, built here, so no
+    screen works out a currency of its own.
+    """
+    code = str(currency or 'VC').upper()
+    if code not in CURRENCIES:
+        code = 'VC'
+    amount = None
+    if code != 'VC' and typed is not None:
+        try:
+            value = Decimal(str(typed))
+            if value.is_finite() and value > 0:
+                whole = value == value.to_integral_value()
+                amount = str(value.quantize(Decimal('1') if whole else Decimal('0.01')))
+        except Exception:
+            amount = None
+    try:
+        vc = float(coins or 0)
+    except (TypeError, ValueError):
+        vc = 0.0
+    return {
+        'vc': int(vc) if vc == int(vc) else vc,
+        'currency': code if amount is not None else 'VC',
+        'amount': amount,
+        'symbol': CURRENCIES[code]['symbol'] if amount is not None else 'VC',
+    }
+
+
 def ngn_per_coin():
     from vent_auth.views_wallet import NGN_PER_COIN
     return Decimal(NGN_PER_COIN)

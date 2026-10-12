@@ -231,13 +231,26 @@ class AccessTests(TestCase):
                                content_type='application/json', **self.auth)
         self.assertEqual(res.status_code, 409)
 
-    def test_a_tournament_with_no_size_keeps_the_sixty_four_ceiling(self):
-        """The fallback narrows the cap and never raises it."""
+    def test_a_tournament_with_no_size_has_no_total_only_a_per_request_bound(self):
+        """Inbox 441: no more limits. There was a 64 ceiling here."""
         self.tournament.max_number_of_teams = None
         self.tournament.player_size = None
         self.tournament.save(update_fields=['max_number_of_teams', 'player_size'])
         res = self.client.get(self.invites_url(), **self.auth)
-        self.assertEqual(res.json()['data']['limit'], 64)
+        self.assertIsNone(res.json()['data']['limit'])
+        made = self.client.post(self.invites_url(), data={'count': 70},
+                                content_type='application/json', **self.auth)
+        self.assertEqual(made.status_code, 201, made.content[:200])
+        too_many = self.client.post(self.invites_url(), data={'count': 1001},
+                                    content_type='application/json', **self.auth)
+        self.assertEqual(too_many.status_code, 409)
+
+    def test_a_big_tournament_gets_a_code_per_place(self):
+        """A 200-place tournament may hold 200 codes, not 64."""
+        self.tournament.max_number_of_teams = 200
+        self.tournament.save(update_fields=['max_number_of_teams'])
+        self.assertEqual(self.client.get(self.invites_url(), **self.auth)
+                         .json()['data']['limit'], 200)
 
     def test_generated_codes_avoid_the_letters_people_mistype(self):
         self.client.post(self.invites_url(), data={'count': 20},

@@ -41,7 +41,11 @@ FEATURES = {
     'automated_prizes': 'Prizes paid out automatically at a time you set',
     'entry_requirements_advanced': 'Penalty points and ranking as entry conditions',
     'export_documents': 'Reports as PDF and DOCX rather than a spreadsheet',
-    'unlimited_size': 'More than 64 entrants, and more than one tournament at once',
+    # Was 'unlimited_size', "More than 64 entrants, and more than one
+    # tournament at once". The CEO removed every limit on entrants for
+    # everybody on 12 October 2026 (inbox 441), so the only thing left behind
+    # this key is the marketplace's bulk listings.
+    'bulk_listings': 'Bulk listings in the marketplace',
     'advanced_streaming': 'Live data and graphics into a stream',
     'financial_analytics': 'Entry fees, sponsorship and payouts, broken down',
     'media_export': 'Logos and media files, in a bundle',

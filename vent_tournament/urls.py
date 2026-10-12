@@ -28,6 +28,7 @@ from . import views_studio
 from . import views_layers
 from . import views_runsheet
 from . import views_staff
+from . import views_duplicate
 from . import views_assets
 from . import views_export
 from . import views_mvp
@@ -57,6 +58,9 @@ urlpatterns = [
     # Who may enter results, and what this viewer may do. See access.py.
     path("<str:tournament_id>/access/", views_staff.access, name="tournament_access"),
     path("<str:tournament_id>/staff/", views_staff.staff, name="tournament_staff"),
+    # Inbox 446: an owner copies their tournament into a new draft.
+    path("<str:tournament_id>/duplicate/", views_duplicate.duplicate_tournament,
+         name="tournament_duplicate"),
     path("<str:tournament_id>/staff/<int:user_id>/", views_staff.staff_remove,
          name="tournament_staff_remove"),
     # The studio's media library: clips and pictures uploaded once and

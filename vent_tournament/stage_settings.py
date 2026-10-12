@@ -233,9 +233,12 @@ def clean(format_key, raw):
         if gf not in GRAND_FINALS:
             raise SettingsError('UNKNOWN_CHOICE', 'grand_final')
         out['grand_final'] = gf
-    if key in ('round_robin', 'ladder', 'aggregate_2v2'):
-        # Home and away: everybody plays everybody twice.
-        out['legs'] = _int(raw.get('legs'), 'legs', 1, 2, 1)
+    if key in ('round_robin', 'league', 'ladder', 'aggregate_2v2'):
+        # Home and away: everybody plays everybody twice. A League is played
+        # that way unless the organiser says once (inbox 440); 0 or nothing
+        # sent means "the format's own answer".
+        default_legs = 2 if key == 'league' else 1
+        out['legs'] = _int(raw.get('legs') or None, 'legs', 1, 2, default_legs)
     if key == 'swiss':
         out['rounds'] = _int(raw.get('rounds'), 'rounds', 0, 15, 0)
         out['win_target'] = _int(raw.get('win_target'), 'win_target', 0, 10, 0)
@@ -316,6 +319,7 @@ def for_tournament(tournament):
         'grand_final': opts.get('grand_final') or 'single',
         'every_place': opts.get('every_place'),
         'streak_target': opts.get('streak_target'),
+        'legs': opts.get('legs'),
     }
     if opts.get('best_of_mode') in ('escalating', 'custom') and opts.get('best_of_final'):
         raw['final_best_of'] = opts['best_of_final']
