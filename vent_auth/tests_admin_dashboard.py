@@ -27,7 +27,7 @@ from vent_auth.models import (AdminAction, Club, ClubMember, ClubMessage,
                               ClubTopic, Games, Notification, OrgMember,
                               Organization, OrgWallet, Post, Thread,
                               Transaction, UserGallery, UserReport, UserWallet,
-                              Users, VerificationToken)
+                              Users, VerificationToken, WithdrawalRequest)
 
 
 def a_user(name, **extra):
@@ -454,6 +454,46 @@ class FinancialTests(ConsoleBase):
         self.assertEqual(data['count'], 1)
         self.assertEqual(data['totals']['credited_vc'], 500)
         self.assertEqual(data['totals']['debited_vc'], 0)
+
+    def test_lines_that_never_moved_are_not_money_in_or_out(self):
+        """Inbox 437: a cancelled top up read as coins in, a pending payout as coins out."""
+        Transaction.objects.create(wallet=self.wallet, type='top_up', amount=5,
+                                   status='cancelled', description='Top up via Flutterwave')
+        Transaction.objects.create(wallet=self.wallet, type='top_up', amount=1,
+                                   status='failed', description='Top up via Flutterwave')
+        Transaction.objects.create(wallet=self.wallet, type='withdrawal', amount=-400,
+                                   status='pending', description='Withdrawal to GTBank')
+        data = self.get('/auth/admin/transactions/', self.as_finance).json()['data']
+        self.assertEqual(data['count'], 5)
+        totals = data['totals']
+        self.assertEqual(totals['credited_vc'], 500)
+        self.assertEqual(totals['debited_vc'], 200)
+        self.assertEqual(totals['net_vc'], 300)
+        self.assertTrue(totals['completed_only'])
+        self.assertEqual(totals['waiting_lines'], 1)
+        self.assertEqual(totals['waiting_out_vc'], 400)
+        self.assertEqual(totals['waiting_in_vc'], 0)
+        self.assertEqual(totals['not_moved_lines'], 2)
+
+    def test_a_chosen_state_totals_that_state(self):
+        Transaction.objects.create(wallet=self.wallet, type='top_up', amount=5,
+                                   status='cancelled', description='Top up via Flutterwave')
+        data = self.get('/auth/admin/transactions/', self.as_finance,
+                        status='cancelled').json()['data']
+        self.assertEqual(data['count'], 1)
+        self.assertEqual(data['totals']['credited_vc'], 5)
+        self.assertFalse(data['totals']['completed_only'])
+        self.assertEqual(data['totals']['not_moved_lines'], 0)
+
+    def test_still_waiting_counts_a_payout_from_before_the_window(self):
+        old = WithdrawalRequest.objects.create(
+            wallet=self.wallet, amount=40, bank_name='GTBank', account_number='1',
+            account_name='M', status='pending')
+        WithdrawalRequest.objects.filter(pk=old.pk).update(
+            requested_at=timezone.now() - timedelta(days=45))
+        payouts = self.get('/auth/admin/finance/summary/', self.as_finance).json()['data']['payouts']
+        self.assertEqual(payouts['pending'], 1)
+        self.assertEqual(payouts['requested'], 0)
 
     def test_searching_matches_the_owner_and_the_description(self):
         res = self.get('/auth/admin/transactions/', self.as_finance,
