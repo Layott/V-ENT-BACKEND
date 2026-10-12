@@ -117,6 +117,7 @@ PUBLIC = {
     '<str:event_id>/self-check-in/settings/',
     '<str:event_id>/managers/',           # answers 200 with can_add false
     '<str:event_id>/announcements/',      # what was sent is public information
+    '<str:event_id>/games/',              # party games: reading is public (inbox 434)
 }
 
 ADMITTED = (200, 201, 204, 400, 404, 405, 409, 415, 422)

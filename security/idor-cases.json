@@ -165,6 +165,136 @@
    }
   },
   {
+   "name": "B cannot add a game to A's event",
+   "route": "event/<str:event_id>/games/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/games/",
+    "body": {
+     "catalogue_key": "uno"
+    }
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "publicRead": "the list of games is public by design (inbox 434)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the event named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot read the games as a ticket holder of A's event without a ticket",
+   "route": "event/<str:event_id>/games/mine/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/games/mine/",
+    "body": {}
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the event named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot change A's game",
+   "route": "event/<str:event_id>/games/<int:game_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/event/walk-con-5e6c/games/{id}/",
+    "body": {
+     "status": "off"
+    }
+   },
+   "id": "1"
+  },
+  {
+   "name": "B cannot remove A's game",
+   "route": "event/<str:event_id>/games/<int:game_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/event/walk-con-5e6c/games/{id}/"
+   },
+   "id": "5"
+  },
+  {
+   "name": "B cannot read who plays A's game",
+   "route": "event/<str:event_id>/games/<int:game_id>/entries/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/walk-con-5e6c/games/{id}/entries/"
+   },
+   "id": "1"
+  },
+  {
+   "name": "B cannot download who plays A's game",
+   "route": "event/<str:event_id>/games/<int:game_id>/entries/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/walk-con-5e6c/games/1/entries/?download=csv"
+   }
+  },
+  {
+   "name": "B cannot play A's game without a ticket",
+   "route": "event/<str:event_id>/games/<int:game_id>/join/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/games/{id}/join/",
+    "body": {}
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the games on an event are listed publicly by design (inbox 434: reading is public, playing takes a ticket), so whether a game exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot take somebody's place out of A's game",
+   "route": "event/<str:event_id>/games/<int:game_id>/leave/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/games/{id}/leave/",
+    "body": {}
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the games on an event are listed publicly by design (inbox 434: reading is public, playing takes a ticket), so whether a game exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot duplicate A's tournament",
+   "route": "tournament/<str:tournament_id>/duplicate/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/duplicate/",
+    "body": {}
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament named is public, so whether it exists is no secret"
+   }
+  },
+  {
    "generated": true,
    "name": "POST auth/admin/organizations/<str:org_ref>/ as B",
    "route": "auth/admin/organizations/<str:org_ref>/",
@@ -4353,7 +4483,8 @@
     "method": "POST",
     "path": "/event/{id}/guest-buy/",
     "expect": [
-     400
+     400,
+     409
     ]
    },
    "id": "walk-con-5e6c",
@@ -4362,7 +4493,8 @@
      "existence"
     ],
     "reason": "POST event/<str:event_id>/guest-buy/ is answered 400 by design: buying a ticket is open to anybody; the record named first is public, so whether it exists is no secret"
-   }
+   },
+   "expectNote": "409 STATE_CONFLICT \"This event has ended\" once the fixture event is in the past (seen 12 Oct 2026): refused to everybody, not a record reached"
   },
   {
    "generated": true,
@@ -4407,7 +4539,8 @@
     "method": "POST",
     "path": "/event/{id}/buy-ticket/",
     "expect": [
-     400
+     400,
+     409
     ]
    },
    "id": "walk-con-5e6c",
@@ -4416,7 +4549,8 @@
      "existence"
     ],
     "reason": "POST event/<str:event_id>/buy-ticket/ is answered 400 by design: buying a ticket is open to anybody; the record named first is public, so whether it exists is no secret"
-   }
+   },
+   "expectNote": "409 STATE_CONFLICT \"This event has ended\" once the fixture event is in the past (seen 12 Oct 2026): refused to everybody, not a record reached"
   },
   {
    "generated": true,
