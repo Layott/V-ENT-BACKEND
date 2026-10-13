@@ -714,6 +714,10 @@ def join_tournament(request):
         except Exception:
             pass
 
+        # The registration saved as it went (inbox 436) has done its job.
+        from .views_registration_draft import clear_after_registering
+        clear_after_registering(user, tournament)
+
         return Response({
             'status': 'success',
             'message': 'Successfully registered for the tournament',

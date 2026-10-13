@@ -6967,6 +6967,27 @@
     ],
     "reason": "POST: acts only on the caller's own session whatever id is sent"
    }
+  },
+  {
+   "name": "B reads only B's own registration draft on A's tournament",
+   "route": "<str:tournament_id>/registration-draft/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/registration-draft/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "methods",
+     "existence",
+     "neighbours"
+    ],
+    "reason": "a draft is keyed to the signed-in account (inbox 436): the address names a public tournament, never a draft, and every method B sends reads, writes or removes B's own row, so there is no other user's record to reach; with no session it answers 401"
+   }
   }
  ]
 }

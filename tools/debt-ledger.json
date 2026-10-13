@@ -379,6 +379,16 @@
     "first_seen": "2026-10-12",
     "since": "2026-10-12"
   },
+  "pay return": {
+    "count": 0,
+    "first_seen": "2026-10-13",
+    "since": "2026-10-13"
+  },
+  "pay return self-test": {
+    "count": 0,
+    "first_seen": "2026-10-13",
+    "since": "2026-10-13"
+  },
   "plurals": {
     "count": 0,
     "first_seen": "2026-09-18",
@@ -493,6 +503,16 @@
     "count": 0,
     "first_seen": "2026-10-01",
     "since": "2026-10-01"
+  },
+  "sheet stacking": {
+    "count": 0,
+    "first_seen": "2026-10-13",
+    "since": "2026-10-13"
+  },
+  "sheet stacking self-test": {
+    "count": 0,
+    "first_seen": "2026-10-13",
+    "since": "2026-10-13"
   },
   "shell offset": {
     "count": 0,

@@ -615,6 +615,52 @@ class TournamentRegistration(models.Model):
                 or getattr(side, 'username', ''))
 
 
+class TournamentRegistrationDraft(models.Model):
+    """Where somebody is up to in registering for a tournament (inbox 436).
+
+    CEO, 12 October 2026: "There should also be a way for people to be ble to
+    register for an event, while they are registering for the tournament under
+    that event, just incase its a long process and they dont have to start
+    their registration from begining again, maybe it can be savinbg progress."
+
+    One row per person and tournament, written at every step and read back
+    wherever they come in again (the tournament page, the event's Tournaments
+    tab, My tournaments) on any device they sign in on. Kept KEEP_DAYS from the
+    last save; a finished registration removes it. It holds choices, never
+    money: a ticket bought on the way is an ordinary ticket in My tickets.
+    """
+
+    KEEP_DAYS = 30
+    MODES = ('individual', 'team')
+    STEP_CHOICES = [
+        ('mode', 'Solo or team'),
+        ('team', 'Team'),
+        ('review', 'Review'),
+        ('ticket', 'Event ticket'),
+        ('payment', 'Entry'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='registration_drafts')
+    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE,
+                                   related_name='registration_drafts')
+    mode = models.CharField(max_length=12, blank=True, default='')
+    team = models.ForeignKey(Teams, on_delete=models.SET_NULL, null=True, blank=True,
+                             related_name='registration_drafts')
+    step = models.CharField(max_length=12, choices=STEP_CHOICES, default='mode')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'tournament'],
+                                    name='one_registration_draft_per_person'),
+        ]
+
+    def __str__(self):
+        return '%s -> %s (%s)' % (self.user_id, self.tournament_id, self.step)
+
+
 class TournamentSquad(models.Model):
     """A side assembled for one tournament out of people from anywhere.
 
