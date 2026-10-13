@@ -172,3 +172,27 @@ ticket step, Flutterwave mock bank transfer 3,000 NGN, back on the ticket step w
 Admission chosen and the answers filled, one verify call each, PIN, registered. Server: all three
 confirmed, holding the ticket, no draft left. Picture tasks/audit/reg-g4/card-return-desktop.jpg.
 Still to do: catcher for return readers, 390 + emulator on the return, check-all, ship.
+
+### More found on the phone, and the ship (13 Oct, 15:45 to 16:25)
+
+- F6: a failed ticket list said "no ticket left"; now "could not be loaded" + Try again
+  (regTicket.loadFailed x3). The same list on the event page shows an empty grid on failure:
+  OPEN, view-event/page.js near the ticket-types fetch.
+- F7: choosing solo sent two saves at once; on the emulator both INSERTed and the second answered
+  500 (UNIQUE), leaving the draft at "solo or team". Server save is an upsert changing only the
+  named fields; client sends one save per move. tests_registration_draft 11, including a race
+  test that errors on the old save.
+- Local fixture: tier 85 quantity 25 -> 35, walk-con-5e6c capacity 60 -> 70 (the walks bought
+  the last Day 1 places). Four walk players registered via a Flutterwave test trip.
+- The phone pressed "Recommencer" before React hydrated on the dev build and nothing happened;
+  pressing again on the settled page worked. Dev-build artefact, recorded so nobody chases it.
+
+G4 DEPLOYED 13 Oct 16:18: BE #239, FE #247, backup /srv/vent/backups/db-2026-10-13-1618.sql.gz,
+0062 applied, both ports on p3NYYMH6Zcsf6LKXA_q0Z. Live: the draft doors answer 401 to nobody and
+200 {draft, entry, registered} signed in; the French tournament page renders, no console error.
+gates/65 all ticked; inbox 434, 435, 436, 439, 449 done. Catchers added today:
+check-pay-return.mjs, check-sheet-stacking.mjs (both blocking with self-tests).
+
+Next: inbox 450 (organisers edit started tournaments, a format per stage). Start by reading
+vent_tournament stages (structure.py, stage_settings.py, StagesPanel) and what is locked once a
+stage is drawn or has results.
