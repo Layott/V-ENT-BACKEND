@@ -17,6 +17,7 @@ from . import push
 from .models import PushSubscription
 from .views_profile import _user_from_bearer
 from . import inputs
+from .text import count as _count
 
 
 def _err(message, code, http=status.HTTP_400_BAD_REQUEST):
@@ -82,4 +83,5 @@ def push_test(request):
         return _err('No device of yours took it. Turn push on in this browser first.',
                     'PUSH_NO_DEVICE', status.HTTP_409_CONFLICT)
     return Response({'status': 'success', 'code': 'OK', 'data': {'sent': sent},
-                     'message': 'Sent to %d device(s).' % sent})
+                     # A finished plural ("1 device", "2 devices"), never "(s)".
+                     'message': 'Sent to %s.' % _count(sent, 'device')})

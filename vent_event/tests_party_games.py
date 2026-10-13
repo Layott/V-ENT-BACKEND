@@ -617,3 +617,149 @@ class CheckoutPicksTests(GamesBase):
         self.assertEqual(res.status_code, 400, res.content)
         self.whot.refresh_from_db()
         self.assertEqual(self.whot.status, 'open')
+
+
+class GameFeeTests(GamesBase):
+    """Entry fees on games (inbox 449): paid with the PIN, the organiser paid
+    through the event's ledger, and the coins back when the place is given up
+    before the start, the game comes off or the ticket stops being live."""
+
+    def setUp(self):
+        super().setUp()
+        from django.contrib.auth.hashers import make_password
+        from vent_auth.models import UserWallet
+        self.wallet = UserWallet.objects.create(
+            user_wallet_id='pgfeemem1', user=self.member, wallet_balance=10,
+            pin_hash=make_password('1234'))
+        self.game = self.a_game(fee_vc=3, places=2)
+
+    def pay(self, code=None, auth=None, pin='1234', game=None):
+        body = {'pin': pin}
+        if code:
+            body['ticket_code'] = code
+        return self.client.post(self.url('%s/join/' % (game or self.game).id), body,
+                                content_type='application/json',
+                                **(self.member_auth if auth is None else auth))
+
+    def balance(self):
+        self.wallet.refresh_from_db()
+        return self.wallet.wallet_balance
+
+    def lines(self, entry):
+        from .models import EventLedgerEntry
+        return list(EventLedgerEntry.objects.filter(game_entry=entry).order_by('id'))
+
+    def test_the_organiser_sets_a_fee_in_whole_coins(self):
+        self.assertEqual(self.game.fee_vc, 3)
+        res = self.client.patch(self.url('%s/' % self.game.id), {'fee_vc': 2.5},
+                                content_type='application/json', **self.auth)
+        self.assertEqual(res.status_code, 400, res.content)
+        res = self.client.get(self.url())
+        self.assertEqual(res.json()['data']['games'][0]['fee_vc'], 3)
+
+    def test_paying_takes_the_coins_and_writes_the_ledger(self):
+        from vent_auth.models import Transaction
+        res = self.pay()
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['code'], 'GAME_JOINED_PAID')
+        self.assertEqual(self.balance(), 7)
+        entry = EventGameEntry.objects.get(game=self.game, ticket=self.member_ticket)
+        self.assertEqual((entry.state, entry.fee_paid_vc, entry.fee_payer_id),
+                         ('in', 3, self.member.user_id))
+        line = Transaction.objects.get(wallet=self.wallet, type='deduction')
+        self.assertEqual(line.amount, -3)
+        self.assertTrue(line.description.startswith('Game: Whot - Games Probe'))
+        organiser = [l for l in self.lines(entry) if l.kind == 'organiser']
+        self.assertEqual(len(organiser), 1)
+        self.assertEqual(organiser[0].event_id, self.event.event_id)
+        self.assertEqual(organiser[0].user_id, self.organiser.user_id)
+        self.assertGreater(organiser[0].amount_ngn, 0)
+        # Pressing again takes nothing more.
+        self.assertEqual(self.pay().status_code, 200)
+        self.assertEqual(self.balance(), 7)
+
+    def test_wrong_pin_short_balance_and_no_account_are_refused_by_code(self):
+        self.assertEqual(self.pay(pin='0000').json()['code'], 'INVALID_PIN')
+        self.wallet.wallet_balance = 1
+        self.wallet.save()
+        short = self.pay()
+        self.assertEqual(short.status_code, 400)
+        self.assertEqual(short.json()['code'], 'INSUFFICIENT_BALANCE')
+        self.assertEqual(short.json()['data']['needed_vc'], 3)
+        guest = self.pay(code='PG000001', auth={})
+        self.assertEqual(guest.status_code, 401)
+        self.assertEqual(guest.json()['code'], 'GAME_FEE_SIGN_IN')
+        self.assertFalse(EventGameEntry.objects.filter(game=self.game).exists())
+        self.assertEqual(self.balance(), 1)
+
+    def test_a_signed_in_person_pays_for_a_guest_ticket_and_gets_it_back(self):
+        self.assertEqual(self.pay(code='PG000001').status_code, 200)
+        entry = EventGameEntry.objects.get(game=self.game, ticket=self.guest)
+        self.assertEqual(entry.fee_payer_id, self.member.user_id)
+        res = self.leave(self.game, code='PG000001')
+        self.assertEqual(res.json()['code'], 'GAME_LEFT_REFUNDED')
+        self.assertEqual(res.json()['data']['refunded_vc'], 3)
+        self.assertEqual(self.balance(), 10)
+
+    def test_a_full_paid_game_charges_nobody(self):
+        self.pay()
+        self.pay(code='PG000001')
+        third = self.a_ticket(1)
+        res = self.pay(code=third.code)
+        self.assertEqual(res.status_code, 409)
+        self.assertEqual(res.json()['code'], 'GAME_FULL')
+        self.assertEqual(self.balance(), 4)
+        self.assertFalse(EventGameEntry.objects.filter(ticket=third).exists())
+
+    def test_leaving_before_the_start_refunds_and_after_it_does_not(self):
+        from vent_auth.models import Transaction
+        self.pay()
+        res = self.leave(self.game, auth=self.member_auth)
+        self.assertEqual(res.json()['data']['refunded_vc'], 3)
+        self.assertEqual(self.balance(), 10)
+        refund = Transaction.objects.get(wallet=self.wallet, type='refund')
+        self.assertEqual(refund.description, 'Refund - game: Whot - Games Probe')
+        entry = EventGameEntry.objects.get(game=self.game, ticket=self.member_ticket)
+        self.assertEqual(entry.fee_paid_vc, 0)
+        self.assertTrue([l for l in self.lines(entry) if l.kind == 'reversal'])
+        # Joining again pays again; once the game has started, leaving keeps it.
+        self.pay()
+        self.game.starts_at = timezone.now() - timedelta(minutes=5)
+        self.game.save()
+        res = self.leave(self.game, auth=self.member_auth)
+        self.assertEqual(res.json()['code'], 'GAME_LEFT')
+        self.assertEqual(self.balance(), 7)
+
+    def test_taking_the_game_off_refunds_everybody_once(self):
+        self.pay()
+        self.pay(code='PG000001')
+        res = self.client.patch(self.url('%s/' % self.game.id), {'status': 'off'},
+                                content_type='application/json', **self.auth)
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(self.balance(), 10)
+        self.client.patch(self.url('%s/' % self.game.id), {'status': 'open'},
+                          content_type='application/json', **self.auth)
+        self.client.patch(self.url('%s/' % self.game.id), {'status': 'off'},
+                          content_type='application/json', **self.auth)
+        self.assertEqual(self.balance(), 10)
+
+    def test_a_refunded_ticket_gets_its_game_fee_back(self):
+        self.pay()
+        self.member_ticket.status = 'refunded'
+        self.member_ticket.save()
+        self.assertEqual(self.balance(), 10)
+        entry = EventGameEntry.objects.get(game=self.game, ticket=self.member_ticket)
+        self.assertEqual((entry.state, entry.fee_paid_vc), ('left', 0))
+
+    def test_checkout_never_charges_for_a_paid_game(self):
+        from . import game_entries
+        self.assertEqual(game_entries.join_picks(self.member_ticket, [self.game.id]), [])
+        self.assertEqual(self.balance(), 10)
+
+    def test_the_organisers_list_says_what_each_paid(self):
+        self.pay()
+        res = self.client.get(self.url('%s/entries/' % self.game.id), **self.auth)
+        self.assertEqual(res.json()['data']['people'][0]['fee_paid_vc'], 3)
+        csv_body = self.client.get(self.url('%s/entries/?download=csv' % self.game.id),
+                                   **self.auth).content.decode()
+        self.assertIn('fee_paid_vc', csv_body.splitlines()[0])

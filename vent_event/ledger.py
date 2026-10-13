@@ -351,7 +351,7 @@ def quote_entry(tournament, channel='wallet'):
 
 
 def _line(record, kind, amount_ngn, priced, first, count, user=None, referral=None,
-          registration=None):
+          registration=None, game_entry=None):
     return EventLedgerEntry.objects.create(
         kind=kind, user=user, referral=referral,
         amount_ngn=_ngn(amount_ngn), amount_vc=_floor_vc(amount_ngn),
@@ -360,7 +360,8 @@ def _line(record, kind, amount_ngn, priced, first, count, user=None, referral=No
         fee_pct=priced['fee_pct'], fee_flat_ngn=_ngn(priced.get('fee_flat_ngn', 0)),
         fee_bearer=priced.get('fee_bearer', 'organiser'),
         buyer_fee_ngn=_ngn(priced.get('buyer_fee_ngn', 0)),
-        ticket=first, registration=registration, quantity=count, **_scope(record))
+        ticket=first, registration=registration, game_entry=game_entry,
+        quantity=count, **_scope(record))
 
 
 def record_entry(registration, priced):
@@ -396,7 +397,7 @@ def _reverse_lines(originals, reason):
             fee_pct=line.fee_pct, fee_flat_ngn=line.fee_flat_ngn,
             fee_bearer=line.fee_bearer, buyer_fee_ngn=-line.buyer_fee_ngn,
             ticket=line.ticket, registration=line.registration,
-            quantity=line.quantity,
+            game_entry=line.game_entry, quantity=line.quantity,
             referral=line.referral, note=reason[:200],
             reverses=line)
         EventLedgerEntry.objects.filter(pk=line.pk).update(reversed_by=reversal)
@@ -416,6 +417,70 @@ def reverse_entry(registration, reason=''):
         if line.kind == EventLedgerEntry.KIND_ORGANISER and not line.reversed_by_id:
             paid = line.gross_vc + _floor_vc(line.buyer_fee_ngn)
     return _reverse_lines(originals, reason), paid
+
+
+def quote_game(game, channel='wallet'):
+    """What a party game's entry fee asks for, and what each party is owed.
+
+    Inbox 449: an organiser may put a fee on a game. It is an event sale like a
+    ticket, so it carries the same fee as a ticket (`platform_fee`) and the
+    same bearer the organiser chose for the event, and it reads the same
+    dictionary `quote()` and `quote_entry()` give, one game, quantity 1.
+    """
+    unit = ngn_per_coin()
+    price_vc = int(game.fee_vc or 0)
+    price_ngn = _ngn(Decimal(price_vc) * unit)
+    pct, flat = platform_fee()
+    fee_ngn = fee_for(price_ngn, 1, pct, flat)
+    bearer = getattr(game.event, 'fee_bearer', 'organiser') or 'organiser'
+    buyer_fee_ngn, seller_fee_ngn, buyer_fee_vc = split_fee(fee_ngn, bearer == 'buyer', channel)
+    organiser_ngn = price_ngn - seller_fee_ngn
+    return {
+        'unit_vc': price_vc,
+        'unit_ngn': price_ngn,
+        'quantity': 1,
+        'tickets_vc': price_vc,
+        'tickets_ngn': price_ngn,
+        'fee_ngn': fee_ngn,
+        'fee_vc': _floor_vc(fee_ngn),
+        'fee_pct': pct,
+        'fee_flat_ngn': flat,
+        'fee_bearer': bearer,
+        'channel': channel,
+        'buyer_fee_ngn': buyer_fee_ngn,
+        'buyer_fee_vc': buyer_fee_vc,
+        'seller_fee_ngn': seller_fee_ngn,
+        'buyer_pays_fee': buyer_fee_ngn > 0,
+        'total_ngn': price_ngn + buyer_fee_ngn,
+        'total_vc': price_vc + buyer_fee_vc,
+        'organiser_ngn': organiser_ngn,
+        'organiser_vc': _floor_vc(organiser_ngn),
+    }
+
+
+def record_game_fee(entry, priced):
+    """Write the lines one paid game entry created: the organiser's take and
+    the platform's fee, on the event's ledger, keyed to the entry. Called in
+    the transaction that took the coins. A free game writes nothing."""
+    event = entry.game.event
+    gross = _ngn(priced['tickets_ngn'])
+    if gross <= 0:
+        return []
+    fee = _ngn(priced['fee_ngn'])
+    lines = [_line(event, EventLedgerEntry.KIND_ORGANISER,
+                   gross - _ngn(priced.get('seller_fee_ngn', fee)), priced,
+                   None, 1, user=event.creator, game_entry=entry)]
+    if fee:
+        lines.append(_line(event, EventLedgerEntry.KIND_PLATFORM, fee, priced,
+                           None, 1, user=None, game_entry=entry))
+    return lines
+
+
+def reverse_game_fee(entry, reason=''):
+    """Undo the lines one paid game entry wrote. Returns the reversals."""
+    originals = list(EventLedgerEntry.objects.filter(game_entry=entry)
+                     .exclude(kind=EventLedgerEntry.KIND_REVERSAL))
+    return _reverse_lines(originals, reason)
 
 
 def record_prize(tournament, payout, amount_vc):

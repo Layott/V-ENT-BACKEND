@@ -29,10 +29,10 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from vent_auth import inputs
+from vent_auth import coins, inputs
 from vent_auth.throttle import limited
 
-from . import game_entries, party_games
+from . import game_entries, game_fees, ledger, party_games
 from .models import (EventGame, EventGameEntry, EventPoll, EventPollOption,
                      EventPollVote, Ticket)
 from .views_polls import _error, _event, _may_manage, _viewer, serialize_poll
@@ -91,7 +91,11 @@ def serialize_game(game, *, playing, waiting, mine=None):
         'place': game.place,
         'places': game.places,
         'prize': game.prize,
-        'fee_vc': float(game.fee_vc or 0),
+        # Whole coins to play (inbox 449); 0 is free with the ticket.
+        'fee_vc': int(game.fee_vc or 0),
+        # What a wallet pays to play: the fee, plus the whole coins of the
+        # service fee when the organiser put it on buyers. Said before paying.
+        'fee_total_vc': (int(ledger.quote_game(game)['total_vc']) if game.fee_vc else 0),
         'status': game.status,
         'position': game.position,
         'playing': playing,
@@ -159,6 +163,7 @@ def _games_payload(event, *, viewer, tickets, is_organiser):
             mine.setdefault(entry.game_id, {})[entry.ticket.code] = {
                 'state': entry.state,
                 'place_in_line': game_entries.position_on_list(entry),
+                'fee_paid_vc': coins.as_json(entry.fee_paid_vc),
             }
 
     every_json = {g.id: serialize_game(g, playing=live.get(g.id, [0, 0])[0],
@@ -240,6 +245,11 @@ def _apply(game, data, *, creating=False):
         game.places = inputs.read_int(data, 'places', minimum=1, maximum=MAX_PLACES)
     if 'prize' in data:
         game.prize = inputs.read_text(data, 'prize', max_length=160)
+    if 'fee_vc' in data:
+        # Whole coins, like every price on the platform. A change applies to
+        # whoever joins next: everybody pays what it cost when they joined.
+        game.fee_vc = inputs.read_int(data, 'fee_vc', minimum=0,
+                                      maximum=game_fees.MAX_ENTRY_VC, default=0) or 0
     if 'status' in data:
         # `proposed` is set by the vote door alone: a game put there by hand
         # would leave the public list with no vote to bring it back.
@@ -307,10 +317,15 @@ def game_detail(request, event_id, game_id):
                          'message': ''})
 
     before = game.places
+    was_off = game.status == EventGame.OFF
     refused = _apply(game, request.data)
     if refused is not None:
         return refused
     game.save()
+    # Taken off: every fee paid to play it goes back (inbox 449). The players
+    # stay on record, as they always did.
+    if game.status == EventGame.OFF and not was_off:
+        game_fees.refund_all(game, 'Game taken off')
     if 'places' in request.data and (game.places is None
                                      or (before is not None and game.places > before)):
         game_entries.places_changed(game)
@@ -346,6 +361,7 @@ def game_entries_list(request, event_id, game_id):
         'state': e.state,
         'joined_at': e.joined_at,
         'left_at': e.left_at,
+        'fee_paid_vc': coins.as_json(e.fee_paid_vc),
     } for e in rows]
 
     if str(request.GET.get('download') or '').lower() == 'csv':
@@ -353,11 +369,11 @@ def game_entries_list(request, event_id, game_id):
         response['Content-Disposition'] = 'attachment; filename="game-%s-players.csv"' % game.id
         writer = csv.writer(response)
         writer.writerow(['name', 'username', 'ticket', 'tier', 'state', 'joined_at',
-                         'checked_in'])
+                         'checked_in', 'fee_paid_vc'])
         for p in people:
             writer.writerow([p['name'], p['username'] or '', p['code'], p['tier'], p['state'],
                              timezone.localtime(p['joined_at']).isoformat(),
-                             'yes' if p['checked_in'] else 'no'])
+                             'yes' if p['checked_in'] else 'no', p['fee_paid_vc']])
         return response
 
     playing, waiting = game_entries.counts(game)
@@ -400,16 +416,18 @@ def _player_door(request, event_id, game_id):
     return event, game, ticket, None
 
 
-def _answer(event, game, ticket, code):
+def _answer(event, game, ticket, code, **extra):
     playing, waiting = game_entries.counts(game)
     entry = EventGameEntry.objects.filter(game=game, ticket=ticket).first()
     mine = {}
     if entry is not None and entry.state != EventGameEntry.LEFT:
         mine[ticket.code] = {'state': entry.state,
-                             'place_in_line': game_entries.position_on_list(entry)}
+                             'place_in_line': game_entries.position_on_list(entry),
+                             'fee_paid_vc': coins.as_json(entry.fee_paid_vc)}
     return Response({'status': 'success', 'code': code, 'data': {
         'game': serialize_game(game, playing=playing, waiting=waiting, mine=mine),
         'ticket': _ticket_row(ticket),
+        **extra,
     }, 'message': ''})
 
 
@@ -426,6 +444,23 @@ def join_game(request, event_id, game_id):
     if game.status != EventGame.OPEN:
         return _error('Sign ups for this game are closed.', 'GAME_NOT_OPEN',
                       status.HTTP_409_CONFLICT)
+    if game.fee_vc and game.fee_vc > 0:
+        # A fee is paid from a wallet, so it takes somebody signed in, guest
+        # ticket or not (inbox 449). Already in: nothing more is taken.
+        current = EventGameEntry.objects.filter(game=game, ticket=ticket).first()
+        if current is None or current.state not in game_entries.LIVE:
+            viewer = _viewer(request)
+            if viewer is None:
+                return _error('Sign in to pay the entry fee for this game.',
+                              'GAME_FEE_SIGN_IN', status.HTTP_401_UNAUTHORIZED,
+                              {'fee_vc': int(game.fee_vc)})
+            pin = inputs.read_text(request.data, 'pin', max_length=12, strip=False) or None
+            try:
+                game_fees.join_paid(game, ticket, viewer, pin)
+            except game_fees.GameFeeError as exc:
+                return _error(str(exc), exc.code, exc.status, exc.params or None)
+            game.refresh_from_db()
+            return _answer(event, game, ticket, 'GAME_JOINED_PAID')
     entry = game_entries.join(game, ticket)
     return _answer(event, game, ticket,
                    'GAME_JOINED' if entry.state == EventGameEntry.IN else 'GAME_WAITING')
@@ -438,8 +473,14 @@ def leave_game(request, event_id, game_id):
     event, game, ticket, refused = _player_door(request, event_id, game_id)
     if refused is not None:
         return refused
+    entry = EventGameEntry.objects.filter(game=game, ticket=ticket).first()
+    paid = coins.as_json(entry.fee_paid_vc) if entry is not None else 0
     game_entries.leave(game, ticket)
-    return _answer(event, game, ticket, 'GAME_LEFT')
+    if entry is not None:
+        entry.refresh_from_db()
+    refunded = paid if paid and entry is not None and not entry.fee_paid_vc else 0
+    return _answer(event, game, ticket, 'GAME_LEFT_REFUNDED' if refunded else 'GAME_LEFT',
+                   refunded_vc=refunded)
 
 
 @api_view(['POST'])

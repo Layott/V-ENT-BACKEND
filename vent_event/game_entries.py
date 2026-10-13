@@ -85,8 +85,15 @@ def join(game, ticket):
         return entry
 
 
-def leave(game, ticket):
-    """Take this ticket out. Returns the entry, or None if it was never in."""
+def leave(game, ticket, refund='before_start'):
+    """Take this ticket out. Returns the entry, or None if it was never in.
+
+    A fee paid to play (inbox 449) comes back when leaving before the game
+    starts; `refund='always'` is for a ticket that stopped being live, which
+    cannot play whatever the clock says. The coins go back in the same
+    transaction as the place, so neither happens without the other.
+    """
+    from . import game_fees
     with transaction.atomic():
         locked = EventGame.objects.select_for_update().get(pk=game.pk)
         entry = EventGameEntry.objects.filter(game=locked, ticket=ticket).first()
@@ -96,6 +103,8 @@ def leave(game, ticket):
         entry.state = EventGameEntry.LEFT
         entry.left_at = timezone.now()
         entry.save(update_fields=['state', 'left_at'])
+        if entry.fee_paid_vc and (refund == 'always' or not game_fees.has_started(locked)):
+            game_fees.refund(entry, 'Left the game' if refund != 'always' else 'Ticket no longer live')
         if was_playing:
             _promote(locked)
         return entry
@@ -122,7 +131,7 @@ def drop_ticket(ticket):
     for game_id in entries:
         game = EventGame.objects.filter(pk=game_id).first()
         if game is not None:
-            leave(game, ticket)
+            leave(game, ticket, refund='always')
 
 
 #: Picks carried by one purchase. More than any event runs at once (60 games),
@@ -153,8 +162,10 @@ def join_picks(ticket, picks):
     if not picks or ticket is None:
         return []
     joined = []
+    # A game with a fee is never joined from checkout: nobody is charged for
+    # something they ticked on the way past (inbox 449, game_fees).
     for game in EventGame.objects.filter(event_id=ticket.event_id, pk__in=picks,
-                                         status=EventGame.OPEN):
+                                         status=EventGame.OPEN, fee_vc=0):
         try:
             entry = join(game, ticket)
         except Exception:

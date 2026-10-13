@@ -39,6 +39,16 @@
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
   },
+  "backend dir": {
+    "count": 0,
+    "first_seen": "2026-10-13",
+    "since": "2026-10-13"
+  },
+  "backend dir self-test": {
+    "count": 0,
+    "first_seen": "2026-10-13",
+    "since": "2026-10-13"
+  },
   "build guard": {
     "count": 0,
     "first_seen": "2026-09-10",
