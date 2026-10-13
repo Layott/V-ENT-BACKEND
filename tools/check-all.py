@@ -438,6 +438,12 @@ CATCHERS = [
     ('text arrows',
      'no back arrow or pager chevron drawn as a character (inbox 447)',
      FRONTEND, ['node', 'scripts/check-back-arrows.mjs'], True),
+    ('backend dir',
+     'no frontend catcher names a backend folder itself; each reads the backend being judged (13 Oct)',
+     FRONTEND, ['node', 'scripts/check-backend-dir.mjs'], True),
+    ('backend dir self-test',
+     'the backend-folder catcher catches a sibling list, a joined path and a relative path',
+     FRONTEND, ['node', 'scripts/check-backend-dir.mjs', '--self-test'], True),
 
     ('inert controls',
      'no button that does nothing when pressed',

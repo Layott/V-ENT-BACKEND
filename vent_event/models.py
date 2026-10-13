@@ -2256,6 +2256,11 @@ class EventLedgerEntry(models.Model):
     prize = models.ForeignKey('vent_tournament.PrizePayout',
                               on_delete=models.SET_NULL, null=True,
                               blank=True, related_name='ledger')
+    # A party game's entry fee (inbox 449): the place it paid for. Its own key,
+    # not `ticket`, so refunding the ticket's price never reverses a game's
+    # lines by accident, and refunding a game never touches the ticket's.
+    game_entry = models.ForeignKey('EventGameEntry', on_delete=models.SET_NULL,
+                                   null=True, blank=True, related_name='ledger')
 
     # The money, in NAIRA, exact. CEO, 12 September 2026: "V-ent takes 5% +
     # N100 of all tickets sold." One coin is 1,000 naira, so a 200 naira fee
@@ -2628,6 +2633,11 @@ class EventGameEntry(models.Model):
     # Inbox 449: what was paid to play, and the ledger reference that paid it.
     fee_paid_vc = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     fee_reference = models.CharField(max_length=64, blank=True, default='')
+    # Whose wallet paid it, and so whose wallet a refund goes back to. Not the
+    # ticket's holder by rule: a guest ticket has no account, and the person
+    # who signed in to pay for it is who gets the coins back.
+    fee_payer = models.ForeignKey('vent_auth.Users', on_delete=models.SET_NULL,
+                                  null=True, blank=True, related_name='game_fees_paid')
 
     class Meta:
         ordering = ['joined_at', 'id']

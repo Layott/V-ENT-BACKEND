@@ -38,6 +38,7 @@ ALLOWED = {
     ('vent_billing/ledger.py', 'settle'): 'subscribers\' paid invoices paid to the plan owner',
     ('vent_event/ledger.py', 'settle'): 'ticket and entry sales paid to the organiser',
     ('vent_event/refunds.py', 'refund_ticket'): 'a paid ticket refunded to whoever paid',
+    ('vent_event/game_fees.py', 'refund'): "a party game's entry fee returned to whoever paid it",
     ('vent_event/views_vendors.py', 'create_order'): "the vendor's share of an order the buyer paid for",
     ('vent_event/views_vendor_review.py', 'decide_stall'): 'a paid stall order refunded when the stall is refused',
     ('vent_event/views_vendor_shop.py', '_refund_cancelled'): 'a paid order refunded to the buyer',

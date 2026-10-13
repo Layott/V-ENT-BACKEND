@@ -45,6 +45,8 @@ _LINES = [
     ('refundTournamentCancelled', r'Refund - cancelled tournament: (?P<title>.+)'),
     ('refundNoCheckin', r'Refund - did not check in: (?P<title>.+)'),
     ('refundEventCancelled', r'Refund - (?P<event>.+) cancelled: (?P<code>\S+)'),
+    # A party game's entry fee and its refund (inbox 449, vent_event/game_fees).
+    ('refundGameFee', r'Refund - game: (?P<game>.+?) - (?P<event>.+)'),
     ('refund', r'Refund - (?P<what>.+)'),
     ('withdrawal', r'Withdrawal to (?P<bank>.+) (?P<account>\w{4,})'),
     ('membership', r'Membership - (?P<plan>.+)'),
@@ -54,6 +56,7 @@ _LINES = [
     ('prizePayout', r'Prize payout - position (?P<position>\d+) - (?P<title>.+)'),
     ('registrationFee', r'Registration fee - (?P<title>.+)'),
     ('entryFee', r'Entry fee: (?P<title>.+)'),
+    ('gameFee', r'Game: (?P<game>.+?) - (?P<event>.+)'),
     ('runnerUpPrize', r'Runner up prize: (?P<title>.+)'),
     ('marketplaceSale', r'Marketplace sale: (?P<title>.+)'),
     ('marketplaceRefund', r'Marketplace refund: (?P<title>.+)'),

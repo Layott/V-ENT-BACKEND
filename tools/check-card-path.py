@@ -35,6 +35,9 @@ REFUSALS = re.compile(r"'(INSUFFICIENT_BALANCE|INSUFFICIENT_FUNDS)'")
 #: somebody buying from the cart are the same purchase and the same refusal.
 DOORS = {
     'vent_event/views_tickets.py': ['src/app/events/view-event/page.js'],
+    # A party game's entry fee (inbox 449): the refusal is raised in the fee
+    # module and answered by the games door; the pay sheet is on the Games tab.
+    'vent_event/game_fees.py': ['src/components/party-games/GamePay.js'],
     'vent_event/views_vendors.py': ['src/app/events/vendor-shop/vendor/page.js'],
     'vent_event/views_vendor_slots.py': ['src/components/vendor-slots/TradeHere.js'],
     'vent_tournament/views.py': [
