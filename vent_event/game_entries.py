@@ -125,6 +125,58 @@ def drop_ticket(ticket):
             leave(game, ticket)
 
 
+#: Picks carried by one purchase. More than any event runs at once (60 games),
+#: low enough that a body cannot ask for thousands of joins.
+MAX_PICKS = 20
+
+
+def read_picks(data):
+    """The games ticked at checkout, as game ids. [] when none were sent.
+
+    Read before any money moves, so a malformed list is refused while
+    refusing is still free (inputs.BadInput answers 400 with the field).
+    """
+    from vent_auth import inputs
+    picks = inputs.read_ids(data, 'games', max_items=MAX_PICKS)
+    return list(dict.fromkeys(p for p in picks if p > 0))
+
+
+def join_picks(ticket, picks):
+    """Sign `ticket` up for each picked game that is open on its event.
+
+    Called once the ticket exists (inbox 434, piece G2): the wallet buy, a
+    free guest ticket, and the card payment confirmed by the browser or the
+    webhook. A game that closed or came off between the pick and the payment
+    is skipped rather than refused; the ticket is paid for, and the Games tab
+    shows what happened. Never raises: a games sign-up must not undo a sale.
+    """
+    if not picks or ticket is None:
+        return []
+    joined = []
+    for game in EventGame.objects.filter(event_id=ticket.event_id, pk__in=picks,
+                                         status=EventGame.OPEN):
+        try:
+            entry = join(game, ticket)
+        except Exception:
+            continue
+        joined.append({'game': game.id, 'state': entry.state})
+    return joined
+
+
+def ticket_games(ticket):
+    """What `ticket` is down for now, with what a page needs to name each game,
+    named the way serialize_game names it (`catalogue_key`, or `custom.name`
+    for an organiser's own game), so one helper reads both:
+    [{'game', 'state', 'place_in_line', 'catalogue_key', 'custom'}]."""
+    if ticket is None:
+        return []
+    return [{'game': e.game_id, 'state': e.state, 'place_in_line': position_on_list(e),
+             'catalogue_key': e.game.catalogue_key or None,
+             'custom': None if e.game.catalogue_key else {'name': e.game.custom_name}}
+            for e in EventGameEntry.objects.filter(ticket=ticket, state__in=LIVE)
+            .select_related('game').order_by('joined_at', 'id')]
+
+
 def position_on_list(entry):
     """1 for the first person waiting, or None when not waiting."""
     if entry is None or entry.state != EventGameEntry.WAITING:

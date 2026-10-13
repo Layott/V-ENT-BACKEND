@@ -117,7 +117,9 @@ def _option_counts(poll, options, total):
         # `votes` is the single-choice answer; `choices` is every other kind.
         count = option.votes.count() + option.choices.count()
         row = {'id': option.id, 'text': option.text,
-               'position': option.position, 'votes': count}
+               'position': option.position, 'votes': count,
+               # A vote over party games: the option is that game (inbox 439).
+               'game': option.game_id}
         # Percentages of nothing are not zero, they are unanswerable, and a bar
         # chart drawn from a made-up zero reads as a real result.
         row['share'] = round(count * 100.0 / total, 1) if total else None
@@ -166,7 +168,7 @@ def serialize_poll(poll, *, ticket=None, is_organiser=False):
         'depends_on_max': poll.depends_on_max,
         'help_text': poll.help_text,
         'required': poll.required,
-        'options': [{'id': o.id, 'text': o.text, 'position': o.position}
+        'options': [{'id': o.id, 'text': o.text, 'position': o.position, 'game': o.game_id}
                     for o in options],
         'is_open': not closed,
         'closes_at': poll.closes_at,
