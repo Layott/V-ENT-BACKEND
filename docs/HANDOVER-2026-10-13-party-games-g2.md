@@ -115,3 +115,60 @@ check-undefined now runs react/jsx-no-undef (self-test 8). Seven scripts moved t
 Walk: V-ENT/tasks/audit/party-games-g3-walk-2026-10-13.md (headless Chrome for the presses
 because the owner had the desktop; emulator for the phone). Local fixture: Cosplay trivia at
 50 VC, Chaises musicales back to free.
+
+G3 DEPLOYED 13 Oct 14:27: BE #238, FE #246, backup db-2026-10-13-1427.sql.gz, 0060 applied,
+build y2xaqBDCkItr2PY0q1alV; live Games tab renders (headless read). gates/65 G3 2/2.
+Note: check-embeds can time out in the commit hook when the local dev server is compiling (it
+fetches ten pages); a retry with warm pages passes. Next: G4 (inbox 436).
+
+## G4: the event ticket inside a tournament registration, saved progress (inbox 436), 13 October
+
+Branch feature/registration-draft in both repos (cut from main after #238/#246), uncommitted
+until shipped. Built before the session moved machines:
+- Server: TournamentRegistrationDraft (migration 0062; user, tournament, mode, team, step,
+  30 days from the last save, one per person and tournament); views_registration_draft.py:
+  GET/PUT/DELETE /tournament/<ref>/registration-draft/ (answers draft, entry {needs_ticket,
+  holds_ticket, event, tier}, registered) and GET /tournament/registration-drafts/mine/;
+  join_tournament clears the draft. Tests tests_registration_draft 8 (with party games 59 OK).
+  IDOR case +1, security-rules R68 allow with reason.
+- Frontend: lib/registrationDraft.js, ResumeCard (tournament page, event Tournaments tab,
+  My tournaments "Registrations you have not finished"), TicketStep (buy the entry ticket
+  inside the registration: tier the organiser named, checkout questions, PIN, PayShortfall),
+  TournamentRegister saves a step at every move and continues from ?resume=1.
+- Walk log tasks/audit/party-games-g4-walk-2026-10-13.md (roles, desktop, 390, emulator).
+  F1 fixed: the phone bottom menu (z 1000) covered the foot of fifteen sheets; menu now 950,
+  four low sheets raised to 1000; catcher scripts/check-sheet-stacking.mjs (blocking, self-test).
+
+Found on resuming (13 Oct, second machine): a card trip from the ticket step came back to the
+register page with ?reference= and the old resume code opened the ENTRY step, so the ticket was
+never bought and the entry would refuse. No Paystack webhook credits a top-up, so the step that
+confirms the payment must be on screen. Fixed: PayShortfall.peekResume; the register modal reads
+the note once (door tournament-ticket, same tournament) and reopens the saved step with the chosen
+tier (TicketStep initialTier); with no saved step it falls back to the entry step, which confirms
+the payment; TicketStep keeps PayShortfall mounted on a card return whatever the ticket list says.
+To walk: Flutterwave test checkout locally (local .env has FLWSECK_TEST, no Paystack key).
+
+### The card trip, walked (13 Oct, 15:28 to 15:45, Claude Chrome, Flutterwave test checkout)
+
+Wrong turn, recorded: after the first trip the address held only `status`, `tx_ref`,
+`transaction_id`, and I first read that as Flutterwave dropping our `?reference=`. It does not
+(the next return showed `reference` + Flutterwave's three). The root layout's PaystackReturn had
+verified the reference (log 15:31:34) and removed only `reference`/`trxref`, before the
+registration loaded, so the page fell back to "pick up where you left off" and nothing on it
+confirmed the payment. Second fault: the register page swapped the whole registration for its
+loading line every time `load()` re-ran (session or words settling), so the modal remounted and
+lost any step it was on.
+
+Fixed (frontend): src/lib/payReturn.js (returnReference reads reference, trxref, tx_ref;
+withoutReturn removes them and Flutterwave's status/transaction_id) used by all seven readers
+(PayShortfall, PaystackReturn, TicketStep, register page, ticket-confirmed, wallets,
+wallet-topup-callback); PaystackReturn leaves /tournaments/<slug>/register to the registration
+(as it already did for the top-up callback and ticket-confirmed); the register page keeps the
+registration mounted once the tournament has arrived; the ticket step carries the tier and the
+typed answers across the trip in the same note and says "Your card payment is in..."
+(regTicket.cardIn x3); fr regTicket.entersYou "Vaut inscription à ce tournoi" (was ungrammatical).
+Walked: walk_stranger (paid before the fix, finished after), walk_suya and walk_sw_01 (0 VC each):
+ticket step, Flutterwave mock bank transfer 3,000 NGN, back on the ticket step with General
+Admission chosen and the answers filled, one verify call each, PIN, registered. Server: all three
+confirmed, holding the ticket, no draft left. Picture tasks/audit/reg-g4/card-return-desktop.jpg.
+Still to do: catcher for return readers, 390 + emulator on the return, check-all, ship.

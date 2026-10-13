@@ -217,6 +217,11 @@
       "rule": "R87",
       "path": "vent_tournament/views_overlays.py",
       "reason": "HTML on purpose: an organiser's broadcast overlay is a page OBS loads, so .html is the one kind this door allows (files_refusal kinds=('html',), 5 MB cap, opaque stored name). The raw file under /media/ is served by nginx with Content-Security-Policy: sandbox, so it never runs as a page there (checked live on api.v-ent.co 30 Sept 2026). The rendered page at /overlay/<token>/ runs the designer's script by design, under a CSP with object-src none, base-uri self and form-action none, on the API origin, where nothing reads a cookie for identity (every view takes the bearer token; no view reads request.user). OPEN, with the CEO: Django's own /admin/ is mounted on that same origin (unused: 0 log entries, 0 sessions, 0 superusers on 30 Sept); unmounting it in production closes the last same-origin cookie. Read by hand 30 Sept 2026 (inbox 398)"
+    },
+    {
+      "rule": "R68",
+      "path": "vent_tournament/views_registration_draft.py",
+      "reason": "not an open form: every door starts with actor_from_request and refuses anybody not signed in; a registration draft saves the choices of an account already signed in (inbox 436), it creates no account and sends no mail"
     }
   ],
   "auth": {

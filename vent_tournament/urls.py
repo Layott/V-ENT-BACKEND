@@ -29,6 +29,7 @@ from . import views_layers
 from . import views_runsheet
 from . import views_staff
 from . import views_duplicate
+from . import views_registration_draft
 from . import views_assets
 from . import views_export
 from . import views_mvp
@@ -53,6 +54,12 @@ from . import views_rules
 # Slug or id, everywhere. A route that takes only one of the two is a route half
 # the product cannot call.
 urlpatterns = [
+    # A registration saved as it goes (inbox 436). The list is first, so its
+    # fixed words are never read as a tournament reference.
+    path("registration-drafts/mine/", views_registration_draft.my_registration_drafts,
+         name="tournament_registration_drafts_mine"),
+    path("<str:tournament_id>/registration-draft/", views_registration_draft.registration_draft,
+         name="tournament_registration_draft"),
     # The production studio. Operator side is tournament-scoped and signed in;
     # the browser-source side is token-scoped and public, mounted at the root.
     # Who may enter results, and what this viewer may do. See access.py.
