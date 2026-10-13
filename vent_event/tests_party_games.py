@@ -15,8 +15,8 @@ from django.utils import timezone
 from vent_auth.models import Games, Users
 
 from . import party_games
-from .models import (Event, EventGame, EventGameEntry, EventManager, Ticket,
-                     TicketTier)
+from .models import (Event, EventGame, EventGameEntry, EventManager, EventPoll,
+                     EventPollOption, EventPollVote, Ticket, TicketTier)
 
 
 def a_user(name):
@@ -351,3 +351,269 @@ class RefundDropsGamesTests(GamesBase):
         self.guest.status = 'checked_in'
         self.guest.save(update_fields=['status'])
         self.assertEqual(EventGameEntry.objects.get(game=game).state, 'in')
+
+
+class GamesVoteTests(GamesBase):
+    """The vote over games (inbox 439, piece G2)."""
+
+    def open_vote(self, games, pick=2, auth=None, **extra):
+        body = dict({'games': games, 'pick': pick, 'question': 'Sunday evening?'}, **extra)
+        return self.client.post(self.url('vote/'), body, content_type='application/json',
+                                **(self.auth if auth is None else auth))
+
+    def vote(self, options, code=None, auth=None):
+        poll_id = EventPoll.objects.get(event=self.event, kind='multiple').id
+        body = {'option_ids': options}
+        if code:
+            body['ticket_code'] = code
+        return self.client.post('/event/%s/polls/%s/vote/' % (self.event.slug, poll_id), body,
+                                content_type='application/json', **(auth or {}))
+
+    def test_an_organiser_puts_catalogue_games_to_the_vote(self):
+        res = self.open_vote(['karaoke', 'jenga', 'tug-of-war'], names={'karaoke': 'Karaoke Battle'})
+        self.assertEqual(res.status_code, 201, res.content)
+        vote = res.json()['data']['vote']
+        self.assertEqual(vote['kind'], 'multiple')
+        self.assertEqual(vote['max_choices'], 2)
+        self.assertEqual([o['game']['catalogue_key'] for o in vote['options']],
+                         ['karaoke', 'jenga', 'tug-of-war'])
+        self.assertEqual(vote['options'][0]['text'], 'Karaoke Battle')
+        proposed = EventGame.objects.filter(event=self.event, status=EventGame.PROPOSED)
+        self.assertEqual(proposed.count(), 3)
+        # Not on yet: the public list leaves them to the vote panel.
+        public = self.client.get(self.url()).json()['data']
+        self.assertEqual(public['games'], [])
+        self.assertEqual(len(public['vote']['options']), 3)
+
+    def test_an_existing_game_can_be_in_the_vote_too(self):
+        own = self.add({'custom_name': 'Cosplay trivia'}).json()['data']['game']
+        res = self.open_vote([own['id'], 'uno'])
+        self.assertEqual(res.status_code, 201, res.content)
+        texts = [o['text'] for o in res.json()['data']['vote']['options']]
+        self.assertEqual(texts[0], 'Cosplay trivia')
+
+    def test_one_ticket_one_vote_and_the_count_after_voting(self):
+        self.open_vote(['karaoke', 'jenga', 'tug-of-war'])
+        options = list(EventPollOption.objects.filter(poll__event=self.event).order_by('position'))
+        res = self.vote([options[0].id, options[2].id], code='PG000001')
+        self.assertEqual(res.status_code, 200, res.content)
+        res = self.vote([options[1].id], code='PG000001')     # changing your mind replaces it
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(EventPollVote.objects.filter(ticket=self.guest).count(), 1)
+        too_many = self.vote([o.id for o in options], code='PG000002')
+        self.assertEqual(too_many.status_code, 400)
+        no_ticket = self.vote([options[0].id], auth=self.stranger_auth)
+        self.assertEqual(no_ticket.status_code, 403)
+        mine = self.client.post(self.url('mine/'), {'ticket_code': 'PG000001'},
+                                content_type='application/json').json()['data']['vote']
+        self.assertTrue(mine['answered'])
+        self.assertEqual(mine['answers_by_ticket']['PG000001'], [options[1].id])
+        self.assertTrue(mine['results_visible'])
+
+    def test_a_catalogue_game_already_on_the_event_is_not_copied(self):
+        whot = self.a_game()
+        res = self.open_vote(['whot', 'uno', whot.id])
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(EventGame.objects.filter(event=self.event, catalogue_key='whot').count(), 1)
+        games = [o['game']['id'] for o in res.json()['data']['vote']['options']]
+        self.assertEqual(len(games), 2)              # whot once, uno
+        self.assertEqual(games[0], whot.id)
+
+    def test_voting_with_your_second_ticket_shows_you_the_count(self):
+        # Walk, 13 October: a holder of two tickets voted with the second and
+        # read "You voted" over a hidden count, judged on the first ticket.
+        second = Ticket.objects.create(event=self.event, tier=self.tier, code='PG000003',
+                                       user=self.member, attendee_email=self.member.email)
+        self.open_vote(['karaoke', 'jenga'])
+        options = list(EventPollOption.objects.filter(poll__event=self.event).order_by('position'))
+        res = self.vote([options[1].id], code=second.code, auth=self.member_auth)
+        self.assertEqual(res.status_code, 200, res.content)
+        vote = self.client.get(self.url(), **self.member_auth).json()['data']['vote']
+        self.assertEqual(vote['answers_by_ticket'], {second.code: [options[1].id]})
+        self.assertTrue(vote['results_visible'])
+        self.assertEqual([o['votes'] for o in vote['options']], [0, 1])
+
+    def test_running_the_top_opens_winners_and_takes_the_rest_off(self):
+        self.open_vote(['karaoke', 'jenga', 'tug-of-war'], pick=1)
+        options = list(EventPollOption.objects.filter(poll__event=self.event).order_by('position'))
+        self.vote([options[2].id], code='PG000001')
+        self.vote([options[2].id], auth=self.member_auth)
+        tickets = [self.a_ticket(n) for n in range(3)]
+        self.vote([options[1].id], code=tickets[0].code)
+        poll = EventPoll.objects.get(event=self.event)
+        res = self.client.post(self.url('vote/%s/run/' % poll.id), {'top': 2},
+                               content_type='application/json', **self.auth)
+        self.assertEqual(res.status_code, 200, res.content)
+        state = dict(EventGame.objects.filter(event=self.event).values_list('catalogue_key', 'status'))
+        self.assertEqual(state, {'tug-of-war': 'open', 'jenga': 'open', 'karaoke': 'off'})
+        poll.refresh_from_db()
+        self.assertFalse(poll.is_open)
+        public = self.client.get(self.url()).json()['data']
+        self.assertEqual(sorted(g['catalogue_key'] for g in public['games']), ['jenga', 'tug-of-war'])
+        # And a fresh vote may now be opened.
+        self.assertEqual(self.open_vote(['uno', 'bingo']).status_code, 201)
+
+    def test_only_one_open_vote_and_sensible_sizes(self):
+        self.assertEqual(self.open_vote(['uno']).json()['code'], 'GAME_VOTE_TOO_FEW')
+        self.assertEqual(self.open_vote(['uno', 'no-such-game']).json()['code'], 'UNKNOWN_GAME')
+        self.assertEqual(self.open_vote(['uno', 'bingo']).status_code, 201)
+        again = self.open_vote(['jenga', 'limbo'])
+        self.assertEqual(again.status_code, 409)
+        self.assertEqual(again.json()['code'], 'GAME_VOTE_OPEN')
+
+    def test_nobody_else_opens_or_runs_a_vote(self):
+        self.assertEqual(self.open_vote(['uno', 'bingo'], auth={}).status_code, 401)
+        self.assertEqual(self.open_vote(['uno', 'bingo'], auth=self.stranger_auth).status_code, 403)
+        self.open_vote(['uno', 'bingo'])
+        poll = EventPoll.objects.get(event=self.event)
+        res = self.client.post(self.url('vote/%s/run/' % poll.id), {}, content_type='application/json',
+                               **self.stranger_auth)
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(EventGame.objects.filter(status=EventGame.PROPOSED).count(), 2)
+
+    def test_a_proposed_game_takes_no_sign_ups(self):
+        self.open_vote(['uno', 'bingo'])
+        game = EventGame.objects.get(event=self.event, catalogue_key='uno')
+        res = self.join(game, code='PG000001')
+        self.assertEqual(res.status_code, 409)
+        self.assertEqual(res.json()['code'], 'GAME_NOT_OPEN')
+
+    def test_closing_without_running_takes_the_proposed_games_off(self):
+        own = self.add({'custom_name': 'Cosplay trivia'}).json()['data']['game']
+        self.open_vote([own['id'], 'uno', 'bingo'])
+        poll = EventPoll.objects.get(event=self.event)
+        res = self.client.post(self.url('vote/%s/run/' % poll.id), {'top': 0},
+                               content_type='application/json', **self.auth)
+        self.assertEqual(res.status_code, 200, res.content)
+        state = dict(EventGame.objects.filter(event=self.event).values_list('id', 'status'))
+        self.assertEqual(state[own['id']], 'open')           # already on: left alone
+        self.assertEqual(sorted(s for i, s in state.items() if i != own['id']), ['off', 'off'])
+
+
+class CheckoutPicksTests(GamesBase):
+    """Games ticked while buying a ticket (inbox 434, piece G2).
+
+    The picks travel with the purchase to wherever the ticket is issued: the
+    wallet buy, a free guest ticket, and a card payment confirmed later by the
+    browser or the gateway. So a closed tab never loses them.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from django.contrib.auth.hashers import make_password
+        from vent_auth.models import UserWallet
+        self.buyer, self.buyer_auth = a_user('pg_buyer')
+        UserWallet.objects.create(user_wallet_id='pgbuyer01', user=self.buyer,
+                                  wallet_balance=100, pin_hash=make_password('1234'))
+        self.whot = self.a_game()
+        self.ludo = self.a_game(catalogue_key='ludo', places=1)
+        self.closed = self.a_game(catalogue_key='ayo', status='closed')
+
+    def test_a_wallet_buy_signs_the_new_ticket_up(self):
+        res = self.client.post('/event/%s/buy-ticket/' % self.event.slug, {
+            'tier_id': self.tier.id, 'quantity': 1, 'pin': '1234',
+            'games': [self.whot.id, self.closed.id, self.ludo.id],
+        }, content_type='application/json', **self.buyer_auth)
+        self.assertEqual(res.status_code, 201, res.content)
+        ticket = Ticket.objects.get(user=self.buyer)
+        joined = {g['game']: g['state'] for g in res.json()['data']['games']}
+        # A closed game is skipped, not refused: the ticket is bought either way.
+        self.assertEqual(joined, {self.whot.id: 'in', self.ludo.id: 'in'})
+        self.assertEqual(EventGameEntry.objects.filter(ticket=ticket).count(), 2)
+
+    def test_a_full_game_puts_the_pick_on_the_waiting_list(self):
+        self.join(self.ludo, code='PG000001')
+        res = self.client.post('/event/%s/buy-ticket/' % self.event.slug, {
+            'tier_id': self.tier.id, 'quantity': 1, 'pin': '1234', 'games': [self.ludo.id],
+        }, content_type='application/json', **self.buyer_auth)
+        self.assertEqual(res.status_code, 201, res.content)
+        row, = res.json()['data']['games']
+        self.assertEqual((row['game'], row['state'], row['place_in_line'], row['catalogue_key']),
+                         (self.ludo.id, 'waiting', 1, 'ludo'))
+
+    def test_a_game_of_another_event_is_never_joined(self):
+        theirs = EventGame.objects.create(event=self.other_event, catalogue_key='uno',
+                                          created_by=self.stranger)
+        res = self.client.post('/event/%s/buy-ticket/' % self.event.slug, {
+            'tier_id': self.tier.id, 'quantity': 1, 'pin': '1234', 'games': [theirs.id],
+        }, content_type='application/json', **self.buyer_auth)
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(res.json()['data']['games'], [])
+        self.assertFalse(EventGameEntry.objects.filter(game=theirs).exists())
+
+    def test_a_bad_list_is_refused_before_anything_is_bought(self):
+        for bad in (['whot'], 'x,y', [True], list(range(1, 30))):
+            res = self.client.post('/event/%s/buy-ticket/' % self.event.slug, {
+                'tier_id': self.tier.id, 'quantity': 1, 'pin': '1234', 'games': bad,
+            }, content_type='application/json', **self.buyer_auth)
+            self.assertEqual(res.status_code, 400, (bad, res.content))
+        self.assertFalse(Ticket.objects.filter(user=self.buyer).exists())
+
+    def test_a_free_guest_ticket_carries_its_picks(self):
+        res = self.client.post('/event/%s/guest-buy/' % self.event.slug, {
+            'tier_id': self.tier.id, 'quantity': 1, 'email': 'tolu@example.com',
+            'games': [self.whot.id],
+        }, content_type='application/json')
+        self.assertEqual(res.status_code, 201, res.content)
+        ticket = Ticket.objects.get(attendee_email='tolu@example.com')
+        self.assertEqual(res.json()['data']['games'][0]['game'], self.whot.id)
+        self.assertTrue(EventGameEntry.objects.filter(ticket=ticket, game=self.whot).exists())
+
+    def test_an_organisers_own_game_is_named_like_everywhere_else(self):
+        # Walk, 13 October: the note read "Chaises musicales, ." because the
+        # row carried custom_name and the page reads custom.name.
+        own = self.a_game(catalogue_key='', custom_name='Cosplay trivia')
+        res = self.client.post('/event/%s/guest-buy/' % self.event.slug, {
+            'tier_id': self.tier.id, 'quantity': 1, 'email': 'femi@example.com',
+            'games': [own.id, self.whot.id],
+        }, content_type='application/json')
+        self.assertEqual(res.status_code, 201, res.content)
+        rows = {r['game']: r for r in res.json()['data']['games']}
+        self.assertEqual(rows[own.id]['custom'], {'name': 'Cosplay trivia'})
+        self.assertIsNone(rows[own.id]['catalogue_key'])
+        self.assertEqual((rows[self.whot.id]['catalogue_key'], rows[self.whot.id]['custom']), ('whot', None))
+
+    def test_a_card_payment_joins_the_picks_when_the_ticket_is_issued(self):
+        from decimal import Decimal
+        from unittest.mock import patch
+        paid = TicketTier.objects.create(event=self.event, name='VIP', price=Decimal('5000'),
+                                         quantity=10)
+        with patch.dict('os.environ', {'PAYSTACK_SECRET_KEY': 'sk_test'}), \
+             patch('vent_event.views_guest.http_requests.post') as post:
+            post.return_value.status_code = 200
+            post.return_value.json = lambda: {
+                'status': True, 'data': {'authorization_url': 'https://paystack.test/pay/abc'}}
+            res = self.client.post('/event/%s/guest-buy/' % self.event.slug, {
+                'tier_id': paid.id, 'quantity': 1, 'email': 'kemi@example.com',
+                'games': [self.whot.id, self.ludo.id],
+            }, content_type='application/json')
+            self.assertEqual(res.status_code, 200, res.content)
+            sent = post.call_args.kwargs['json']
+        self.assertEqual(sent['metadata']['games'], [self.whot.id, self.ludo.id])
+        self.assertFalse(EventGameEntry.objects.filter(game=self.whot).exists())
+
+        verify = {'status': True, 'data': {
+            'status': 'success', 'reference': sent['reference'], 'amount': sent['amount'],
+            'customer': {'email': 'kemi@example.com'}, 'metadata': sent['metadata']}}
+        with patch.dict('os.environ', {'PAYSTACK_SECRET_KEY': 'sk_test'}), \
+             patch('vent_event.views_guest.http_requests.get') as get:
+            get.return_value.raise_for_status = lambda: None
+            get.return_value.json = lambda: verify
+            first = self.client.post('/event/guest-verify/', {'reference': sent['reference']},
+                                     content_type='application/json')
+            again = self.client.post('/event/guest-verify/', {'reference': sent['reference']},
+                                     content_type='application/json')
+        self.assertEqual(first.status_code, 201, first.content)
+        ticket = Ticket.objects.get(attendee_email='kemi@example.com')
+        self.assertEqual(sorted(g['game'] for g in first.json()['data']['games']),
+                         sorted([self.whot.id, self.ludo.id]))
+        # Coming back twice joins once, and answers the same list.
+        self.assertEqual(EventGameEntry.objects.filter(ticket=ticket).count(), 2)
+        self.assertEqual(len(again.json()['data']['games']), 2)
+
+    def test_a_proposed_status_cannot_be_set_by_hand(self):
+        res = self.client.patch(self.url('%s/' % self.whot.id), {'status': 'proposed'},
+                                content_type='application/json', **self.auth)
+        self.assertEqual(res.status_code, 400, res.content)
+        self.whot.refresh_from_db()
+        self.assertEqual(self.whot.status, 'open')

@@ -278,6 +278,42 @@
    }
   },
   {
+   "name": "B cannot open a vote over games on A's event",
+   "route": "event/<str:event_id>/games/vote/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/games/vote/",
+    "body": {
+     "games": [
+      "uno",
+      "bingo"
+     ],
+     "pick": 1
+    }
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the event named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot run or close A's vote over games",
+   "route": "event/<str:event_id>/games/vote/<int:poll_id>/run/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/walk-con-5e6c/games/vote/{id}/run/",
+    "body": {
+     "top": 0
+    }
+   },
+   "id": "1"
+  },
+  {
    "name": "B cannot duplicate A's tournament",
    "route": "tournament/<str:tournament_id>/duplicate/",
    "attempt": {

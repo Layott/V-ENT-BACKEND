@@ -490,6 +490,10 @@ def buy_ticket(request, event_id):
     if quantity < 1 or quantity > MAX_PER_PURCHASE:
         return _error(f'Choose between 1 and {MAX_PER_PURCHASE} tickets.',
                       'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+    # The party games ticked in checkout (inbox 434, G2). Read now, before any
+    # money moves, so a malformed list is refused while refusing costs nothing.
+    from . import game_entries as _games
+    game_picks = _games.read_picks(request.data)
 
     with transaction.atomic():
         # The EVENT row first, then the type. The venue's capacity is counted
@@ -707,6 +711,12 @@ def buy_ticket(request, event_id):
             offer.resolved_at = timezone.now()
             offer.save(update_fields=['status', 'resolved_at'])
 
+    # The games ticked in checkout, on the first ticket: the buyer's own. After
+    # the sale's transaction, and unable to undo it (join_picks never raises).
+    if tickets:
+        _games.join_picks(tickets[0], game_picks)
+    games_joined = _games.ticket_games(tickets[0] if tickets else None)
+
     # Fire-and-forget: a failed notification must never undo a paid purchase.
     try:
         from vent_auth.views_notifications import create_notification
@@ -738,6 +748,7 @@ def buy_ticket(request, event_id):
             'fee_bearer': priced['fee_bearer'],
             'wallet_balance': UserWallet.objects.get(user=user).wallet_balance,
             'new_balance': UserWallet.objects.get(user=user).wallet_balance,
+            'games': games_joined,
         },
         'message': f'{_count(quantity, "ticket")} booked for {event.name}.',
     }, status=status.HTTP_201_CREATED)

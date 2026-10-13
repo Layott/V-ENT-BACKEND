@@ -346,6 +346,9 @@ def _ticket_row(ticket):
         'attendee_email': ticket.attendee_email,
         'tier': ticket.tier.name,
         'status': ticket.status,
+        # Where the holder goes next (their games, the event): the address,
+        # never the number (slug rule).
+        'event_slug': ticket.event.slug,
     }
 
 
@@ -374,6 +377,11 @@ def guest_buy(request, event_id):
     tier, quantity, email, answers, err = _validate_order(event, request)
     if err:
         return err
+    # The party games ticked in checkout (inbox 434, G2), carried to wherever
+    # the tickets are issued: here for a free one, through the gateway for a
+    # paid one. Read before the gateway so a bad list costs nothing.
+    from . import game_entries as _games
+    game_picks = _games.read_picks(request.data)
 
     err = _room_or_error(event, tier, quantity)
     if err:
@@ -432,10 +440,12 @@ def guest_buy(request, event_id):
                              referral=_referral_from(request, event),
                              promo=promo)
         _send_them(tickets)
+        _games.join_picks(tickets[0] if tickets else None, game_picks)
         return _ok({
             'tickets': [_ticket_row(t) for t in tickets],
             'paid': False,
             'email': email,
+            'games': _games_of(tickets),
         }, 'Your ticket is on its way to %s.' % email,
             status.HTTP_201_CREATED)
 
@@ -443,7 +453,7 @@ def guest_buy(request, event_id):
     from vent_auth.pay import choose_provider
     if choose_provider(request.data.get('provider')) == 'flutterwave':
         return _start_flutterwave(request, event, tier, quantity, email, answers,
-                                  promo, total_ngn, fee_ngn, priced)
+                                  promo, total_ngn, fee_ngn, priced, game_picks)
 
     from vent_auth import paystack
     if not paystack.configured():
@@ -475,6 +485,8 @@ def guest_buy(request, event_id):
             # The promo code, for the same reason: the card was charged the
             # discounted price, so the tickets are issued at it.
             'promo': promo.code if promo is not None else '',
+            # The games ticked in checkout, joined when the tickets are issued.
+            'games': game_picks,
         },
     }
 
@@ -524,7 +536,7 @@ def guest_buy(request, event_id):
 
 
 def _start_flutterwave(request, event, tier, quantity, email, answers, promo, total_ngn,
-                       fee_ngn, priced):
+                       fee_ngn, priced, game_picks=()):
     """A guest paying through Flutterwave. The order is kept against the
     reference (AbandonedCheckout.order) because Flutterwave does not carry it
     back; the tickets are issued by `fulfil_flutterwave` when the money is
@@ -542,6 +554,7 @@ def _start_flutterwave(request, event, tier, quantity, email, answers, promo, to
         'ref': referral.code if referral else '',
         'promo': promo.code if promo is not None else '',
         'buyer_id': buyer.user_id if buyer else None,
+        'games': list(game_picks),
     }
     try:
         started = flutterwave.start(
@@ -566,6 +579,22 @@ def _start_flutterwave(request, event, tier, quantity, email, answers, promo, to
         'total_ngn': total_ngn, 'test_mode': flutterwave.is_test(),
         'amount_ngn': float(total_ngn), 'email': email, 'provider': 'flutterwave',
     }, 'Continue to payment.')
+
+
+def _stored_picks(raw):
+    """Game ids kept with an order at the gateway. Read again on the way back,
+    because a gateway's metadata is not something this code wrote last."""
+    from . import game_entries as _games
+    try:
+        return _games.read_picks({'games': raw if isinstance(raw, list) else []})
+    except ValueError:
+        return []
+
+
+def _games_of(tickets):
+    """What the buyer's ticket (the first) is down for, for the page to say."""
+    from . import game_entries as _games
+    return _games.ticket_games(tickets[0] if tickets else None)
 
 
 def fulfil_flutterwave(reference, request=None):
@@ -623,6 +652,8 @@ def fulfil_flutterwave(reference, request=None):
         pending.converted_at = timezone.now()
         pending.save(update_fields=['converted_at'])
     _send_them(tickets)
+    from . import game_entries as _games
+    _games.join_picks(tickets[0] if tickets else None, _stored_picks(order.get('games')))
     return 'issued', tickets
 
 
@@ -656,7 +687,8 @@ def guest_verify(request):
             return _err('That payment has not gone through.', 'PAYMENT_NOT_COMPLETE',
                         status.HTTP_402_PAYMENT_REQUIRED)
         return _ok({'tickets': [_ticket_row(t) for t in tickets],
-                    'already_issued': code == 'already'},
+                    'already_issued': code == 'already',
+                    'games': _games_of(tickets)},
                    'Your tickets are ready.' if code == 'already'
                    else 'Paid. Your tickets are on their way.',
                    status.HTTP_200_OK if code == 'already' else status.HTTP_201_CREATED)
@@ -667,7 +699,8 @@ def guest_verify(request):
             reference=reference, converted_at__isnull=True
         ).update(converted_at=timezone.now())
         return _ok({'tickets': [_ticket_row(t) for t in existing],
-                    'already_issued': True},
+                    'already_issued': True,
+                    'games': _games_of(existing)},
                    'Your tickets are ready.')
 
     try:
@@ -724,6 +757,8 @@ def guest_verify(request):
                      referral=_refs_resolve(event, meta.get('ref')),
                      buyer=_buyer(request), promo=promo)
     _send_them(tickets)
+    from . import game_entries as _games
+    _games.join_picks(tickets[0] if tickets else None, _stored_picks(meta.get('games')))
 
     # They came back. The row stops being somebody to chase and becomes a
     # number in the funnel until it is swept.
@@ -732,7 +767,8 @@ def guest_verify(request):
     ).update(converted_at=timezone.now())
 
     return _ok({'tickets': [_ticket_row(t) for t in tickets],
-                'already_issued': False},
+                'already_issued': False,
+                'games': _games_of(tickets)},
                'Paid. Your tickets are on their way to %s.' % email,
                status.HTTP_201_CREATED)
 
