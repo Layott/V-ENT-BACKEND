@@ -54,6 +54,13 @@ class LineupTestCase(TestCase):
         # Lineups on, no deadline: open.
         LineupRules.objects.create(tournament=self.tournament, enabled=True)
 
+        # Both players hold a place: a lineup belongs to somebody who plays
+        # here (16 October 2026). The organiser does not.
+        from vent_tournament.models import TournamentRegistration
+        for person in (self.player, self.other):
+            TournamentRegistration.objects.create(
+                tournament=self.tournament, user=person, status='confirmed')
+
         # Twenty-three distinct people, so a full squad can be built.
         self.cards = [a_card(i, 'Player %02d' % i, 80 + (i % 15))
                       for i in range(23)]
@@ -392,3 +399,41 @@ class TheOverlayFollowsAChangeTests(LineupTestCase):
         # Each slot carries the card's own fields, so a repeat can read them.
         self.assertIn('name', lineups[0]['slots'][0])
         self.assertIn('rating', lineups[0]['slots'][0])
+
+
+class OnlyAnEntrantBuildsALineupTests(LineupTestCase):
+    """16 October 2026: the picker sat behind a console that refused players,
+    while the door took a lineup from anybody signed in."""
+
+    def test_somebody_not_entered_is_refused_and_nothing_is_kept(self):
+        stranger, auth = a_user('ln_stranger')
+        res = self.save(auth=auth)
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.json()['code'], 'NOT_ENTERED')
+        self.assertFalse(Lineup.objects.filter(user=stranger).exists())
+        res = self.client.post(self.url('/submit/'), content_type='application/json', **auth)
+        self.assertEqual(res.json()['code'], 'NOT_ENTERED')
+
+    def test_a_withdrawn_place_does_not_count(self):
+        from vent_tournament.models import TournamentRegistration
+        TournamentRegistration.objects.filter(user=self.other).update(status='withdrawn')
+        self.assertEqual(self.save(auth=self.other_auth).json()['code'], 'NOT_ENTERED')
+
+    def test_the_picker_is_told_whether_the_viewer_is_entered(self):
+        got = self.client.get(self.url('/'), **self.auth).json()['data']
+        self.assertTrue(got['entered'])
+        got = self.client.get(self.url('/'), **self.org_auth).json()['data']
+        self.assertFalse(got['entered'])
+
+    def test_the_access_answer_says_who_plays_here(self):
+        mine = self.client.get('/tournament/%s/access/' % self.ref, **self.auth).json()['data']
+        self.assertTrue(mine['is_entrant'])
+        self.assertFalse(mine['can_manage'])
+        org = self.client.get('/tournament/%s/access/' % self.ref, **self.org_auth).json()['data']
+        self.assertFalse(org['is_entrant'])
+        self.assertTrue(org['can_manage'])
+
+    def test_the_tournament_page_says_lineups_are_open(self):
+        got = self.client.get('/tournament/view-tournament/%s/' % self.ref, **self.auth).json()
+        data = got.get('data', got)
+        self.assertEqual(data.get('lineups'), 'open')

@@ -131,6 +131,8 @@ def my_lineup(request, tournament_id):
                     status.HTTP_401_UNAUTHORIZED)
 
     window = windows.window_for(tournament)
+    from vent_tournament.access import plays_in
+    entered = plays_in(user, tournament)
 
     if request.method == 'GET':
         mine = _my_lineup(tournament, user)
@@ -139,6 +141,9 @@ def my_lineup(request, tournament_id):
         slots = (body or {}).get('slots') or []
         return _ok({
             'lineup': body,
+            # Whether this account plays here at all, so the picker can say so
+            # instead of offering a squad the save would refuse.
+            'entered': entered,
             'window': window.payload(),
             'formations': formation_catalogue.catalogue(),
             # The rules, and exactly where this squad stands against them, so a
@@ -150,6 +155,12 @@ def my_lineup(request, tournament_id):
 
     if window.state == 'off':
         return _err('This tournament is not using lineups.', 'LINEUPS_OFF')
+    # A lineup belongs to somebody who plays here. Anybody signed in could save
+    # one into any tournament until 16 October 2026, and it then appeared in
+    # the organiser's list beside the real ones.
+    if not entered:
+        return _err('You are not entered in this tournament.', 'NOT_ENTERED',
+                    status.HTTP_403_FORBIDDEN)
     if not window.can_edit:
         # The refusal carries the time, so somebody who missed it by a minute
         # can see that rather than guess.

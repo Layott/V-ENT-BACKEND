@@ -55,6 +55,25 @@ def may_record_results(user, tournament):
     return role_of(user, tournament) in ('organiser', 'admin', 'scorekeeper')
 
 
+def plays_in(user, tournament):
+    """Whether `user` plays in this tournament: a place of their own, or a place
+    for a team, club or squad they are part of (`plays_for`). A withdrawn or
+    disqualified place does not count.
+
+    The lineup doors and the console ask it (16 October 2026): the lineup
+    picker sat on a console that refused everybody but the people running the
+    tournament, so no player could ever reach it, while the lineup door itself
+    took a lineup from anybody signed in, entered or not.
+    """
+    if user is None or tournament is None:
+        return False
+    places = tournament.registrations.exclude(status__in=('withdrawn', 'disqualified'))
+    if places.filter(user_id=user.user_id).exists():
+        return True
+    return any(reg.plays_for(user) for reg in places.exclude(user_id=user.user_id)
+               .select_related('team', 'squad', 'user'))
+
+
 def access_payload(user, tournament):
     """What the interface renders from. 200 for everybody; false for a stranger."""
     role = role_of(user, tournament)
@@ -62,4 +81,6 @@ def access_payload(user, tournament):
         'role': role,
         'can_manage': role in ('organiser', 'admin'),
         'can_record_results': role in ('organiser', 'admin', 'scorekeeper'),
+        # A player opens the console for their lineup and nothing else.
+        'is_entrant': plays_in(user, tournament),
     }
