@@ -61,6 +61,27 @@ Gates: V-ENT/gates/66-everything-left-13-oct.md. Inbox rows 456 to 461 are this 
 - Signup's limit is now 20 like the server (it said 30).
 - Production 16 Oct 14:26: "666 sitemap address(es) checked on https://v-ent.co, 0 problem(s)".
 
-## STILL OPEN after that
-450/452 screens (server UNCOMMITTED on records feature/bracket-editing), 453 toornament research,
-C1 event ticket tab error state, E1 EAFC F5 production walk. 431 waits on the CEO's code.
+## 450 / 452 and C1, DONE and LIVE (BE #244, FE #252)
+- Stages panel after the start: the plan stays editable until the end; drawn stages locked to name, time,
+  place and (while running) how many go through, with a note; Change the format (format, groups, how many,
+  seeding), Undo the draw (confirm names the results thrown away), Open it again; a one-format bracket
+  offers "Add stages or change the format" (adopt).
+- Brackets tab: BracketEditTools (swap, replace, history). Match room: take a result off and change how
+  a match is played (this match or its round), for can_manage only (new field on the match room).
+- The stage planner's 12 English refusals carry codes with fields (NEXT_STAGE_TOO_FEW etc.);
+  STAGE_FORMAT_UNKNOWN is separate from the export doors' UNKNOWN_FORMAT (check-server-codes).
+- IDOR cases for the 9 doors: --idor 0 high 0 medium (431). Suites 4165 OK. Walk:
+  V-ENT/tasks/audit/bracket-editing-walk-2026-10-16.md (six roles, desktop, 390, emulator).
+- C1: the event ticket tab keeps loading / failed with Try again / nothing on sale apart.
+- Agents (CEO asked for them): a C1 agent made the change and went idle at the commit hook (its fresh
+  worktree had no node_modules); a 453 research agent was stopped as a duplicate of the CEO's second
+  session. Both shut down at the CEO's ask; C1 carried over by hand.
+
+## Closed
+gates/66 ALL MET (23 met, E1 abandoned). 453 done by the CEO's second session
+(V-ENT/docs/research/toornament-2026-10-16.md).
+
+## Waiting on the CEO
+E1 EAFC lineup walk on production (production: 25 cards, 0 lineup rules, 0 lineups; needs the organiser to
+turn lineups on and a registered player to pick one), 431 admin walk (their code), Cloudflare proxy,
+Search Console (remove the two stale rows, resubmit sitemap.xml). 69 and 438 parked.
