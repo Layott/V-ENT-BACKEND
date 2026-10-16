@@ -19,7 +19,8 @@ from .models import (
     Follow, OrgFollower, follower_count, is_following,
 )
 from . import emails
-from .views_helpers import session_timeout_minutes, username_refusal
+from .views_helpers import (normalize_username, session_timeout_minutes,
+                           username_problem, username_refusal)
 from .throttle import limited
 from vent_auth.errors import server_error
 from . import uploads
@@ -527,7 +528,20 @@ def edit_profile_info(request):
         except UserProfile.DoesNotExist:
             return Response({ 'code': 'USER_PROFILE_DOES_NOT','status': 'error', 'message': 'User profile does not exist'}, status=status.HTTP_404_NOT_FOUND)
 
-        if username and username != user.username:
+        # The same rules as the settings rename door (views_settings): stored
+        # stripped and lowercased, 3 to 30 letters, numbers or underscores.
+        # This door saved whatever was typed, and on 12 October a username
+        # ending in a space made that player's profile unreachable: /u/<name>
+        # strips the space, finds nobody, and serves a missing page with
+        # noindex (check-search, 16 October, inbox 461).
+        if username is not None:
+            username = normalize_username(username)
+        if username and username != normalize_username(user.username):
+            problem = username_problem(username)
+            if problem:
+                return Response({'code': 'USERNAME_INVALID', 'status': 'error',
+                                 'message': problem, 'field': 'username'},
+                                status=status.HTTP_400_BAD_REQUEST)
             refusal = username_refusal(username, email=user.email, exclude_user=user)
             if refusal:
                 code, message, data = refusal
