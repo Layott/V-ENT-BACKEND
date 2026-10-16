@@ -141,3 +141,12 @@ if [ -x "$BACKEND/venv/bin/python" ]; then
 fi
 
 echo "the live site is serving this build"
+
+# What a search engine reads (inbox 461, 16 October 2026): robots.txt, the
+# sitemap, every address in it answering 200 with no noindex and itself as
+# canonical, and every public record listed. A deploy that breaks any of it
+# fails here, the day it ships, instead of weeks later in Search Console.
+SEARCH_OUT=$(bash "$BACKEND/deploy/search-check.sh" --no-mail 2>&1)
+SEARCH_CODE=$?
+printf '%s\n' "$SEARCH_OUT" | tail -n 1
+[ "$SEARCH_CODE" = "0" ] || { printf '%s\n' "$SEARCH_OUT" | tail -n 40 >&2; fail "the search check found problems (above); rerun: bash $BACKEND/deploy/search-check.sh --no-mail"; }

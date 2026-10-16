@@ -469,6 +469,11 @@
     "first_seen": "2026-10-12",
     "since": "2026-10-12"
   },
+  "search self-test": {
+    "count": 0,
+    "first_seen": "2026-10-16",
+    "since": "2026-10-16"
+  },
   "security rules (backend)": {
     "count": 0,
     "first_seen": "2026-09-17",
@@ -483,6 +488,11 @@
     "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
+  },
+  "seo self-test": {
+    "count": 0,
+    "first_seen": "2026-10-16",
+    "since": "2026-10-16"
   },
   "server codes": {
     "count": 0,

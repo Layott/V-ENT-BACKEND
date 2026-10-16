@@ -151,6 +151,8 @@ urlpatterns = [
     # str, not int: a profile is addressed by username. The numeric form
     # still resolves so links shared before this keep working.
     path('user/<str:user_id>/profile/', prof.public_profile),
+    # Every profile a search engine may list, for the sitemap (inbox 460).
+    path('users/indexable/', prof.indexable_profiles),
     # The gallery, with the esports release recorded on each picture.
     path('gallery/release-terms/', gallery.release_terms),
     path('gallery/upload/', gallery.upload_gallery),
