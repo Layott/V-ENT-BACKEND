@@ -116,6 +116,25 @@ def _row(stage):
     }
 
 
+def _lines(tournament, rows):
+    """The lines between the stages (P1b). Stages made without the planner
+    have none stored until the engine first runs; they are shown as the chain
+    their order and advances describe, unsaved (`id` None), so the screen
+    always reads the flow the engine will follow."""
+    from . import progressions
+    stored = list(progressions.lines_of(tournament))
+    if stored:
+        return [{'id': l.id, 'source': l.source_id, 'target': l.target_id, 'group': l.group,
+                 'place_from': l.place_from, 'place_to': l.place_to, 'side': l.side,
+                 'carry_points': l.carry_points, 'fire': l.fire, 'order': l.order,
+                 'fired_at': l.fired_at, 'sent_count': len(l.sent or [])} for l in stored]
+    return [{'id': None, 'source': rows[l['source']].id, 'target': rows[l['target']].id,
+             'group': l['group'], 'place_from': l['place_from'], 'place_to': l['place_to'],
+             'side': l['side'], 'carry_points': l['carry_points'], 'fire': l['fire'],
+             'order': l['order'], 'fired_at': None, 'sent_count': 0}
+            for l in progressions.chain(rows)]
+
+
 def _played_count(tournament, stage):
     from . import bracket_edit
     return bracket_edit.played_count(tournament, stage)
@@ -173,6 +192,7 @@ def tournament_stages(request, tournament_id):
     viewer = _viewer(request)
     return _ok({
         'stages': [_row(s) for s in rows],
+        'progressions': _lines(tournament, rows),
         # An empty list is the normal case and means the tournament runs as one
         # format from start to finish, which is what almost all of them do.
         'single_format': not rows,
@@ -228,13 +248,17 @@ def set_stages(request, tournament_id):
             rows = bracket_edit.save_plan(
                 tournament, request.data.get('stages'), user,
                 participants=tournament.registrations.filter(
-                    status__in=('pending', 'confirmed')).count() or None)
+                    status__in=('pending', 'confirmed')).count() or None,
+                # The lines between the stages (P1b); absent means the old
+                # planner's chain.
+                raw_lines=request.data.get('progressions'))
     except bracket_edit.EditError as exc:
         return _refused(exc)
 
     cleaned = [{'format': s.format, 'label': s.label, 'advances': s.advances,
                 'groups': s.groups, 'rules': s.rules} for s in rows]
     return _ok({'stages': [_row(s) for s in rows],
+                'progressions': _lines(tournament, rows),
                 'summary': stages.summary(cleaned) if cleaned else []}, 'Stages saved.')
 
 

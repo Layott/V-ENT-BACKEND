@@ -456,7 +456,7 @@ def _drawn(stage):
     return stage.drawn_at is not None or stage.status != 'pending'
 
 
-def save_plan(tournament, raw_stages, user, participants=None):
+def save_plan(tournament, raw_stages, user, participants=None, raw_lines=None):
     """Save the stage plan at any point before the tournament ends.
 
     Stages already drawn stay first, in their order, with their format, groups,
@@ -505,7 +505,25 @@ def save_plan(tournament, raw_stages, user, participants=None):
                 raw['advances'] = stage.advances    # who went through is decided
         merged.append(raw)
 
-    cleaned = _checked_plan(merged, participants=participants if not drawn else None)
+    cleaned = _checked_plan(merged, participants=participants if not drawn else None,
+                            lines=raw_lines is not None)
+
+    # The lines between the stages (P1b). None is the old planner, which only
+    # ever meant the chain its order and advances describe.
+    from . import progressions
+    if raw_lines is None:
+        lines = progressions.chain(cleaned)
+    else:
+        try:
+            lines = progressions.clean(raw_lines, cleaned,
+                                       participants=participants if not drawn else None)
+        except progressions.LineError as exc:
+            raise EditError(exc.code, exc.field, line_index=exc.index)
+        # `advances` stays meaningful for every reader that still asks it: the
+        # most places any line takes out of the stage.
+        for index, stage in enumerate(cleaned):
+            stage['advances'] = max([l['place_to'] for l in lines if l['source'] == index],
+                                    default=0)
 
     own = set(tournament.registrations.values_list('id', flat=True))
     for index, stage in enumerate(cleaned):
@@ -538,9 +556,35 @@ def save_plan(tournament, raw_stages, user, participants=None):
 
     removed = [s.id for s in existing if s.id not in kept]
     TournamentStage.objects.filter(pk__in=removed).delete()
+    _save_lines(tournament, lines)
     if drawn or removed:
         _log(tournament, user, 'plan', None, stages=len(cleaned), removed=len(removed) or None)
     return list(tournament.stages.all().order_by('order'))
+
+
+def _save_lines(tournament, lines):
+    """Write the plan's lines. A line that already sent people is what
+    happened: it must come back unchanged, and it is kept as it was."""
+    from .models import Progression
+    saved = list(tournament.stages.all().order_by('order'))
+    wanted = [(saved[l['source']].id, saved[l['target']].id, l['group'], l['place_from'],
+               l['place_to'], l['side']) for l in lines]
+    existing = list(Progression.objects.filter(source__tournament=tournament))
+    fired = {(l.source_id, l.target_id, l.group, l.place_from, l.place_to, l.side): l
+             for l in existing if l.fired_at is not None}
+    if any(shape not in wanted for shape in fired):
+        raise EditError('PROGRESSION_FIRED_LOCKED', 'progressions')
+    Progression.objects.filter(pk__in=[l.id for l in existing if l.fired_at is None]).delete()
+    for line, shape in zip(lines, wanted):
+        if shape in fired:
+            kept = fired[shape]
+            kept.fire, kept.carry_points, kept.order = line['fire'], line['carry_points'], line['order']
+            kept.save(update_fields=['fire', 'carry_points', 'order'])
+            continue
+        Progression.objects.create(
+            source_id=shape[0], target_id=shape[1], group=line['group'],
+            place_from=line['place_from'], place_to=line['place_to'], side=line['side'],
+            carry_points=line['carry_points'], fire=line['fire'], order=line['order'])
 
 
 def _format_label(key):
@@ -548,12 +592,12 @@ def _format_label(key):
     return fmt.label if fmt else ''
 
 
-def _checked_plan(rows, participants=None):
+def _checked_plan(rows, participants=None, lines=False):
     """`stages.plan`, refusing the way the plan door always has: a refusal that
     is a code goes as the code, a sentence goes as VALIDATION_FAILED with the
     sentence beside it and the row it is about."""
     try:
-        return stages.plan(rows, participants=participants)
+        return stages.plan(rows, participants=participants, lines=lines)
     except stages.StageError as exc:
         text = str(exc)
         if getattr(exc, 'code', None):
