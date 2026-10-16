@@ -364,6 +364,16 @@
     "first_seen": "2026-09-18",
     "since": "2026-09-18"
   },
+  "one ranking": {
+    "count": 0,
+    "first_seen": "2026-10-16",
+    "since": "2026-10-16"
+  },
+  "one ranking self-test": {
+    "count": 0,
+    "first_seen": "2026-10-16",
+    "since": "2026-10-16"
+  },
   "overlay runtime": {
     "count": 0,
     "first_seen": "2026-09-12",

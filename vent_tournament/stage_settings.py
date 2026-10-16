@@ -18,8 +18,11 @@ Where the defaults come from (researched 27 September 2026):
     penalties on in a knockout, one side hosts a Friend Match room and shares
     its id and password.
   * toornament: single elimination has a third-place decider; double
-    elimination's grand final is single or with a reset; Swiss stops a side at
-    a number of wins or losses.
+    elimination's grand final is single or with a reset.
+  * Swiss stopping a side at a number of wins or losses is V-ENT's own, after
+    the Counter-Strike Major Swiss. Toornament documents no such limit
+    (docs/research/toornament-2026-10-16.md, section 18.4); an earlier version
+    of this note said it did.
 """
 from . import formats
 

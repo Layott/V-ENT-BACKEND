@@ -402,6 +402,11 @@ def get(key):
     return FORMATS.get(ALIASES.get(slug, slug))
 
 
+def _ranking():
+    from . import ranking      # ranking imports this module; read it late
+    return ranking
+
+
 def catalogue():
     """Every format, for the wizard and for the admin console."""
     return [
@@ -416,6 +421,12 @@ def catalogue():
             'scoring': f.scoring,
             'tiebreakers': [
                 {'key': t, 'label': TIEBREAKERS[t]} for t in f.tiebreakers
+            ],
+            # What a stage of this format may rank by, in the order offered:
+            # exactly what ranking.clean_rules accepts, so the stage planner
+            # never offers a tie-breaker the server would drop (P0).
+            'scoring_tiebreakers': [
+                {'key': t, 'label': TIEBREAKERS.get(t, 'Seed')} for t in _ranking().offered(f.key)
             ],
             'can_feed_into': list(f.can_feed_into),
             'notes': f.notes,

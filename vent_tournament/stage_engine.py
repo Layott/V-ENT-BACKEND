@@ -25,7 +25,7 @@ import random
 from django.db import transaction
 from django.utils import timezone
 
-from . import formats, stage_settings
+from . import formats, ranking, stage_settings
 
 
 class StageEngineError(ValueError):
@@ -198,9 +198,8 @@ def _blank(reg, group=None):
 
 
 def _points(stage):
-    rules = stage.rules if isinstance(stage.rules, dict) else {}
-    return (int(rules.get('points_win', 3)), int(rules.get('points_draw', 1)),
-            int(rules.get('points_loss', 0)))
+    rules = ranking.stage_rules(stage)
+    return (rules['points_win'], rules['points_draw'], rules['points_loss'])
 
 
 def _tally(rows, match, pts):
@@ -243,39 +242,21 @@ def _head_to_head_points(tied_ids, matches, pts):
     return mini
 
 
-def _rank_table(rows, matches, pts):
-    """Points, then the result between the tied sides, then goal difference,
-    goals scored, wins, then seed. Each row says which one separated it."""
+def _rank_table(rows, matches, pts, tiebreakers=None):
+    """Points, then the organiser's tie-breakers in their order (by default
+    the result between the tied sides, goal difference, goals scored, wins,
+    seed). Each row says which one separated it."""
     for row in rows:
         row['goal_difference'] = row['goals_for'] - row['goals_against']
-    by_points = {}
-    for row in rows:
-        by_points.setdefault(row['points'], []).append(row)
-    h2h = {}
-    for tied in by_points.values():
-        if len(tied) > 1:
-            h2h.update(_head_to_head_points([r['registration_id'] for r in tied], matches, pts))
-    key = lambda r: (-r['points'], -h2h.get(r['registration_id'], 0),
-                     -r['goal_difference'], -r['goals_for'], -r['wins'],
-                     r['seed'] if r['seed'] is not None else 10 ** 6, r['name'].lower())
-    ranked = sorted(rows, key=key)
-    names = ['points', 'head_to_head', 'goal_difference', 'goals_for', 'wins', 'seed']
-    for i, row in enumerate(ranked):
-        row['rank'] = i + 1
-        if i:
-            prev = ranked[i - 1]
-            pk, rk = key(prev), key(row)
-            for idx, name in enumerate(names):
-                if pk[idx] != rk[idx]:
-                    row['decided_by'] = name
-                    break
-    return ranked
+    return ranking.order(rows, tiebreakers or ranking.TABLE_DEFAULT,
+                         h2h=lambda ids: _head_to_head_points(ids, matches, pts))
 
 
 def _table_standings(stage):
     from .models import TournamentRegistration
 
-    pts = _points(stage)
+    rules = ranking.stage_rules(stage)
+    pts = (rules['points_win'], rules['points_draw'], rules['points_loss'])
     regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or []).select_related('user', 'team', 'squad')}
     groups = {}
     for m in stage.matches.all():
@@ -290,7 +271,7 @@ def _table_standings(stage):
         group_matches = [m for m in played if (m.group_number or 0) == g]
         for m in group_matches:
             _tally(rows, m, pts)
-        out.extend(_rank_table(list(rows.values()), group_matches, pts))
+        out.extend(_rank_table(list(rows.values()), group_matches, pts, rules['tiebreakers']))
     return out
 
 
@@ -298,13 +279,16 @@ def _swiss_standings(stage):
     from .models import TournamentRegistration
 
     settings = stage.settings or {}
+    rules = ranking.stage_rules(stage)
+    pts = (rules['points_win'], rules['points_draw'], rules['points_loss'])
     regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or []).select_related('user', 'team', 'squad')}
     rows = {i: _blank(r) for i, r in regs.items()}
     opponents = {i: [] for i in regs}
+    played = []
     for m in stage.matches.all():
         if m.status == 'bye' and m.winner_id in rows:
             rows[m.winner_id]['wins'] += 1
-            rows[m.winner_id]['points'] += 3
+            rows[m.winner_id]['points'] += rules['points_bye']
             continue
         if m.status not in ('completed', 'walkover_p1', 'walkover_p2'):
             continue
@@ -312,29 +296,19 @@ def _swiss_standings(stage):
         if a in opponents and b in opponents:
             opponents[a].append(b)
             opponents[b].append(a)
-        _tally(rows, m, (3, 1, 0))
+        _tally(rows, m, pts)
+        played.append(m)
+    strength = 'points' if rules['buchholz'] == 'points' else 'wins'
     for i, row in rows.items():
-        row['buchholz'] = sum(rows[o]['wins'] for o in opponents[i] if o in rows)
+        row['buchholz'] = sum(rows[o][strength] for o in opponents[i] if o in rows)
         row['goal_difference'] = row['goals_for'] - row['goals_against']
         target, limit = settings.get('win_target') or 0, settings.get('loss_limit') or 0
         if target and row['wins'] >= target:
             row['status'] = 'qualified'
         elif limit and row['losses'] >= limit:
             row['status'] = 'eliminated'
-    key = lambda r: (-r['points'], -r['buchholz'], -r['goal_difference'],
-                     -r['goals_for'], r['seed'] if r['seed'] is not None else 10 ** 6,
-                     r['name'].lower())
-    ranked = sorted(rows.values(), key=key)
-    names = ['points', 'buchholz', 'goal_difference', 'goals_for', 'seed']
-    for i, row in enumerate(ranked):
-        row['rank'] = i + 1
-        if i:
-            pk, rk = key(ranked[i - 1]), key(row)
-            for idx, name in enumerate(names):
-                if pk[idx] != rk[idx]:
-                    row['decided_by'] = name
-                    break
-    return ranked
+    return ranking.order(list(rows.values()), rules['tiebreakers'] or ranking.SWISS_DEFAULT,
+                         h2h=lambda ids: _head_to_head_points(ids, played, pts))
 
 
 def _loser(m):
@@ -343,42 +317,38 @@ def _loser(m):
     return m.participant_2_id if m.winner_id == m.participant_1_id else m.participant_1_id
 
 
-def _knockout_standings(stage):
-    """Finishing places: the final decides first and second, a third-place
-    match third and fourth, everybody else by how late they went out."""
-    from .models import TournamentRegistration
+def knockout_places(matches):
+    """Finishing places from a knockout's matches: {registration id: place}.
 
+    The final decides first and second, a third-place match third and fourth,
+    and everybody else by the round they went out in, later rounds first.
+    Losers of the same round SHARE their place (P0, 16 October 2026: "these
+    are fine."): both semi-final losers are third, all four quarter-final
+    losers fifth. They were given different places by match number, and prizes
+    were paid by those places. A bracket whose matches state places (every
+    place, stepladder, page playoff) keeps them. In double elimination a loss
+    on the winners side is not an elimination.
+    """
     from .services.bracket import places_from_matches
 
-    matches = list(stage.matches.all())
-    regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or []).select_related('user', 'team', 'squad')}
+    matches = list(matches)
     stated = places_from_matches(matches)
     if stated is not None:
-        rows = []
-        for rid, reg in regs.items():
-            row = _blank(reg)
-            row['rank'] = stated.get(rid)
-            row['status'] = 'placed' if rid in stated else 'playing'
-            rows.append(row)
-        by_id = {r['registration_id']: r for r in rows}
-        for m in matches:
-            if m.status == 'completed' and m.participant_1_id in regs and m.participant_2_id in regs:
-                _tally(by_id, m, (1, 0, 0))
-        rows.sort(key=lambda r: (r['rank'] is None, r['rank'] or 0, r['seed'] or 10 ** 6))
-        return rows
+        return stated
     place = {}
     final = next((m for m in matches if m.is_final), None)
-    done = final is not None and final.status in TERMINAL and final.winner_id
-    if done:
+    if final is None and matches:
+        final = max(matches, key=lambda m: (m.round_number, m.match_number))
+    if final is not None and final.status in TERMINAL and final.winner_id:
         place[final.winner_id] = 1
         runner = _loser(final)
         if runner is None and final.bracket_side == 'grand_final':
-            gf1 = next((m for m in matches if m.bracket_side == 'grand_final'
-                        and not m.is_final), None)
-            runner = _loser(gf1) if gf1 else None
+            first = next((m for m in matches if m.bracket_side == 'grand_final'
+                          and not m.is_final), None)
+            runner = _loser(first) if first else None
         if runner:
             place[runner] = 2
-    third = next((m for m in matches if final and m is not final and not m.is_final
+    third = next((m for m in matches if final is not None and m is not final and not m.is_final
                   and m.round_number == final.round_number
                   and m.bracket_side == final.bracket_side and m.status == 'completed'), None)
     nxt = 3
@@ -388,23 +358,38 @@ def _knockout_standings(stage):
         if _loser(third):
             place.setdefault(_loser(third), 4)
         nxt = 5
-    for m in sorted((m for m in matches if m.status == 'completed' and m is not third),
-                    key=lambda m: (-m.round_number, m.bracket_side, m.match_number)):
-        lost = _loser(m)
-        # In double elimination a winners-bracket loss is not elimination.
-        if lost and lost not in place and not (m.bracket_side == 'winners'
-                                              and m.loser_to_match_id):
+    rounds = {}
+    for m in matches:
+        if m.status != 'completed' or m is third or m is final:
+            continue
+        if m.bracket_side == 'winners' and m.loser_to_match_id:
+            continue
+        rounds.setdefault((m.round_number, m.bracket_side), []).append(m)
+    for key in sorted(rounds, key=lambda k: (-k[0], k[1])):
+        out = [lost for lost in (_loser(m) for m in rounds[key]) if lost and lost not in place]
+        for lost in out:
             place[lost] = nxt
-            nxt += 1
+        nxt += len(out)
+    return place
+
+
+def _knockout_standings(stage):
+    """Finishing places, as `knockout_places` decides them, with the record."""
+    from .models import TournamentRegistration
+
+    matches = list(stage.matches.all())
+    regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or []).select_related('user', 'team', 'squad')}
+    place = knockout_places(matches)
     rows = []
     for rid, reg in regs.items():
         row = _blank(reg)
         row['rank'] = place.get(rid)
         row['status'] = 'placed' if rid in place else 'playing'
         rows.append(row)
+    by_id = {r['registration_id']: r for r in rows}
     for m in matches:
         if m.status == 'completed' and m.participant_1_id in regs and m.participant_2_id in regs:
-            _tally({r['registration_id']: r for r in rows}, m, (1, 0, 0))
+            _tally(by_id, m, (1, 0, 0))
     rows.sort(key=lambda r: (r['rank'] is None, r['rank'] or 0, r['seed'] or 10 ** 6))
     return rows
 
@@ -447,18 +432,12 @@ def streak_rows(tournament, stage, matches, settings):
                          else 'placed' if state['finished'] else 'out'
                          if row['losses'] and not state['target'] else 'playing')
         rows.append(row)
-    key = lambda r: (-r['wins'], -r['longest_streak'],
-                     r['seed'] if r['seed'] is not None else 10 ** 6, r['name'].lower())
-    rows.sort(key=key)
-    names = ['wins', 'longest_streak', 'seed']
-    for i, row in enumerate(rows):
-        row['rank'] = i + 1
-        if i:
-            pk, rk = key(rows[i - 1]), key(row)
-            for idx, name in enumerate(names):
-                if pk[idx] != rk[idx]:
-                    row['decided_by'] = name
-                    break
+    # Points here are wins (set above), then the longest streak, then seed.
+    rows = ranking.order(rows, ['longest_streak', 'seed'],
+                         value=lambda r, k: r['longest_streak'] if k == 'longest_streak' else None)
+    for row in rows:
+        if row['decided_by'] == 'points':
+            row['decided_by'] = 'wins'
     return rows, state
 
 
@@ -608,8 +587,11 @@ def advancing(stage):
 
     nxt = next_stage(stage)
     if nxt is not None and nxt.placement == 'by_record':
-        chosen.sort(key=lambda r: (-r['points'], -r['goal_difference'], -r['goals_for'],
-                                   r['seed'] or 10 ** 6))
+        # Copies, so ranking them across groups does not overwrite the rank
+        # each row has inside its own group.
+        by_id = {r['registration_id']: r for r in chosen}
+        across = ranking.order([dict(r) for r in chosen], ['goal_difference', 'goals_for', 'seed'])
+        chosen = [by_id[r['registration_id']] for r in across]
     return chosen
 
 
@@ -931,13 +913,18 @@ def assign_final_positions(tournament):
         rows = standings(stage)
         carried = {row['registration_id'] for row in (stage.advanced or [])
                    if isinstance(row, dict)}
-        for row in sorted(rows, key=lambda r: (r['rank'] is None, r['rank'] or 0,
-                                                r['group'] or 0)):
+        # Everybody who went out of this stage on the same rank shares one
+        # place: the third of every group, both semi-final losers (P0).
+        by_rank = {}
+        for row in rows:
             rid = row['registration_id']
             if rid in placed or rid in carried:
                 continue
-            placed[rid] = pos
-            pos += 1
+            by_rank.setdefault(row['rank'], []).append(rid)
+        for rank in sorted(by_rank, key=lambda r: (r is None, r or 0)):
+            for rid in by_rank[rank]:
+                placed[rid] = pos
+            pos += len(by_rank[rank])
     for rid, p in placed.items():
         TournamentRegistration.objects.filter(pk=rid).update(final_position=p)
     return placed

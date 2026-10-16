@@ -41,6 +41,41 @@ class PrizeError(Exception):
 MAX_POSITIONS = 16
 
 
+def resolve(tournament, prize_rows):
+    """Who is paid what, by place: [{position, registration, amount, shared}].
+
+    Equal finishers share a place (P0, 16 October 2026: "these are fine."), so
+    a place held by several people is a band covering as many positions as it
+    has members: two on third cover 3rd and 4th. The band's prizes are added up
+    and split equally in whole coins; a leftover coin goes one each to the
+    band's members in order (seed, then registration). Each member is paid
+    under one distinct position of the band, so a position is still paid once
+    and a re-run pays nothing twice. `plan` and `distribute` both read this, so
+    the list somebody approves is the list that is paid.
+    """
+    from ..models import TournamentRegistration
+
+    amounts = {row.position: int(row.prize) for row in prize_rows}
+    regs = (TournamentRegistration.objects
+            .filter(tournament=tournament, final_position__isnull=False)
+            .select_related('user', 'team'))
+    bands = {}
+    for reg in sorted(regs, key=lambda r: (r.final_position, r.seed if r.seed is not None else 10 ** 6, r.id)):
+        bands.setdefault(reg.final_position, []).append(reg)
+    out = []
+    for place in sorted(bands):
+        members = bands[place]
+        covered = list(range(place, place + len(members)))
+        if not any(p in amounts for p in covered):
+            continue
+        share, extra = divmod(sum(amounts.get(p, 0) for p in covered), len(members))
+        shared = '%d-%d' % (covered[0], covered[-1]) if len(members) > 1 else None
+        for index, (position, reg) in enumerate(zip(covered, members)):
+            out.append({'position': position, 'registration': reg,
+                        'amount': share + (1 if index < extra else 0), 'shared': shared})
+    return out
+
+
 def plan(tournament):
     """Who would be paid what, and what is wrong with it. Writes nothing.
 
@@ -48,8 +83,7 @@ def plan(tournament):
     A problem is a code, never a sentence: this is shown to an organiser who may
     be reading in French.
     """
-    from ..models import (PrizePayout, TournamentPrizeDistribution,
-                          TournamentRegistration)
+    from ..models import PrizePayout, TournamentPrizeDistribution
 
     problems = []
     if tournament.status != 'completed' or tournament.completed_at is None:
@@ -65,19 +99,22 @@ def plan(tournament):
 
     paid = {p.position: p for p in PrizePayout.objects.filter(tournament=tournament)}
 
+    resolved = {r['position']: r for r in resolve(tournament, prize_rows)}
+    positions = sorted(set(row.position for row in prize_rows) | set(resolved))
     rows = []
     total = 0
-    for row in prize_rows:
-        amount = int(row.prize)
-        reg = (TournamentRegistration.objects
-               .filter(tournament=tournament, final_position=row.position)
-               .select_related('user', 'team').first())
-        already = paid.get(row.position)
+    for position in positions:
+        found = resolved.get(position)
+        reg = found['registration'] if found else None
+        amount = found['amount'] if found else next(
+            (int(r.prize) for r in prize_rows if r.position == position), 0)
+        already = paid.get(position)
         entry = {
-            'position': row.position,
-            'amount': amount,
+            'position': position,
+            'amount': int(already.amount) if already is not None else amount,
             'name': _participant_label(reg) if reg else '',
             'registration_id': reg.id if reg else None,
+            'shared': found['shared'] if found else None,
             'paid': already is not None,
             'problem': None,
         }
@@ -143,7 +180,7 @@ def distribute(tournament, *, triggered_by=None, auto=False, force_recompute=Fal
 
     Returns a list of distribution dicts. Raises PrizeError on precondition fail.
     """
-    from ..models import TournamentPrizeDistribution, TournamentRegistration, PrizePayout
+    from ..models import TournamentPrizeDistribution, PrizePayout
 
     if tournament.status != 'completed' or tournament.completed_at is None:
         raise PrizeError('tournament_not_completed', 'Tournament is not completed yet.')
@@ -168,25 +205,16 @@ def distribute(tournament, *, triggered_by=None, auto=False, force_recompute=Fal
 
         # Pass 1 - resolve every position that still needs paying.
         targets = []  # (position, reg, amount)
-        for row in prize_rows:
-            position = row.position
+        # Nobody finished at a position (fewer entrants than prize positions):
+        # resolve() leaves it out, and it is skipped, per spec.
+        for found in resolve(tournament, prize_rows):
+            position = found['position']
             if position in existing:
                 results.append(_result(existing[position]))
                 continue
-            reg = (
-                TournamentRegistration.objects
-                .filter(tournament=tournament, final_position=position)
-                .select_related('user', 'team')
-                .first()
-            )
-            if reg is None:
-                # No competitor finished at this rank (fewer entrants than prize
-                # positions) - skip, per spec.
+            if found['amount'] <= 0:
                 continue
-            amount = int(row.prize)
-            if amount <= 0:
-                continue
-            targets.append((position, reg, amount))
+            targets.append((position, found['registration'], found['amount']))
 
         # Where the coins come from, BEFORE any winner is paid. The pool the
         # entries built covers what it can; the organiser's own wallet covers

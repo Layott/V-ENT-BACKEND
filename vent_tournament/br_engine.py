@@ -28,7 +28,7 @@ Every refusal is a `BRError` with a code the screen translates.
 from django.db import transaction
 from django.utils import timezone
 
-from . import formats, stage_settings
+from . import formats, ranking, stage_settings
 
 
 class BRError(ValueError):
@@ -586,29 +586,26 @@ def _tiebreak_value(row, key):
 
 
 def _rank(rows, tiebreakers):
-    names = ['points'] + list(tiebreakers) + ['seed', 'name']
+    """A squad on match point that wins a map is champion and goes first;
+    then points and the organiser's tiebreakers, then seed. Through
+    `ranking.order`, the one ranking for every table (P0, 16 October 2026)."""
 
-    def key(r):
-        return ((0 if r['champion'] else 1, -r['points'])
-                + tuple(_tiebreak_value(r, t) for t in tiebreakers)
-                + (r['seed'] if r['seed'] is not None else 10 ** 6, r['name'].lower()))
+    def value(row, key):
+        if key == 'champion':
+            return 1 if row['champion'] else 0
+        if key in ('points', 'seed'):
+            return None
+        return -_tiebreak_value(row, key)       # smaller sorts first there
 
-    ranked = sorted(rows, key=key)
+    ranked = ranking.order(rows, list(tiebreakers) + ['seed'], value=value, lead=('champion',))
     for i, row in enumerate(ranked):
-        row['decided_by'] = None
-        if i:
-            pk, rk = key(ranked[i - 1]), key(row)
+        if row['decided_by'] == 'champion':
             # Match point is the reason only when this squad would otherwise
             # be above: on fewer points it is simply points (walk, 28
             # September 2026: 39 behind 54 read "below the squad that won on
             # match point").
-            if pk[0] != rk[0] and row['points'] >= ranked[i - 1]['points']:
-                row['decided_by'] = 'match_point'
-            else:
-                for idx, name in enumerate(names):
-                    if pk[idx + 1] != rk[idx + 1]:
-                        row['decided_by'] = name
-                        break
+            row['decided_by'] = ('match_point' if row['points'] >= ranked[i - 1]['points']
+                                 else 'points')
     return ranked
 
 

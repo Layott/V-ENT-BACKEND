@@ -116,14 +116,19 @@ class ResultsAccessTests(TestCase):
 
     def test_access_answers_everybody_and_says_the_truth(self):
         self.assertEqual(self.access(self.league).json()['data'],
-                         {'role': None, 'can_manage': False, 'can_record_results': False})
+                         {'role': None, 'can_manage': False, 'can_record_results': False,
+                          'is_entrant': False})
         self.assertEqual(self.access(self.league, self.stranger_auth).json()['data'],
-                         {'role': None, 'can_manage': False, 'can_record_results': False})
+                         {'role': None, 'can_manage': False, 'can_record_results': False,
+                          'is_entrant': False})
         self.assertEqual(self.access(self.league, self.auth).json()['data'],
-                         {'role': 'organiser', 'can_manage': True, 'can_record_results': True})
+                         {'role': 'organiser', 'can_manage': True, 'can_record_results': True,
+                          # The organiser owns both teams here, so they play in it.
+                          'is_entrant': True})
         self.add_keeper(self.league)
         self.assertEqual(self.access(self.league, self.keeper_auth).json()['data'],
-                         {'role': 'scorekeeper', 'can_manage': False, 'can_record_results': True})
+                         {'role': 'scorekeeper', 'can_manage': False, 'can_record_results': True,
+                          'is_entrant': False})
 
     # -------------------------------------------------------------- staff
 

@@ -25,7 +25,7 @@ organiser presses it when the last match is in. Nothing here watches for a stage
 to complete and moves on by itself, because a bracket that reseeds while a
 dispute is open is far worse than one that waits.
 """
-from . import formats, stage_settings
+from . import formats, ranking, stage_settings
 
 
 class StageError(ValueError):
@@ -115,6 +115,12 @@ def clean(raw):
     except stage_settings.SettingsError as exc:
         raise StageError(exc.code, 'settings.%s' % exc.field)
 
+    # The stage's own scoring, checked by the module that ranks with it.
+    try:
+        rules = ranking.clean_rules(fmt.key, raw.get('rules'))
+    except ranking.RulesError as exc:
+        raise StageError('That scoring cannot be saved.', 'rules.%s' % exc.field, code=exc.code)
+
     placement = str(raw.get('placement') or 'cross').strip().lower()
     if placement not in ('cross', 'by_record', 'random', 'manual'):
         raise StageError('UNKNOWN_PLACEMENT', 'placement')
@@ -138,9 +144,9 @@ def clean(raw):
         'place_type': place,
         'location': str(raw.get('location') or '').strip()[:255],
         'virtual_link': str(raw.get('virtual_link') or '').strip()[:400],
-        # The stage's own scoring. Absent means the format's standard rules,
-        # which is what most stages want.
-        'rules': raw.get('rules') if isinstance(raw.get('rules'), dict) else None,
+        # The stage's own scoring. Absent means the organiser's tournament
+        # rules, else the standard ones, which is what most stages want.
+        'rules': rules,
         'settings': settings,
         'placement': placement,
         'direct_entrants': direct,

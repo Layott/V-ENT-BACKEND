@@ -50,6 +50,10 @@ def submit_lineup(request, tournament_id):
     window = windows.window_for(tournament)
     if window.state == 'off':
         return _err('This tournament is not using lineups.', 'LINEUPS_OFF')
+    from vent_tournament.access import plays_in
+    if not plays_in(user, tournament):
+        return _err('You are not entered in this tournament.', 'NOT_ENTERED',
+                    status.HTTP_403_FORBIDDEN)
     if not window.can_edit:
         return _err('Lineups are closed.', 'LINEUPS_CLOSED',
                     status.HTTP_409_CONFLICT, closes_at=window.closes_at,

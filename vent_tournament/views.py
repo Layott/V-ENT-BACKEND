@@ -1866,6 +1866,15 @@ def view_tournament(request, tournament_id):
         else:
             data["is_registered"] = False
 
+        # Whether the EAFC lineups are in use here ('off', 'open', 'closed',
+        # 'not_yet'), so the page can send a registered player to build theirs.
+        # Nothing linked a player to the picker until 16 October 2026.
+        try:
+            from vent_cards import windows as lineup_windows
+            data["lineups"] = lineup_windows.window_for(tournament).state
+        except Exception:                                         # noqa: BLE001
+            data["lineups"] = 'off'
+
         covered, link = entry_is_covered(viewer, tournament)
         if link:
             data["event"] = event_brand(request, link.event)
