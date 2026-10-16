@@ -15,6 +15,7 @@ import random
 from django.utils import timezone
 
 from . import advance
+from .. import match_slots
 
 
 # ---------------------------------------------------------------------------
@@ -267,28 +268,39 @@ def draw_into(tournament, stage, btype, ordered, settings, groups=0):
         raise BracketError('not_enough_entrants',
                            'This format needs at least %s.' % definition.min_participants)
     with advance.suspend_advance():
-        if btype == 'stepladder':
-            return _generate_stepladder(tournament, stage, ordered, settings)
-        if btype == 'page_playoff':
-            return _generate_page_playoff(tournament, stage, ordered, settings)
-        if btype == 'winner_stays_on':
-            return _generate_winner_stays_on(tournament, stage, ordered, settings)
-        if btype == 'single_elimination' and (settings or {}).get('every_place'):
-            return _generate_every_place(tournament, stage, ordered, settings)
-        if btype == 'gsl':
-            return _generate_gsl(tournament, stage, ordered, settings)
-        if btype == 'swiss':
-            return _generate_swiss_first_round(tournament, stage, ordered, settings)
-        if decided_by_table(btype):
-            if groups and groups > 1:
-                return _generate_groups(tournament, stage, ordered, settings, groups)
-            return _generate_round_robin(tournament, ordered, stage=stage,
-                                         settings=settings)
-        if btype == 'double_elimination':
-            return _generate_double_elimination(tournament, ordered, stage=stage,
-                                                settings=settings)
-        return _generate_single_elimination(tournament, ordered, stage=stage,
+        summary = _draw(tournament, stage, btype, ordered, settings, groups)
+    # The seats the generator filled (entrants, byes) get their slot rows here,
+    # after any bye has moved somebody on; the links wrote their own.
+    scope = (stage.matches.all() if stage is not None
+             else tournament.bracket_matches.filter(stage__isnull=True))
+    match_slots.complete(scope, {r.id: i for i, r in enumerate(ordered, start=1)})
+    return summary
+
+
+def _draw(tournament, stage, btype, ordered, settings, groups):
+    """The generator for `btype`, run inside `draw_into`."""
+    if btype == 'stepladder':
+        return _generate_stepladder(tournament, stage, ordered, settings)
+    if btype == 'page_playoff':
+        return _generate_page_playoff(tournament, stage, ordered, settings)
+    if btype == 'winner_stays_on':
+        return _generate_winner_stays_on(tournament, stage, ordered, settings)
+    if btype == 'single_elimination' and (settings or {}).get('every_place'):
+        return _generate_every_place(tournament, stage, ordered, settings)
+    if btype == 'gsl':
+        return _generate_gsl(tournament, stage, ordered, settings)
+    if btype == 'swiss':
+        return _generate_swiss_first_round(tournament, stage, ordered, settings)
+    if decided_by_table(btype):
+        if groups and groups > 1:
+            return _generate_groups(tournament, stage, ordered, settings, groups)
+        return _generate_round_robin(tournament, ordered, stage=stage,
+                                     settings=settings)
+    if btype == 'double_elimination':
+        return _generate_double_elimination(tournament, ordered, stage=stage,
                                             settings=settings)
+    return _generate_single_elimination(tournament, ordered, stage=stage,
+                                        settings=settings)
 
 
 def _new_match(tournament, stage, settings, round_number, match_number, side,
@@ -363,9 +375,7 @@ def _generate_single_elimination(tournament, ordered, stage=None, settings=None)
     for r in range(rounds - 1):
         for m, match in enumerate(per_round[r]):
             tgt = per_round[r + 1][m // 2]
-            match.winner_to_match = tgt
-            match.winner_to_slot = 1 if m % 2 == 0 else 2
-            match.save(update_fields=['winner_to_match', 'winner_to_slot'])
+            match_slots.link(match, 'winner', tgt, 1 if m % 2 == 0 else 2)
 
     matches_created = sum(len(mr) for mr in per_round)
 
@@ -380,9 +390,7 @@ def _generate_single_elimination(tournament, ordered, stage=None, settings=None)
         third_place = _new_match(tournament, stage, settings, rounds, 2,
                                  'winners', rounds_total=rounds)
         for m, semi in enumerate(semis[:2]):
-            semi.loser_to_match = third_place
-            semi.loser_to_slot = m + 1
-            semi.save(update_fields=['loser_to_match', 'loser_to_slot'])
+            match_slots.link(semi, 'loser', third_place, m + 1)
         matches_created += 1
 
     for match in _seat_round_one(per_round[0], slots):
@@ -608,13 +616,11 @@ def _generate_gsl(tournament, stage, ordered, settings):
         open_a.participant_1, open_a.participant_2 = s1, s4
         open_b.participant_1, open_b.participant_2 = s2, s3
         for opening, slot in ((open_a, 1), (open_b, 2)):
-            opening.winner_to_match, opening.winner_to_slot = winners, slot
-            opening.loser_to_match, opening.loser_to_slot = losers, slot
-            opening.save()
-        winners.loser_to_match, winners.loser_to_slot = decider, 1
-        winners.save(update_fields=['loser_to_match', 'loser_to_slot'])
-        losers.winner_to_match, losers.winner_to_slot = decider, 2
-        losers.save(update_fields=['winner_to_match', 'winner_to_slot'])
+            opening.save(update_fields=['participant_1', 'participant_2'])
+            match_slots.link(opening, 'winner', winners, slot)
+            match_slots.link(opening, 'loser', losers, slot)
+        match_slots.link(winners, 'loser', decider, 1)
+        match_slots.link(losers, 'winner', decider, 2)
         created += 5
     return {'rounds_count': 3, 'matches_created': created,
             'structure_summary': [{'group': g + 1, 'matches': 5} for g in range(groups)]}
@@ -800,9 +806,7 @@ def _generate_double_elimination(tournament, ordered, stage=None, settings=None)
     for r in range(k - 1):
         for m, match in enumerate(wb[r]):
             tgt = wb[r + 1][m // 2]
-            match.winner_to_match = tgt
-            match.winner_to_slot = 1 if m % 2 == 0 else 2
-            match.save(update_fields=['winner_to_match', 'winner_to_slot'])
+            match_slots.link(match, 'winner', tgt, 1 if m % 2 == 0 else 2)
 
     # --- Losers bracket ----------------------------------------------------
     # LB has 2*(k-1) rounds. Minor rounds (odd index) pair LB survivors; major
@@ -834,17 +838,13 @@ def _generate_double_elimination(tournament, ordered, stage=None, settings=None)
                 tgt, slot = nxt[m], 1  # major round: survivor takes slot 1
             else:
                 tgt, slot = nxt[m // 2], (1 if m % 2 == 0 else 2)
-            match.winner_to_match = tgt
-            match.winner_to_slot = slot
-            match.save(update_fields=['winner_to_match', 'winner_to_slot'])
+            match_slots.link(match, 'winner', tgt, slot)
 
     if lb:
         orders = drop_order(bracket_size)
         for m, match in enumerate(reorder(orders[1], wb[0])):
             tgt = lb[0][m // 2]
-            match.loser_to_match = tgt
-            match.loser_to_slot = 1 if m % 2 == 0 else 2
-            match.save(update_fields=['loser_to_match', 'loser_to_slot'])
+            match_slots.link(match, 'loser', tgt, 1 if m % 2 == 0 else 2)
         major_rounds = [lb[i] for i in range(1, len(lb), 2)]
         for idx, wb_round in enumerate(wb[1:], start=0):
             if idx >= len(major_rounds):
@@ -853,9 +853,7 @@ def _generate_double_elimination(tournament, ordered, stage=None, settings=None)
             name = orders[2 + idx] if 2 + idx < len(orders) else 'natural'
             for m, match in enumerate(reorder(name, wb_round)):
                 tgt = major[m] if m < len(major) else major[-1]
-                match.loser_to_match = tgt
-                match.loser_to_slot = 2
-                match.save(update_fields=['loser_to_match', 'loser_to_slot'])
+                match_slots.link(match, 'loser', tgt, 2)
 
     # --- Grand final ------------------------------------------------------
     # The winners' champion has not lost; the losers' champion has, once. With
@@ -864,20 +862,14 @@ def _generate_double_elimination(tournament, ordered, stage=None, settings=None)
     # format whose whole promise is two. Without a reset the first is final.
     reset = settings.get('grand_final', 'single') == 'reset'
     gf = mk(k + 1, 1, 'grand_final', is_final=not reset)
-    wb[-1][0].winner_to_match = gf
-    wb[-1][0].winner_to_slot = 1
-    wb[-1][0].save(update_fields=['winner_to_match', 'winner_to_slot'])
+    match_slots.link(wb[-1][0], 'winner', gf, 1)
     if lb:
-        lb[-1][0].winner_to_match = gf
-        lb[-1][0].winner_to_slot = 2
-        lb[-1][0].save(update_fields=['winner_to_match', 'winner_to_slot'])
+        match_slots.link(lb[-1][0], 'winner', gf, 2)
     if reset:
         gf2 = mk(k + 2, 1, 'grand_final', is_final=True)
         # Routing into the reset is decided in advance.py: it is played only
         # when the losers' champion wins the first grand final.
-        gf.winner_to_match = gf2
-        gf.winner_to_slot = 1
-        gf.save(update_fields=['winner_to_match', 'winner_to_slot'])
+        match_slots.link_reset(gf, gf2)
 
     for match in _seat_round_one(wb[0], slots):
         advance.cascade(match)
@@ -933,10 +925,8 @@ def _generate_every_place(tournament, stage, ordered, settings):
         lower = build(size // 2, first_place + size // 2, round_number + 1)
         for i, m in enumerate(matches):
             slot = 1 if i % 2 == 0 else 2
-            m.winner_to_match, m.winner_to_slot = upper[i // 2], slot
-            m.loser_to_match, m.loser_to_slot = lower[i // 2], slot
-            m.save(update_fields=['winner_to_match', 'winner_to_slot',
-                                  'loser_to_match', 'loser_to_slot'])
+            match_slots.link(m, 'winner', upper[i // 2], slot)
+            match_slots.link(m, 'loser', lower[i // 2], slot)
         return matches
 
     first_round = build(bracket_size, 1, 1)
@@ -976,8 +966,7 @@ def _generate_stepladder(tournament, stage, ordered, settings):
                               'participant_2'])
         matches.append(m)
     for prev, nxt in zip(matches, matches[1:]):
-        prev.winner_to_match, prev.winner_to_slot = nxt, 2
-        prev.save(update_fields=['winner_to_match', 'winner_to_slot'])
+        match_slots.link(prev, 'winner', nxt, 2)
     return {
         'rounds_count': rungs,
         'matches_created': rungs,
@@ -1003,16 +992,14 @@ def _generate_page_playoff(tournament, stage, ordered, settings):
     semi = _new_match(tournament, stage, settings, 2, 1, 'losers', rounds_total=3)
     final = _new_match(tournament, stage, settings, 3, 1, 'winners', rounds_total=3,
                        is_final=True)
-    top.winner_to_match, top.winner_to_slot = final, 1
-    top.loser_to_match, top.loser_to_slot = semi, 1
-    top.save(update_fields=['winner_to_match', 'winner_to_slot',
-                            'loser_to_match', 'loser_to_slot'])
-    bottom.winner_to_match, bottom.winner_to_slot = semi, 2
+    match_slots.link(top, 'winner', final, 1)
+    match_slots.link(top, 'loser', semi, 1)
+    match_slots.link(bottom, 'winner', semi, 2)
     bottom.loser_place = 4
-    bottom.save(update_fields=['winner_to_match', 'winner_to_slot', 'loser_place'])
-    semi.winner_to_match, semi.winner_to_slot = final, 2
+    bottom.save(update_fields=['loser_place'])
+    match_slots.link(semi, 'winner', final, 2)
     semi.loser_place = 3
-    semi.save(update_fields=['winner_to_match', 'winner_to_slot', 'loser_place'])
+    semi.save(update_fields=['loser_place'])
     final.winner_place, final.loser_place = 1, 2
     final.save(update_fields=['winner_place', 'loser_place'])
     return {
@@ -1108,6 +1095,7 @@ def next_challenge(tournament, stage, settings, seeds, matches):
                        rounds_total=round_number,
                        participant_1=regs[state['holder']],
                        participant_2=regs[state['queue'][0]])
+    match_slots.complete([m], {rid: i for i, rid in enumerate(seeds, start=1)})
     return m
 
 

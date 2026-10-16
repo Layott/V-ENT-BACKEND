@@ -736,6 +736,10 @@ def next_swiss_round(stage):
     with adv.suspend_advance():
         created = bracket._swiss_round(stage.tournament, stage, stage.settings, round_number,
                                        pairs, bye, total)
+    # Each new round's seats say who was paired into them, with their seed.
+    from . import match_slots
+    match_slots.complete(stage.matches.filter(round_number=round_number),
+                       {rid: i for i, rid in enumerate(stage.entrants or [], start=1)})
     for m in stage.matches.filter(round_number=round_number, status='scheduled'):
         arm_check_in(m)
     return {'round_number': round_number, 'matches_created': created}

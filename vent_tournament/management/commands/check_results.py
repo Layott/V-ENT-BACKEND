@@ -32,6 +32,14 @@ def problems():
         | Q(winner__isnull=False) & ~Q(winner__tournament_id=F('tournament_id')))
     for pk, tid in elsewhere.values_list('id', 'tournament_id'):
         found.append((pk, tid, 'it holds a registration from another tournament'))
+    # Every match has two slots saying where each side comes from, in step
+    # with the pointers that fill them (P1a, design section 8). A match
+    # without them draws "To be decided" where it could say whose seat it is.
+    from vent_tournament import match_slots
+    tournament_of = dict(BracketMatch.objects.values_list('id', 'tournament_id'))
+    for pk, slot, reason in match_slots.disagreements(BracketMatch.objects.all()):
+        where = '' if not slot else 'its slot %d: ' % slot
+        found.append((pk, tournament_of.get(pk), where + reason))
     return sorted(set(found))
 
 

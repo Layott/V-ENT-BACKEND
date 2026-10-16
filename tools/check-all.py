@@ -715,6 +715,15 @@ CATCHERS = [
     ('one ranking self-test',
      'the one ranking catcher still catches the sorters it replaced',
      BACKEND, [sys.executable, 'tools/check-one-ranking.py', '--self-test'], True),
+    # A bracket link is written in one place, with its slot (P1a, 16 October
+    # 2026, "i aprove the design"): the generators set the pointers by hand in
+    # 47 places. The readers still to move onto the slots are the debt.
+    ('one link writer',
+     'every bracket link is written by match_slots.py, with its slot',
+     BACKEND, [sys.executable, 'tools/check-one-link-writer.py'], True),
+    ('one link writer self-test',
+     'the one link writer catcher still catches a pointer written by hand',
+     BACKEND, [sys.executable, 'tools/check-one-link-writer.py', '--self-test'], True),
     # Two blocks in an email with no space between them (CEO, 29 September
     # 2026, the sign-in alert's button touching its paragraph; inbox 355).
     ('email spacing',
