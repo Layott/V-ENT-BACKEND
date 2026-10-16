@@ -720,6 +720,58 @@ def _generate_swiss_first_round(tournament, stage, ordered, settings):
 # Double elimination
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# The order losers drop into the lower bracket
+# ---------------------------------------------------------------------------
+# In natural order the lower bracket paired people who had just met: 3 of 6
+# lower matches at 8 entrants were rematches under expected results, 31 of 62
+# at 64 (docs/research/de_rematch.py). These are brackets-manager's published
+# orders, replayed in docs/research/de_orders.py: item 0 is round one seeding
+# and is not used here, item 1 orders the round one losers into lower round
+# one, and each item after that orders the losers of the next upper round into
+# the lower round they drop into. Expected results then leave 1 rematch up to
+# 16 entrants and 3 from 32 up, the ones no order avoids. CEO, 16 October
+# 2026, on fixing this first: "these are fine."
+
+DROP_ORDERS = {
+    4: ['natural', 'natural'],
+    8: ['natural', 'reverse', 'natural'],
+    16: ['natural', 'reverse_half_shift', 'reverse', 'natural'],
+    32: ['natural', 'reverse', 'half_shift', 'natural', 'natural'],
+    64: ['natural', 'reverse', 'half_shift', 'reverse', 'natural', 'natural'],
+    128: ['natural', 'reverse', 'half_shift', 'pair_flip', 'pair_flip', 'pair_flip', 'natural'],
+}
+
+
+def drop_order(bracket_size):
+    """The orders for a bracket of this size; past 128, one more pair flip per doubling."""
+    if bracket_size in DROP_ORDERS:
+        return list(DROP_ORDERS[bracket_size])
+    if bracket_size < 4:
+        return ['natural', 'natural']
+    order = list(DROP_ORDERS[128])
+    size = 128
+    while size < bracket_size:
+        order.insert(-1, 'pair_flip')
+        size *= 2
+    return order
+
+
+def reorder(name, items):
+    """Apply one of the named orders to a list, returning a new list."""
+    items = list(items)
+    half = len(items) // 2
+    if name == 'reverse':
+        return items[::-1]
+    if name == 'half_shift':
+        return items[half:] + items[:half]
+    if name == 'reverse_half_shift':
+        return items[:half][::-1] + items[half:][::-1]
+    if name == 'pair_flip' and len(items) > 1:
+        return [x for i in range(0, len(items), 2) for x in (items[i + 1], items[i])]
+    return items
+
+
 def _generate_double_elimination(tournament, ordered, stage=None, settings=None):
     """Winners + losers bracket + grand final, with or without a reset.
 
@@ -787,7 +839,8 @@ def _generate_double_elimination(tournament, ordered, stage=None, settings=None)
             match.save(update_fields=['winner_to_match', 'winner_to_slot'])
 
     if lb:
-        for m, match in enumerate(wb[0]):
+        orders = drop_order(bracket_size)
+        for m, match in enumerate(reorder(orders[1], wb[0])):
             tgt = lb[0][m // 2]
             match.loser_to_match = tgt
             match.loser_to_slot = 1 if m % 2 == 0 else 2
@@ -797,7 +850,8 @@ def _generate_double_elimination(tournament, ordered, stage=None, settings=None)
             if idx >= len(major_rounds):
                 break
             major = major_rounds[idx]
-            for m, match in enumerate(wb_round):
+            name = orders[2 + idx] if 2 + idx < len(orders) else 'natural'
+            for m, match in enumerate(reorder(name, wb_round)):
                 tgt = major[m] if m < len(major) else major[-1]
                 match.loser_to_match = tgt
                 match.loser_to_slot = 2
