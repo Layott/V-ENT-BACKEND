@@ -32,7 +32,6 @@ VARIANTS = [
     ('se_third', 'single_elimination', {'third_place_match': True}, [4, 5, 8, 11, 16]),
     ('se_every', 'single_elimination', {'every_place': True}, [4, 6, 8, 13, 16]),
     ('de', 'double_elimination', {}, RANGE(4, 17) + [24, 32, 33, 64]),
-    ('de_reset', 'double_elimination', {'grand_final': 'reset'}, [4, 8, 11, 16]),
     ('rr', 'round_robin', {}, RANGE(3, 9)),
     ('rr_legs', 'round_robin', {'legs': 2}, [4, 5]),
     ('league', 'league', {}, [4, 6]),
@@ -45,6 +44,13 @@ VARIANTS = [
 
 # (entrants, groups): groups of a round robin into a knockout, drawn as stages.
 STAGED = [(8, 2), (12, 3), (16, 4)]
+
+# Settings only a stage offers: a one-format double elimination keeps the
+# decisive grand final, so the reset is drawn on a stage.
+# (name, format, settings, sizes)
+STAGE_ONLY = [
+    ('de_reset', 'double_elimination', {'grand_final': 'reset'}, [4, 8, 11, 16]),
+]
 
 
 def _key(m):
@@ -97,12 +103,23 @@ def drawn_staged(n, groups):
     return t
 
 
+def drawn_stage(fmt, settings, n):
+    """A tournament of `n` whose one stage is drawn with these settings."""
+    t, creator, _regs = field(n, fmt)
+    stage = add_stage(t, 0, fmt, settings=settings)
+    with transaction.atomic():
+        stage_engine.draw(stage, creator)
+    return t
+
+
 def every_draw():
     """{variant name: {size: snapshot}} for every variant here."""
     out = {}
     for name, bracket_type, options, sizes in VARIANTS:
         out[name] = {str(n): snapshot(drawn(name, bracket_type, options, n)) for n in sizes}
     out['groups'] = {'%s/%s' % (n, g): snapshot(drawn_staged(n, g)) for n, g in STAGED}
+    for name, fmt, settings, sizes in STAGE_ONLY:
+        out[name] = {str(n): snapshot(drawn_stage(fmt, settings, n)) for n in sizes}
     return out
 
 

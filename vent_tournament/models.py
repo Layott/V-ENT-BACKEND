@@ -920,6 +920,47 @@ class BracketMatch(models.Model):
         return None
 
 
+class MatchSlot(models.Model):
+    """Where one side of a match comes from (bracket structure design, P1a).
+
+    CEO, 16 October 2026: "i aprove the design". Section 8: every slot knows
+    where it came from, so a bracket can be drawn and shown whole, "Winner of
+    Round 1, match 2" in a seat nobody has reached yet, before anybody plays.
+
+    Written only by `match_slots.py`, together with the advancement pointer on
+    the match that feeds it, so the two cannot disagree. Who is actually in
+    the seat stays on `BracketMatch.participant_1/2`, which every reader
+    already uses; this row says why they are there, or will be.
+    """
+
+    KINDS = (
+        ('entrant', 'Placed at the draw'),
+        ('winner', 'The winner of another match'),
+        ('loser', 'The loser of another match'),
+        ('bye', 'Nobody: a bye'),
+        # The second grand final of a double elimination with a reset. Both of
+        # its seats come from the first grand final, and it is played only if
+        # the lower bracket's champion wins that one.
+        ('reset', 'The grand final played again if needed'),
+        ('open', 'Not decided by the bracket'),
+    )
+
+    match = models.ForeignKey(BracketMatch, on_delete=models.CASCADE, related_name='slots')
+    slot = models.PositiveSmallIntegerField()   # 1 or 2
+    kind = models.CharField(max_length=12, choices=KINDS)
+    source_match = models.ForeignKey(BracketMatch, on_delete=models.CASCADE, null=True,
+                                     blank=True, related_name='+')
+    # The seed drawn into this seat, for an entrant placed at the draw.
+    seed = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('match', 'slot')
+        ordering = ['slot']
+
+    def __str__(self):
+        return '%s slot %s: %s' % (self.match_id, self.slot, self.kind)
+
+
 class TournamentDispute(models.Model):
     STATUS_CHOICES = [
         ('open', 'Open'),
