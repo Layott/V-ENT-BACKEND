@@ -229,6 +229,15 @@ CATCHERS = [
     ('studio groups self-test',
      'the catcher catches a kind with no group, no label or no drawing',
      FRONTEND, ['node', 'scripts/check-studio-groups.mjs', '--self-test'], True),
+    # Inbox 476 (CEO, 16 October 2026): a video explainer for every format.
+    # A format added with no explainer, or an explainer whose words exist in
+    # English only, falls back silently; this is what notices.
+    ('format explainers',
+     'every format has an explainer of 30 to 60 s, on the stage, with every word in en, fr and pt (inbox 476)',
+     FRONTEND, ['node', 'scripts/check-explainers.mjs'], True),
+    ('format explainers self-test',
+     'the catcher catches a missing explainer, a wrong length, a caption fault, an actor off the stage and a missing word',
+     FRONTEND, ['node', 'scripts/check-explainers.mjs', '--self-test'], True),
     ('history lines self-test',
      'the catcher catches a missing key, a dropped placeholder and a code with no English',
      FRONTEND, ['node', 'scripts/check-statement-lines.mjs', '--self-test'], True),

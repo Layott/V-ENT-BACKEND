@@ -48,6 +48,13 @@ def _tournament(key):
     return find(key)
 
 
+def _format_key(value):
+    """The catalogue key for however a format was stored, or ''."""
+    from . import formats as format_catalogue
+    found = format_catalogue.get(value)
+    return found.key if found else ''
+
+
 def _url(request, image):
     """An absolute URL, because the overlay is loaded by OBS, not by the site.
 
@@ -1046,6 +1053,13 @@ def overlay_feed(request, tournament_id):
             # to know which of the two it is looking at. The play area frame
             # names the room, and had nothing to name it with.
             'venue': tournament.tournament_location or '',
+            # What it is played as, so the studio's explainer plays this
+            # tournament's own format (inbox 476): the catalogue key, and the
+            # format of each stage in order when it runs in stages. Groups
+            # into a playoff is one explainer, and only the stages say so.
+            'format': _format_key(tournament.bracket_type),
+            'stage_formats': [_format_key(s.format) or s.format
+                              for s in tournament.stages.order_by('order', 'id')],
         },
         'teams': teams,
         # Every lineup submitted for this tournament, keyed by the player who
