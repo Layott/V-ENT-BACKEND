@@ -166,3 +166,13 @@ class SwissScoringTests(TestCase):
 
     def test_swiss_scoring_is_the_organisers(self):
         self.assertEqual(self.swiss({'points_win': 2, 'points_bye': 1})['points'], 1)
+
+
+class CatalogueTests(TestCase):
+    def test_the_catalogue_offers_what_a_stage_can_save(self):
+        from . import formats
+        for entry in formats.catalogue():
+            offered = [t['key'] for t in entry['scoring_tiebreakers']]
+            self.assertIn('seed', offered, entry['key'])
+            clean = ranking.clean_rules(entry['key'], {'tiebreakers': offered})
+            self.assertEqual(clean['tiebreakers'], offered[:12], entry['key'])

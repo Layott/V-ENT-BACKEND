@@ -165,6 +165,22 @@ def stage_rules(stage):
 POINT_KEYS = ('points_win', 'points_draw', 'points_loss', 'points_bye')
 
 
+def offered(format_key):
+    """The tie-breakers a stage of this format may rank by, in the order shown.
+
+    The format's own first, then the ones every table can use, then seed. Only
+    keys `order` can compute: a choice that separates nobody would be a
+    control that does nothing. The stage planner shows this list and
+    `clean_rules` accepts exactly it.
+    """
+    computable = (set(CATALOGUE) - {'points'}) | {'head_to_head'}
+    generic = ['head_to_head', 'goal_difference', 'goals_for', 'goals_against', 'wins']
+    if format_key == 'swiss':
+        generic.insert(0, 'buchholz')
+    wanted = [t for t in formats.tiebreakers_for(format_key) if t in computable] + generic + ['seed']
+    return [t for t in dict.fromkeys(wanted) if t in computable]
+
+
 def clean_rules(format_key, raw):
     """A stage's scoring as the organiser sent it, checked. None means the standard."""
     if raw in (None, '') or raw == {}:
@@ -185,7 +201,7 @@ def clean_rules(format_key, raw):
     if raw.get('tiebreakers') not in (None, ''):
         if not isinstance(raw['tiebreakers'], list):
             raise RulesError('RULES_INVALID', 'tiebreakers')
-        allowed = set(formats.tiebreakers_for(format_key)) | {'seed'}
+        allowed = set(offered(format_key))
         out['tiebreakers'] = [str(k) for k in raw['tiebreakers'] if str(k) in allowed][:12]
     if raw.get('buchholz') not in (None, ''):
         if raw['buchholz'] not in ('wins', 'points'):
