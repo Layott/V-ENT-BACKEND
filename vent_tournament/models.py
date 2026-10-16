@@ -886,6 +886,12 @@ class BracketMatch(models.Model):
     # Why a match ended without being played: 'no_show' when the check-in
     # timer ran out, 'withdrawn' when a side left. Blank for a played match.
     forfeit_reason = models.CharField(max_length=16, blank=True, default='')
+    # Which of this match's rules were set after the draw, and at what level:
+    # {"best_of": "match"} for this match alone, {"legs": "round"} for its whole
+    # round. The values stay in the fields above; this says where they came
+    # from, so the screen can say "set for this round" (P1c, design section
+    # 10). Empty means everything is the stage's or the tournament's own.
+    settings = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ['round_number', 'match_number']

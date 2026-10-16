@@ -438,6 +438,8 @@ def set_rules(match, user, *, best_of=None, legs=None, draw_allowed=None, whole_
     if not update:
         raise EditError('NOTHING_TO_CHANGE')
 
+    # Where each changed rule was set, so the screen can say so (P1c).
+    level = 'round' if whole_round else 'match'
     if whole_round:
         group = (scope(tournament, match.stage).filter(
             round_number=match.round_number, bracket_side=match.bracket_side,
@@ -445,9 +447,27 @@ def set_rules(match, user, *, best_of=None, legs=None, draw_allowed=None, whole_
         if update.get('draw_allowed'):
             group = group.filter(winner_to_match__isnull=True, loser_to_match__isnull=True,
                                  is_final=False)
-        changed = group.update(**update)
+        # A round's best of has one store, the stage's per round list the
+        # planner writes too, so a match the round makes later (a Swiss round)
+        # follows it.
+        if 'best_of' in update and match.stage_id:
+            stage = match.stage
+            settings = dict(stage.settings or {})
+            per_round = dict(settings.get('round_best_of') or {})
+            per_round[str(match.round_number)] = update['best_of']
+            settings['round_best_of'] = per_round
+            stage.settings = settings
+            stage.save(update_fields=['settings'])
+        changed = 0
+        for row in group:
+            marked = dict(row.settings or {})
+            marked.update({k: level for k in update if k != 'best_of' or not match.stage_id})
+            BracketMatch.objects.filter(pk=row.pk).update(settings=marked, **update)
+            changed += 1
     else:
-        changed = BracketMatch.objects.filter(pk=match.pk).update(**update)
+        marked = dict(match.settings or {})
+        marked.update({k: level for k in update})
+        changed = BracketMatch.objects.filter(pk=match.pk).update(settings=marked, **update)
     _log(tournament, user, 'rules', match.stage, match=match.id, whole_round=whole_round or None,
          **update)
     return {'matches_changed': changed}
