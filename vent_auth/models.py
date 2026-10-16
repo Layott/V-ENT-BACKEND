@@ -948,6 +948,70 @@ class OrgInvite(models.Model):
         super().save(*args, **kwargs)
 
 
+class RoleInvite(models.Model):
+    """A role on ONE event or ONE tournament, offered to an email address.
+
+    CEO, 13 October 2026 (inbox 455): "when trying to add someone to help you
+    manage an even or a tournament or organization, even if the person does
+    not have an account they should be able to get the mail in their email and
+    then, they can create an account using the link in their mail and still
+    accept the invite."
+
+    `EventManager` and `TournamentStaff` name a user, because every permission
+    check reads them; somebody with no account had nowhere to be written, so
+    the event door emailed "join V-ENT" and told the organiser to add them
+    again afterwards, and the tournament door refused an email outright. This
+    is the offer that waits for them: `invites.claim_pending` attaches it when
+    they sign up with that address, and accepting it writes the real row. An
+    organisation's own invite (`OrgInvite`) already worked this way.
+
+    A person who already has an account is still added at once, as before.
+    """
+
+    KIND_EVENT = 'event'
+    KIND_TOURNAMENT = 'tournament'
+    KINDS = [(KIND_EVENT, 'Event'), (KIND_TOURNAMENT, 'Tournament')]
+    ROLES = [('manager', 'Manager'), ('door', 'Door staff'), ('scorekeeper', 'Scorekeeper')]
+
+    STATUS_PENDING = 'pending'
+    STATUS_ACCEPTED = 'accepted'
+    STATUS_DECLINED = 'declined'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_CHOICES = OrgInvite.STATUS_CHOICES
+
+    kind = models.CharField(max_length=12, choices=KINDS)
+    event = models.ForeignKey('vent_event.Event', on_delete=models.CASCADE, null=True,
+                              blank=True, related_name='role_invites')
+    tournament = models.ForeignKey('vent_tournament.Tournament', on_delete=models.CASCADE,
+                                   null=True, blank=True, related_name='role_invites')
+    role = models.CharField(max_length=12, choices=ROLES)
+    email = models.EmailField(db_index=True)
+    # NULL until somebody with this email has an account.
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, null=True, blank=True,
+                             related_name='role_invites')
+    invited_by = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='role_invites_sent')
+    token = models.CharField(max_length=32, unique=True, db_index=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"role invite {self.token} {self.role} -> {self.email}"
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            self.token = 'ri_' + uuid.uuid4().hex[:20]
+        super().save(*args, **kwargs)
+
+    @property
+    def target(self):
+        return self.event if self.kind == self.KIND_EVENT else self.tournament
+
+
 class OrgJoinRequest(models.Model):
     STATUS_CHOICES = [
         ('pending', 'Pending'),

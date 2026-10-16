@@ -83,17 +83,29 @@ def staff(request, tournament_id):
         return _err('Only the organiser can decide who enters results.',
                     'NOT_TOURNAMENT_ORGANIZER', status.HTTP_403_FORBIDDEN)
 
+    from vent_auth.models import RoleInvite
     if request.method == 'GET':
         rows = TournamentStaff.objects.filter(tournament=tournament).select_related('user')
-        return _ok({'staff': [_person(r) for r in rows]}, 'Scorekeepers')
+        return _ok({'staff': [_person(r) for r in rows],
+                    'invites': [_invite_row(i) for i in RoleInvite.objects.filter(
+                        tournament=tournament, status=RoleInvite.STATUS_PENDING)
+                        .order_by('-created_at')]}, 'Scorekeepers')
 
-    username = inputs.read_text(request.data, 'username', max_length=129).lstrip('@')
-    if not username:
-        return _err('Say who, by username.', 'USERNAME_REQUIRED', field='username')
-    person = Users.objects.filter(username__iexact=username).first()
-    if person is None:
+    # A username, or an email address that may belong to nobody yet
+    # (inbox 455): then the role waits for them behind an emailed link.
+    from vent_auth.invites import invitee_for, offer_role
+    raw = (inputs.read_text(request.data, 'username', max_length=254)
+           or inputs.read_text(request.data, 'email', max_length=254))
+    if not raw:
+        return _err('Say who, by username or email.', 'USERNAME_REQUIRED', field='username')
+    person, email, problem = invitee_for(raw)
+    if problem:
         return _err('There is no account with that username.', 'USER_NOT_FOUND',
                     status.HTTP_404_NOT_FOUND, field='username')
+    if person is None:
+        invite = offer_role(RoleInvite.KIND_TOURNAMENT, tournament, email, 'scorekeeper', user)
+        return _ok({'invited': email, 'awaiting_signup': True, 'invite': _invite_row(invite)},
+                   'Invitation sent to %s.' % email)
     if person.user_id == tournament.tournament_creator_id:
         return _err('That is the organiser; they can already enter results.',
                     'ALREADY_ORGANISER', field='username')
@@ -103,6 +115,11 @@ def staff(request, tournament_id):
     rows = TournamentStaff.objects.filter(tournament=tournament).select_related('user')
     return _ok({'staff': [_person(r) for r in rows], 'added': made},
                'Added.' if made else 'Already a scorekeeper.')
+
+
+def _invite_row(invite):
+    return {'token': invite.token, 'email': invite.email, 'role': invite.role,
+            'created_at': invite.created_at, 'claimed': invite.user_id is not None}
 
 
 @api_view(['DELETE'])

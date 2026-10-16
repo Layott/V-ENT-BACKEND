@@ -157,27 +157,11 @@ def _promo_row(p):
     }
 
 
-def _invite_to_vent(event, email, *, role, inviter):
-    """Ask somebody with no account to join, so they can be added afterwards.
-
-    Never raises. An organiser has done their part by sending it, and a mail
-    server having a bad minute must not read as the invitation having failed.
-    """
-    from vent.settings import FRONTEND_URL
-    from vent_auth import emails
-
-    try:
-        emails.send_invitation(
-            email,
-            what=event.name,
-            who=inviter.username if inviter else 'V-ENT',
-            role='door staff' if role == 'door' else 'manager',
-            join_url='%s/signup?email=%s' % (FRONTEND_URL, email),
-        )
-    except Exception:
-        import logging
-        logging.getLogger(__name__).exception(
-            'could not email an event invitation to %s', email)
+def _invite_row(invite):
+    """An invitation still waiting, as the organiser sees it: the address they
+    typed, the role, and the token to withdraw it with."""
+    return {'token': invite.token, 'email': invite.email, 'role': invite.role,
+            'created_at': invite.created_at, 'claimed': invite.user_id is not None}
 
 
 def _manager_row(request, m):
@@ -500,9 +484,14 @@ def event_managers(request, event_id):
 
     if request.method == 'GET':
         rows = event.managers.select_related('user')
+        from vent_auth.models import RoleInvite
         return _ok({
             'results': [_manager_row(request, m) for m in rows],
             'count': rows.count(),
+            # Invited by email and not answered yet, so the organiser can see
+            # who is still to arrive and withdraw an invitation (inbox 455).
+            'invites': [_invite_row(i) for i in RoleInvite.objects.filter(
+                event=event, status=RoleInvite.STATUS_PENDING).order_by('-created_at')],
             # The screen needs to know whether to offer the control at all,
             # rather than offering it and having the save refused. The SAME
             # rule as the POST below: until 18 September 2026 this still
@@ -561,22 +550,21 @@ def event_managers(request, event_id):
     target, email, problem = invitee_for(raw)
     if problem:
         return _err(problem, 'USER_NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    if target is None:
-        # Somebody with no account cannot be given a role on an event yet:
-        # `EventManager.user` is what every permission check reads. They are
-        # invited to V-ENT first, and the organiser adds them once they arrive.
-        # Saying that plainly beats a row that grants nothing.
-        _invite_to_vent(event, email, role=request.data.get('role') or 'manager',
-                        inviter=user)
-        return _ok({'invited': email, 'awaiting_signup': True},
-                   'We have emailed %s an invitation to V-ENT. Add them here '
-                   'once they have an account.' % email)
-    if target.user_id == event.creator_id:
-        return _err('They already own this event.', 'ALREADY_THE_ORGANIZER')
-
     role = request.data.get('role') or 'manager'
     if role not in ('manager', 'door'):
         return _err('That is not a role on an event.', 'VALIDATION_FAILED')
+    if target is None:
+        # Nobody here with that address yet. The role waits for them
+        # (inbox 455): they get an email with a link, make an account from it,
+        # and accept; signing up attaches the invitation to them. It used to
+        # email "join V-ENT" and leave the organiser to add them again.
+        from vent_auth.invites import offer_role
+        from vent_auth.models import RoleInvite
+        invite = offer_role(RoleInvite.KIND_EVENT, event, email, role, user)
+        return _ok({'invited': email, 'awaiting_signup': True, 'invite': _invite_row(invite)},
+                   'Invitation sent to %s.' % email, status.HTTP_201_CREATED)
+    if target.user_id == event.creator_id:
+        return _err('They already own this event.', 'ALREADY_THE_ORGANIZER')
 
     manager, created = EventManager.objects.get_or_create(
         event=event, user=target, defaults={'role': role, 'added_by': user})

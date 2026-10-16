@@ -51,6 +51,8 @@ from vent_event.models import (Event, EventReferral, Ticket, TicketTier,  # noqa
 
 PIN = '2468'
 WALK_PASSWORD = 'walk-con-2026'  # local dev accounts only
+# The waiting email invitation the IDOR cases name (inbox 455).
+IDOR_INVITE_TOKEN = 'ri_walkidorcase000000a'
 STATE = os.path.join(ROOT, 'tools', '.walk-event-state.json')
 FAILS = []
 
@@ -316,6 +318,14 @@ def setup():
     expect(c.post('/event/%s/managers/' % slug, data=json.dumps({
         'username': steward.username, 'role': 'door'}),
         content_type='application/json'), 201, 'door steward added')
+    # A manager invited by email who has no account yet (inbox 455), left
+    # waiting at a fixed token so security/idor-cases.json can name it.
+    expect(c.post('/event/%s/managers/' % slug, data=json.dumps({
+        'username': 'idor.target@walk.test', 'role': 'manager'}),
+        content_type='application/json'), 201, 'manager invited by email')
+    from vent_auth.models import RoleInvite
+    RoleInvite.objects.filter(event=event, email='idor.target@walk.test').update(
+        token=IDOR_INVITE_TOKEN)
 
     # Self check-in is on, two hours before the doors.
     expect(c.post('/event/%s/self-check-in/settings/' % slug, data=json.dumps({
