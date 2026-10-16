@@ -138,6 +138,13 @@ if [ -x "$BACKEND/venv/bin/python" ]; then
     UNAPPLIED=$("$BACKEND/venv/bin/python" "$BACKEND/manage.py" showmigrations --plan 2>/dev/null | grep -c '^\[ \]' || true)
     [ "${UNAPPLIED:-0}" = "0" ] || fail "$UNAPPLIED migration(s) have not been applied"
     echo "migrations: none outstanding"
+    # Results that cannot be true: a winner who did not play, a seat holding a
+    # registration from another tournament. Both reached real data through
+    # doors that are guarded now (inbox 488); this finds a third door on the
+    # deploy after it opens, not on somebody's bracket.
+    RESULTS_OUT=$("$BACKEND/venv/bin/python" "$BACKEND/manage.py" check_results 2>&1) \
+        || fail "check_results: $RESULTS_OUT"
+    echo "$RESULTS_OUT"
 fi
 
 echo "the live site is serving this build"
