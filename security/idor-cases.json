@@ -6988,6 +6988,238 @@
     ],
     "reason": "a draft is keyed to the signed-in account (inbox 436): the address names a public tournament, never a draft, and every method B sends reads, writes or removes B's own row, so there is no other user's record to reach; with no session it answers 401"
    }
+  },
+  {
+   "name": "B cannot accept A's emailed invitation to manage A's event",
+   "route": "invitations/<str:token>/respond/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/invitations/{id}/respond/",
+    "body": {
+     "accept": true
+    },
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "ri_walkidorcase000000a",
+   "r88": {
+    "skip": [
+     "neighbours",
+     "existence"
+    ],
+    "reason": "an invitation token is the secret itself (ri_ plus 20 random hex characters, never a database key), so it has no neighbours to walk and is not enumerable; reading an invitation is public to whoever holds the emailed link (inbox 455), so a real token and a missing one are told apart by design"
+   }
+  },
+  {
+   "name": "B cannot withdraw A's emailed invitation",
+   "route": "invitations/<str:token>/cancel/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/invitations/{id}/cancel/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "ri_walkidorcase000000a",
+   "r88": {
+    "skip": [
+     "neighbours",
+     "existence"
+    ],
+    "reason": "an invitation token is the secret itself (ri_ plus 20 random hex characters, never a database key), so it has no neighbours to walk and is not enumerable; reading an invitation is public to whoever holds the emailed link (inbox 455), so a real token and a missing one are told apart by design"
+   }
+  },
+  {
+   "name": "B reads an invitation by its link and sees no address",
+   "route": "invitations/<str:token>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/auth/invitations/{id}/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "ri_walkidorcase000000a",
+   "r88": {
+    "skip": [
+     "methods",
+     "anon",
+     "neighbours",
+     "existence"
+    ],
+    "reason": "an invitation token is the secret itself (ri_ plus 20 random hex characters, never a database key), so it has no neighbours to walk and is not enumerable; reading an invitation is public to whoever holds the emailed link (inbox 455), so a real token and a missing one are told apart by design; the answer names the event, the sender and only a hint of the address (tests_role_invites)"
+   }
+  },
+  {
+   "name": "B, not staff, cannot restore an entry from the admin record bin",
+   "route": "admin/records/bin/<int:entry_id>/restore/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/records/bin/{id}/restore/",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   },
+   "id": "3"
+  },
+  {
+   "name": "B, not staff, cannot purge an entry from the admin record bin",
+   "route": "admin/records/bin/<int:entry_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/auth/admin/records/bin/{id}/",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   },
+   "id": "3"
+  },
+  {
+   "name": "B, not staff, cannot revert a record to an earlier version",
+   "route": "admin/records/versions/<int:version_id>/revert/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/records/versions/{id}/revert/",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   },
+   "id": "2"
+  },
+  {
+   "name": "B, not staff, cannot read A's account through the records console",
+   "route": "admin/records/<str:key>/<str:pk>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/auth/admin/records/vent_auth.users/{id}/",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   },
+   "id": "54"
+  },
+  {
+   "name": "B, not staff, cannot delete A's account through the records console",
+   "route": "admin/records/<str:key>/<str:pk>/delete/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/records/vent_auth.users/{id}/delete/",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   },
+   "id": "54"
+  },
+  {
+   "name": "B, not staff, cannot correct A's account through the records console",
+   "route": "admin/records/<str:key>/<str:pk>/correct/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/auth/admin/records/vent_auth.users/{id}/correct/",
+    "expect": [
+     401,
+     403,
+     404
+    ],
+    "body": {
+     "field": "full_name",
+     "value": "x"
+    }
+   },
+   "id": "54"
+  },
+  {
+   "name": "B cannot add a picture to a pitch on an event B does not run",
+   "route": "<str:event_id>/slots/<int:slot_id>/pictures/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/lagos-anime-con-2026/slots/{id}/pictures/",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   },
+   "id": "1"
+  },
+  {
+   "name": "B cannot reorder the pictures of a pitch on an event B does not run",
+   "route": "<str:event_id>/slots/<int:slot_id>/pictures/order/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/lagos-anime-con-2026/slots/{id}/pictures/order/",
+    "expect": [
+     401,
+     403,
+     404
+    ],
+    "body": {
+     "order": [
+      1
+     ]
+    }
+   },
+   "id": "1"
+  },
+  {
+   "name": "B cannot remove a picture from a pitch on an event B does not run",
+   "route": "<str:event_id>/slots/<int:slot_id>/pictures/<int:picture_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/event/lagos-anime-con-2026/slots/1/pictures/{id}/",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   },
+   "id": "1"
+  },
+  {
+   "name": "B cannot change or remove the venue layout of an event B does not run",
+   "route": "<str:event_id>/venue-layout/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/event/{id}/venue-layout/",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   },
+   "id": "lagos-anime-con-2026",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the id is an event's slug, the address of a public page anybody can open (public by default, CEO 26 August), so which events exist is not a secret; a real event answers 403 to a stranger and a missing one 404"
+   }
   }
  ]
 }

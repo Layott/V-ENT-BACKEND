@@ -184,10 +184,16 @@ class TicketingSetupTests(TestCase):
         res = self.client.post('/event/%s/managers/' % self.event.event_id,
                                data=json.dumps({'username': 'newhelper@example.com'}),
                                content_type='application/json', **self.owner_auth)
-        self.assertEqual(res.status_code, 200, res.content)
+        # 201: the role now waits for them as an invitation they accept after
+        # signing up (inbox 455), rather than an email asking the organiser to
+        # add them again later.
+        self.assertEqual(res.status_code, 201, res.content)
         body = res.json()['data']
         self.assertEqual(body['invited'], 'newhelper@example.com')
         self.assertIs(body['awaiting_signup'], True)
+        from vent_auth.models import RoleInvite
+        self.assertTrue(RoleInvite.objects.filter(event=self.event, email='newhelper@example.com',
+                                                  status='pending').exists())
 
     def test_an_organisation_event_can_be_shared(self):
         org = Organization.objects.create(org_name='Vermillion %s' % uuid.uuid4().hex[:4],

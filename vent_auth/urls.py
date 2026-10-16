@@ -8,6 +8,7 @@ from . import views_push as views_push_mod
 
 from .views_rankings import games_list
 from . import views_wallets_shared
+from . import views_invitations
 from . import views_admin_orgs
 from . import views_admin_admins
 from . import views_admin_finance
@@ -49,6 +50,12 @@ from . import views_currency
 from . import views_premium
 
 urlpatterns = [
+    # Any invitation, opened from its emailed link (inbox 455). `mine` first,
+    # so it is never read as a token.
+    path('invitations/mine/', views_invitations.mine, name='invitations_mine'),
+    path('invitations/<str:token>/', views_invitations.invitation, name='invitation'),
+    path('invitations/<str:token>/respond/', views_invitations.respond, name='invitation_respond'),
+    path('invitations/<str:token>/cancel/', views_invitations.cancel, name='invitation_cancel'),
     # Organisations and communities in the console. Two of the ten sections
     # the admin spec asks for; the rest are either already built or waiting on
     # a feature that does not exist yet.

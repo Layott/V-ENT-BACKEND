@@ -275,8 +275,8 @@ def _email_the_invite(org, email, role, inviter, invite):
     error they think means it did not save. The row exists either way, and it
     can be re-sent.
     """
-    from vent.settings import FRONTEND_URL
     from . import emails
+    from .invites import invitation_url
 
     try:
         emails.send_invitation(
@@ -284,7 +284,9 @@ def _email_the_invite(org, email, role, inviter, invite):
             what=org.org_name,
             who=inviter.username if inviter else 'V-ENT',
             role=role,
-            join_url='%s/organizations/invites?token=%s' % (FRONTEND_URL, invite.token),
+            # The one invitation page, which someone with no account can open
+            # (inbox 455); the invites list behind it needs a sign in.
+            join_url=invitation_url(invite.token),
             message=invite.message or '',
         )
     except Exception:
@@ -369,7 +371,7 @@ def org_invite(request, org_id):
         target, 'system',
         '%s invited you' % org.org_name,
         'You have been invited to join as %s.' % role,
-        link='/organizations/invites',
+        link='/invitations/%s' % invite.token,
         metadata={'org': org.slug, 'invite': invite.token, 'role': role},
     )
     return _ok({'invite': serialize_invite(request, invite)},

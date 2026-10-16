@@ -143,6 +143,7 @@ SENSITIVE = {
     'vent_auth.verificationtoken': {'token': 'an email verification token'},
     'vent_auth.teams': {'join_password': 'the password to join the team'},
     'vent_auth.orginvite': {'token': 'an invitation link token'},
+    'vent_auth.roleinvite': {'token': 'an invitation link token'},
     'vent_auth.userwallet': {'pin_hash': 'a wallet PIN hash'},
     'vent_auth.teamwallet': {'pin_hash': 'a wallet PIN hash', 'team_wallet_pin': 'an old wallet PIN'},
     'vent_auth.orgwallet': {'pin_hash': 'a wallet PIN hash', 'org_wallet_pin': 'an old wallet PIN'},
