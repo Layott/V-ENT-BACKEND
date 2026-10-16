@@ -533,7 +533,10 @@ def change_username(request):
     raw = inputs.read_text(request.data, 'username', max_length=inputs.LONGEST_TEXT, strip=False)
     problem = username_problem(raw)
     if problem:
-        return Response({'status': 'error', 'message': problem},
+        # The code the onboarding door sends for the same refusal, so the
+        # screen can say it in the reader's language either way.
+        return Response({'code': 'USERNAME_INVALID', 'status': 'error', 'message': problem,
+                         'field': 'username'},
                         status=status.HTTP_400_BAD_REQUEST)
 
     name = normalize_username(raw)
