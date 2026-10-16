@@ -159,9 +159,21 @@ CATCHERS = [
      'no numeric id in an address a person can see',
      FRONTEND, ['node', 'scripts/check-slugs.mjs'], False),
 
+    # Blocking since 16 October 2026 (inbox 461): it was blind until then (it
+    # matched a route's first segment as a substring, so /u/[username] passed
+    # on the letter u), and at 0 a new public page missing from the sitemap,
+    # or a noindex page listed in it, stops the commit.
     ('seo',
      'every public page can be found and read',
-     FRONTEND, ['node', 'scripts/check-seo.mjs'], False),
+     FRONTEND, ['node', 'scripts/check-seo.mjs'], True),
+    ('seo self-test',
+     'route shapes are matched whole: a profile is not listed by the letter u',
+     FRONTEND, ['node', 'scripts/check-seo.mjs', '--self-test'], True),
+    # The live half runs after every deploy and daily on the box
+    # (deploy/search-check.sh); here, that its rules still catch each fault.
+    ('search self-test',
+     'what Search Console would flag: redirect, noindex, wrong canonical, robots block',
+     FRONTEND, ['node', 'scripts/check-search.mjs', '--self-test'], True),
 
     # check-seo proves a page HAS structured data; this proves the numbers in
     # it are the record's. Every event's JSON-LD started at the registration-

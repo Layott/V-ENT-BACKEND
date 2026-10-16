@@ -867,6 +867,44 @@ def _message_policy(owner):
     return message_policy(owner)
 
 
+#: A sitemap file holds at most 50,000 addresses; this leaves room for the rest.
+INDEXABLE_PROFILES_CAP = 40000
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def indexable_profiles(request):
+    """GET /users/indexable/ - every profile a search engine may list.
+
+    For the sitemap (inbox 460, 16 October 2026): /u/<username> is the most
+    linkable page the platform has and the sitemap named none of the 175. The
+    same tests public_profile applies before it shows a profile, plus the
+    owner's own "show in search" setting (inbox 399): an active account that is
+    not deactivated, a profile anybody may view, indexing left on. Usernames
+    only, the public half of a profile.
+    """
+    from .models import UserSetting
+
+    users = list(Users.objects.filter(is_active=True, is_deactivated=False)
+                 .only('user_id', 'username', 'last_login', 'date_joined')
+                 .order_by('user_id')[:INDEXABLE_PROFILES_CAP])
+    settings_by_user = {s.user_id: s for s in UserSetting.objects.filter(
+        user_id__in=[u.pk for u in users])}
+    rows = []
+    for user in users:
+        privacy = privacy_of(user, settings_by_user)
+        # can_view_profile's answer for a visitor with no account, read from
+        # the setting already fetched rather than one query per person.
+        if privacy.get('profile_visibility', 'public') in ('private', 'followers'):
+            continue
+        if not privacy.get('indexable', True):
+            continue
+        rows.append({'username': user.username,
+                     'updated_at': user.last_login or user.date_joined})
+    return Response({'status': 'success', 'message': 'Indexable profiles',
+                     'data': {'profiles': rows, 'count': len(rows)}})
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def public_profile(request, user_id):
@@ -1064,7 +1102,7 @@ def _public_gallery_rows(request, user, esports=False):
     return [serialize_image(request, i) for i in items]
 
 
-def privacy_of(user):
+def privacy_of(user, settings_by_user=None):
     """This account's privacy preferences, with the defaults filled in.
 
     Stored preferences were being written and never read, so "Private" was a
@@ -1081,7 +1119,12 @@ def privacy_of(user):
         'allow_direct_messages': 'anyone',
         'indexable': True,
     }
-    setting = UserSetting.objects.filter(user=user).first()
+    # `settings_by_user` ({user_id: UserSetting}) lets a caller reading many
+    # accounts at once fetch every setting in one query (indexable_profiles).
+    if settings_by_user is not None:
+        setting = settings_by_user.get(user.pk)
+    else:
+        setting = UserSetting.objects.filter(user=user).first()
     if setting is None:
         return defaults
     stored = dict((setting.data or {}).get('privacy') or {})
