@@ -52,6 +52,8 @@ are worth, which is what the spreadsheet's TotalPts formula does.
 """
 from collections import defaultdict
 
+from . import ranking
+
 
 # What a match can be. `cancelled` counts for nothing anywhere: not played,
 # no goals, no points. It is not a draw.
@@ -410,27 +412,19 @@ def order(rows, tiebreakers=None):
 
     Default order is the spreadsheet's: points, goal difference, goals for,
     then the name so that two players who are genuinely level do not swap
-    places every time the page is loaded.
+    places every time the page is loaded. Through `ranking.order`, the one
+    ranking for every table (P0, 16 October 2026). Head to head is skipped
+    here: it needs the fixtures between the two, which this table does not hold.
     """
-    keys = list(tiebreakers or ('goal_difference', 'goals_for'))
+    keys = [k for k in (tiebreakers or ('goal_difference', 'goals_for')) if k != 'head_to_head']
 
-    def sort_key(row):
-        parts = [-row['points']]
-        for key in keys:
-            value = row.get(key)
-            if key == 'head_to_head':
-                # Not decidable from the table alone; it needs the fixtures
-                # between the two, so it is handled by the caller that has
-                # them and skipped here rather than silently ignored.
-                continue
-            parts.append(-(value if isinstance(value, (int, float)) else 0))
-        parts.append(str(row['player']).lower())
-        return parts
+    def value(row, key):
+        if key in ranking.CATALOGUE:
+            return None
+        found = row.get(key)
+        return found if isinstance(found, (int, float)) else 0
 
-    ordered = sorted(rows, key=sort_key)
-    for index, row in enumerate(ordered, 1):
-        row['position'] = index
-    return ordered
+    return ranking.order(rows, keys, value=value)
 
 
 def head_to_head(matches, first, second, settings=None):

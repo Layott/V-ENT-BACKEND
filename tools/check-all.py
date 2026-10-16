@@ -707,6 +707,14 @@ CATCHERS = [
     ('server codes self-test',
      'the server codes catcher still catches a code with no translation',
      BACKEND, [sys.executable, 'tools/check-server-codes.py', '--self-test'], True),
+    # Seven places each ranked a table their own way and three gave wrong
+    # results (P0, 16 October 2026: "these are fine."). ranking.order is the one.
+    ('one ranking',
+     'every table is ranked by ranking.order, nowhere else',
+     BACKEND, [sys.executable, 'tools/check-one-ranking.py'], True),
+    ('one ranking self-test',
+     'the one ranking catcher still catches the sorters it replaced',
+     BACKEND, [sys.executable, 'tools/check-one-ranking.py', '--self-test'], True),
     # Two blocks in an email with no space between them (CEO, 29 September
     # 2026, the sign-in alert's button touching its paragraph; inbox 355).
     ('email spacing',

@@ -346,68 +346,24 @@ def assign_final_positions(tournament):
 
 
 def _positions_elimination(tournament):
+    """The same places a stage's knockout gives, through the one function that
+    decides them: losers of the same round share their place (P0)."""
+    from ..stage_engine import knockout_places
+
     matches = list(tournament.bracket_matches.all())
     if not matches:
         return
-    final = next((m for m in matches if m.is_final), None)
-    if final is None:
-        # Fall back to the highest winners-bracket round's single match.
-        final = max(matches, key=lambda m: (m.round_number, m.match_number))
-
-    ordered = {}
-    if final.winner_id:
-        ordered[final.winner_id] = 1
-    final_loser = _loser_of(final)
-    if final_loser:
-        ordered[final_loser.id] = 2
-
-    # When a third-place match was played, it decides third and fourth outright.
-    # Without this the loop below would hand third to whoever lost it, which is
-    # the opposite of what the match was for.
-    next_pos = 3
-    third_place = next(
-        (m for m in matches
-         if m is not final
-         and m.round_number == final.round_number
-         and m.bracket_side == final.bracket_side
-         and m.status == 'completed'),
-        None,
-    )
-    skip = {final}
-    if third_place is not None:
-        skip.add(third_place)
-        if third_place.winner_id:
-            ordered.setdefault(third_place.winner_id, 3)
-        bronze_loser = _loser_of(third_place)
-        if bronze_loser:
-            ordered.setdefault(bronze_loser.id, 4)
-        next_pos = 5
-
-    # Everyone else: the later they were eliminated, the better the placing.
-    losers_by_round = sorted(
-        (m for m in matches if m not in skip and m.status == 'completed'),
-        key=lambda m: (-m.round_number, m.bracket_side, m.match_number),
-    )
-    for m in losers_by_round:
-        loser = _loser_of(m)
-        if loser and loser.id not in ordered:
-            ordered[loser.id] = next_pos
-            next_pos += 1
-
-    _write_positions(tournament, ordered)
+    _write_positions(tournament, knockout_places(matches))
 
 
 def _positions_round_robin(tournament):
-    from ..models import TournamentRegistration
+    """A table played as the only format finishes as its table reads: points,
+    then the organiser's tie-breakers. It was ranked by wins and then by
+    registration order, which is not the table anybody was shown (P0, F3)."""
+    from . import league
 
-    regs = list(tournament.registrations.filter(status='confirmed'))
-    wins = {r.id: 0 for r in regs}
-    for m in tournament.bracket_matches.filter(status='completed'):
-        if m.winner_id in wins:
-            wins[m.winner_id] += 1
-    ranked = sorted(regs, key=lambda r: (-wins[r.id], r.id))
-    ordered = {r.id: i + 1 for i, r in enumerate(ranked)}
-    _write_positions(tournament, ordered)
+    _write_positions(tournament, {row['registration_id']: row['rank']
+                                  for row in league.team_table(tournament)})
 
 
 def _write_positions(tournament, ordered):

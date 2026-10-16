@@ -22,6 +22,7 @@ and the defaults are only defaults.
 """
 from collections import defaultdict
 
+from .. import ranking
 from ..models import BracketMatch, LeagueRules, TieFixture
 
 
@@ -246,70 +247,18 @@ def _entrant_name(reg):
 def _order(table, rules, beat):
     """Sort by points, then by each tiebreaker in the organiser's order.
 
-    Head to head is applied only between two teams that are otherwise level and
-    have actually met. With three teams level it is undefined, so it is skipped
-    rather than guessed at - a table that quietly invents an order is worse than
-    one that falls through to the next tiebreaker.
+    Through `ranking.order`, the one ranking for every table (P0, 16 October
+    2026). Head to head is a mini-table of wins between the teams still level at
+    that point, applied again inside any smaller group it leaves level; two
+    teams who each beat the other once stay level on it and the next tiebreaker
+    decides, which is what this table did before for a pair.
     """
     order = rules.ordered_tiebreakers()
 
-    def key(row):
-        parts = [-row['points']]
-        for name in order:
-            if name == 'goal_difference':
-                parts.append(-row['goal_difference'])
-            elif name == 'goals_for':
-                parts.append(-row['goals_for'])
-            elif name == 'goals_against':
-                parts.append(row['goals_against'])      # fewer is better
-            elif name == 'wins':
-                parts.append(-row['won'])
-            elif name == 'fixtures_won':
-                parts.append(-row['fixtures_won'])
-            # head_to_head cannot be a sort key on one row; handled below.
-        # Last resort so the order is stable rather than arbitrary run to run.
-        parts.append(row['name'].lower())
-        return parts
+    def h2h(ids):
+        return {i: len(beat.get(i, set()) & ids) for i in ids}
 
-    table.sort(key=key)
-
-    if 'head_to_head' in order:
-        table = _apply_head_to_head(table, beat, order)
-
-    for i, row in enumerate(table, start=1):
-        row['position'] = i
-    return table
-
-
-def _apply_head_to_head(table, beat, order):
-    """Swap two adjacent teams if one beat the other and nothing else separated them.
-
-    Only for a pair. Three or more level on everything is left as the earlier
-    tiebreakers ordered them, because "who beat whom" has no answer in a cycle.
-    """
-    where = order.index('head_to_head')
-    # Everything ranked above head-to-head has already been applied, so two rows
-    # are "otherwise level" when their points and those earlier keys all match.
-    earlier = order[:where]
-
-    def comparable(row):
-        vals = [row['points']]
-        for name in earlier:
-            vals.append(row.get(name if name != 'wins' else 'won'))
-        return tuple(vals)
-
-    i = 0
-    while i < len(table) - 1:
-        a, b = table[i], table[i + 1]
-        if comparable(a) == comparable(b):
-            a_id, b_id = a['registration_id'], b['registration_id']
-            if b_id in beat.get(a_id, set()) and a_id not in beat.get(b_id, set()):
-                pass                       # a already ahead, correct
-            elif a_id in beat.get(b_id, set()) and b_id not in beat.get(a_id, set()):
-                table[i], table[i + 1] = b, a
-                i += 1                     # do not re-compare the swapped pair
-        i += 1
-    return table
+    return ranking.order(table, order, h2h=h2h)
 
 
 # ---------------------------------------------------------------------------

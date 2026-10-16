@@ -195,7 +195,9 @@ class GroupsIntoPlayoffTests(TestCase):
         t.refresh_from_db()
         self.assertEqual(t.status, 'completed')
         placed = dict(t.registrations.values_list('id', 'final_position'))
-        self.assertEqual(sorted(p for p in placed.values() if p), list(range(1, 9)))
+        # Equal finishers share a place (P0, 16 October 2026): both semi
+        # losers are third, both group thirds fifth, both fourths seventh.
+        self.assertEqual(sorted(p for p in placed.values() if p), [1, 2, 3, 3, 5, 5, 7, 7])
 
     def test_advancing_before_the_stage_is_played_is_refused(self):
         t, creator, regs = field(8)
@@ -251,7 +253,9 @@ class ThreeStageChainTests(TestCase):
         t.refresh_from_db()
         self.assertEqual(t.status, 'completed')
         positions = [p for p in t.registrations.values_list('final_position', flat=True) if p]
-        self.assertEqual(sorted(positions), list(range(1, 17)))
+        # Equal finishers share a place (P0): the four who went out on the
+        # same rank of one stage share 9th, the next four 13th.
+        self.assertEqual(sorted(positions), list(range(1, 9)) + [9, 9, 9, 9, 13, 13, 13, 13])
 
 
 class GrandFinalResetTests(TestCase):
