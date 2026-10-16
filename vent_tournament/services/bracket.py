@@ -249,7 +249,7 @@ def generate(tournament, generated_by, seed_strategy='random', manual_order=None
     return summary
 
 
-def draw_into(tournament, stage, btype, ordered, settings, groups=0, lower=None):
+def draw_into(tournament, stage, btype, ordered, settings, groups=0, lower=None, early=False):
     """Draw `ordered` (best seed first) as `btype`, into `stage` or none.
 
     The single entry every generator is reached through, for a whole
@@ -272,16 +272,17 @@ def draw_into(tournament, stage, btype, ordered, settings, groups=0, lower=None)
         raise BracketError('not_enough_entrants',
                            'This format needs at least %s.' % definition.min_participants)
     with advance.suspend_advance():
-        summary = _draw(tournament, stage, btype, ordered, settings, groups, lower)
+        summary = _draw(tournament, stage, btype, ordered, settings, groups, lower, early)
     # The seats the generator filled (entrants, byes) get their slot rows here,
     # after any bye has moved somebody on; the links wrote their own.
     scope = (stage.matches.all() if stage is not None
              else tournament.bracket_matches.filter(stage__isnull=True))
-    match_slots.complete(scope, {r.id: i for i, r in enumerate(list(ordered) + lower, start=1)})
+    match_slots.complete(scope, {r.id: i for i, r in enumerate(list(ordered) + lower, start=1)
+                                 if hasattr(r, 'id')})
     return summary
 
 
-def _draw(tournament, stage, btype, ordered, settings, groups, lower=None):
+def _draw(tournament, stage, btype, ordered, settings, groups, lower=None, early=False):
     """The generator for `btype`, run inside `draw_into`."""
     if btype == 'stepladder':
         return _generate_stepladder(tournament, stage, ordered, settings)
@@ -290,7 +291,7 @@ def _draw(tournament, stage, btype, ordered, settings, groups, lower=None):
     if btype == 'winner_stays_on':
         return _generate_winner_stays_on(tournament, stage, ordered, settings)
     if btype == 'single_elimination' and (settings or {}).get('every_place'):
-        return _generate_every_place(tournament, stage, ordered, settings)
+        return _generate_every_place(tournament, stage, ordered, settings, early=early)
     if btype == 'gsl':
         return _generate_gsl(tournament, stage, ordered, settings)
     if btype == 'swiss':
@@ -302,9 +303,9 @@ def _draw(tournament, stage, btype, ordered, settings, groups, lower=None):
                                      settings=settings)
     if btype == 'double_elimination':
         return _generate_double_elimination(tournament, ordered, stage=stage,
-                                            settings=settings, lower=lower)
+                                            settings=settings, lower=lower, early=early)
     return _generate_single_elimination(tournament, ordered, stage=stage,
-                                        settings=settings)
+                                        settings=settings, early=early)
 
 
 def _new_match(tournament, stage, settings, round_number, match_number, side,
@@ -324,6 +325,41 @@ def _new_match(tournament, stage, settings, round_number, match_number, side,
         draw_allowed=(settings.get('draws') == 'allowed'),
         is_final=is_final, **extra,
     )
+
+
+def _seat_item(match, side, item):
+    """One seat of a bracket drawn early: a known entrant, a bye, or a token
+    waiting for a place in a stage that feeds this one (P1d)."""
+    if item is None:
+        match_slots.mark_bye(match, side)
+    elif isinstance(item, dict):
+        match_slots.wait_for(match, side, item['line'], item['group'], item['place'])
+    else:
+        setattr(match, 'participant_%d' % side, item)
+        match.save(update_fields=['participant_%d' % side])
+
+
+def _place_tokens(matches, slots):
+    """Round one of a bracket drawn early. A seat against a bye resolves now
+    only when its entrant is known; a token resolves when its link sends."""
+    settled = []
+    for m, match in enumerate(matches):
+        pair = (slots[2 * m], slots[2 * m + 1])
+        for side, item in ((1, pair[0]), (2, pair[1])):
+            _seat_item(match, side, item)
+        waiting = any(isinstance(item, dict) for item in pair)
+        known = [item for item in pair if item is not None and not isinstance(item, dict)]
+        if waiting or len(known) == 2:
+            continue
+        match.status = 'bye'
+        if known:
+            match.winner = known[0]
+            match.completed_at = timezone.now()
+            match.save(update_fields=['status', 'winner', 'completed_at'])
+        else:
+            match.save(update_fields=['status'])
+        settled.append(match)
+    return settled
 
 
 def _seat_round_one(matches, slots):
@@ -359,7 +395,7 @@ def _seed_slots(ordered, bracket_size):
     return [padded[pos - 1] for pos in positions]
 
 
-def _generate_single_elimination(tournament, ordered, stage=None, settings=None):
+def _generate_single_elimination(tournament, ordered, stage=None, settings=None, early=False):
     settings = settings or {}
     n = len(ordered)
     bracket_size = next_power_of_2(n)
@@ -397,7 +433,8 @@ def _generate_single_elimination(tournament, ordered, stage=None, settings=None)
             match_slots.link(semi, 'loser', third_place, m + 1)
         matches_created += 1
 
-    for match in _seat_round_one(per_round[0], slots):
+    seat = _place_tokens if early else _seat_round_one
+    for match in seat(per_round[0], slots):
         advance.cascade(match)
 
     return {
@@ -782,7 +819,8 @@ def reorder(name, items):
     return items
 
 
-def _generate_double_elimination(tournament, ordered, stage=None, settings=None, lower=None):
+def _generate_double_elimination(tournament, ordered, stage=None, settings=None, lower=None,
+                                 early=False):
     """Winners + losers bracket + grand final, with or without a reset.
 
     Fully correct and auto-advancing for power-of-2 fields. Non-power-of-2 fields
@@ -873,7 +911,9 @@ def _generate_double_elimination(tournament, ordered, stage=None, settings=None,
                 match_slots.link(match, 'winner', lb[0][m // 2], 1 if m % 2 == 0 else 2)
             padded = lower + [None] * (len(entry) - len(lower))
             for match, reg in zip(entry, padded):
-                if reg is not None:
+                if early:
+                    _seat_item(match, 2, reg)
+                elif reg is not None:
                     match.participant_2 = reg
                     match.save(update_fields=['participant_2'])
                 else:
@@ -908,7 +948,8 @@ def _generate_double_elimination(tournament, ordered, stage=None, settings=None,
         # when the losers' champion wins the first grand final.
         match_slots.link_reset(gf, gf2)
 
-    for match in _seat_round_one(wb[0], slots):
+    seat = _place_tokens if early else _seat_round_one
+    for match in seat(wb[0], slots):
         advance.cascade(match)
 
     return {
@@ -932,7 +973,7 @@ def _generate_double_elimination(tournament, ordered, stage=None, settings=None,
 # eight rows has eight names to pay. Each match states the place it settles
 # (`winner_place`, `loser_place`), so final positions are read off matches.
 
-def _generate_every_place(tournament, stage, ordered, settings):
+def _generate_every_place(tournament, stage, ordered, settings, early=False):
     settings = settings or {}
     bracket_size = next_power_of_2(len(ordered))
     rounds = int(math.log2(bracket_size))
@@ -967,7 +1008,8 @@ def _generate_every_place(tournament, stage, ordered, settings):
         return matches
 
     first_round = build(bracket_size, 1, 1)
-    for match in _seat_round_one(first_round, slots):
+    seat = _place_tokens if early else _seat_round_one
+    for match in seat(first_round, slots):
         advance.cascade(match)
     return {
         'rounds_count': rounds,

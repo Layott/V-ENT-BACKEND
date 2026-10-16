@@ -307,7 +307,10 @@ def draw_stage(request, tournament_id, stage_id):
     try:
         with transaction.atomic():
             summary = stage_engine.draw(stage, user, strategy,
-                                        request.data.get('manual_order'))
+                                        request.data.get('manual_order'),
+                                        # Before the stages feeding it finish,
+                                        # every seat waiting for its place (P1d).
+                                        early=inputs.read_bool(request.data, 'early'))
     except stage_engine.StageEngineError as exc:
         return _engine_err(exc)
     stage.refresh_from_db()

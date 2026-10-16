@@ -948,6 +948,9 @@ class MatchSlot(models.Model):
         # its seats come from the first grand final, and it is played only if
         # the lower bracket's champion wins that one.
         ('reset', 'The grand final played again if needed'),
+        # A place in a stage that feeds this one, for a stage drawn before
+        # that stage finished (P1d): "Groups, group A, place 1".
+        ('place', 'A place in an earlier stage'),
         ('open', 'Not decided by the bracket'),
     )
 
@@ -958,6 +961,12 @@ class MatchSlot(models.Model):
                                      blank=True, related_name='+')
     # The seed drawn into this seat, for an entrant placed at the draw.
     seed = models.PositiveSmallIntegerField(null=True, blank=True)
+    # For a `place` seat: the link it waits on, and which group and place of
+    # that link's stage fills it.
+    progression = models.ForeignKey('Progression', on_delete=models.SET_NULL, null=True,
+                                    blank=True, related_name='waiting_slots')
+    source_group = models.PositiveSmallIntegerField(null=True, blank=True)
+    source_place = models.PositiveSmallIntegerField(null=True, blank=True)
 
     class Meta:
         unique_together = ('match', 'slot')

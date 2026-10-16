@@ -137,8 +137,72 @@ def entrants_and_lower(stage, seed_strategy='registration', manual_order=None):
 # Drawing
 # ---------------------------------------------------------------------------
 
-def draw(stage, user, seed_strategy='registration', manual_order=None):
-    """Draw one stage. Runs inside transaction.atomic()."""
+def early_tokens(stage):
+    """(upper, lower) tokens for a stage drawn before its links send: one per
+    place each link will send, in the order `progressions.rows_for` sends
+    them (place by place, group by group), so a seat waits for exactly the
+    place the cross puts there."""
+    from . import progressions
+    upper, lower = [], []
+    for line in progressions.incoming(stage):
+        groups = line.source.groups or 0
+        wanted = ([line.group] if line.group is not None
+                  else list(range(1, groups + 1)) if groups > 1 else [None])
+        out = lower if line.side == 'losers' else upper
+        for place in range(line.place_from, line.place_to + 1):
+            for group in wanted:
+                out.append({'line': line, 'group': group, 'place': place})
+    return upper, lower
+
+
+EARLY_FORMATS = ('single_elimination', 'double_elimination')
+
+
+def _draw_early(stage, user):
+    """Draw a knockout before the stages that feed it finish (P1d, design
+    section 4): every seat waits for its place and fills when its link sends."""
+    from .models import BracketGeneration, TournamentRegistration
+    from .services import bracket
+    fmt = formats.get(stage.format)
+    if fmt is None or fmt.key not in EARLY_FORMATS:
+        raise StageEngineError('STAGE_EARLY_NOT_FOR_FORMAT', 'format')
+    if (stage.placement or 'cross') != 'cross':
+        raise StageEngineError('STAGE_EARLY_NEEDS_CROSS', 'placement')
+    upper, lower = early_tokens(stage)
+    direct = [int(i) for i in (stage.direct_entrants or [])]
+    by_id = {r.id: r for r in TournamentRegistration.objects.filter(id__in=direct, status='confirmed')}
+    upper = [by_id[i] for i in direct if i in by_id] + upper
+    if len(upper) + len(lower) < fmt.min_participants:
+        raise StageEngineError('NOT_ENOUGH_ENTRANTS', need=fmt.min_participants,
+                               have=len(upper) + len(lower))
+    settings = stage.settings or stage_settings.clean(fmt.key, {})
+    try:
+        summary = bracket.draw_into(stage.tournament, stage, fmt.key, upper, settings,
+                                    groups=0, lower=lower, early=True)
+    except bracket.BracketError as exc:
+        raise StageEngineError(exc.code.upper())
+    stage.entrants = [i for i in direct if i in by_id]
+    stage.drawn_at = timezone.now()
+    stage.settings = settings
+    stage.save(update_fields=['entrants', 'drawn_at', 'settings'])
+    BracketGeneration.objects.create(
+        tournament=stage.tournament, generated_by=user, seed_strategy='registration',
+        seed_payload={'registration_ids': stage.entrants, 'stage_id': stage.id, 'early': True},
+        match_count=summary['matches_created'], rounds_count=summary['rounds_count'],
+        notes='stage=%s format=%s early' % (stage.order, fmt.key))
+    summary.update({'stage_id': stage.id, 'format': fmt.key, 'early': True})
+    return summary
+
+
+def draw(stage, user, seed_strategy='registration', manual_order=None, early=False):
+    """Draw one stage. Runs inside transaction.atomic().
+
+    `early` draws a knockout before the stages that feed it have sent their
+    people, with every seat waiting for its place (P1d)."""
+    if early and stage.drawn_at is None and not stage.matches.exists():
+        from . import progressions
+        if any(line.fired_at is None for line in progressions.incoming(stage)):
+            return _draw_early(stage, user)
     from .models import BracketGeneration
     from .services import bracket
 
@@ -677,6 +741,12 @@ def after_fire(stage, user, fired, draw_next=True):
             targets.append(line.target)
     for target in targets:
         target.refresh_from_db()
+        if target.drawn_at is not None and target.matches.filter(slots__kind='place').exists():
+            # Drawn early (P1d): the seats waiting on these lines fill now.
+            _fill_early(target, [line for line in fired if line.target_id == target.id])
+            if not progressions.ready(target):
+                waiting.append(target.id)
+            continue
         if not progressions.ready(target):
             waiting.append(target.id)
             continue
@@ -692,6 +762,29 @@ def after_fire(stage, user, fired, draw_next=True):
         'lines': [{'id': line.id, 'target': line.target_id, 'sent': len(line.sent or [])}
                   for line in fired],
     }
+
+
+def _fill_early(target, lines):
+    """Fill a stage drawn early from the lines that just sent, start it, and
+    keep its entrants: everybody seated in it, in seat order."""
+    from . import match_slots
+    for line in lines:
+        match_slots.fill(target, line)
+    seated = []
+    for m in target.matches.order_by('bracket_side', 'round_number', 'match_number'):
+        for pid in (m.participant_1_id, m.participant_2_id):
+            if pid and pid not in seated:
+                seated.append(pid)
+    target.entrants = seated
+    fields = ['entrants']
+    if target.status == 'pending':
+        target.status = 'running'
+        fields.append('status')
+    target.save(update_fields=fields)
+    tournament = target.tournament
+    if tournament.status != 'live':
+        tournament.status = 'live'
+        tournament.save(update_fields=['status'])
 
 
 def _close_by_itself(stage):
