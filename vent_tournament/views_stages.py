@@ -20,7 +20,7 @@ from vent_auth.actors import actor_from_request
 
 from . import formats, match_shape, stage_engine, stage_settings, stages
 from .access import may_manage
-from .models import TournamentRegistration, TournamentStage
+from .models import TournamentRegistration
 
 from . import lookup
 from vent_auth import inputs
@@ -116,6 +116,11 @@ def _row(stage):
     }
 
 
+def _played_count(tournament, stage):
+    from . import bracket_edit
+    return bracket_edit.played_count(tournament, stage)
+
+
 def _find(tournament_id):
     tournament = lookup.find(tournament_id)
     if tournament is None:
@@ -182,7 +187,16 @@ def tournament_stages(request, tournament_id):
                     'knockout': stage_settings.clean('single_elimination', preset['knockout'])}
                    if preset else None),
         'can_manage': bool(viewer and may_manage(viewer, tournament)),
+        # Whether any stage has been drawn. The plan still saves after that;
+        # drawn stages keep what was played (bracket_edit.save_plan).
         'locked': any(s.drawn_at for s in rows),
+        # A bracket drawn as one format, which becomes stage 1 to be planned
+        # around or changed (POST stages/adopt/).
+        'one_format_drawn': (not rows and tournament.bracket_matches.filter(
+            stage__isnull=True).exists()),
+        'finished': tournament.status in ('completed', 'cancelled')
+        or tournament.completed_at is not None,
+        'played': {s.id: _played_count(tournament, s) for s in rows if s.drawn_at},
     }, 'Stages')
 
 
@@ -196,64 +210,32 @@ def set_stages(request, tournament_id):
     if err:
         return err
 
-    # Once a stage has been drawn, its shape is history. Re-planning around it
-    # would change what a played stage was, which is not an edit anybody can
-    # make honestly.
-    if tournament.stages.filter(drawn_at__isnull=False).exists() or \
-            tournament.stages.exclude(status='pending').exists():
-        return _err('A stage has already been drawn, so the plan is fixed now.',
-                    'STAGES_LOCKED', status.HTTP_409_CONFLICT)
+    # A bracket drawn as one format is made the first stage before a plan is
+    # put around it (POST stages/adopt/), so that every match it holds keeps
+    # its stage. Saving a plan over it here would have stranded them.
     if tournament.bracket_matches.filter(stage__isnull=True).exists():
         return _err('This tournament already has a bracket drawn as one format.',
                     'BRACKET_ALREADY_GENERATED', status.HTTP_409_CONFLICT)
 
+    # Editable at any point before the tournament ends (CEO, 12 October 2026,
+    # inbox 450): stages already drawn keep what was played and change only
+    # what nothing played depends on; the rest change freely. bracket_edit.py
+    # holds the rules. It used to refuse the whole plan once a stage was drawn.
+    from . import bracket_edit
+    from .views_bracket_edit import _refused
     try:
-        cleaned = stages.plan(
-            request.data.get('stages'),
-            participants=tournament.registrations.filter(
-                status__in=('pending', 'confirmed')).count() or None,
-        )
-    except stages.StageError as exc:
-        # A settings refusal arrives as a bare code (KNOCKOUT_NEEDS_A_WINNER);
-        # send it AS the code so the screen translates it, rather than as a
-        # message somebody would read in capitals.
-        text = str(exc)
-        is_code = text.replace('_', '').isalpha() and text.isupper()
-        return _err('That plan cannot be saved.' if is_code else text,
-                    text if is_code else 'VALIDATION_FAILED',
-                    field=getattr(exc, 'field', None),
-                    stage_index=getattr(exc, 'index', None))
+        with transaction.atomic():
+            rows = bracket_edit.save_plan(
+                tournament, request.data.get('stages'), user,
+                participants=tournament.registrations.filter(
+                    status__in=('pending', 'confirmed')).count() or None)
+    except bracket_edit.EditError as exc:
+        return _refused(exc)
 
-    # An entrant seeded straight into a stage has to be one of this
-    # tournament's own, and cannot be seeded into the first stage (everybody
-    # starts there anyway).
-    own = set(tournament.registrations.values_list('id', flat=True))
-    for index, stage in enumerate(cleaned):
-        if stage['direct_entrants'] and index == 0:
-            return _err('Everybody already starts in the first stage.',
-                        'DIRECT_INTO_FIRST_STAGE', field='direct_entrants',
-                        stage_index=index)
-        if any(i not in own for i in stage['direct_entrants']):
-            return _err('That entrant is not in this tournament.',
-                        'NOT_AN_ENTRANT', field='direct_entrants', stage_index=index)
-
-    with transaction.atomic():
-        tournament.stages.all().delete()
-        for order, stage in enumerate(cleaned):
-            TournamentStage.objects.create(
-                tournament=tournament, order=order, label=stage['label'],
-                format=stage['format'], advances=stage['advances'],
-                groups=stage['groups'], rules=stage['rules'],
-                starts_at=stage['starts_at'], ends_at=stage['ends_at'],
-                place_type=stage['place_type'], location=stage['location'],
-                virtual_link=stage['virtual_link'], settings=stage['settings'],
-                placement=stage['placement'],
-                direct_entrants=stage['direct_entrants'],
-            )
-
-    rows = list(tournament.stages.all())
+    cleaned = [{'format': s.format, 'label': s.label, 'advances': s.advances,
+                'groups': s.groups, 'rules': s.rules} for s in rows]
     return _ok({'stages': [_row(s) for s in rows],
-                'summary': stages.summary(cleaned)}, 'Stages saved.')
+                'summary': stages.summary(cleaned) if cleaned else []}, 'Stages saved.')
 
 
 @api_view(['POST'])

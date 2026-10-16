@@ -154,6 +154,7 @@ class EndpointTests(TestCase):
              'starts_at': 'sometime'},
         ])
         self.assertEqual(res.status_code, 400)
-        self.assertEqual(res.data['code'], 'VALIDATION_FAILED')
+        # Its own code since 16 October 2026, so the screen translates it.
+        self.assertEqual(res.data['code'], 'NOT_A_DATE')
         self.assertEqual(res.data['stage_index'], 1)
         self.assertEqual(res.data['field'], 'starts_at')

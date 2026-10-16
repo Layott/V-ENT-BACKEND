@@ -7220,6 +7220,177 @@
     ],
     "reason": "the id is an event's slug, the address of a public page anybody can open (public by default, CEO 26 August), so which events exist is not a secret; a real event answers 403 to a stranger and a missing one 404"
    }
+  },
+  {
+   "name": "B cannot make A's one-format bracket a stage",
+   "route": "<str:tournament_id>/stages/adopt/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/stages/adopt/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {}
+   },
+   "id": "walk-cup-finished",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament is addressed by its public slug (its page is public by default), so which tournaments exist is not a secret; a real one answers 403 to somebody who does not run it and a missing one 404"
+   }
+  },
+  {
+   "name": "B cannot undo the draw of a stage in A's tournament",
+   "route": "<str:tournament_id>/stages/<int:stage_id>/undraw/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-finished/stages/{id}/undraw/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "discard_results": true
+    }
+   },
+   "id": "5"
+  },
+  {
+   "name": "B cannot open a closed stage of A's tournament again",
+   "route": "<str:tournament_id>/stages/<int:stage_id>/reopen/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-finished/stages/{id}/reopen/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {}
+   },
+   "id": "5"
+  },
+  {
+   "name": "B cannot change the format of a stage in A's tournament",
+   "route": "<str:tournament_id>/stages/<int:stage_id>/reformat/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-finished/stages/{id}/reformat/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "format": "double_elimination",
+     "discard_results": true
+    }
+   },
+   "id": "5"
+  },
+  {
+   "name": "B cannot swap two entrants in A's bracket",
+   "route": "<str:tournament_id>/bracket/swap/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/bracket/swap/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "a": 1,
+     "b": 2
+    }
+   },
+   "id": "walk-cup-finished",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament is addressed by its public slug (its page is public by default), so which tournaments exist is not a secret; a real one answers 403 to somebody who does not run it and a missing one 404"
+   }
+  },
+  {
+   "name": "B cannot replace an entrant in A's bracket",
+   "route": "<str:tournament_id>/bracket/replace/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/bracket/replace/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "out": 1,
+     "in": 2
+    }
+   },
+   "id": "walk-cup-finished",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament is addressed by its public slug (its page is public by default), so which tournaments exist is not a secret; a real one answers 403 to somebody who does not run it and a missing one 404"
+   }
+  },
+  {
+   "name": "B cannot read the record of changes to A's bracket",
+   "route": "<str:tournament_id>/bracket/edits/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/bracket/edits/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "walk-cup-finished",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament is addressed by its public slug (its page is public by default), so which tournaments exist is not a secret; a real one answers 403 to somebody who does not run it and a missing one 404"
+   }
+  },
+  {
+   "name": "B cannot take a result off a match in A's tournament",
+   "route": "<str:tournament_id>/matches/<int:match_id>/reopen/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-finished/matches/{id}/reopen/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {}
+   },
+   "id": "90"
+  },
+  {
+   "name": "B cannot change how a match in A's tournament is played",
+   "route": "<str:tournament_id>/matches/<int:match_id>/rules/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-finished/matches/{id}/rules/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "best_of": 3
+    }
+   },
+   "id": "90"
   }
  ]
 }

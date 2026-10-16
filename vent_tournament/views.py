@@ -2551,6 +2551,18 @@ def _edit_tournament(request, tournament_id):
                        else tin.read_column(request.data, field, default=tin.blank_for(field)))
             if field == 'bracket_type':
                 val = normalize_bracket_type(val, tournament.bracket_type)
+                # Once a bracket is drawn, its format is what its matches are.
+                # Writing another name here relabelled the tournament and redrew
+                # nothing (found 13 October 2026, inbox 450). The format of a
+                # drawn bracket changes on the Brackets tab, which redraws it.
+                if (val != normalize_bracket_type(tournament.bracket_type, tournament.bracket_type)
+                        and tournament.bracket_matches.exists()):
+                    return Response({
+                        'status': 'error',
+                        'code': 'BRACKET_FORMAT_LOCKED',
+                        'field': field,
+                        'message': 'The bracket is drawn; change its format on the Brackets tab.',
+                    }, status=status.HTTP_409_CONFLICT)
             setattr(tournament, field, val)
             updated_fields.append(field)
 

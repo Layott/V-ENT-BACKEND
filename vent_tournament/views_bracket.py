@@ -497,7 +497,7 @@ def match_detail(request, match_id):
         ),
         id=match_id,
     )
-    from .access import may_record_results
+    from .access import may_manage, may_record_results
     is_staff = may_record_results(user, match.tournament)
     if match.side_of(user) is None and not is_staff:
         return _err('You cannot view this match', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
@@ -556,6 +556,10 @@ def match_detail(request, match_id):
             | Q(participant_2_id__in=[p for p in (match.participant_1_id, match.participant_2_id) if p])
         ).exclude(pk=match.pk).exists(),
         'can_record': is_staff,
+        # Taking a result back off and changing how the match is played
+        # (inbox 452) belong to whoever runs the tournament, not to a
+        # scorekeeper: the same question the bracket-edit doors ask.
+        'can_manage': bool(may_manage(user, match.tournament)),
         # The format this match is played in (its stage's, or the
         # tournament's), so the room can call it what the bracket calls it:
         # "Rung 1", "Final", "For places 5 and 6", not "Round 4, match 1".
