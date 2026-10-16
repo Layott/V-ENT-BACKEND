@@ -289,7 +289,7 @@ def draw_stage(request, tournament_id, stage_id):
     # The first stage takes the same check-in guard the one-format draw has:
     # entrants who never checked in are not drawn over while the window says
     # they forfeit. This door skipped it (27 September 2026).
-    if stage.order == 0 or not tournament.stages.filter(order__lt=stage.order).exists():
+    if stage_engine.previous_stage(stage) is None:
         window = tournament_options.check_in_state(tournament, timezone.now())
         if window and window['closed'] and window['forfeit_without_check_in']:
             missing = tournament.registrations.filter(
@@ -338,7 +338,53 @@ def advance_preview(request, tournament_id, stage_id):
             status__in=('open', 'under_review'), match__stage=stage).count(),
         'advancing': stage_engine.advancing(stage) if stage.drawn_at else [],
         'standings': stage_engine.standings(stage),
+        # What each line would send (P1b), so the organiser sees who goes
+        # where before pressing Advance.
+        'lines': _line_preview(stage),
     }, 'Preview')
+
+
+def _line_preview(stage):
+    from . import progressions
+    out = []
+    for line in progressions.outgoing(stage):
+        rows = (line.sent or []) if line.fired_at else (
+            progressions.sending(line) if stage.drawn_at else [])
+        out.append({'id': line.id, 'target': line.target_id, 'target_label': line.target.label,
+                    'group': line.group, 'place_from': line.place_from,
+                    'place_to': line.place_to, 'side': line.side, 'fire': line.fire,
+                    'fired_at': line.fired_at,
+                    'rows': [{'registration_id': r['registration_id'], 'name': r.get('name'),
+                              'handle': r.get('handle'), 'group': r.get('group'),
+                              'rank': r.get('rank')} for r in rows]})
+    return out
+
+
+@api_view(['POST'])
+def pull_line(request, tournament_id, stage_id, line_id):
+    """POST /tournament/<ref>/stages/<sid>/lines/<lid>/pull/ - send a line
+    that waits for the organiser to press (P1b, design 477)."""
+    from . import progressions
+    tournament, err = _find(tournament_id)
+    if err:
+        return err
+    user, err = _manager(request, tournament)
+    if err:
+        return err
+    stage, err = _stage(tournament, stage_id)
+    if err:
+        return err
+    line = stage.outgoing.filter(pk=line_id).select_related('source', 'target').first()
+    if line is None:
+        return _err('No such line from this stage.', 'LINE_NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    try:
+        with transaction.atomic():
+            result = progressions.pull(line, user)
+    except stage_engine.StageEngineError as exc:
+        return _engine_err(exc)
+    stage.refresh_from_db()
+    return _ok({'stage': _row(stage), 'lines': result['lines'], 'draws': list(result['draws']),
+                'waiting': result['waiting']}, 'Sent.')
 
 
 @api_view(['POST'])
@@ -384,4 +430,6 @@ def advance_stage(request, tournament_id, stage_id):
         'next': _row(nxt) if nxt else None,
         'advanced': result['advanced'],
         'draw': result['draw'],
+        'lines': result['lines'],
+        'waiting': result['waiting'],
     }, 'Advanced.')

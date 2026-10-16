@@ -203,3 +203,173 @@ def clean(lines, stages, participants=None):
         if fmt.max_participants and reaching > fmt.max_participants:
             raise LineError('PROGRESSION_TARGET_TOO_MANY', 'place_to', where)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Running the lines
+# ---------------------------------------------------------------------------
+
+def outgoing(stage):
+    ensure(stage.tournament)
+    return list(stage.outgoing.select_related('target').order_by('order', 'id'))
+
+
+def incoming(stage):
+    ensure(stage.tournament)
+    return list(stage.incoming.select_related('source').order_by('order', 'id'))
+
+
+def rows_for(line, rows=None):
+    """The standings rows a line sends, best first.
+
+    Places `place_from` to `place_to` of its group, or of every group taken
+    rank by rank (1A, 1B, 2A, 2B), which seeded into a knockout is the cross
+    every football competition uses. A Swiss with a win target sends those who
+    reached it first; a battle royale line covering the stage's own advances
+    sends what the battle royale engine qualifies, with each squad's head start.
+    """
+    from . import formats, stage_engine
+    stage = line.source
+    fmt = formats.get(stage.format)
+    key = fmt.key if fmt else stage.format
+    if key == 'battle_royale':
+        from . import br_engine
+        if line.place_from == 1 and line.place_to == (stage.advances or 0):
+            return list(br_engine.advancing(stage))
+        return list(br_engine.standings(stage))[line.place_from - 1:line.place_to]
+    rows = list(rows if rows is not None else stage_engine.standings(stage))
+    if key == 'swiss' and (stage.settings or {}).get('win_target'):
+        qualified = [r for r in rows if r['status'] == 'qualified']
+        rows = qualified + [r for r in rows if r not in qualified]
+        return rows[line.place_from - 1:line.place_to]
+    groups = stage.groups or 0
+    if key == 'gsl' or groups > 1:
+        by_group = {}
+        for r in rows:
+            by_group.setdefault(r['group'] or 0, []).append(r)
+        wanted = [line.group] if line.group is not None else sorted(by_group)
+        out = []
+        for place in range(line.place_from, line.place_to + 1):
+            for g in wanted:
+                if place - 1 < len(by_group.get(g, [])):
+                    out.append(by_group[g][place - 1])
+        return out
+    ranked = [r for r in rows if r['rank']]
+    return ranked[line.place_from - 1:line.place_to]
+
+
+def sending(line):
+    """The rows this line would send now, in the order the stage it feeds
+    takes them: what the preview shows and what `fire` sends."""
+    return _by_record(line, rows_for(line))
+
+
+def _by_record(line, rows):
+    """A stage seeded "by record across the whole stage" takes the rows
+    reordered on record, across groups (copies, so each row keeps the rank it
+    had inside its own group)."""
+    from . import ranking
+    if getattr(line.target, 'placement', None) != 'by_record' or not rows:
+        return rows
+    by_id = {r['registration_id']: r for r in rows}
+    across = ranking.order([dict(r) for r in rows], ['goal_difference', 'goals_for', 'seed'])
+    return [by_id[r['registration_id']] for r in across]
+
+
+def _sent_row(row, carry_points):
+    return {'registration_id': row['registration_id'], 'name': row.get('name'),
+            'handle': row.get('handle'), 'group': row.get('group'), 'rank': row.get('rank'),
+            'points': row.get('points'),
+            'carry': (row.get('points') or 0) if carry_points else (row.get('carry') or 0)}
+
+
+def fire(line, user, order=None):
+    """Send this line's people: record who, and when. Returns the rows sent."""
+    from django.utils import timezone
+    from . import stage_engine
+    rows = sending(line) if not order else rows_for(line)
+    if order:
+        allowed = set(line.source.entrants or [])
+        wanted = [int(i) for i in order]
+        if any(i not in allowed for i in wanted):
+            raise stage_engine.StageEngineError('NOT_IN_THIS_STAGE', 'order')
+        if len(set(wanted)) != len(wanted):
+            raise stage_engine.StageEngineError('DUPLICATE_IN_ORDER', 'order')
+        carry = {r['registration_id']: r.get('carry') for r in rows}
+        every = {r['registration_id']: r for r in stage_engine.standings(line.source)}
+        rows = [dict(every[i], carry=carry.get(i) or every[i].get('carry') or 0)
+                for i in wanted if i in every]
+    line.sent = [_sent_row(r, line.carry_points) for r in rows]
+    line.fired_at = timezone.now()
+    line.save(update_fields=['sent', 'fired_at'])
+    return line.sent
+
+
+def ready(target):
+    """Every line into `target` has fired, so it can be drawn."""
+    feeding = incoming(target)
+    return bool(feeding) and all(l.fired_at is not None for l in feeding)
+
+
+def sent_union(stage):
+    """Everybody this stage's lines have sent, in line order: the stage's
+    `advanced`, which older readers still use."""
+    out, seen = [], set()
+    for line in outgoing(stage):
+        for row in (line.sent or []):
+            if row['registration_id'] not in seen:
+                seen.add(row['registration_id'])
+                out.append(row)
+    return out
+
+
+def clear(stage):
+    """Undo this stage's lines: an unadvanced or undrawn stage sends again."""
+    stage.outgoing.update(sent=[], fired_at=None)
+
+
+def pull(line, user):
+    """The organiser sends a line that waits to be pressed."""
+    from . import stage_engine
+    source = line.source
+    if line.fired_at is not None:
+        raise stage_engine.StageEngineError('ALREADY_ADVANCED')
+    if not stage_engine.stage_finished(source):
+        raise stage_engine.StageEngineError('STAGE_NOT_FINISHED', open=stage_engine.open_count(source))
+    fire(line, user)
+    return stage_engine.after_fire(source, user, [line])
+
+
+# ---------------------------------------------------------------------------
+# Final places
+# ---------------------------------------------------------------------------
+
+def placement_order(tournament):
+    """The stages grouped for giving final places, best first.
+
+    Deeper in the graph places first (the final before the playoff before the
+    groups); among stages at the same depth, the one fed by better places
+    first (the top half of a split league before the bottom half); stages with
+    the same depth and the same best place are placed together, by rank, so
+    the thirds of two parallel pools share one place.
+    """
+    ensure(tournament)
+    stages = list(tournament.stages.all().order_by('order'))
+    lines = list(lines_of(tournament))
+    feeders = {s.id: [l.source_id for l in lines if l.target_id == s.id] for s in stages}
+    depth = {}
+
+    def depth_of(sid, seen=()):
+        if sid in depth:
+            return depth[sid]
+        if sid in seen:
+            return 0
+        depth[sid] = 1 + max((depth_of(f, seen + (sid,)) for f in feeders[sid]), default=-1)
+        return depth[sid]
+
+    best = {s.id: min((l.place_from for l in lines if l.target_id == s.id), default=0)
+            for s in stages}
+    grouped = {}
+    for s in stages:
+        grouped.setdefault((-depth_of(s.id), best[s.id]), []).append(s)
+    return [grouped[key] for key in sorted(grouped)]

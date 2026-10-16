@@ -47,50 +47,80 @@ def _stages(tournament):
     return list(tournament.stages.all().order_by('order'))
 
 
+# The stages are a graph joined by progression lines (P1b, design section 6),
+# not a chain by `order`. These two keep their old names so every caller that
+# asks "the stage before" or "the stage after" follows the lines: the first
+# line in and the first line out.
+
 def previous_stage(stage):
-    return stage.tournament.stages.filter(order__lt=stage.order).order_by('-order').first()
+    from . import progressions
+    feeding = progressions.incoming(stage)
+    return feeding[0].source if feeding else None
 
 
 def next_stage(stage):
-    return stage.tournament.stages.filter(order__gt=stage.order).order_by('order').first()
+    from . import progressions
+    out = progressions.outgoing(stage)
+    return out[0].target if out else None
 
 
 def _later_direct(stage):
-    """Registration ids seeded straight into a stage after this one."""
+    """Registration ids seeded straight into any other stage: a starting stage
+    leaves them to the stage they were placed in."""
     ids = set()
-    for later in stage.tournament.stages.filter(order__gt=stage.order):
-        ids.update(int(i) for i in (later.direct_entrants or []))
+    for other in stage.tournament.stages.exclude(pk=stage.pk):
+        ids.update(int(i) for i in (other.direct_entrants or []))
     return ids
 
 
 def entrants_for(stage, seed_strategy='registration', manual_order=None):
-    """Who plays in this stage, best seed first."""
+    """Who plays in this stage, best seed first (the upper bracket's, when
+    some come in on the lower side: see `entrants_and_lower`)."""
+    return entrants_and_lower(stage, seed_strategy, manual_order)[0]
+
+
+def entrants_and_lower(stage, seed_strategy='registration', manual_order=None):
+    """(entrants, lower side entrants), each best seed first.
+
+    A stage no line feeds starts the tournament: its own invited entrants when
+    it has them (one of two pools), else the confirmed registrations nobody
+    was placed past. A fed stage takes what its lines sent, in line order,
+    the lines into a double elimination's lower bracket kept apart.
+    """
     from .models import TournamentRegistration
     from .services import bracket
+    from . import progressions
 
     tournament = stage.tournament
     direct = [int(i) for i in (stage.direct_entrants or [])]
-    prev = previous_stage(stage)
+    feeding = progressions.incoming(stage)
+    lower = []
 
-    if prev is None:
+    if not feeding:
+        if direct:
+            by_id = {r.id: r for r in bracket.confirmed_registrations(tournament)}
+            return [by_id[i] for i in direct if i in by_id], []
         skip = _later_direct(stage)
         regs = [r for r in bracket.confirmed_registrations(tournament) if r.id not in skip]
         ordered = bracket.seed_registrations(regs, seed_strategy, manual_order)
     else:
-        if prev.status != 'complete':
+        if any(line.fired_at is None for line in feeding):
             raise StageEngineError('PREVIOUS_STAGE_NOT_FINISHED')
-        carried = [int(row['registration_id']) for row in (prev.advanced or [])
-                   if isinstance(row, dict) and row.get('registration_id')]
+        carried = [int(row['registration_id']) for line in feeding if line.side != 'losers'
+                   for row in (line.sent or []) if row.get('registration_id')]
+        low_ids = [int(row['registration_id']) for line in feeding if line.side == 'losers'
+                   for row in (line.sent or []) if row.get('registration_id')]
         by_id = {r.id: r for r in TournamentRegistration.objects.filter(
-            id__in=carried + direct).select_related('user', 'team')}
+            id__in=carried + low_ids + direct).select_related('user', 'team')}
         ordered = [by_id[i] for i in carried if i in by_id]
+        lower = [by_id[i] for i in low_ids if i in by_id]
         if stage.placement == 'random':
             random.shuffle(ordered)
         elif stage.placement == 'manual' and manual_order:
             wanted = [int(i) for i in manual_order]
             ordered = [by_id[i] for i in wanted if i in by_id and i in carried] + \
                       [r for r in ordered if r.id not in wanted]
-        # 'cross' and 'by_record' are already the order `advancing` wrote.
+        # 'cross' and 'by_record' are already the order the lines sent.
 
     if direct:
         from .models import TournamentRegistration as TR
@@ -100,7 +130,7 @@ def entrants_for(stage, seed_strategy='registration', manual_order=None):
         front = [by_id[i] for i in direct if i in by_id
                  and by_id[i].status == 'confirmed']
         ordered = front + [r for r in ordered if r.id not in set(direct)]
-    return ordered
+    return ordered, lower
 
 
 # ---------------------------------------------------------------------------
@@ -123,20 +153,21 @@ def draw(stage, user, seed_strategy='registration', manual_order=None):
     if key not in bracket.DRAWABLE and key != 'battle_royale':
         raise StageEngineError('FORMAT_HAS_NO_BRACKET', 'format')
 
-    ordered = entrants_for(stage, seed_strategy, manual_order)
-    if len(ordered) < fmt.min_participants:
+    ordered, lower = entrants_and_lower(stage, seed_strategy, manual_order)
+    everybody = ordered + lower
+    if len(everybody) < fmt.min_participants:
         raise StageEngineError('NOT_ENOUGH_ENTRANTS', need=fmt.min_participants,
-                               have=len(ordered))
-    if fmt.max_participants and len(ordered) > fmt.max_participants:
+                               have=len(everybody))
+    if fmt.max_participants and len(everybody) > fmt.max_participants:
         raise StageEngineError('TOO_MANY_ENTRANTS', need=fmt.max_participants,
-                               have=len(ordered))
+                               have=len(everybody))
 
+    from . import progressions
     settings = stage.settings or stage_settings.clean(key, {})
     if key == 'battle_royale':
-        # The head start the stage before gave each squad, if it gave one.
-        prev = previous_stage(stage)
+        # The head start the stages before gave each squad, if they gave one.
         carried = {int(row['registration_id']): row.get('carry') or 0
-                   for row in ((prev.advanced or []) if prev else [])
+                   for line in progressions.incoming(stage) for row in (line.sent or [])
                    if isinstance(row, dict) and row.get('registration_id')}
         stage.settings = settings
         try:
@@ -146,11 +177,11 @@ def draw(stage, user, seed_strategy='registration', manual_order=None):
     else:
         try:
             summary = bracket.draw_into(stage.tournament, stage, key, ordered, settings,
-                                        groups=stage.groups)
+                                        groups=stage.groups, lower=lower)
         except bracket.BracketError as exc:
             raise StageEngineError(exc.code.upper())
 
-    stage.entrants = [r.id for r in ordered]
+    stage.entrants = [r.id for r in everybody]
     stage.drawn_at = timezone.now()
     stage.status = 'running'
     stage.settings = settings
@@ -265,13 +296,30 @@ def _table_standings(stage):
             if pid in regs:
                 groups.setdefault(g, {}).setdefault(pid, _blank(regs[pid], m.group_number))
     played = _played(stage)
+    carried = _carried_points(stage)
     out = []
     for g in sorted(groups):
         rows = groups[g]
         group_matches = [m for m in played if (m.group_number or 0) == g]
         for m in group_matches:
             _tally(rows, m, pts)
+        # A split league starts each half with the points of the table before
+        # (P1b, a line that carries points).
+        for pid, row in rows.items():
+            row['points'] += carried.get(pid, 0)
         out.extend(_rank_table(list(rows.values()), group_matches, pts, rules['tiebreakers']))
+    return out
+
+
+def _carried_points(stage):
+    """{registration id: points} brought in by lines that carry points."""
+    from . import progressions
+    out = {}
+    for line in progressions.incoming(stage):
+        if line.carry_points:
+            for row in (line.sent or []):
+                out[int(row['registration_id'])] = out.get(int(row['registration_id']), 0) \
+                    + (row.get('carry') or 0)
     return out
 
 
@@ -552,56 +600,46 @@ def stage_finished(stage):
 # ---------------------------------------------------------------------------
 
 def advancing(stage):
-    """Who goes through, in the order the next stage is seeded.
+    """Who would go through, best first: every line that is not waiting for a
+    press, in line order, each row saying which line sends it (P1b).
 
-    Groups: rank-major across groups, groups in order (1A, 1B, 1C, 1D, 2A, 2B,
-    ...). Seeded into a knockout that way, standard seeding puts every group
-    winner against a runner-up from a different group, which is the cross.
+    Groups go rank by rank across groups (1A, 1B, 1C, 1D, 2A, 2B, ...): seeded
+    into a knockout that way, every group winner meets a runner-up from a
+    different group, which is the cross. `progressions.rows_for` decides a
+    line's rows, the same function that sends them, so the preview and what is
+    sent cannot differ.
     """
-    fmt = formats.get(stage.format)
-    key = fmt.key if fmt else stage.format
-    if key == 'battle_royale':
-        from . import br_engine
-        return br_engine.advancing(stage) if stage.drawn_at else []
-    rows = standings(stage)
-    count = stage.advances or 0
-    if count <= 0:
+    from . import progressions
+    if stage.drawn_at is None:
         return []
-
-    if key == 'swiss' and (stage.settings or {}).get('win_target'):
-        chosen = [r for r in rows if r['status'] == 'qualified'][:count]
-        if len(chosen) < count:
-            chosen += [r for r in rows if r not in chosen][:count - len(chosen)]
-    elif key == 'gsl' or (stage.groups or 0) > 1:
-        per = 2 if key == 'gsl' else count
-        by_group = {}
-        for r in rows:
-            by_group.setdefault(r['group'] or 0, []).append(r)
-        chosen = []
-        for rank in range(per):
-            for g in sorted(by_group):
-                if rank < len(by_group[g]):
-                    chosen.append(by_group[g][rank])
-    else:
-        chosen = [r for r in rows if r['rank']][:count]
-
-    nxt = next_stage(stage)
-    if nxt is not None and nxt.placement == 'by_record':
-        # Copies, so ranking them across groups does not overwrite the rank
-        # each row has inside its own group.
-        by_id = {r['registration_id']: r for r in chosen}
-        across = ranking.order([dict(r) for r in chosen], ['goal_difference', 'goals_for', 'seed'])
-        chosen = [by_id[r['registration_id']] for r in across]
-    return chosen
+    out, seen = [], set()
+    for line in progressions.outgoing(stage):
+        if line.fire == 'manual' or line.fired_at is not None:
+            continue
+        for row in progressions.sending(line):
+            if row['registration_id'] in seen:
+                continue
+            seen.add(row['registration_id'])
+            out.append(dict(row, line_id=line.id, side=line.side))
+    return out
 
 
-def advance(stage, user, order=None, ignore_disputes=False, draw_next=True):
-    """Close `stage`, record who goes through, and draw the next one."""
+def advance(stage, user, order=None, orders=None, ignore_disputes=False, draw_next=True,
+            modes=('after_preview', 'on_close')):
+    """Close `stage`, send its lines, and draw every stage they fill.
+
+    `modes` are the lines this press sends: the organiser's Advance sends the
+    lines that wait for a preview and those that go on close; the stage ending
+    by itself sends only the second kind. A line that waits for "send" waits.
+    `order` reorders or swaps what a single line sends, among the stage's own
+    entrants; `orders` does it per line ({line id: [registration ids]}).
+    """
+    from . import progressions
     tournament = stage.tournament
     if stage.status == 'complete':
         raise StageEngineError('ALREADY_ADVANCED')
-    nxt = next_stage(stage)
-    if nxt is None:
+    out = progressions.outgoing(stage)
+    if not out:
         raise StageEngineError('LAST_STAGE')
     if not stage_finished(stage):
         raise StageEngineError('STAGE_NOT_FINISHED', open=open_count(stage))
@@ -610,39 +648,71 @@ def advance(stage, user, order=None, ignore_disputes=False, draw_next=True):
     if open_disputes and not ignore_disputes:
         raise StageEngineError('DISPUTES_OPEN', count=open_disputes)
 
-    chosen = advancing(stage)
-    if order:
-        # The organiser reordering or swapping: allowed among this stage's own
-        # entrants only, and the count stays what the plan said.
-        allowed = set(stage.entrants or [])
-        wanted = [int(i) for i in order]
-        if any(i not in allowed for i in wanted):
-            raise StageEngineError('NOT_IN_THIS_STAGE', 'order')
-        if len(set(wanted)) != len(wanted):
-            raise StageEngineError('DUPLICATE_IN_ORDER', 'order')
-        rows = {r['registration_id']: r for r in standings(stage)}
-        chosen = [rows[i] for i in wanted if i in rows]
-    if not chosen:
+    due = [line for line in out if line.fire in modes and line.fired_at is None]
+    for line in due:
+        progressions.fire(line, user, order if (order and len(due) == 1)
+                          else (orders or {}).get(str(line.id)))
+    if due and not any(line.sent for line in due):
         raise StageEngineError('NOBODY_ADVANCES')
+    return after_fire(stage, user, due, draw_next=draw_next)
 
-    if order:
-        # A reordered list keeps each squad's own head start.
-        carry = {r['registration_id']: r.get('carry') for r in advancing(stage)}
-        for r in chosen:
-            r.setdefault('carry', carry.get(r['registration_id']) or 0)
-    stage.advanced = [{'registration_id': r['registration_id'], 'name': r['name'],
-                       'handle': r.get('handle'),
-                       'group': r['group'], 'rank': r['rank'], 'points': r['points'],
-                       'carry': r.get('carry') or 0}
-                      for r in chosen]
-    stage.status = 'complete'
-    stage.completed_at = timezone.now()
-    stage.save(update_fields=['advanced', 'status', 'completed_at'])
 
-    summary = None
-    if draw_next:
-        summary = draw(nxt, user)
-    return {'advanced': stage.advanced, 'next_stage_id': nxt.id, 'draw': summary}
+def after_fire(stage, user, fired, draw_next=True):
+    """What follows lines being sent: the stage's own record of who went
+    through, the stage closed once nothing but a press is left, and every
+    stage those lines fill drawn once all of its lines have arrived."""
+    from . import progressions
+    stage.advanced = progressions.sent_union(stage)
+    fields = ['advanced']
+    out = progressions.outgoing(stage)
+    if stage.status != 'complete' and all(line.fired_at or line.fire == 'manual' for line in out):
+        stage.status = 'complete'
+        stage.completed_at = timezone.now()
+        fields += ['status', 'completed_at']
+    stage.save(update_fields=fields)
+
+    draws, waiting, targets = {}, [], []
+    for line in (fired or out):
+        if line.target_id not in [t.id for t in targets]:
+            targets.append(line.target)
+    for target in targets:
+        target.refresh_from_db()
+        if not progressions.ready(target):
+            waiting.append(target.id)
+            continue
+        if draw_next and target.drawn_at is None:
+            draws[target.id] = draw(target, user)
+    first = targets[0] if targets else None
+    return {
+        'advanced': stage.advanced,
+        'next_stage_id': first.id if first else None,
+        'draw': draws.get(first.id) if first else None,
+        'draws': draws,
+        'waiting': waiting,
+        'lines': [{'id': line.id, 'target': line.target_id, 'sent': len(line.sent or [])}
+                  for line in fired],
+    }
+
+
+def _close_by_itself(stage):
+    """The lines that go "as soon as the stage ends" go now, if the stage has
+    ended and no dispute is open. Never raises into a result being recorded:
+    a refusal here is logged and the organiser can still press Advance."""
+    import logging
+    from . import progressions
+    try:
+        due = [line for line in progressions.outgoing(stage)
+               if line.fire == 'on_close' and line.fired_at is None]
+        if not due or stage.status == 'complete' or not stage_finished(stage):
+            return None
+        if stage.tournament.disputes.filter(status__in=('open', 'under_review'),
+                                            match__stage=stage).exists():
+            return None
+        with transaction.atomic():
+            return advance(stage, stage.tournament.tournament_creator, modes=('on_close',))
+    except Exception:                                       # noqa: BLE001
+        logging.getLogger(__name__).exception('stage %s could not close by itself', stage.pk)
+        return None
 
 
 def open_count(stage):
@@ -756,6 +826,8 @@ def on_match_resolved(match):
         next_swiss_round(stage)
     elif stage.format == 'winner_stays_on':
         _next_challenge(stage.tournament, stage)
+    # A line set to go as soon as the stage ends goes now (P1b, design 477).
+    _close_by_itself(stage)
 
 
 def _next_challenge(tournament, stage):
@@ -905,26 +977,31 @@ def sweep_no_shows(tournament=None, now=None):
 # ---------------------------------------------------------------------------
 
 def assign_final_positions(tournament):
-    """The last stage places its entrants; everybody knocked out earlier is
-    placed below them, later stages first, by their rank in the stage they
-    went out in."""
-    from .models import TournamentRegistration
+    """Final places for a tournament run in stages.
 
-    stages = _stages(tournament)
+    The stages are placed in `progressions.placement_order`: the stage that
+    decides the top places first, then each stage below it. Within a group of
+    stages, everybody who went out on the same rank shares one place: the
+    third of every group, both semi-final losers (P0), the thirds of two
+    parallel pools (P1b). Somebody a stage sent on is placed by the stage they
+    went to.
+    """
+    from .models import TournamentRegistration
+    from . import progressions
+
     placed = {}
     pos = 1
-    for stage in reversed(stages):
-        rows = standings(stage)
-        carried = {row['registration_id'] for row in (stage.advanced or [])
-                   if isinstance(row, dict)}
-        # Everybody who went out of this stage on the same rank shares one
-        # place: the third of every group, both semi-final losers (P0).
+    for group in progressions.placement_order(tournament):
         by_rank = {}
-        for row in rows:
-            rid = row['registration_id']
-            if rid in placed or rid in carried:
-                continue
-            by_rank.setdefault(row['rank'], []).append(rid)
+        for stage in group:
+            rows = standings(stage)
+            carried = {row['registration_id'] for row in (stage.advanced or [])
+                       if isinstance(row, dict)}
+            for row in rows:
+                rid = row['registration_id']
+                if rid in placed or rid in carried:
+                    continue
+                by_rank.setdefault(row['rank'], []).append(rid)
         for rank in sorted(by_rank, key=lambda r: (r is None, r or 0)):
             for rid in by_rank[rank]:
                 placed[rid] = pos

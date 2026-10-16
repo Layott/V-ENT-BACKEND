@@ -119,9 +119,13 @@ def adopt(tournament, user):
 # ---------------------------------------------------------------------------
 
 def _next_drawn(stage):
-    nxt = stage_engine.next_stage(stage)
-    return nxt is not None and (nxt.drawn_at is not None or nxt.matches.exists()
-                                or nxt.br_lobbies.exists())
+    """Whether any stage this one's lines feed has been drawn (P1b)."""
+    from . import progressions
+    for line in progressions.outgoing(stage):
+        nxt = line.target
+        if nxt.drawn_at is not None or nxt.matches.exists() or nxt.br_lobbies.exists():
+            return True
+    return False
 
 
 def undraw(stage, user, discard_results=False):
@@ -150,6 +154,9 @@ def undraw(stage, user, discard_results=False):
     stage.advanced = []
     stage.completed_at = None
     stage.save(update_fields=['entrants', 'drawn_at', 'status', 'advanced', 'completed_at'])
+    # Its lines send again when it is played again (P1b).
+    from . import progressions
+    progressions.clear(stage)
 
     # Nothing drawn anywhere any more: the tournament is back to waiting for
     # its draw, as it was before the first one.
@@ -173,6 +180,8 @@ def unadvance(stage, user):
     stage.advanced = []
     stage.completed_at = None
     stage.save(update_fields=['status', 'advanced', 'completed_at'])
+    from . import progressions
+    progressions.clear(stage)
     _log(tournament, user, 'unadvance', stage)
     return stage
 
