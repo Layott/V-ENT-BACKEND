@@ -37,6 +37,7 @@ from . import views_reminders
 from . import views_scheduled
 from . import views_requirements
 from . import views_stages
+from . import views_bracket_edit
 from . import views_match_day
 from . import views_prizes
 from . import views_money
@@ -124,6 +125,16 @@ urlpatterns = [
     path('<str:tournament_id>/stages/<int:stage_id>/advance/', views_stages.advance_stage, name='advance_stage'),
     path('<str:tournament_id>/stages/<int:stage_id>/advance/preview/', views_stages.advance_preview, name='advance_preview'),
     path('<str:tournament_id>/stages/<int:stage_id>/draw/', views_stages.draw_stage, name='draw_stage'),
+    # Editing a started tournament and the brackets inside it (inbox 450, 452).
+    path('<str:tournament_id>/stages/adopt/', views_bracket_edit.adopt, name='stages_adopt'),
+    path('<str:tournament_id>/stages/<int:stage_id>/undraw/', views_bracket_edit.undraw, name='stage_undraw'),
+    path('<str:tournament_id>/stages/<int:stage_id>/reopen/', views_bracket_edit.reopen_stage, name='stage_reopen'),
+    path('<str:tournament_id>/stages/<int:stage_id>/reformat/', views_bracket_edit.reformat, name='stage_reformat'),
+    path('<str:tournament_id>/bracket/swap/', views_bracket_edit.swap, name='bracket_swap'),
+    path('<str:tournament_id>/bracket/replace/', views_bracket_edit.replace, name='bracket_replace'),
+    path('<str:tournament_id>/bracket/edits/', views_bracket_edit.edits, name='bracket_edits'),
+    path('<str:tournament_id>/matches/<int:match_id>/reopen/', views_bracket_edit.reopen_match, name='match_reopen'),
+    path('<str:tournament_id>/matches/<int:match_id>/rules/', views_bracket_edit.match_rules, name='match_rules'),
     # Battle royale: lobbies, matches, results by hand and by screenshot.
     path('<str:tournament_id>/br/', views_br.battle_royale, name='br'),
     path('<str:tournament_id>/br/ensure/', views_br.ensure_stage, name='br_ensure'),

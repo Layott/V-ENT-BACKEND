@@ -1074,6 +1074,42 @@ class BracketGeneration(models.Model):
         return f"Bracket gen #{self.id} for {self.tournament.tournament_title}"
 
 
+class BracketEdit(models.Model):
+    """One change somebody made to a tournament's structure or bracket after
+    it started (inbox 450, 452): a draw undone, a format changed, two people
+    swapped, a result reopened. Written by `bracket_edit.py`, read on the
+    stages panel, so "who moved that player, and when" has an answer.
+    """
+
+    KINDS = (
+        ('adopt', 'Bracket made the first stage'),
+        ('plan', 'Stage plan changed'),
+        ('undraw', 'Draw undone'),
+        ('unadvance', 'Stage reopened'),
+        ('reformat', 'Format changed'),
+        ('swap', 'Entrants swapped'),
+        ('replace', 'Entrant replaced'),
+        ('reopen', 'Result reopened'),
+        ('rules', 'Match rules changed'),
+    )
+
+    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE,
+                                   related_name='bracket_edits')
+    stage = models.ForeignKey('TournamentStage', on_delete=models.SET_NULL, null=True,
+                              blank=True, related_name='edits')
+    user = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True,
+                             related_name='bracket_edits')
+    kind = models.CharField(max_length=12, choices=KINDS)
+    detail = models.JSONField(default=dict, blank=True)
+    at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-at', '-id']
+
+    def __str__(self):
+        return '%s %s on %s' % (self.kind, self.at, self.tournament_id)
+
+
 class PrizeSchedule(models.Model):
     """When a tournament pays its winners without being asked.
 

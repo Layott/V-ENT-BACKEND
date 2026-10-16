@@ -29,10 +29,20 @@ from . import formats, stage_settings
 
 
 class StageError(ValueError):
-    def __init__(self, message, field=None, index=None):
+    """Why a plan cannot be saved.
+
+    `message` is the English sentence; `code` is what the screen translates,
+    with `params` filling the numbers and names the sentence carries. The
+    sentences went out with no code until 16 October 2026 (inbox 452 walk), so
+    an organiser editing a plan in French was told why in English.
+    """
+
+    def __init__(self, message, field=None, index=None, *, code=None, **params):
         super().__init__(message)
         self.field = field
         self.index = index
+        self.code = code
+        self.params = params
 
 
 def _when(value, field):
@@ -45,7 +55,7 @@ def _when(value, field):
 
     parsed = parse_datetime(str(value))
     if parsed is None:
-        raise StageError('That is not a date and time.', field)
+        raise StageError('That is not a date and time.', field, code='NOT_A_DATE')
     if tz.is_naive(parsed):
         # A naive value would be read as the SERVER's zone, which is how an
         # organiser in Lagos typing 10:00 creates a stage that starts at 11:00
@@ -59,12 +69,12 @@ def _when(value, field):
 def clean(raw):
     """Check one proposed stage and return the stored form."""
     if not isinstance(raw, dict):
-        raise StageError('A stage is a set of named settings.')
+        raise StageError('A stage is a set of named settings.', code='STAGE_NOT_AN_OBJECT')
 
     key = str(raw.get('format') or '').strip()
     fmt = formats.get(key)
     if fmt is None:
-        raise StageError('There is no format called %r.' % key, 'format')
+        raise StageError('There is no format called %r.' % key, 'format', code='STAGE_FORMAT_UNKNOWN')
 
     label = str(raw.get('label') or fmt.label).strip()[:60]
 
@@ -74,9 +84,9 @@ def clean(raw):
     try:
         advances = int(advances)
     except (TypeError, ValueError):
-        raise StageError('How many advance has to be a number.', 'advances')
+        raise StageError('How many advance has to be a number.', 'advances', code='ADVANCES_NOT_A_NUMBER')
     if advances < 0:
-        raise StageError('How many advance cannot be negative.', 'advances')
+        raise StageError('How many advance cannot be negative.', 'advances', code='ADVANCES_NEGATIVE')
 
     groups = raw.get('groups')
     if groups in ('', None):
@@ -84,18 +94,18 @@ def clean(raw):
     try:
         groups = int(groups)
     except (TypeError, ValueError):
-        raise StageError('How many groups has to be a number.', 'groups')
+        raise StageError('How many groups has to be a number.', 'groups', code='GROUPS_NOT_A_NUMBER')
     if groups < 0 or groups > 64:
-        raise StageError('Between 0 and 64 groups. Zero means one field.', 'groups')
+        raise StageError('Between 0 and 64 groups. Zero means one field.', 'groups', code='GROUPS_OUT_OF_RANGE')
 
     place = str(raw.get('place_type') or '').strip().lower()
     if place not in ('', 'online', 'physical', 'hybrid'):
-        raise StageError('A stage is online, at a venue, or both.', 'place_type')
+        raise StageError('A stage is online, at a venue, or both.', 'place_type', code='UNKNOWN_PLACE_TYPE')
 
     starts_at = _when(raw.get('starts_at'), 'starts_at')
     ends_at = _when(raw.get('ends_at'), 'ends_at')
     if starts_at and ends_at and ends_at < starts_at:
-        raise StageError('A stage cannot end before it starts.', 'ends_at')
+        raise StageError('A stage cannot end before it starts.', 'ends_at', code='ENDS_BEFORE_START')
 
     # How the format is played and how its matches run. Cleaned by the one
     # module that owns the shape; its codes travel up as the message so the
@@ -144,7 +154,7 @@ def plan(raw_stages, *, participants=None):
     can point at the row rather than saying the plan is invalid.
     """
     if not isinstance(raw_stages, list):
-        raise StageError('Send the stages as a list, in the order they are played.')
+        raise StageError('Send the stages as a list, in the order they are played.', code='STAGES_NOT_A_LIST')
     if not raw_stages:
         return []
 
@@ -168,13 +178,14 @@ def plan(raw_stages, *, participants=None):
             if stage['advances']:
                 raise StageError(
                     'The last stage decides the tournament, so nobody advances '
-                    'out of it.', 'advances', index)
+                    'out of it.', 'advances', index, code='LAST_STAGE_ADVANCES')
             continue
 
         if not stage['advances']:
             raise StageError(
                 'Say how many come out of "%s" and into the next stage.'
-                % stage['label'], 'advances', index)
+                % stage['label'], 'advances', index, code='ADVANCES_REQUIRED',
+                stage=stage['label'])
         if fmt.key == 'gsl' and stage['advances'] != 2:
             # Two leave every GSL group; the format fixes it.
             raise StageError('GSL_SENDS_TWO_PER_GROUP', 'advances', index)
@@ -185,11 +196,13 @@ def plan(raw_stages, *, participants=None):
             raise StageError(
                 '%s cannot feed into %s. It can feed into: %s.'
                 % (fmt.label, formats.get(nxt['format']).label, allowed),
-                'format', index + 1)
+                'format', index + 1, code='FORMAT_CANNOT_FOLLOW',
+                previous=stage['label'])
         if not fmt.can_feed_into:
             raise StageError(
                 '%s decides a tournament on its own, so nothing can follow it.'
-                % fmt.label, 'format', index)
+                % fmt.label, 'format', index, code='FORMAT_FEEDS_NOTHING',
+                stage=stage['label'])
 
         # A stage cannot send more people on than it will hold, and the stage
         # after it cannot run on fewer than its own minimum.
@@ -204,14 +217,16 @@ def plan(raw_stages, *, participants=None):
                 '%s needs at least %s, and only %s come out of "%s".'
                 % (nxt_fmt.label, nxt_fmt.min_participants,
                    reaching, stage['label']),
-                'advances', index)
+                'advances', index, code='NEXT_STAGE_TOO_FEW',
+                min=nxt_fmt.min_participants, reaching=reaching, stage=stage['label'])
 
     first = formats.get(cleaned[0]['format'])
     if participants is not None and participants < first.min_participants:
         raise StageError(
             '%s needs at least %s entrants and there are %s.'
             % (first.label, first.min_participants, participants),
-            'participants', 0)
+            'participants', 0, code='TOO_FEW_ENTRANTS',
+            min=first.min_participants, count=participants)
 
     return cleaned
 

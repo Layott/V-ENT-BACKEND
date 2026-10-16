@@ -353,8 +353,10 @@ class EndpointTests(TestCase):
         rows = [x for r in res.json()['data']['rounds'] for x in r['matches']]
         self.assertTrue(any(x['has_room'] for x in rows))
 
-    def test_the_plan_is_fixed_once_a_stage_has_been_played(self):
-        """Re-planning around a completed stage would change what it was."""
+    def test_a_played_stage_stays_first_in_the_plan(self):
+        """Re-planning around a completed stage would change what it was. The
+        plan still saves after the start (inbox 450, bracket_edit.save_plan),
+        but a plan that drops or replaces a played stage is refused."""
         self.set_plan(SWISS_THEN_CUT)
         first = self.t.stages.first()
         first.status = 'complete'
@@ -362,7 +364,7 @@ class EndpointTests(TestCase):
 
         res = self.set_plan(GROUPS_THEN_PLAYOFF)
         self.assertEqual(res.status_code, 409, res.content)
-        self.assertEqual(res.json()['code'], 'STAGES_LOCKED')
+        self.assertEqual(res.json()['code'], 'STAGE_ORDER_LOCKED')
 
     def test_advancing_before_the_stage_is_played_is_refused(self):
         """What was recorded has to be what was used, so it has to be recorded."""
