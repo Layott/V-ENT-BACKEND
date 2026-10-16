@@ -64,7 +64,14 @@ RULES_INVALID translated.
   window` mode: it wakes this window by name after a limit reset and never makes a copy. The mode was added to
   claude-relay by the website-66 session; the 8g3 tests by this one (297 checks pass).
 
+## Shipped
+
+- P0 and the lineup fix DEPLOYED 16 Oct evening: BE #246 (merge c35dd8ef), FE #253 (merge 178c2ed8),
+  build u5uIScCTm4UsKsTS4CJ32 on ports 3000 and 3001, no migrations, search check 666 addresses 0 problems.
+  Production pages walked in Chrome (desktop and 390px), no console errors; one 503 on a /partners prefetch
+  during the instance restart, 200 since. gates/67 ALL MET (14). Inbox 472 done; 483 standing (lineup fix
+  shipped, the section walks wait for the new structure).
+
 ## Still open
 
-- Ship P0: PRs, merge, deploy, verify-live; then inbox 472 and the 483 lineup row to done.
 - The design's approval; E1 on production; the 431 admin walk (CEO's code); Search Console; Cloudflare.
