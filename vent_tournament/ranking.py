@@ -173,6 +173,9 @@ def offered(format_key):
     control that does nothing. The stage planner shows this list and
     `clean_rules` accepts exactly it.
     """
+    definition = formats.get(format_key)
+    if definition is None or definition.advancement not in ('table', 'swiss'):
+        return []                          # it ranks another way; see clean_rules
     computable = (set(CATALOGUE) - {'points'}) | {'head_to_head'}
     generic = ['head_to_head', 'goal_difference', 'goals_for', 'goals_against', 'wins']
     if format_key == 'swiss':
@@ -182,8 +185,16 @@ def offered(format_key):
 
 
 def clean_rules(format_key, raw):
-    """A stage's scoring as the organiser sent it, checked. None means the standard."""
+    """A stage's scoring as the organiser sent it, checked. None means the standard.
+
+    Only a stage that ranks a table (a table format or a Swiss) keeps one: a
+    knockout, a GSL group or a battle royale ranks another way, and scoring
+    stored there would be a setting that does nothing.
+    """
     if raw in (None, '') or raw == {}:
+        return None
+    definition = formats.get(format_key)
+    if definition is None or definition.advancement not in ('table', 'swiss'):
         return None
     if not isinstance(raw, dict):
         raise RulesError('RULES_INVALID', 'rules')

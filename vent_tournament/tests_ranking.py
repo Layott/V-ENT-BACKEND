@@ -173,6 +173,17 @@ class CatalogueTests(TestCase):
         from . import formats
         for entry in formats.catalogue():
             offered = [t['key'] for t in entry['scoring_tiebreakers']]
+            ranks_a_table = formats.get(entry['key']).advancement in ('table', 'swiss')
+            if not ranks_a_table:
+                self.assertEqual(offered, [], entry['key'])
+                continue
             self.assertIn('seed', offered, entry['key'])
             clean = ranking.clean_rules(entry['key'], {'tiebreakers': offered})
             self.assertEqual(clean['tiebreakers'], offered[:12], entry['key'])
+
+
+class KnockoutScoringTests(TestCase):
+    def test_a_stage_that_ranks_no_table_keeps_no_scoring(self):
+        for key in ('single_elimination', 'double_elimination', 'gsl', 'battle_royale'):
+            self.assertIsNone(ranking.clean_rules(key, {'points_win': 1}), key)
+        self.assertEqual(ranking.clean_rules('league', {'points_win': 1}), {'points_win': 1})
