@@ -1951,7 +1951,8 @@ def view_user_drafted_tournaments(request):
                     **serialize_tournament_card(t),
                     "tournament_id": t.tournament_id,
                     "tournament_title": t.tournament_title,
-                    "tournament_game": t.tournament_game.game_title,
+                    # A draft can be saved before its game is chosen.
+                    "tournament_game": t.tournament_game.game_title if t.tournament_game else None,
                     "game_mode": t.game_mode,
                     "tournament_logo": t.tournament_logo.url if t.tournament_logo else None,
                     "tournament_banner": t.tournament_banner.url if t.tournament_banner else None,
