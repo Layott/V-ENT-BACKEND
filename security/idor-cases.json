@@ -7522,6 +7522,7 @@
   },
   {
    "name": "B cannot make a feed into A's tournament",
+   "route": "tournament/<str:tournament_id>/feeds/",
    "attempt": {
     "as": "b",
     "method": "POST",
@@ -7533,18 +7534,33 @@
      "place_from": 1,
      "place_to": 2
     }
+   },
+   "r88": {
+    "publicRead": "a tournament's feeds are its public path (where its places come from and go), drawn on the public bracket tab (P2)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament named is public, so whether it exists is no secret"
    }
   },
   {
    "name": "B cannot delete a feed into A's tournament",
+   "route": "tournament/<str:tournament_id>/feeds/<int:feed_id>/",
    "attempt": {
     "as": "b",
     "method": "DELETE",
     "path": "/tournament/walk-cup-fee/feeds/1/"
+   },
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament named is public, so whether it exists is no secret"
    }
   },
   {
    "name": "B cannot fill a declined place in A's tournament",
+   "route": "tournament/<str:tournament_id>/feeds/<int:feed_id>/pick/",
    "attempt": {
     "as": "b",
     "method": "POST",
@@ -7552,18 +7568,32 @@
     "body": {
      "source_registration": 1
     }
+   },
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament named is public, so whether it exists is no secret"
    }
   },
   {
    "name": "B cannot read a recall preview on A's tournament",
+   "route": "tournament/<str:tournament_id>/qualifiers/<int:registration_id>/recall/",
    "attempt": {
     "as": "b",
     "method": "GET",
     "path": "/tournament/walk-cup-fee/qualifiers/1/recall/"
+   },
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament named is public, so whether it exists is no secret"
    }
   },
   {
    "name": "B cannot recall a qualifier from A's tournament",
+   "route": "tournament/<str:tournament_id>/qualifiers/<int:registration_id>/recall/",
    "attempt": {
     "as": "b",
     "method": "POST",
@@ -7571,14 +7601,27 @@
     "body": {
      "mode": "hand_on"
     }
+   },
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament named is public, so whether it exists is no secret"
    }
   },
   {
    "name": "B cannot decline somebody else's place",
+   "route": "tournament/<str:tournament_id>/qualifiers/<int:registration_id>/decline/",
    "attempt": {
     "as": "b",
     "method": "POST",
     "path": "/tournament/walk-cup-fee/qualifiers/1/decline/"
+   },
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament named is public, so whether it exists is no secret"
    }
   }
  ]
