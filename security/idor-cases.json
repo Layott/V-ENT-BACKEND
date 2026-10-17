@@ -7691,6 +7691,48 @@
      "state": "started"
     }
    }
+  },
+  {
+   "name": "B, with a session and no key, cannot read a tournament's structure through the API",
+   "route": "tournaments/<str:tournament_ref>/structure/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/api/v1/tournaments/walk-cup-finished/structure/",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   }
+  },
+  {
+   "name": "B, with a session and no key, cannot read a tournament's standings through the API",
+   "route": "tournaments/<str:tournament_ref>/standings/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/api/v1/tournaments/walk-cup-finished/standings/",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   }
+  },
+  {
+   "name": "B, with a session and no key, cannot read A's linked player's next match",
+   "route": "studio/games/<str:slug>/accounts/<str:account_id>/next-match/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/api/v1/studio/games/walk-arena/accounts/walk-account/next-match/",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   }
   }
  ]
 }

@@ -24,7 +24,7 @@ from vent_auth.slugs import find_by_ref
 
 from . import (studio_delivery, studio_events, studio_links, studio_schema, studio_scoring,
                studio_signing)
-from .auth import _fail, _rate_limited, _touch, resolve_key
+from .auth import _fail, _touch, rate_state, resolve_key, with_rate_headers
 from .models import SANDBOX_SCOPES, StudioDelivery, StudioGame
 from .views_studios import delivery_page
 
@@ -45,13 +45,16 @@ def requires_studio(scope=None):
             if not any(key.allows(s) for s in wanted):
                 return _fail('This key cannot reach the studio API.', 'SCOPE_REQUIRED',
                              status.HTTP_403_FORBIDDEN)
-            if _rate_limited(key):
-                return _fail('Rate limit of %d requests a minute reached.' % key.rate_limit_per_minute,
-                             'RATE_LIMITED', status.HTTP_429_TOO_MANY_REQUESTS)
+            limited, remaining, reset = rate_state(key)
+            if limited:
+                return with_rate_headers(
+                    _fail('Rate limit of %d requests a minute reached.' % key.rate_limit_per_minute,
+                          'RATE_LIMITED', status.HTTP_429_TOO_MANY_REQUESTS),
+                    key, 0, reset, limited=True)
             _touch(key)
             request.partner_key = key
             request.partner = key.partner
-            return view(request, *args, **kwargs)
+            return with_rate_headers(view(request, *args, **kwargs), key, remaining, reset)
         return wrapper
     return decorator
 
@@ -183,6 +186,61 @@ def session_view(request, session_ref):
                          'data': exc.data}, status=exc.http)
     session.refresh_from_db()
     return _ok({'session': studio_sessions.session_row(session)}, 'Updated.')
+
+
+# ---------------------------------------------------------------------------
+# A linked player's next match (P6e)
+# ---------------------------------------------------------------------------
+
+@api_view(['GET'])
+@requires_studio('studio:accounts')
+def next_match(request, slug, account_id):
+    """GET /api/v1/studio/games/<slug>/accounts/<account_id>/next-match/
+
+    For a player who linked their account to this game: the earliest match
+    they still have to play, so the game can say "your match is at 18:00".
+    Their tournaments that are public, plus any private one this game runs.
+    """
+    from django.db.models import F, Q
+
+    from vent_tournament.models import BracketMatch, TournamentRegistration
+    from . import studio_sessions
+
+    game, err = studio_game(request, slug)
+    if err:
+        return err
+    link = game.account_links.select_related('user').filter(external_id=str(account_id)[:190]).first()
+    if link is None:
+        return _fail('No V-ENT account is linked with that game account.', 'ACCOUNT_NOT_LINKED',
+                     status.HTTP_404_NOT_FOUND)
+    user = link.user
+    places = (TournamentRegistration.objects
+              .filter(Q(user=user) | Q(team__teammembers__user=user) | Q(squad__members__user=user))
+              .exclude(status__in=('withdrawn', 'disqualified')).values('id'))
+    match = (BracketMatch.objects
+             .filter(Q(participant_1__in=places) | Q(participant_2__in=places),
+                     status__in=studio_sessions.OPEN_MATCH, tournament__is_draft=False)
+             .filter(Q(tournament__studio_link__game=game) | ~Q(tournament__tournament_visibility='private'))
+             .select_related('tournament', 'participant_1', 'participant_2')
+             .order_by(F('scheduled_at').asc(nulls_last=True), 'round_number', 'id')
+             .distinct().first())
+    if match is None:
+        return _ok({'next_match': None}, 'Nothing to play')
+    side = 1 if match.participant_1 is not None and match.participant_1.plays_for(user) else 2
+    other = match.participant_2 if side == 1 else match.participant_1
+    session = (match.studio_sessions.filter(game=game)
+               .order_by('-game_number', '-attempt').first())
+    return _ok({'next_match': {
+        'tournament': {'slug': match.tournament.slug, 'title': match.tournament.tournament_title},
+        'match': {'round': match.round_number, 'side': match.bracket_side,
+                  'number': match.match_number, 'group': match.group_number,
+                  'best_of': match.best_of or 1, 'scheduled_at': match.scheduled_at,
+                  'check_in_deadline': match.check_in_deadline},
+        'side': side,
+        'opponent': {'name': other.entrant_name if other is not None else None},
+        'session': {'ref': session.ref, 'state': session.state, 'join': session.join or {}}
+        if session is not None else None,
+    }}, 'Next match')
 
 
 # ---------------------------------------------------------------------------

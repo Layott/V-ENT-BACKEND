@@ -27,6 +27,8 @@ api_urlpatterns = [
     path('tournaments/<int:tournament_id>/participants/', api.tournament_participants),
     path('tournaments/<int:tournament_id>/bracket/', api.tournament_bracket),
     path('tournaments/<int:tournament_id>/stats/', api.tournament_stats),
+    path('tournaments/<str:tournament_ref>/structure/', api.tournament_structure),
+    path('tournaments/<str:tournament_ref>/standings/', api.tournament_standings),
 
     path('teams/', api.teams_list),
     path('teams/<int:team_id>/', api.team_detail),
@@ -42,6 +44,7 @@ api_urlpatterns = [
     path('studio/games/<str:slug>/links/', studio_api.links),
     path('studio/games/<str:slug>/links/<str:link_ref>/unlink/', studio_api.unlink),
     path('studio/sessions/<str:session_ref>/', studio_api.session_view),
+    path('studio/games/<str:slug>/accounts/<str:account_id>/next-match/', studio_api.next_match),
 ]
 
 partner_urlpatterns = [
