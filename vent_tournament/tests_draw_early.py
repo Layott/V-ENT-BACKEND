@@ -172,3 +172,38 @@ class EndpointTests(TestCase):
         ko.refresh_from_db()
         self.assertIsNotNone(ko.drawn_at)
         self.assertTrue(MatchSlot.objects.filter(match__stage=ko, kind='place').exists())
+
+
+class ManualLineTests(TestCase):
+    """A line that waits for the organiser's press (walk, 17 October 2026):
+    closing its stage sends nobody, so a knockout drawn early stays waiting,
+    and pressing send fills its seats and starts it."""
+
+    def test_closing_with_a_manual_line_leaves_the_early_draw_waiting(self):
+        from .models import Progression
+        t, creator, first, ko = groups_into_knockout()
+        Progression.objects.filter(source=first).update(fire='manual')
+        draw_early(ko, creator)
+        play_out(first)
+        advance(first, creator)
+        first.refresh_from_db()
+        ko.refresh_from_db()
+        self.assertEqual(first.status, 'complete')
+        self.assertEqual(ko.status, 'pending')
+        self.assertFalse(ko.matches.filter(participant_1__isnull=False).exists())
+
+    def test_pressing_send_fills_the_seats_and_starts_it(self):
+        from . import progressions
+        from .models import Progression
+        t, creator, first, ko = groups_into_knockout()
+        Progression.objects.filter(source=first).update(fire='manual')
+        draw_early(ko, creator)
+        play_out(first)
+        advance(first, creator)
+        line = Progression.objects.get(source=first)
+        with transaction.atomic():
+            progressions.pull(line, creator)
+        ko.refresh_from_db()
+        self.assertEqual(ko.status, 'running')
+        self.assertEqual(ko.matches.filter(round_number=1, participant_1__isnull=False,
+                                           participant_2__isnull=False).count(), 2)

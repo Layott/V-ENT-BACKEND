@@ -773,6 +773,11 @@ def _fill_early(target, lines):
     """Fill a stage drawn early from the lines that just sent, start it, and
     keep its entrants: everybody seated in it, in seat order."""
     from . import match_slots
+    if not lines:
+        # Nothing was sent into it: a stage closing with a line that waits
+        # for the organiser's press started the knockout with every seat
+        # still empty (walk, 17 October 2026).
+        return
     for line in lines:
         match_slots.fill(target, line)
     seated = []
