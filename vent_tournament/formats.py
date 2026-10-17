@@ -62,6 +62,14 @@ TIEBREAKERS = {
     'last_map_placement': 'Placement in the last match',
     # Winner stays on.
     'longest_streak': 'Longest winning streak',
+    # FIDE's and the card games' (P3 W1, research catalogue 4.3 and 4.5).
+    'buchholz_cut1': 'Strength of the opponents, without the weakest',
+    'buchholz_median1': 'Strength of the opponents, without the weakest and the strongest',
+    'sonneborn_berger': 'Points of the opponents beaten',
+    'progressive': 'Points added up round by round',
+    'koya': 'Points taken from the top half of the table',
+    'opponents_win_pct': "Opponents' win percentage",
+    'opp_opp_win_pct': "Opponents' opponents' win percentage",
 }
 
 

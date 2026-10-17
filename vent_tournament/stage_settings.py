@@ -39,6 +39,7 @@ class SettingsError(ValueError):
 GRAND_FINALS = ('single', 'reset', 'none')
 DRAW_RULES = ('allowed', 'penalties', 'winner_named')
 PAIRINGS = ('circle', 'berger')
+SWISS_PAIRINGS = ('monrad', 'dutch', 'valve')
 BEST_OF_RANGE = (1, 9)
 
 
@@ -311,6 +312,15 @@ def clean(format_key, raw):
         out['rounds'] = _int(raw.get('rounds'), 'rounds', 0, 15, 0)
         out['win_target'] = _int(raw.get('win_target'), 'win_target', 0, 10, 0)
         out['loss_limit'] = _int(raw.get('loss_limit'), 'loss_limit', 0, 10, 0)
+        # How rounds after the first are paired (P3 W1): monrad is what V-ENT
+        # has always drawn, dutch is FIDE's, valve the Counter-Strike Major's.
+        out['pairing'] = str(raw.get('pairing') or 'monrad').strip().lower()
+        if out['pairing'] not in SWISS_PAIRINGS:
+            raise SettingsError('UNKNOWN_CHOICE', 'pairing')
+        # A match that can send a side through or out is played over this
+        # many games (0: like any other).
+        out['decisive_best_of'] = _int(raw.get('decisive_best_of'), 'decisive_best_of',
+                                       0, BEST_OF_RANGE[1], 0)
 
     # ---- how a match is played -------------------------------------------
     out['best_of'] = _int(raw.get('best_of'), 'best_of', *BEST_OF_RANGE, 1)
@@ -436,6 +446,22 @@ PRESETS = {
         'group': {'best_of': 1, 'draws': 'allowed', 'check_in_minutes': 10},
         'knockout': {'best_of': 1, 'knockout_legs': 2, 'draws': 'penalties',
                      'check_in_minutes': 10},
+    },
+}
+
+
+# Whole setups an organiser can start a stage from (P3 W1): the settings and
+# the scoring together, changeable afterwards like anything else.
+FORMAT_PRESETS = {
+    # The Counter-Strike Major Swiss (Valve's rulebook, research catalogue
+    # 4.4): three wins go through, three losses go out, highest against lowest
+    # inside a record, Buchholz as opponents' wins minus losses, and every
+    # match that can send somebody through or out best of three.
+    'valve_major': {
+        'format': 'swiss',
+        'settings': {'pairing': 'valve', 'win_target': 3, 'loss_limit': 3, 'rounds': 5,
+                     'best_of': 1, 'decisive_best_of': 3},
+        'rules': {'buchholz': 'wins_minus_losses', 'tiebreakers': ['buchholz', 'seed']},
     },
 }
 
