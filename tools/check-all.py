@@ -25,6 +25,7 @@ import json
 import os
 import re
 import subprocess
+import shutil
 import sys
 
 
@@ -450,6 +451,16 @@ CATCHERS = [
     ('route path',
      'every menu and guard compares the route, not the address with its language',
      FRONTEND, ['node', 'scripts/check-route-path.mjs'], True),
+    # P8, design 14c: a frame on somebody else's website never asks for a
+    # password, a card or a session, carries no token in an address, and is
+    # drawn through EmbedFrame (which sizes it, counts it and keeps V-ENT
+    # links out of the frame).
+    ('embed safety',
+     'no password, card, form or session inside an embed; every embed page through EmbedFrame (P8)',
+     FRONTEND, ['node', 'scripts/check-embed-safety.mjs'], True),
+    ('embed safety self-test',
+     'the embed safety catcher still catches each fault and leaves the allowed shapes alone',
+     FRONTEND, ['node', 'scripts/check-embed-safety.mjs', '--self-test'], True),
     ('country order',
      'every country list on the site is alphabetical (inbox 443)',
      FRONTEND, ['node', 'scripts/check-country-order.mjs'], True),
@@ -733,6 +744,23 @@ CATCHERS = [
     ('one link writer self-test',
      'the one link writer catcher still catches a pointer written by hand',
      BACKEND, [sys.executable, 'tools/check-one-link-writer.py', '--self-test'], True),
+    # A frontend build that died on the box (out of heap, 17 October 2026) had
+    # already emptied what the live servers read: every /images file answered
+    # 400 until a second deploy. deploy.sh now snapshots and restores; this
+    # runs its build block against a fake build that fails the same way.
+    # Git's bash by full path: a bare 'bash' from Windows can start WSL's.
+    ('deploy restore',
+     'a failed frontend build puts back the files the live servers read',
+     BACKEND, [shutil.which('bash') or 'bash', 'tools/test-deploy-restore.sh', 'deploy/deploy.sh'], True),
+    # A screen showing the username where every other screen shows the full
+    # name: twice on 17 October 2026 (the happenings ticker, the feeds panel).
+    # Debt: the ledger holds the count of entrant_name reads, a new one blocks.
+    ('display names',
+     'names shown to people come from match_shape.names, not the username',
+     BACKEND, [sys.executable, 'tools/check-display-names.py'], False),
+    ('display names self-test',
+     'the display names catcher still counts a read and ignores comments and strings',
+     BACKEND, [sys.executable, 'tools/check-display-names.py', '--self-test'], True),
     # Two blocks in an email with no space between them (CEO, 29 September
     # 2026, the sign-in alert's button touching its paragraph; inbox 355).
     ('email spacing',

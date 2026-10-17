@@ -144,6 +144,16 @@
     "first_seen": "2026-09-28",
     "since": "2026-09-28"
   },
+  "display names": {
+    "count": 0,
+    "first_seen": "2026-10-17",
+    "since": "2026-10-17"
+  },
+  "display names self-test": {
+    "count": 0,
+    "first_seen": "2026-10-17",
+    "since": "2026-10-17"
+  },
   "duplicate checkers": {
     "count": 0,
     "first_seen": "2026-09-12",
@@ -168,6 +178,16 @@
     "count": 0,
     "first_seen": "2026-09-29",
     "since": "2026-09-29"
+  },
+  "embed safety": {
+    "count": 0,
+    "first_seen": "2026-10-17",
+    "since": "2026-10-17"
+  },
+  "embed safety self-test": {
+    "count": 0,
+    "first_seen": "2026-10-17",
+    "since": "2026-10-17"
   },
   "endpoints with no screen": {
     "count": 0,

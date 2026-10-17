@@ -53,14 +53,18 @@ def _stages(tournament):
 # line in and the first line out.
 
 def previous_stage(stage):
+    """The stage of this tournament that feeds this one. A feed from another
+    tournament (P2) is not a previous stage."""
     from . import progressions
-    feeding = progressions.incoming(stage)
+    feeding = [l for l in progressions.incoming(stage) if l.source.tournament_id == stage.tournament_id]
     return feeding[0].source if feeding else None
 
 
 def next_stage(stage):
+    """The stage of this tournament this one feeds. A feed into another
+    tournament (P2) is not a next stage: a qualifier still finishes."""
     from . import progressions
-    out = progressions.outgoing(stage)
+    out = [l for l in progressions.outgoing(stage) if l.target.tournament_id == stage.tournament_id]
     return out[0].target if out else None
 
 
@@ -857,9 +861,10 @@ def finish_last_stage(stage, user):
     tournament.status = 'completed'
     tournament.completed_at = now
     tournament.save(update_fields=['status', 'completed_at'])
-    from . import happenings
+    from . import feeds, happenings
     happenings.closed(stage)
     happenings.won(tournament)
+    feeds.send_on_close(stage, user)
     return tournament
 
 

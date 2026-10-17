@@ -35,8 +35,12 @@ def chain(stages):
 
 
 def lines_of(tournament):
+    """The lines inside one tournament. A feed to or from another tournament
+    (P2) is not one of its own lines: the plan editor would delete it, and the
+    chain conversion would take it for a plan."""
     from .models import Progression
-    return Progression.objects.filter(source__tournament=tournament).select_related(
+    return Progression.objects.filter(source__tournament=tournament,
+                                      target__tournament=tournament).select_related(
         'source', 'target')
 
 
@@ -277,10 +281,14 @@ def _by_record(line, rows):
 
 
 def _sent_row(row, carry_points):
-    return {'registration_id': row['registration_id'], 'name': row.get('name'),
-            'handle': row.get('handle'), 'group': row.get('group'), 'rank': row.get('rank'),
-            'points': row.get('points'),
-            'carry': (row.get('points') or 0) if carry_points else (row.get('carry') or 0)}
+    out = {'registration_id': row['registration_id'], 'name': row.get('name'),
+           'handle': row.get('handle'), 'group': row.get('group'), 'rank': row.get('rank'),
+           'points': row.get('points'),
+           'carry': (row.get('points') or 0) if carry_points else (row.get('carry') or 0)}
+    if row.get('source_registration_id'):
+        out['source_registration_id'] = row['source_registration_id']
+        out['reused'] = bool(row.get('reused'))
+    return out
 
 
 def fire(line, user, order=None):
@@ -299,6 +307,11 @@ def fire(line, user, order=None):
         every = {r['registration_id']: r for r in stage_engine.standings(line.source)}
         rows = [dict(every[i], carry=carry.get(i) or every[i].get('carry') or 0)
                 for i in wanted if i in every]
+    if line.source.tournament_id != line.target.tournament_id:
+        # A feed (P2): the qualifiers are registered in the target, and the
+        # rows sent are those target registrations.
+        from . import feeds
+        rows = feeds.qualify(line, rows)
     line.sent = [_sent_row(r, line.carry_points) for r in rows]
     line.fired_at = timezone.now()
     line.save(update_fields=['sent', 'fired_at'])
@@ -310,7 +323,9 @@ def fire(line, user, order=None):
 def ready(target):
     """Every line into `target` has fired, so it can be drawn."""
     feeding = incoming(target)
-    return bool(feeding) and all(l.fired_at is not None for l in feeding)
+    # A feed with a declined place waiting for the organiser's pick (P2)
+    # holds the draw: drawing now would leave that seat to nobody.
+    return bool(feeding) and all(l.fired_at is not None and not l.waiting for l in feeding)
 
 
 def sent_union(stage):
@@ -326,7 +341,12 @@ def sent_union(stage):
 
 
 def clear(stage):
-    """Undo this stage's lines: an unadvanced or undrawn stage sends again."""
+    """Undo this stage's lines: an unadvanced or undrawn stage sends again.
+    A feed that sent (P2) takes back the registrations it made."""
+    from . import feeds
+    for line in stage.outgoing.select_related('source', 'target').exclude(fired_at=None):
+        if feeds.is_feed(line):
+            feeds.unqualify(line)
     stage.outgoing.update(sent=[], fired_at=None)
 
 

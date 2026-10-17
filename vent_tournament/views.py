@@ -21,6 +21,7 @@ from rest_framework.permissions import AllowAny
 from django.db import transaction as db_transaction
 from .money import CURRENCIES, from_coins, rates, to_coins
 from . import options as tournament_options
+from . import match_shape
 from . import tournament_input as tin
 from django.contrib.contenttypes.models import ContentType
 from vent_auth import org_link
@@ -2035,7 +2036,8 @@ def get_tournament_participants(request, tournament_id):
                 # not exist, so one squad entry 500ed the whole tab.
                 return {
                     'id': r.entrant_id,
-                    'name': r.entrant_name,
+                    # The name every screen shows, never the bare username.
+                    'name': match_shape.names(r)[0],
                     'logo': None,
                     'captain': None,
                     'country': None,
