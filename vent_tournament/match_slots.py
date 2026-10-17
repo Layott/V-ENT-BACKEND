@@ -19,11 +19,11 @@ from django.db.models import Q
 OUTCOMES = ('winner', 'loser')
 
 
-def _put(match, slot, kind, source=None, seed=None):
+def _put(match, slot, kind, source=None, seed=None, **extra):
     from .models import MatchSlot
     MatchSlot.objects.update_or_create(
         match=match, slot=slot,
-        defaults={'kind': kind, 'source_match': source, 'seed': seed})
+        defaults=dict({'kind': kind, 'source_match': source, 'seed': seed}, **extra))
 
 
 def link(source, outcome, target, slot):
@@ -48,6 +48,12 @@ def link_reset(first, second):
     first.save(update_fields=['winner_to_match', 'winner_to_slot'])
     for slot in (1, 2):
         _put(second, slot, 'reset', first)
+
+
+def wait_for(match, slot, line, group, place):
+    """A seat in a stage drawn early (P1d): it waits for `place` of `group` of
+    the stage `line` comes from, and fills when that line sends."""
+    _put(match, slot, 'place', progression=line, source_group=group, source_place=place)
 
 
 def mark_bye(match, slot):
@@ -170,3 +176,68 @@ def disagreements(matches):
                 out.append((mid, slot, 'the slot says %s of %s and no match sends anybody there'
                             % (row.kind, row.source_match_id)))
     return sorted(out)
+
+
+def fill(stage, line):
+    """Put what `line` sent into the seats of `stage` that wait on it (P1d).
+
+    A seat waits for one place of one group; the line's sent rows come place by
+    place, group by group, so counting each group's rows from the line's first
+    place names the place each row fills. A seat whose place never comes (a
+    short group) stays empty, and its match resolves as a walkover once the
+    other side is known.
+    """
+    from .models import BracketMatch, MatchSlot
+    grouped = (line.source.groups or 0) > 1
+    counters, by_seat = {}, {}
+    for row in (line.sent or []):
+        group = row.get('group') if grouped or line.group is not None else None
+        place = counters.get(group, line.place_from)
+        counters[group] = place + 1
+        by_seat[(group, place)] = int(row['registration_id'])
+    touched = set()
+    for slot in MatchSlot.objects.filter(match__stage=stage, kind='place', progression=line):
+        rid = by_seat.get((slot.source_group, slot.source_place))
+        if rid:
+            BracketMatch.objects.filter(pk=slot.match_id).update(
+                **{'participant_%d_id' % slot.slot: rid})
+        touched.add(slot.match_id)
+    for match in BracketMatch.objects.filter(pk__in=touched).order_by('round_number', 'match_number'):
+        _settle(match)
+    return len(touched)
+
+
+def _decided(slot, match):
+    """Whether a seat of a bracket drawn early will hold anybody new."""
+    if getattr(match, 'participant_%d_id' % slot.slot):
+        return True
+    if slot.kind == 'bye':
+        return True
+    return slot.kind == 'place' and slot.progression is not None \
+        and slot.progression.fired_at is not None
+
+
+def _settle(match):
+    """A round one match of a bracket drawn early, once both seats are known:
+    played if both are filled, a walkover if one is, a dead bye if neither."""
+    from . import stage_engine
+    from .services import advance
+    from django.utils import timezone
+    if match.status not in ('scheduled',):
+        return
+    slots = list(match.slots.select_related('progression'))
+    if len(slots) < 2 or not all(_decided(s, match) for s in slots):
+        return
+    present = [p for p in (match.participant_1, match.participant_2) if p is not None]
+    if len(present) == 2:
+        stage_engine.arm_check_in(match)
+        return
+    with advance.suspend_advance():
+        match.status = 'bye'
+        if present:
+            match.winner = present[0]
+            match.completed_at = timezone.now()
+            match.save(update_fields=['status', 'winner', 'completed_at'])
+        else:
+            match.save(update_fields=['status'])
+        advance.cascade(match)
