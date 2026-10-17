@@ -56,6 +56,83 @@ def wait_for(match, slot, line, group, place):
     _put(match, slot, 'place', progression=line, source_group=group, source_place=place)
 
 
+def wait_reseed(match, slot, rank):
+    """A seat of a reseeded knockout (P3 W1): the survivor ranked `rank` by
+    seed once the round before is decided."""
+    _put(match, slot, 'reseed', source_place=rank)
+
+
+PLAYED = ('completed', 'walkover_p1', 'walkover_p2', 'in_progress',
+          'pending_opponent_confirm', 'disputed')
+
+
+def sync_reseeded(stage):
+    """Seat every round of a reseeded knockout from the round before; return
+    how many matches changed.
+
+    A round whose matches are all decided sends its survivors, best seed
+    first (their order in `stage.entrants`), into the seats waiting on them:
+    rank 1 against the last rank, 2 against the one before (research
+    catalogue 2.1, the NFL's "the No. 1 seed will always host the lowest
+    remaining seed"). A round not yet decided leaves the next one empty, so a
+    reopened result takes its pairing back out. A round with a match already
+    played is never rewritten: the result guards refuse the change first.
+    """
+    from django.utils import timezone
+    from .models import BracketMatch, MatchSlot
+    order = {int(rid): i for i, rid in enumerate(stage.entrants or [])}
+    changed = 0
+    waiting = (MatchSlot.objects.filter(match__stage=stage, kind='reseed')
+               .values_list('match__round_number', flat=True).distinct())
+    for rnd in sorted(set(waiting)):
+        seats = {}
+        for slot in MatchSlot.objects.filter(match__stage=stage, kind='reseed',
+                                             match__round_number=rnd):
+            seats.setdefault(slot.match_id, {})[slot.slot] = slot.source_place
+        nxt = list(BracketMatch.objects.filter(pk__in=seats))
+        if any(m.status in PLAYED for m in nxt):
+            continue
+        # The round before: its title path, not a match for third place.
+        before = [m for m in BracketMatch.objects.filter(
+            stage=stage, round_number=rnd - 1, bracket_side='winners')
+            if not m.slots.filter(kind='loser').exists()]
+        decided = bool(before) and all(m.status in ('completed', 'bye', 'walkover_p1', 'walkover_p2')
+                                       for m in before)
+        survivors = []
+        if decided:
+            survivors = sorted((m.winner for m in before if m.winner_id),
+                               key=lambda reg: (order.get(reg.id, 10 ** 6),
+                                                reg.seed if reg.seed is not None else 10 ** 6,
+                                                reg.id))
+        for match in nxt:
+            want = [survivors[seats[match.id][s] - 1].id
+                    if decided and seats[match.id].get(s) and seats[match.id][s] <= len(survivors)
+                    else None for s in (1, 2)]
+            present = [w for w in want if w]
+            update = {}
+            if [match.participant_1_id, match.participant_2_id] != want:
+                update.update(participant_1_id=want[0], participant_2_id=want[1],
+                              check_in_deadline=None, checked_in_p1_at=None,
+                              checked_in_p2_at=None)
+            if decided and len(present) < 2:
+                # A seat whose survivor never came (a place that did not
+                # arrive): a walkover, as a fixed bracket settles one.
+                lone = present[0] if present else None
+                if match.status != 'bye' or match.winner_id != lone:
+                    update.update(status='bye', winner_id=lone,
+                                  completed_at=timezone.now() if lone else None)
+            elif match.status == 'bye':
+                update.update(status='scheduled', winner_id=None, completed_at=None)
+            if update:
+                BracketMatch.objects.filter(pk=match.pk).update(**update)
+                changed += 1
+                if len(present) == 2:
+                    from . import stage_engine
+                    match.refresh_from_db()
+                    stage_engine.arm_check_in(match)
+    return changed
+
+
 def mark_bye(match, slot):
     """A seat that stays empty by design: nobody is sent there."""
     _put(match, slot, 'bye')

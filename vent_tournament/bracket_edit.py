@@ -25,7 +25,7 @@ inside the caller's `transaction.atomic()`. Every change writes a
 """
 from django.utils import timezone
 
-from . import formats, stage_engine, stage_settings, stages
+from . import formats, match_slots, stage_engine, stage_settings, stages
 from .models import (BracketEdit, BracketGeneration, BracketMatch, TournamentRegistration,
                      TournamentStage)
 from .services import bracket as bracket_service
@@ -383,6 +383,12 @@ def reopen(match, user):
     if stage is not None and stage.format == 'swiss' and stage.matches.filter(
             round_number__gt=match.round_number).exists():
         raise EditError('NEXT_ROUND_ALREADY_DRAWN')
+    reseeded = stage is not None and bool((stage.settings or {}).get('reseed'))
+    if reseeded and stage.matches.filter(round_number=match.round_number + 1,
+                                         slots__kind='reseed',
+                                         status__in=match_slots.PLAYED).exists():
+        # The next round was paired from this one and has been played.
+        raise EditError('NEXT_MATCH_ALREADY_PLAYED')
     if tournament.disputes.filter(match=match, status__in=('open', 'under_review')).exists():
         raise EditError('DISPUTES_OPEN')
 
@@ -408,6 +414,9 @@ def reopen(match, user):
         penalties_p1=None, penalties_p2=None, games=[], completed_at=None,
         forfeit_reason='', recorded_by=None, recorded_at=None)
     match.score_submissions.all().delete()
+    if reseeded:
+        # Its round is undecided again, so the pairing made from it comes out.
+        match_slots.sync_reseeded(stage)
     _log(tournament, user, 'reopen', stage, match=match.id)
     match.refresh_from_db()
     return match

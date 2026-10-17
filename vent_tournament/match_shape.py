@@ -62,6 +62,8 @@ def slot_rows(m):
             'slot': s.slot,
             'kind': s.kind,
             'seed': s.seed,
+            # A seat of a reseeded knockout: the survivor at this rank of seed.
+            'rank': s.source_place if s.kind == 'reseed' else None,
             'from': None if src is None else {
                 'match_id': src.id, 'round': src.round_number, 'side': src.bracket_side,
                 'group': src.group_number, 'number': src.match_number,

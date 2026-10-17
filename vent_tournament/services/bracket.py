@@ -430,8 +430,16 @@ def _generate_single_elimination(tournament, ordered, stage=None, settings=None,
         ])
     rounds = kept
 
-    # Wire winner pointers R -> R+1.
+    # Wire winner pointers R -> R+1. A reseeded knockout has none after round
+    # one: each seat waits for a rank among the survivors, match m of M
+    # taking ranks m and 2M+1-m (P3 W1, `match_slots.sync_reseeded`).
     for r in range(rounds - 1):
+        if settings.get('reseed'):
+            size = len(per_round[r + 1])
+            for m, tgt in enumerate(per_round[r + 1]):
+                match_slots.wait_reseed(tgt, 1, m + 1)
+                match_slots.wait_reseed(tgt, 2, 2 * size - m)
+            continue
         for m, match in enumerate(per_round[r]):
             tgt = per_round[r + 1][m // 2]
             match_slots.link(match, 'winner', tgt, 1 if m % 2 == 0 else 2)

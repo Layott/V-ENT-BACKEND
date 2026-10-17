@@ -986,6 +986,10 @@ def on_match_resolved(match):
         next_swiss_round(stage)
     elif stage.format == 'winner_stays_on':
         _next_challenge(stage.tournament, stage)
+    elif (stage.settings or {}).get('reseed'):
+        # A reseeded knockout seats the next round once this one is decided.
+        from . import match_slots
+        match_slots.sync_reseeded(stage)
     # A line set to go as soon as the stage ends goes now (P1b, design 477).
     _close_by_itself(stage)
 

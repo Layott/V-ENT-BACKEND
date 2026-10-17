@@ -197,3 +197,126 @@ class ThresholdShapeTests(TestCase):
                 draw(stage, creator)
                 shape = self.shape(fmt, n, stage.settings)
                 self.assertEqual(stage.matches.count(), shape['matches'])
+
+
+# ---------------------------------------------------------------------------
+# A reseeded knockout (Task A3)
+# ---------------------------------------------------------------------------
+
+from . import bracket_edit, match_shape, results  # noqa: E402
+from .tests_stage_engine import play  # noqa: E402
+
+
+def match_of(stage, round_number, *seeds):
+    """The match of this round between these seeds (either order)."""
+    for m in stage.matches.filter(round_number=round_number, bracket_side='winners'):
+        sides = {m.participant_1.seed if m.participant_1 else None,
+                 m.participant_2.seed if m.participant_2 else None}
+        if sides == set(seeds):
+            return m
+    raise AssertionError('no round %s match between %s' % (round_number, seeds))
+
+
+def pairs(stage, round_number):
+    out = []
+    for m in stage.matches.filter(round_number=round_number, bracket_side='winners',
+                                  winner_place__isnull=True).order_by('match_number'):
+        if m.match_number > 1 and m.slots.filter(kind='loser').exists():
+            continue                      # the third-place match
+        out.append(tuple(p.seed if p else None for p in (m.participant_1, m.participant_2)))
+    return out
+
+
+def win(match, seed):
+    """`seed` wins `match` 2-0."""
+    match.refresh_from_db()
+    if match.participant_1.seed == seed:
+        return play(match, 2, 0)
+    return play(match, 0, 2)
+
+
+class ReseedTests(TestCase):
+    def reseeded(self, n, **settings):
+        t, creator, regs = field(n)
+        stage = add_stage(t, 0, 'single_elimination', settings=dict(settings, reseed=True))
+        draw(stage, creator)
+        return t, creator, stage
+
+    def test_the_best_remaining_meets_the_worst_remaining(self):
+        _t, _c, stage = self.reseeded(8)
+        self.assertEqual(pairs(stage, 2), [(None, None), (None, None)])
+        win(match_of(stage, 1, 1, 8), 8)
+        win(match_of(stage, 1, 2, 7), 7)
+        win(match_of(stage, 1, 4, 5), 4)
+        self.assertEqual(pairs(stage, 2), [(None, None), (None, None)])
+        win(match_of(stage, 1, 3, 6), 3)
+        # Fixed lines would give 8 v 4 and 7 v 3.
+        self.assertEqual(pairs(stage, 2), [(3, 8), (4, 7)])
+
+    def test_byes_count_as_survivors(self):
+        # Six entrants: seeds 1 and 2 have byes. Fixed lines would give
+        # 1 v 4 and 2 v 6 after these two results.
+        _t, _c, stage = self.reseeded(6)
+        win(match_of(stage, 1, 4, 5), 4)
+        win(match_of(stage, 1, 3, 6), 6)
+        self.assertEqual(pairs(stage, 2), [(1, 6), (2, 4)])
+
+    def test_the_seats_say_where_they_come_from(self):
+        _t, _c, stage = self.reseeded(8)
+        rows = {}
+        for m in stage.matches.filter(round_number=2).order_by('match_number'):
+            match_shape.attach_slots([m])
+            rows[m.match_number] = [(r['kind'], r['rank']) for r in match_shape.slot_rows(m)]
+        self.assertEqual(rows[1], [('reseed', 1), ('reseed', 4)])
+        self.assertEqual(rows[2], [('reseed', 2), ('reseed', 3)])
+        final = stage.matches.get(round_number=3)
+        match_shape.attach_slots([final])
+        self.assertEqual([(r['kind'], r['rank']) for r in match_shape.slot_rows(final)],
+                         [('reseed', 1), ('reseed', 2)])
+
+    def test_reopening_a_result_empties_the_next_round(self):
+        t, creator, stage = self.reseeded(4)
+        first = win(match_of(stage, 1, 1, 4), 1)
+        win(match_of(stage, 1, 2, 3), 2)
+        self.assertEqual(pairs(stage, 2), [(1, 2)])
+        bracket_edit.reopen(first, creator)
+        self.assertEqual(pairs(stage, 2), [(None, None)])
+
+    def test_a_corrected_result_pairs_the_next_round_again(self):
+        _t, _c, stage = self.reseeded(8)
+        for a, b in ((1, 8), (2, 7), (3, 6), (4, 5)):
+            win(match_of(stage, 1, a, b), a)
+        self.assertEqual(pairs(stage, 2), [(1, 4), (2, 3)])
+        first = stage.matches.get(round_number=1, participant_1__seed=1)
+        play(first, 0, 2)                  # seed 8 won after all
+        self.assertEqual(pairs(stage, 2), [(2, 8), (3, 4)])
+
+    def test_no_correction_once_the_next_round_is_played(self):
+        _t, _c, stage = self.reseeded(8)
+        for a, b in ((1, 8), (2, 7), (3, 6), (4, 5)):
+            win(match_of(stage, 1, a, b), a)
+        win(match_of(stage, 2, 1, 4), 1)
+        first = stage.matches.get(round_number=1, participant_1__seed=1)
+        with self.assertRaises(results.ResultError) as caught:
+            play(first, 0, 2)
+        self.assertEqual(caught.exception.code, 'NEXT_MATCH_ALREADY_PLAYED')
+        with self.assertRaises(bracket_edit.EditError) as refused:
+            bracket_edit.reopen(first, _c)
+        self.assertEqual(refused.exception.code, 'NEXT_MATCH_ALREADY_PLAYED')
+
+    def test_places_are_shared_as_in_any_knockout(self):
+        _t, _c, stage = self.reseeded(8)
+        play_out(stage)
+        self.assertEqual(ranks(stage), [1, 2, 3, 3, 5, 5, 5, 5])
+
+    def test_a_third_place_match_still_takes_the_semi_final_losers(self):
+        _t, _c, stage = self.reseeded(8, third_place=True)
+        play_out(stage)
+        self.assertEqual(ranks(stage), [1, 2, 3, 4, 5, 5, 5, 5])
+
+    def test_a_threshold_bracket_can_be_reseeded(self):
+        _t, _c, stage = self.reseeded(8, threshold=2)
+        win(match_of(stage, 1, 1, 8), 8)
+        for a, b in ((2, 7), (3, 6), (4, 5)):
+            win(match_of(stage, 1, a, b), a)
+        self.assertEqual(pairs(stage, 2), [(2, 8), (3, 4)])
