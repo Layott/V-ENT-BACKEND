@@ -25,6 +25,7 @@ import json
 import os
 import re
 import subprocess
+import shutil
 import sys
 
 
@@ -229,6 +230,15 @@ CATCHERS = [
     ('studio groups self-test',
      'the catcher catches a kind with no group, no label or no drawing',
      FRONTEND, ['node', 'scripts/check-studio-groups.mjs', '--self-test'], True),
+    # Inbox 476 (CEO, 16 October 2026): a video explainer for every format.
+    # A format added with no explainer, or an explainer whose words exist in
+    # English only, falls back silently; this is what notices.
+    ('format explainers',
+     'every format has an explainer of 30 to 60 s, on the stage, with every word in en, fr and pt (inbox 476)',
+     FRONTEND, ['node', 'scripts/check-explainers.mjs'], True),
+    ('format explainers self-test',
+     'the catcher catches a missing explainer, a wrong length, a caption fault, an actor off the stage and a missing word',
+     FRONTEND, ['node', 'scripts/check-explainers.mjs', '--self-test'], True),
     ('history lines self-test',
      'the catcher catches a missing key, a dropped placeholder and a code with no English',
      FRONTEND, ['node', 'scripts/check-statement-lines.mjs', '--self-test'], True),
@@ -734,6 +744,14 @@ CATCHERS = [
     ('one link writer self-test',
      'the one link writer catcher still catches a pointer written by hand',
      BACKEND, [sys.executable, 'tools/check-one-link-writer.py', '--self-test'], True),
+    # A frontend build that died on the box (out of heap, 17 October 2026) had
+    # already emptied what the live servers read: every /images file answered
+    # 400 until a second deploy. deploy.sh now snapshots and restores; this
+    # runs its build block against a fake build that fails the same way.
+    # Git's bash by full path: a bare 'bash' from Windows can start WSL's.
+    ('deploy restore',
+     'a failed frontend build puts back the files the live servers read',
+     BACKEND, [shutil.which('bash') or 'bash', 'tools/test-deploy-restore.sh', 'deploy/deploy.sh'], True),
     # A screen showing the username where every other screen shows the full
     # name: twice on 17 October 2026 (the happenings ticker, the feeds panel).
     # Debt: the ledger holds the count of entrant_name reads, a new one blocks.
