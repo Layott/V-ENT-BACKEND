@@ -974,6 +974,10 @@ class MatchSlot(models.Model):
         # A place in a stage that feeds this one, for a stage drawn before
         # that stage finished (P1d): "Groups, group A, place 1".
         ('place', 'A place in an earlier stage'),
+        # A seat of a reseeded knockout (P3 W1): filled when the round before
+        # is decided, by the survivor at this rank of seed (`source_place`),
+        # the best remaining against the worst remaining.
+        ('reseed', 'A place among those still in'),
         ('open', 'Not decided by the bracket'),
     )
 

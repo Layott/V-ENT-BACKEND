@@ -136,6 +136,7 @@ urlpatterns = [
     path('<str:tournament_id>/qualifiers/<int:registration_id>/decline/', views_feeds.decline_place, name='tournament_qualifier_decline'),
     path('<str:tournament_id>/qualifiers/<int:registration_id>/recall/', views_feeds.recall_place, name='tournament_qualifier_recall'),
     path('<str:tournament_id>/stages/set/', views_stages.set_stages, name='set_stages'),
+    path('<str:tournament_id>/stages/preset/', views_stages.stage_preset, name='stage_preset'),
     path('<str:tournament_id>/stages/<int:stage_id>/advance/', views_stages.advance_stage, name='advance_stage'),
     path('<str:tournament_id>/stages/<int:stage_id>/advance/preview/', views_stages.advance_preview, name='advance_preview'),
     path('<str:tournament_id>/stages/<int:stage_id>/draw/', views_stages.draw_stage, name='draw_stage'),

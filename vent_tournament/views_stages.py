@@ -18,7 +18,7 @@ from rest_framework.response import Response
 
 from vent_auth.actors import actor_from_request
 
-from . import formats, match_shape, stage_engine, stage_settings, stages
+from . import formats, match_shape, ranking, stage_engine, stage_settings, stages
 from .access import MANAGE, may, may_manage, permissions_list, permissions_of
 from .models import TournamentRegistration
 
@@ -205,6 +205,13 @@ def tournament_stages(request, tournament_id):
         'single_format': not rows,
         'summary': stages.summary(cleaned) if cleaned else [],
         'catalogue': formats.catalogue(),
+        # Whole setups a stage can start from (P3 W1): the Counter-Strike
+        # Major Swiss today. Settings and scoring cleaned as the server keeps them.
+        'format_presets': {
+            key: {'format': p['format'],
+                  'settings': stage_settings.clean(p['format'], p['settings']),
+                  'rules': ranking.clean_rules(p['format'], p['rules'])}
+            for key, p in stage_settings.FORMAT_PRESETS.items()},
         'tournament_when': tournament_when,
         # The game's preset, so the builder can offer "use the FC Mobile
         # settings" and fill each stage with them.
@@ -228,6 +235,33 @@ def tournament_stages(request, tournament_id):
         or tournament.completed_at is not None,
         'played': {s.id: _played_count(tournament, s) for s in rows if s.drawn_at},
     }, 'Stages')
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def stage_preset(request, tournament_id):
+    """GET /tournament/<ref>/stages/preset/?kind=ffa_bracket&entrants=&lobby_size=&through=&maps=&final_maps=
+
+    A whole plan written by a function (P3 W1), for the planner to load as a
+    draft. Nothing is stored, and it says nothing about the tournament but its
+    game, so it is public like the plan itself.
+    """
+    from . import plan_presets
+    tournament, err = _find(tournament_id)
+    if err:
+        return err
+    kind = str(request.query_params.get('kind') or '').strip().lower()
+    build = plan_presets.PRESETS.get(kind)
+    if build is None:
+        return _err('There is no such preset.', 'PRESET_UNKNOWN', field='kind')
+    game = getattr(tournament.tournament_game, 'game_title', '') if tournament.tournament_game_id else ''
+    q = request.query_params
+    try:
+        plan = build(q.get('entrants'), q.get('lobby_size'), q.get('through'),
+                     maps=q.get('maps'), final_maps=q.get('final_maps'), game_title=game)
+    except plan_presets.PresetError as exc:
+        return _err('That preset cannot be built with these numbers.', exc.code, field=exc.field)
+    return _ok(plan, 'Preset')
 
 
 @api_view(['PUT'])

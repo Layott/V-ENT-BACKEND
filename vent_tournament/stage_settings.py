@@ -34,9 +34,63 @@ class SettingsError(ValueError):
         self.field = field
 
 
-GRAND_FINALS = ('single', 'reset')
+# `none`: the upper and the lower bracket winners never meet and both go
+# through (toornament's grand final "none", research section 4.3; P3 W1).
+GRAND_FINALS = ('single', 'reset', 'none')
 DRAW_RULES = ('allowed', 'penalties', 'winner_named')
+PAIRINGS = ('circle', 'berger')
+SWISS_PAIRINGS = ('monrad', 'dutch', 'valve')
 BEST_OF_RANGE = (1, 9)
+
+
+def _threshold(raw):
+    """How many a knockout stops at, 0 for a knockout played to one winner.
+
+    Toornament's threshold (research section 4.2): "removes the matches that
+    would otherwise decide between the N best participants", and only a value
+    that removes whole rounds is valid, so it is a power of two. Whether the
+    bracket is big enough for it is known only at the draw, which refuses a
+    threshold too big with THRESHOLD_TOO_BIG.
+    """
+    value = _int(raw, 'threshold', 0, 64, 0)
+    if value <= 1:
+        return 0
+    if value & (value - 1):
+        raise SettingsError('NOT_A_POWER_OF_TWO', 'threshold')
+    return value
+
+
+# What a knockout that stops at a threshold can send its qualifiers into:
+# whatever a group or a Swiss stage feeds (P3 W1). Played to one winner, a
+# knockout decides the tournament and feeds nothing.
+QUALIFIER_FEEDS = ('single_elimination', 'double_elimination', 'round_robin', 'league',
+                   'swiss', 'stepladder', 'page_playoff', 'gsl', 'bracket_groups')
+
+
+def feeds_into(format_key, settings=None):
+    """The formats a stage of `format_key`, set up as `settings`, may send
+    people into. A format's own list, except that a single or double
+    elimination with a threshold has qualifiers to send (walk of P3, 17
+    October 2026: its line was refused PROGRESSION_FORMAT_CANNOT_FOLLOW)."""
+    fmt = formats.get(format_key)
+    if fmt is None:
+        return ()
+    if fmt.key in ('single_elimination', 'double_elimination') and threshold_of(settings):
+        return QUALIFIER_FEEDS
+    return tuple(fmt.can_feed_into or ())
+
+
+def threshold_of(settings):
+    """How many a knockout stage sends on without playing for places between
+    them: its threshold, 2 for a double elimination with no grand final, or 0
+    when it is played to one winner."""
+    settings = settings or {}
+    value = int(settings.get('threshold') or 0)
+    if value >= 2:
+        return value
+    if settings.get('grand_final') == 'none':
+        return 2
+    return 0
 
 
 def _int(raw, field, low, high, default):
@@ -225,6 +279,16 @@ def clean(format_key, raw):
         out['every_place'] = _bool(raw.get('every_place'), False)
         if out['every_place']:
             out['third_place'] = False
+        # Stop when this many are left (P3 W1). The places between them are
+        # not played, so neither is a match for third or for every place.
+        out['threshold'] = _threshold(raw.get('threshold'))
+        if out['threshold']:
+            out['third_place'] = False
+            out['every_place'] = False
+        # Pair again by seed each round, the best remaining against the worst
+        # remaining, as the NFL does (research catalogue 2.1). A bracket that
+        # plays for every place has fixed lines for each place, so it cannot.
+        out['reseed'] = _bool(raw.get('reseed'), False) and not out['every_place']
     if key == 'winner_stays_on':
         # 0: one pass, every challenger gets one go at whoever holds the spot.
         # Above 0: a loser goes to the back of the queue and it runs until
@@ -235,17 +299,48 @@ def clean(format_key, raw):
         gf = str(raw.get('grand_final') or 'reset').strip().lower()
         if gf not in GRAND_FINALS:
             raise SettingsError('UNKNOWN_CHOICE', 'grand_final')
-        out['grand_final'] = gf
+        out['threshold'] = _threshold(raw.get('threshold'))
+        # A threshold stops before the brackets meet, so there is no final.
+        out['grand_final'] = 'none' if out['threshold'] else gf
     if key in ('round_robin', 'league', 'ladder', 'aggregate_2v2'):
         # Home and away: everybody plays everybody twice. A League is played
         # that way unless the organiser says once (inbox 440); 0 or nothing
         # sent means "the format's own answer".
         default_legs = 2 if key == 'league' else 1
         out['legs'] = _int(raw.get('legs') or None, 'legs', 1, 2, default_legs)
+        # The order of the fixtures: the rotation V-ENT has always drawn, or
+        # FIDE's published Berger tables (P3 W1, research catalogue 3.1).
+        out['pairing'] = str(raw.get('pairing') or 'circle').strip().lower()
+        if out['pairing'] not in PAIRINGS:
+            raise SettingsError('UNKNOWN_CHOICE', 'pairing')
+    if key == 'bracket_groups':
+        # Each group a knockout of its own (P3 W1). The default is the GSL
+        # shape: double elimination, two through, groups of four.
+        out['bracket'] = str(raw.get('bracket') or 'double').strip().lower()
+        if out['bracket'] not in ('single', 'double'):
+            raise SettingsError('UNKNOWN_CHOICE', 'bracket')
+        # How big a group is when the stage does not say how many groups.
+        out['group_size'] = _int(raw.get('group_size'), 'group_size', 2, 64, 4)
+        sent = raw.get('threshold')
+        out['threshold'] = _threshold(2 if sent in (None, '') else sent)
+        if out['bracket'] == 'double':
+            gf = str(raw.get('grand_final') or 'single').strip().lower()
+            if gf not in GRAND_FINALS:
+                raise SettingsError('UNKNOWN_CHOICE', 'grand_final')
+            out['grand_final'] = 'none' if out['threshold'] else gf
     if key == 'swiss':
         out['rounds'] = _int(raw.get('rounds'), 'rounds', 0, 15, 0)
         out['win_target'] = _int(raw.get('win_target'), 'win_target', 0, 10, 0)
         out['loss_limit'] = _int(raw.get('loss_limit'), 'loss_limit', 0, 10, 0)
+        # How rounds after the first are paired (P3 W1): monrad is what V-ENT
+        # has always drawn, dutch is FIDE's, valve the Counter-Strike Major's.
+        out['pairing'] = str(raw.get('pairing') or 'monrad').strip().lower()
+        if out['pairing'] not in SWISS_PAIRINGS:
+            raise SettingsError('UNKNOWN_CHOICE', 'pairing')
+        # A match that can send a side through or out is played over this
+        # many games (0: like any other).
+        out['decisive_best_of'] = _int(raw.get('decisive_best_of'), 'decisive_best_of',
+                                       0, BEST_OF_RANGE[1], 0)
 
     # ---- how a match is played -------------------------------------------
     out['best_of'] = _int(raw.get('best_of'), 'best_of', *BEST_OF_RANGE, 1)
@@ -371,6 +466,22 @@ PRESETS = {
         'group': {'best_of': 1, 'draws': 'allowed', 'check_in_minutes': 10},
         'knockout': {'best_of': 1, 'knockout_legs': 2, 'draws': 'penalties',
                      'check_in_minutes': 10},
+    },
+}
+
+
+# Whole setups an organiser can start a stage from (P3 W1): the settings and
+# the scoring together, changeable afterwards like anything else.
+FORMAT_PRESETS = {
+    # The Counter-Strike Major Swiss (Valve's rulebook, research catalogue
+    # 4.4): three wins go through, three losses go out, highest against lowest
+    # inside a record, Buchholz as opponents' wins minus losses, and every
+    # match that can send somebody through or out best of three.
+    'valve_major': {
+        'format': 'swiss',
+        'settings': {'pairing': 'valve', 'win_target': 3, 'loss_limit': 3, 'rounds': 5,
+                     'best_of': 1, 'decisive_best_of': 3},
+        'rules': {'buchholz': 'wins_minus_losses', 'tiebreakers': ['buchholz', 'seed']},
     },
 }
 

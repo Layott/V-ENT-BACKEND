@@ -186,7 +186,7 @@ class BracketError(Exception):
 #: than drawn as something else. Swiss and GSL used to fall through to single
 #: elimination silently, which is the fault this list exists to prevent.
 DRAWABLE = ('single_elimination', 'double_elimination', 'round_robin', 'league', 'ladder',
-            'aggregate_2v2', 'swiss', 'gsl', 'stepladder', 'page_playoff',
+            'aggregate_2v2', 'swiss', 'gsl', 'bracket_groups', 'stepladder', 'page_playoff',
             'winner_stays_on')
 
 
@@ -292,8 +292,9 @@ def _draw(tournament, stage, btype, ordered, settings, groups, lower=None, early
         return _generate_winner_stays_on(tournament, stage, ordered, settings)
     if btype == 'single_elimination' and (settings or {}).get('every_place'):
         return _generate_every_place(tournament, stage, ordered, settings, early=early)
-    if btype == 'gsl':
-        return _generate_gsl(tournament, stage, ordered, settings)
+    if btype in ('gsl', 'bracket_groups'):
+        return _generate_bracket_groups(tournament, stage, ordered, settings, groups,
+                                        gsl=btype == 'gsl')
     if btype == 'swiss':
         return _generate_swiss_first_round(tournament, stage, ordered, settings)
     if decided_by_table(btype):
@@ -395,24 +396,52 @@ def _seed_slots(ordered, bracket_size):
     return [padded[pos - 1] for pos in positions]
 
 
-def _generate_single_elimination(tournament, ordered, stage=None, settings=None, early=False):
+def _threshold(settings, bracket_size):
+    """The stage's threshold, refused when the bracket is too small for it.
+
+    A threshold keeps whole rounds, so it may be at most half the bracket:
+    sixteen seats can stop at eight, five entrants (eight seats) at four.
+    """
+    from .. import stage_settings
+    threshold = stage_settings.threshold_of(settings)
+    if threshold and threshold * 2 > bracket_size:
+        raise BracketError('threshold_too_big',
+                           'A bracket of %s stops at %s at most.' % (bracket_size, bracket_size // 2))
+    return threshold
+
+
+def _generate_single_elimination(tournament, ordered, stage=None, settings=None, early=False,
+                                 group=None):
     settings = settings or {}
     n = len(ordered)
     bracket_size = next_power_of_2(n)
     rounds = int(math.log2(bracket_size))
     slots = _seed_slots(ordered, bracket_size)
+    # A threshold stops when that many are left (P3 W1): the rounds that would
+    # decide between them are not drawn, and no match is the final.
+    threshold = _threshold(settings, bracket_size)
+    kept = rounds - int(math.log2(threshold)) if threshold else rounds
 
     per_round = []
-    for r in range(1, rounds + 1):
+    for r in range(1, kept + 1):
         count = bracket_size // (2 ** r)
         per_round.append([
             _new_match(tournament, stage, settings, r, m + 1, 'winners',
-                       rounds_total=rounds, is_final=(r == rounds))
+                       rounds_total=rounds, is_final=(r == rounds), group=group)
             for m in range(count)
         ])
+    rounds = kept
 
-    # Wire winner pointers R -> R+1.
+    # Wire winner pointers R -> R+1. A reseeded knockout has none after round
+    # one: each seat waits for a rank among the survivors, match m of M
+    # taking ranks m and 2M+1-m (P3 W1, `match_slots.sync_reseeded`).
     for r in range(rounds - 1):
+        if settings.get('reseed'):
+            size = len(per_round[r + 1])
+            for m, tgt in enumerate(per_round[r + 1]):
+                match_slots.wait_reseed(tgt, 1, m + 1)
+                match_slots.wait_reseed(tgt, 2, 2 * size - m)
+            continue
         for m, match in enumerate(per_round[r]):
             tgt = per_round[r + 1][m // 2]
             match_slots.link(match, 'winner', tgt, 1 if m % 2 == 0 else 2)
@@ -425,10 +454,10 @@ def _generate_single_elimination(tournament, ordered, stage=None, settings=None,
     # Created BEFORE round one is seated, so a semi-final settled by a bye
     # already has somewhere to send its loser.
     third_place = None
-    if settings.get('third_place') and rounds >= 2:
+    if settings.get('third_place') and rounds >= 2 and not threshold:
         semis = per_round[rounds - 2]
         third_place = _new_match(tournament, stage, settings, rounds, 2,
-                                 'winners', rounds_total=rounds)
+                                 'winners', rounds_total=rounds, group=group)
         for m, semi in enumerate(semis[:2]):
             match_slots.link(semi, 'loser', third_place, m + 1)
         matches_created += 1
@@ -513,12 +542,50 @@ def _seat_players(registration, seats):
     return (people + [None] * seats)[:seats]
 
 
-def round_robin_pairings(players, legs=1):
+def _berger(players, legs):
+    """FIDE's Berger tables (C.05 Annex 1, research catalogue 3.1).
+
+    Players are numbered 1 to n in seed order, with a bye as the highest
+    number for an odd field. In round r the last player meets p = (r-1) * n/2
+    mod (n-1) + 1, at home in even rounds; every other pair is p+k against
+    p-k, counted round the other n-1. Six players, round 1: 1-6, 2-5, 3-4;
+    round 2: 6-4, 5-3, 1-2. A double round robin reverses the last two rounds
+    of the first cycle, as FIDE recommends, so nobody has the same side three
+    rounds running, and the second cycle swaps every side.
+    """
+    table = list(players) + ([None] if len(players) % 2 else [])
+    n = len(table)
+    if n < 2:
+        return []
+    wrap = lambda x: (x - 1) % (n - 1) + 1  # noqa: E731
+    rounds = []
+    for r in range(1, n):
+        p = ((r - 1) * (n // 2)) % (n - 1) + 1
+        pairs = [(n, p) if r % 2 == 0 else (p, n)]
+        pairs += [(wrap(p + k), wrap(p - k)) for k in range(1, n // 2)]
+        rounds.append(pairs)
+    if legs > 1 and len(rounds) >= 2:
+        first = rounds[:-2] + [rounds[-1], rounds[-2]]
+        second = [[(b, a) for a, b in pairs] for pairs in rounds]
+        rounds = first + second
+    out = []
+    for r, pairs in enumerate(rounds, start=1):
+        for a, b in pairs:
+            left, right = table[a - 1], table[b - 1]
+            if left is not None and right is not None:
+                out.append((r, left, right))
+    return out
+
+
+def round_robin_pairings(players, legs=1, method='circle'):
     """[(round, a, b)] for everybody against everybody, `legs` times.
 
     Circle method with a None bye for an odd count. The second leg repeats the
     first with home and away swapped, which is what a double round robin is.
+    `method='berger'` follows FIDE's published tables instead (P3 W1).
     """
+    if method == 'berger':
+        return _berger(players, legs)
     circle = list(players) + ([None] if len(players) % 2 else [])
     size = len(circle)
     if size < 2:
@@ -546,7 +613,7 @@ def _generate_round_robin(tournament, ordered, stage=None, settings=None, group=
     settings = settings or {}
     seats = _seats_for(tournament)
     legs = int(settings.get('legs') or 1)
-    pairings = round_robin_pairings(list(ordered), legs)
+    pairings = round_robin_pairings(list(ordered), legs, settings.get('pairing') or 'circle')
     rounds_total = max((r for r, _a, _b in pairings), default=0)
 
     match_no = {}
@@ -631,40 +698,48 @@ def _generate_groups(tournament, stage, ordered, settings, groups):
 
 
 # ---------------------------------------------------------------------------
-# GSL groups: four per group, double elimination inside it
+# Bracket groups, and GSL as their preset
 # ---------------------------------------------------------------------------
 
-def _generate_gsl(tournament, stage, ordered, settings):
-    """Groups of four. Opening matches 1v4 and 2v3; the winners meet for first
-    place; the losers meet and the loser of that is out in fourth; the loser of
-    the winners' match and the winner of the losers' match play a decider for
-    second. Five matches a group, two go through.
+def _generate_bracket_groups(tournament, stage, ordered, settings, groups, gsl=False):
+    """Several small knockouts (P3 W1, toornament's bracket groups, research
+    section 4.5): the field dealt into groups by snake, each group drawn as a
+    single or double elimination of its own with the stage's threshold.
+
+    GSL is the preset: groups of four, double elimination, two through. In a
+    group of four that is the two openers (1 v 4, 2 v 3), the winners match,
+    the losers match and the decider: the same five matches GSL was drawn with
+    by hand before P3, the decider now in the losers bracket with the losers
+    match's winner listed first. A GSL drawn the old way keeps its own
+    standings reader (`stage_engine._gsl_standings`).
+
+    With no group count of its own, the groups come from `group_size`.
     """
+    settings = dict(settings or {})
     n = len(ordered)
-    if n < 8 or n % 4:
-        raise BracketError('gsl_needs_groups_of_four',
-                           'GSL groups need a field that divides into fours, eight or more.')
-    groups = n // 4
+    if gsl:
+        if n < 8 or n % 4:
+            raise BracketError('gsl_needs_groups_of_four',
+                               'GSL groups need a field that divides into fours, eight or more.')
+        groups = n // 4
+        settings.update(bracket='double', threshold=2, grand_final='none')
+    elif not groups or groups < 2:
+        groups = max(1, math.ceil(n / int(settings.get('group_size') or 4)))
+    double = settings.get('bracket', 'double') == 'double'
     buckets = split_into_groups(ordered, groups)
-    created = 0
-    for number, four in enumerate(buckets, start=1):
-        s1, s2, s3, s4 = four
-        mk = lambda r, m: _new_match(tournament, stage, settings, r, m, 'winners',
-                                     rounds_total=3, group=number)
-        open_a, open_b = mk(1, 1), mk(1, 2)
-        winners, losers = mk(2, 1), mk(2, 2)
-        decider = mk(3, 1)
-        open_a.participant_1, open_a.participant_2 = s1, s4
-        open_b.participant_1, open_b.participant_2 = s2, s3
-        for opening, slot in ((open_a, 1), (open_b, 2)):
-            opening.save(update_fields=['participant_1', 'participant_2'])
-            match_slots.link(opening, 'winner', winners, slot)
-            match_slots.link(opening, 'loser', losers, slot)
-        match_slots.link(winners, 'loser', decider, 1)
-        match_slots.link(losers, 'winner', decider, 2)
-        created += 5
-    return {'rounds_count': 3, 'matches_created': created,
-            'structure_summary': [{'group': g + 1, 'matches': 5} for g in range(groups)]}
+    if any(len(b) < (3 if double else 2) for b in buckets):
+        raise BracketError('group_too_small',
+                           'Every group needs at least %s entrants.' % (3 if double else 2))
+    generate_one = _generate_double_elimination if double else _generate_single_elimination
+    created, rounds, summary = 0, 0, []
+    for number, bucket in enumerate(buckets, start=1):
+        part = generate_one(tournament, bucket, stage=stage, settings=settings, group=number)
+        created += part['matches_created']
+        rounds = max(rounds, part['rounds_count'])
+        summary.append({'group': number, 'entrants': len(bucket),
+                        'matches': part['matches_created']})
+    return {'rounds_count': rounds, 'matches_created': created, 'groups': groups,
+            'structure_summary': summary}
 
 
 # ---------------------------------------------------------------------------
@@ -679,7 +754,39 @@ def swiss_rounds_for(n, settings):
     return max(1, math.ceil(math.log2(max(2, n))))
 
 
-def pair_swiss(players, record, played, had_bye):
+SWISS_PAIRINGS = ('monrad', 'dutch', 'valve')
+
+
+def _swiss_candidates(first, rest, record, method):
+    """Who `first` (the best remaining) would rather meet, best choice first.
+
+    monrad (what V-ENT has always drawn): the closest record, then table
+    order, so a score group pairs 1 v 2, 3 v 4. dutch (FIDE C.04.3): in its
+    score group the top player meets the player half way down, top half
+    against bottom half (1 v 5, 2 v 6 in a group of eight), then the rest of
+    the bottom half, then the top half; an odd player floats down. valve
+    (Counter-Strike Major rulebook): in its record group the highest meets the
+    lowest available. Research catalogue 4.2 and 4.4.
+    """
+    def closeness(p):
+        return (abs(record[p.id][0] - record[first.id][0])
+                + abs(record[p.id][1] - record[first.id][1]))
+    if method == 'dutch':
+        group = [first] + [p for p in rest if record[p.id][0] == record[first.id][0]]
+        half = max(len(group) // 2, 1)       # never `first` itself
+        own = group[half:] + list(reversed(group[1:half]))
+        others = sorted((p for p in rest if p not in group),
+                        key=lambda p: (abs(record[p.id][0] - record[first.id][0]), rest.index(p)))
+        return own + others
+    if method == 'valve':
+        group = [p for p in rest if record[p.id] == record[first.id]]
+        others = sorted((p for p in rest if p not in group),
+                        key=lambda p: (closeness(p), -rest.index(p)))
+        return list(reversed(group)) + others
+    return sorted(rest, key=lambda p: (closeness(p), rest.index(p)))
+
+
+def pair_swiss(players, record, played, had_bye, method='monrad'):
     """Pair one Swiss round.
 
     `players` in standing order (best first); `record[id]` = (wins, losses);
@@ -687,8 +794,12 @@ def pair_swiss(players, record, played, had_bye):
     had a bye. Returns (pairs, bye_player_or_None).
 
     Pairs within the same record where possible, never a rematch if any other
-    pairing exists, found by backtracking from the top of the table. The bye,
-    for an odd field, goes to the lowest-ranked entrant who has not had one.
+    pairing exists, found by backtracking from the top of the table, each
+    entrant trying opponents in the order its `method` prefers (P3 W1,
+    `_swiss_candidates`). The bye, for an odd field, goes to the lowest-ranked
+    entrant who has not had one. The Valve rulebook's priority table for six
+    team record groups is not encoded beyond its first row (1 v 6, 2 v 5,
+    3 v 4), which is the highest against the lowest this draws.
     """
     pool = list(players)
     bye = None
@@ -706,14 +817,7 @@ def pair_swiss(players, record, played, had_bye):
             return []
         first = remaining[0]
         rest = remaining[1:]
-        # Closest record first, then table order: that is what "paired
-        # against somebody on the same record" means when records run out.
-        candidates = sorted(
-            rest,
-            key=lambda p: (abs(record[p.id][0] - record[first.id][0])
-                           + abs(record[p.id][1] - record[first.id][1]),
-                           rest.index(p)))
-        for other in candidates:
+        for other in _swiss_candidates(first, rest, record, method):
             if frozenset((first.id, other.id)) in played:
                 continue
             tail = solve([p for p in rest if p is not other])
@@ -729,12 +833,28 @@ def pair_swiss(players, record, played, had_bye):
     return pairs, bye
 
 
-def _swiss_round(tournament, stage, settings, round_number, pairs, bye, rounds_total):
+def _decisive(settings, record, *ids):
+    """Whether a Swiss match can send one of its sides through or out: one
+    of them is a win from the target or a loss from the limit (Valve: "All
+    elimination and advancement matches are to be best of three")."""
+    target, limit = int(settings.get('win_target') or 0), int(settings.get('loss_limit') or 0)
+    for rid in ids:
+        wins, losses = (record or {}).get(rid, (0, 0))
+        if (target and wins == target - 1) or (limit and losses == limit - 1):
+            return True
+    return False
+
+
+def _swiss_round(tournament, stage, settings, round_number, pairs, bye, rounds_total, record=None):
     created = 0
+    decisive_best_of = int((settings or {}).get('decisive_best_of') or 0)
     for m, (a, b) in enumerate(pairs, start=1):
-        _new_match(tournament, stage, settings, round_number, m, 'winners',
-                   rounds_total=rounds_total, table=True,
-                   participant_1=a, participant_2=b, status='scheduled')
+        match = _new_match(tournament, stage, settings, round_number, m, 'winners',
+                           rounds_total=rounds_total, table=True,
+                           participant_1=a, participant_2=b, status='scheduled')
+        if decisive_best_of and _decisive(settings, record, a.id, b.id):
+            match.best_of = decisive_best_of
+            match.save(update_fields=['best_of'])
         created += 1
     if bye is not None:
         match = _new_match(tournament, stage, settings, round_number, len(pairs) + 1,
@@ -820,7 +940,7 @@ def reorder(name, items):
 
 
 def _generate_double_elimination(tournament, ordered, stage=None, settings=None, lower=None,
-                                 early=False):
+                                 early=False, group=None):
     """Winners + losers bracket + grand final, with or without a reset.
 
     Fully correct and auto-advancing for power-of-2 fields. Non-power-of-2 fields
@@ -838,11 +958,15 @@ def _generate_double_elimination(tournament, ordered, stage=None, settings=None,
     bracket_size = next_power_of_2(n)
     k = int(math.log2(bracket_size))
     slots = _seed_slots(ordered, bracket_size)
+    # A threshold, or no grand final (which is a threshold of two), stops
+    # before the brackets meet (P3 W1, toornament's threshold and grand final
+    # none): half go through from the upper bracket and half from the lower.
+    threshold = _threshold(settings, bracket_size)
     created = []
 
     def mk(round_number, match_number, side, is_final=False):
         match = _new_match(tournament, stage, settings, round_number, match_number,
-                           side, rounds_total=k + 1, is_final=is_final)
+                           side, rounds_total=k + 1, is_final=is_final, group=group)
         created.append(match)
         return match
 
@@ -937,28 +1061,49 @@ def _generate_double_elimination(tournament, ordered, stage=None, settings=None,
     # a reset, a win for the losers' side in the first grand final forces a
     # second, because otherwise the winners' side is out after ONE loss in a
     # format whose whole promise is two. Without a reset the first is final.
-    reset = settings.get('grand_final', 'single') == 'reset'
-    gf = mk(k + 1, 1, 'grand_final', is_final=not reset)
-    match_slots.link(wb[-1][0], 'winner', gf, 1)
-    if lb:
-        match_slots.link(lb[-1][0], 'winner', gf, 2)
-    if reset:
-        gf2 = mk(k + 2, 1, 'grand_final', is_final=True)
-        # Routing into the reset is decided in advance.py: it is played only
-        # when the losers' champion wins the first grand final.
-        match_slots.link_reset(gf, gf2)
+    reset = settings.get('grand_final', 'single') == 'reset' and not threshold
+    if not threshold:
+        gf = mk(k + 1, 1, 'grand_final', is_final=not reset)
+        match_slots.link(wb[-1][0], 'winner', gf, 1)
+        if lb:
+            match_slots.link(lb[-1][0], 'winner', gf, 2)
+        if reset:
+            gf2 = mk(k + 2, 1, 'grand_final', is_final=True)
+            # Routing into the reset is decided in advance.py: it is played only
+            # when the losers' champion wins the first grand final.
+            match_slots.link_reset(gf, gf2)
+    else:
+        # Threshold 2**j keeps upper rounds 1 .. k-j+1 (threshold / 2 left
+        # there) and the lower rounds up to the one the last kept upper
+        # round's losers drop into (threshold / 2 left there too). The rest
+        # is drawn whole and cut before anybody is seated: what is cut only
+        # ever feeds what is cut, so the pointers into it go null with it.
+        last_upper = k - int(math.log2(threshold)) + 1
+        cut = [m for r in wb[last_upper:] for m in r] + [m for r in lb[2 * last_upper - 2:] for m in r]
+        if cut:
+            from ..models import BracketMatch
+            gone = {m.pk for m in cut}
+            BracketMatch.objects.filter(pk__in=gone).delete()
+            created = [m for m in created if m.pk not in gone]
+            wb, lb = wb[:last_upper], lb[:2 * last_upper - 2]
+            # Read round one again: its in-memory pointers predate the cut.
+            wb[0] = list(BracketMatch.objects.filter(pk__in=[m.pk for m in wb[0]])
+                         .order_by('match_number'))
 
     seat = _place_tokens if early else _seat_round_one
     for match in seat(wb[0], slots):
         advance.cascade(match)
 
+    # Without a grand final the last lower round still comes after the last
+    # upper round (it takes that round's losers), so it is a round of its own.
+    finals = (1 if lb else 0) if threshold else (2 if reset else 1)
     return {
-        'rounds_count': k + (2 if reset else 1),
+        'rounds_count': len(wb) + finals,
         'matches_created': len(created),
         'structure_summary': [
-            {'bracket': 'winners', 'rounds': k},
+            {'bracket': 'winners', 'rounds': len(wb)},
             {'bracket': 'losers', 'rounds': len(lb)},
-            {'bracket': 'grand_final', 'matches': 2 if reset else 1},
+            {'bracket': 'grand_final', 'matches': finals},
         ],
     }
 

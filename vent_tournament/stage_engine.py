@@ -253,7 +253,13 @@ def draw(stage, user, seed_strategy='registration', manual_order=None, early=Fal
     stage.drawn_at = timezone.now()
     stage.status = 'running'
     stage.settings = settings
-    stage.save(update_fields=['entrants', 'drawn_at', 'status', 'settings'])
+    fields = ['entrants', 'drawn_at', 'status', 'settings']
+    if key == 'bracket_groups' and (stage.groups or 0) < 2 and summary.get('groups', 0) > 1:
+        # Groups worked out from the group size: kept, so the lines out of
+        # the stage read them as any group stage's (P3 W1).
+        stage.groups = summary['groups']
+        fields.append('groups')
+    stage.save(update_fields=fields)
     from . import happenings
     happenings.started(stage)
 
@@ -377,6 +383,7 @@ def _table_standings(stage):
         # (P1b, a line that carries points).
         for pid, row in rows.items():
             row['points'] += carried.get(pid, 0)
+        _opponent_numbers(rows, group_matches, rules)
         out.extend(_rank_table(list(rows.values()), group_matches, pts, rules['tiebreakers']))
     return out
 
@@ -391,6 +398,78 @@ def _carried_points(stage):
                 out[int(row['registration_id'])] = out.get(int(row['registration_id']), 0) \
                     + (row.get('carry') or 0)
     return out
+
+
+def _opponent_numbers(rows, matches, rules, byes=()):
+    """The tie-break numbers read off who played whom (P3 W1, design section
+    9; research catalogue 4.3 and 4.5), written on each row:
+
+    - buchholz: the opponents' wins, points, or wins minus losses (Valve's
+      Difficulty Score), as the stage's rules say; buchholz_cut1 without the
+      weakest opponent, buchholz_median1 without the weakest and the strongest;
+    - sonneborn_berger: the points of the opponents beaten, plus half those of
+      the opponents drawn with;
+    - progressive: the running points after every round, added up;
+    - koya: the points taken from opponents on at least half the points they
+      could have had;
+    - opponents_win_pct: each opponent's wins over matches played, never
+      below the floor (25 by default, the card game rule), byes not counted,
+      averaged, as a percentage; opp_opp_win_pct: the opponents' own figure,
+      averaged.
+
+    `rows` maps registration id to row (points and record already counted);
+    `matches` are the played matches between them; `byes` the bye matches.
+    """
+    win, draw_pts, _loss = rules['points_win'], rules['points_draw'], rules['points_loss']
+    meetings = {rid: [] for rid in rows}
+    played = {rid: 0 for rid in rows}
+    won = {rid: 0 for rid in rows}
+    by_round = {}
+    for m in matches:
+        a, b = m.participant_1_id, m.participant_2_id
+        if a not in rows or b not in rows:
+            continue
+        for me, them in ((a, b), (b, a)):
+            result = 0.5 if m.winner_id is None else (1 if m.winner_id == me else 0)
+            meetings[me].append((them, result))
+            played[me] += 1
+            won[me] += 1 if result == 1 else 0
+            gained = draw_pts if result == 0.5 else (win if result == 1 else rules['points_loss'])
+            by_round.setdefault(m.round_number, {}).setdefault(me, 0)
+            by_round[m.round_number][me] += gained
+    for m in byes:
+        by_round.setdefault(m.round_number, {}).setdefault(m.winner_id, 0)
+        by_round[m.round_number][m.winner_id] += rules.get('points_bye', win)
+
+    form = rules.get('buchholz') or 'wins'
+    strength = {rid: (r['points'] if form == 'points'
+                      else r['wins'] - r['losses'] if form == 'wins_minus_losses'
+                      else r['wins']) for rid, r in rows.items()}
+    floor = (rules.get('owp_floor') if rules.get('owp_floor') is not None else 25) / 100.0
+    pct = {rid: max(floor, min(1.0, won[rid] / played[rid])) if played[rid] else floor
+           for rid in rows}
+    owp = {}
+    for rid, row in rows.items():
+        values = sorted(strength[o] for o, _r in meetings[rid])
+        row['buchholz'] = sum(values)
+        row['buchholz_cut1'] = sum(values[1:])
+        row['buchholz_median1'] = sum(values[1:-1])
+        sb = sum(rows[o]['points'] * r for o, r in meetings[rid])
+        row['sonneborn_berger'] = int(sb) if sb == int(sb) else sb
+        row['koya'] = sum((win if r == 1 else draw_pts if r == 0.5 else rules['points_loss'])
+                          for o, r in meetings[rid]
+                          if rows[o]['points'] * 2 >= played[o] * win)
+        running = total = 0
+        for rnd in sorted(by_round):
+            running += by_round[rnd].get(rid, 0)
+            total += running
+        row['progressive'] = total
+        opps = [o for o, _r in meetings[rid]]
+        owp[rid] = sum(pct[o] for o in opps) / len(opps) if opps else 0
+        row['opponents_win_pct'] = round(owp[rid] * 100, 2)
+    for rid, row in rows.items():
+        opps = [o for o, _r in meetings[rid]]
+        row['opp_opp_win_pct'] = round(sum(owp[o] for o in opps) / len(opps) * 100, 2) if opps else 0
 
 
 def _swiss_standings(stage):
@@ -416,9 +495,9 @@ def _swiss_standings(stage):
             opponents[b].append(a)
         _tally(rows, m, pts)
         played.append(m)
-    strength = 'points' if rules['buchholz'] == 'points' else 'wins'
+    byes = [m for m in stage.matches.all() if m.status == 'bye' and m.winner_id in rows]
+    _opponent_numbers(rows, played, rules, byes)
     for i, row in rows.items():
-        row['buchholz'] = sum(rows[o][strength] for o in opponents[i] if o in rows)
         row['goal_difference'] = row['goals_for'] - row['goals_against']
         target, limit = settings.get('win_target') or 0, settings.get('loss_limit') or 0
         if target and row['wins'] >= target:
@@ -435,7 +514,44 @@ def _loser(m):
     return m.participant_2_id if m.winner_id == m.participant_1_id else m.participant_1_id
 
 
-def knockout_places(matches):
+def threshold_exits(matches):
+    """(upper, lower): the matches of a threshold knockout whose winners go
+    through, the ones nothing is drawn after (P3 W1). Their winners are the
+    stage's qualifiers, the upper bracket's ahead of the lower bracket's."""
+    exits = [m for m in matches if not m.winner_to_match_id and not m.is_final
+             and m.bracket_side in ('winners', 'losers')]
+    return ([m for m in exits if m.bracket_side == 'winners'],
+            [m for m in exits if m.bracket_side == 'losers'])
+
+
+def _threshold_places(matches):
+    """Places of a knockout that stops at a threshold: the upper bracket's
+    qualifiers share first, the lower bracket's share the place after them,
+    and everybody knocked out shares a place by the round they went out in,
+    later rounds first, as in a knockout played to the end."""
+    upper, lower = threshold_exits(matches)
+    place = {}
+    for exits, at in ((upper, 1), (lower, len(upper) + 1)):
+        for m in exits:
+            if m.status in TERMINAL and m.winner_id:
+                place[m.winner_id] = at
+    nxt = len(upper) + len(lower) + 1
+    rounds = {}
+    for m in matches:
+        if m.status != 'completed':
+            continue
+        if m.bracket_side == 'winners' and m.loser_to_match_id:
+            continue
+        rounds.setdefault((m.round_number, m.bracket_side), []).append(m)
+    for key in sorted(rounds, key=lambda k: (-k[0], k[1])):
+        out = [lost for lost in (_loser(m) for m in rounds[key]) if lost and lost not in place]
+        for lost in out:
+            place[lost] = nxt
+        nxt += len(out)
+    return place
+
+
+def knockout_places(matches, threshold=0):
     """Finishing places from a knockout's matches: {registration id: place}.
 
     The final decides first and second, a third-place match third and fourth,
@@ -445,11 +561,14 @@ def knockout_places(matches):
     losers fifth. They were given different places by match number, and prizes
     were paid by those places. A bracket whose matches state places (every
     place, stepladder, page playoff) keeps them. In double elimination a loss
-    on the winners side is not an elimination.
+    on the winners side is not an elimination. A stage that stops at a
+    threshold (P3 W1) has no final: `_threshold_places`.
     """
     from .services.bracket import places_from_matches
 
     matches = list(matches)
+    if threshold:
+        return _threshold_places(matches)
     stated = places_from_matches(matches)
     if stated is not None:
         return stated
@@ -497,12 +616,18 @@ def _knockout_standings(stage):
 
     matches = list(stage.matches.all())
     regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or []).select_related('user', 'team', 'squad')}
-    place = knockout_places(matches)
+    threshold = stage_settings.threshold_of(stage.settings)
+    place = knockout_places(matches, threshold)
+    qualified = set()
+    if threshold:
+        upper, lower = threshold_exits(matches)
+        qualified = {m.winner_id for m in upper + lower if m.status in TERMINAL and m.winner_id}
     rows = []
     for rid, reg in regs.items():
         row = _blank(reg)
         row['rank'] = place.get(rid)
-        row['status'] = 'placed' if rid in place else 'playing'
+        row['status'] = ('qualified' if rid in qualified
+                         else 'placed' if rid in place else 'playing')
         rows.append(row)
     by_id = {r['registration_id']: r for r in rows}
     for m in matches:
@@ -628,6 +753,43 @@ def _gsl_standings(stage):
     return out
 
 
+def _bracket_groups_standings(stage):
+    """Each group ranked as the knockout it is (P3 W1): its qualifiers
+    first, then everybody out by the round they went out in, sharing places as
+    any knockout does. GSL is bracket groups with a threshold of two."""
+    from .models import TournamentRegistration
+
+    matches = list(stage.matches.all())
+    threshold = 2 if stage.format == 'gsl' else stage_settings.threshold_of(stage.settings)
+    regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or []).select_related('user', 'team', 'squad')}
+    out = []
+    for g in sorted({m.group_number for m in matches if m.group_number}):
+        ms = [m for m in matches if m.group_number == g]
+        place = knockout_places(ms, threshold)
+        if threshold:
+            upper, lower = threshold_exits(ms)
+            through = {m.winner_id for m in upper + lower if m.status in TERMINAL and m.winner_id}
+        else:
+            through = {rid for rid, p in place.items() if p == 1}
+        members = {pid for m in ms for pid in (m.participant_1_id, m.participant_2_id) if pid}
+        rows = []
+        for pid in members:
+            if pid not in regs:
+                continue
+            row = _blank(regs[pid], g)
+            row['rank'] = place.get(pid)
+            row['status'] = ('qualified' if pid in through
+                             else 'eliminated' if pid in place else 'playing')
+            rows.append(row)
+        by_id = {r['registration_id']: r for r in rows}
+        for m in ms:
+            if m.status == 'completed' and m.participant_1_id in by_id and m.participant_2_id in by_id:
+                _tally(by_id, m, (1, 0, 0))
+        rows.sort(key=lambda r: (r['rank'] is None, r['rank'] or 0, r['seed'] or 10 ** 6))
+        out.extend(rows)
+    return out
+
+
 def standings(stage):
     """Rows for this stage, whatever its format, ranked."""
     fmt = formats.get(stage.format)
@@ -641,8 +803,10 @@ def standings(stage):
         return _streak_standings(stage)
     if key == 'swiss':
         return _swiss_standings(stage)
-    if key == 'gsl':
-        return _gsl_standings(stage)
+    if key == 'gsl' and not stage.matches.filter(bracket_side='losers').exists():
+        return _gsl_standings(stage)            # drawn by hand before P3
+    if key in ('gsl', 'bracket_groups'):
+        return _bracket_groups_standings(stage)
     if key in ('single_elimination', 'double_elimination', 'stepladder', 'page_playoff'):
         return _knockout_standings(stage)
     return _table_standings(stage)
@@ -913,13 +1077,14 @@ def next_swiss_round(stage):
             had_bye.add(m.winner_id)
         elif m.participant_1_id and m.participant_2_id:
             played.add(frozenset((m.participant_1_id, m.participant_2_id)))
-    pairs, bye = bracket.pair_swiss(players, record, played, had_bye)
+    pairs, bye = bracket.pair_swiss(players, record, played, had_bye,
+                                    method=(stage.settings or {}).get('pairing') or 'monrad')
     round_number = max((m.round_number for m in stage.matches.all()), default=0) + 1
     total = bracket.swiss_rounds_for(len(stage.entrants or []), stage.settings)
     from .services import advance as adv
     with adv.suspend_advance():
         created = bracket._swiss_round(stage.tournament, stage, stage.settings, round_number,
-                                       pairs, bye, total)
+                                       pairs, bye, total, record=record)
     # Each new round's seats say who was paired into them, with their seed.
     from . import match_slots
     match_slots.complete(stage.matches.filter(round_number=round_number),
@@ -940,6 +1105,10 @@ def on_match_resolved(match):
         next_swiss_round(stage)
     elif stage.format == 'winner_stays_on':
         _next_challenge(stage.tournament, stage)
+    elif (stage.settings or {}).get('reseed'):
+        # A reseeded knockout seats the next round once this one is decided.
+        from . import match_slots
+        match_slots.sync_reseeded(stage)
     # A line set to go as soon as the stage ends goes now (P1b, design 477).
     _close_by_itself(stage)
 

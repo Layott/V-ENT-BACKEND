@@ -141,7 +141,7 @@ def clean(lines, stages, participants=None):
     `stages` are the cleaned stages in plan order; a line names its source and
     target by their index. Raises `LineError`.
     """
-    from . import formats
+    from . import formats, stage_settings
 
     if not isinstance(lines, list):
         raise LineError('PROGRESSION_NOT_A_LIST')
@@ -172,7 +172,8 @@ def clean(lines, stages, participants=None):
             raise LineError('PROGRESSION_GROUP_UNKNOWN', 'group', index)
         src_fmt = formats.get(_get(stages[source], 'format'))
         tgt_fmt = formats.get(_get(stages[target], 'format'))
-        if src_fmt is None or tgt_fmt is None or tgt_fmt.key not in (src_fmt.can_feed_into or ()):
+        if src_fmt is None or tgt_fmt is None or tgt_fmt.key not in stage_settings.feeds_into(
+                src_fmt.key, _get(stages[source], 'settings')):
             raise LineError('PROGRESSION_FORMAT_CANNOT_FOLLOW', 'target', index)
         if side != 'any' and tgt_fmt.key != 'double_elimination':
             raise LineError('PROGRESSION_LOSERS_SIDE_NEEDS_DOUBLE_ELIMINATION', 'side', index)
@@ -247,7 +248,7 @@ def rows_for(line, rows=None):
         rows = qualified + [r for r in rows if r not in qualified]
         return rows[line.place_from - 1:line.place_to]
     groups = stage.groups or 0
-    if key == 'gsl' or groups > 1:
+    if key in ('gsl', 'bracket_groups') or groups > 1:
         by_group = {}
         for r in rows:
             by_group.setdefault(r['group'] or 0, []).append(r)
