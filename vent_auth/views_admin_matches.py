@@ -27,6 +27,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from .decorators import ROLE_PERMISSIONS, admin_role_required
+from vent_tournament.match_shape import names
 
 OVERRIDE_ROLES = ROLE_PERMISSIONS['override_match_score']
 
@@ -40,7 +41,7 @@ def _side(reg):
     kind = reg.entrant_kind
     return {'registration_id': reg.id,
             'type': 'player' if kind == 'user' else kind,
-            'name': reg.entrant_name or None}
+            'name': names(reg)[0]}
 
 
 @api_view(['GET'])
