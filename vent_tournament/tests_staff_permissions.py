@@ -212,3 +212,129 @@ class StaffApiTests(TestCase):
         self.assertEqual((invite.role, invite.scopes), ('staff', ['caster']))
         listing = client_for(self.organiser).get(self.base).json()['data']
         self.assertEqual(listing['invites'][0]['permissions'], ['caster'])
+
+
+#: Every door a helper may be given, by the permission it asks for. An id that
+#: names nothing (999999) answers 404 to somebody allowed and 403 to somebody
+#: who is not, because who you are is asked before what you named (R88).
+DOORS = {
+    'structure': [
+        ('put', 'stages/set/', {'stages': []}),
+        ('post', 'stages/adopt/', {}),
+        ('post', 'stages/999999/reformat/', {'format': 'single_elimination'}),
+        ('post', 'matches/999999/rules/', {}),
+        ('post', 'br/ensure/', {}),
+        ('put', 'br/999999/settings/', {}),
+        ('patch', 'br/999999/lobbies/999999/', {'name': 'A'}),
+        ('post', 'br/999999/lobbies/999999/matches/', {}),
+        ('delete', 'br/matches/999999/', None),
+    ],
+    'place': [
+        ('post', 'stages/999999/draw/', {}),
+        ('get', 'stages/999999/advance/preview/', None),
+        ('post', 'stages/999999/advance/', {}),
+        ('post', 'stages/999999/lines/999999/pull/', {}),
+        ('post', 'stages/999999/undraw/', {}),
+        ('post', 'stages/999999/reopen/', {}),
+        ('post', 'bracket/swap/', {}),
+        ('post', 'bracket/replace/', {}),
+        ('get', 'bracket/edits/', None),
+        ('post', 'generate-bracket/', {}),
+        ('post', 'br/999999/seats/move/', {}),
+        ('post', 'br/999999/finish/', {}),
+    ],
+    'report': [
+        ('post', '/tournament/update-bracket/{ref}/', {}),
+        ('post', 'matches/999999/reopen/', {}),
+        ('patch', 'br/matches/999999/', {'room_code': 'ROOM1'}),
+    ],
+    'standings': [
+        ('post', 'league-adjustment/', {}),
+        ('post', 'stat-settings/', {}),
+        ('post', 'league-rules/', {}),
+        ('put', 'metrics/', {}),
+        # A match's stats are public to read, so which matches exist is no
+        # secret: this door is knocked on with a real one.
+        ('post', 'matches/{match}/stats/', {}),
+        ('post', 'mvp/award/', {}),
+    ],
+    'caster': [
+        ('post', 'studio/sessions/', {'name': 'Matrix'}),
+        ('get', 'overlays/', None),
+        ('get', 'studio/assets/', None),
+    ],
+}
+
+
+class DoorMatrixTests(TestCase):
+    def setUp(self):
+        from .models import BracketMatch
+        from .tests import register
+        self.organiser = make_user(7131)
+        self.t = make_tournament(self.organiser)
+        self.match = BracketMatch.objects.create(
+            tournament=self.t, round_number=1, match_number=1,
+            participant_1=register(self.t, make_user(7181)),
+            participant_2=register(self.t, make_user(7182)))
+        self._next = 7140
+
+    def helper(self, permissions):
+        self._next += 1
+        user = make_user(self._next)
+        TournamentStaff.objects.create(tournament=self.t, user=user, permissions=list(permissions))
+        return user
+
+    def knock(self, user, method, path, body):
+        path = path.format(ref=self.t.slug, match=self.match.pk)
+        url = path if path.startswith('/') else '/tournament/%s/%s' % (self.t.slug, path)
+        client = client_for(user)
+        if method == 'get':
+            return client.get(url)
+        return getattr(client, method)(url, body, format='json')
+
+    def test_each_permission_opens_its_doors_and_only_those(self):
+        for permission, doors in DOORS.items():
+            holder = self.helper([permission])
+            without = self.helper([p for p in access.PERMISSIONS if p != permission])
+            for method, path, body in doors:
+                res = self.knock(holder, method, path, body)
+                self.assertNotEqual(res.status_code, 403, '%s holder refused at %s %s: %s'
+                                    % (permission, method, path, res.content[:200]))
+                self.assertNotEqual(res.status_code, 401, (permission, path))
+                res = self.knock(without, method, path, body)
+                self.assertEqual(res.status_code, 403, '%s without it let through %s %s (%s)'
+                                 % (permission, method, path, res.status_code))
+
+    def test_caster_reaches_the_studio_only(self):
+        caster = self.helper(['caster'])
+        res = self.knock(caster, 'post', 'studio/sessions/', {'name': 'Caster desk'})
+        self.assertIn(res.status_code, (200, 201), res.content[:300])
+        for permission in ('structure', 'place', 'report', 'standings'):
+            method, path, body = DOORS[permission][0]
+            self.assertEqual(self.knock(caster, method, path, body).status_code, 403, path)
+
+    def test_settings_money_and_staff_stay_the_organisers(self):
+        everything = self.helper(access.PERMISSIONS)
+        for method, path, body in (
+                ('post', 'staff/', {'username': 'player7131'}),
+                ('get', 'earnings/', None),
+                ('post', 'cancel/', {}),
+                ('put', '/tournament/edit-tournament/{ref}/', {'tournament_title': 'Mine now'})):
+            res = self.knock(everything, method, path, body)
+            self.assertIn(res.status_code, (403, 404), (path, res.status_code, res.content[:200]))
+
+    def test_stage_payload_lists_permissions(self):
+        placer = self.helper(['place'])
+        data = client_for(placer).get('/tournament/%s/stages/' % self.t.slug).json()['data']
+        self.assertEqual(data['permissions'], ['place'])
+        self.assertFalse(data['can_manage'])
+
+    def test_battle_royale_payload_lists_permissions(self):
+        shaper = self.helper(['structure'])
+        data = client_for(shaper).get('/tournament/%s/br/' % self.t.slug).json()['data']
+        self.assertEqual(data['permissions'], ['structure'])
+
+    def test_match_payload_lists_permissions(self):
+        reporter = self.helper(['report'])
+        data = client_for(reporter).get('/tournament/match/%s/' % self.match.pk).json()['data']
+        self.assertEqual(data['permissions'], ['report'])

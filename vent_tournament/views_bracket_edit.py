@@ -10,9 +10,10 @@
     POST /tournament/<ref>/matches/<mid>/rules/           how a match is played, after the draw
     GET  /tournament/<ref>/bracket/edits/                 what was changed, by whom, when
 
-All of it belongs to whoever may run the tournament (`access.may_manage`: the
-organiser, the managers they added, an admin), the same question every stage
-door asks. The rules themselves live in `bracket_edit.py`; this file reads the
+Each door asks `access.may` for its own permission (P7): changing what a stage
+is (adopt, reformat, a match's rules) is 'structure'; who sits where (undo a
+draw, reopen a stage, swap, replace, the record of changes) is 'place'; taking a
+result back off a match is 'report'. The organiser and an admin hold all three. The rules themselves live in `bracket_edit.py`; this file reads the
 request, asks, and answers with a code the screen translates.
 """
 from django.db import transaction
@@ -76,11 +77,11 @@ def _match(tournament, match_id):
     return match, None
 
 
-def _guarded(request, tournament_id):
+def _guarded(request, tournament_id, permission):
     tournament, err = _find(tournament_id)
     if err:
         return None, None, err
-    user, err = _manager(request, tournament)
+    user, err = _manager(request, tournament, permission)
     if err:
         return None, None, err
     return tournament, user, None
@@ -88,7 +89,7 @@ def _guarded(request, tournament_id):
 
 @api_view(['POST'])
 def adopt(request, tournament_id):
-    tournament, user, err = _guarded(request, tournament_id)
+    tournament, user, err = _guarded(request, tournament_id, 'structure')
     if err:
         return err
     stage, err = _run(lambda: bracket_edit.adopt(tournament, user))
@@ -99,7 +100,7 @@ def adopt(request, tournament_id):
 
 @api_view(['POST'])
 def undraw(request, tournament_id, stage_id):
-    tournament, user, err = _guarded(request, tournament_id)
+    tournament, user, err = _guarded(request, tournament_id, 'place')
     if err:
         return err
     stage, err = _stage(tournament, stage_id)
@@ -115,7 +116,7 @@ def undraw(request, tournament_id, stage_id):
 
 @api_view(['POST'])
 def reopen_stage(request, tournament_id, stage_id):
-    tournament, user, err = _guarded(request, tournament_id)
+    tournament, user, err = _guarded(request, tournament_id, 'place')
     if err:
         return err
     stage, err = _stage(tournament, stage_id)
@@ -130,7 +131,7 @@ def reopen_stage(request, tournament_id, stage_id):
 
 @api_view(['POST'])
 def reformat(request, tournament_id, stage_id):
-    tournament, user, err = _guarded(request, tournament_id)
+    tournament, user, err = _guarded(request, tournament_id, 'structure')
     if err:
         return err
     stage, err = _stage(tournament, stage_id)
@@ -165,7 +166,7 @@ def reformat(request, tournament_id, stage_id):
 
 @api_view(['POST'])
 def swap(request, tournament_id):
-    tournament, user, err = _guarded(request, tournament_id)
+    tournament, user, err = _guarded(request, tournament_id, 'place')
     if err:
         return err
     a = inputs.read_int(request.data, 'a', minimum=1)
@@ -181,7 +182,7 @@ def swap(request, tournament_id):
 
 @api_view(['POST'])
 def replace(request, tournament_id):
-    tournament, user, err = _guarded(request, tournament_id)
+    tournament, user, err = _guarded(request, tournament_id, 'place')
     if err:
         return err
     out = inputs.read_int(request.data, 'out', minimum=1)
@@ -198,7 +199,7 @@ def replace(request, tournament_id):
 
 @api_view(['POST'])
 def reopen_match(request, tournament_id, match_id):
-    tournament, user, err = _guarded(request, tournament_id)
+    tournament, user, err = _guarded(request, tournament_id, 'report')
     if err:
         return err
     match, err = _match(tournament, match_id)
@@ -217,7 +218,7 @@ def reopen_match(request, tournament_id, match_id):
 
 @api_view(['POST'])
 def match_rules(request, tournament_id, match_id):
-    tournament, user, err = _guarded(request, tournament_id)
+    tournament, user, err = _guarded(request, tournament_id, 'structure')
     if err:
         return err
     match, err = _match(tournament, match_id)
@@ -238,7 +239,7 @@ def match_rules(request, tournament_id, match_id):
 
 @api_view(['GET'])
 def edits(request, tournament_id):
-    tournament, user, err = _guarded(request, tournament_id)
+    tournament, user, err = _guarded(request, tournament_id, 'place')
     if err:
         return err
     rows = []
