@@ -223,6 +223,11 @@ def _still_free_to_change(match, winner):
     if (stage is not None and stage.format == 'swiss'
             and stage.matches.filter(round_number__gt=match.round_number).exists()):
         raise ResultError('NEXT_ROUND_ALREADY_DRAWN')
+    if (stage is not None and (stage.settings or {}).get('reseed')
+            and stage.matches.filter(round_number=match.round_number + 1, slots__kind='reseed',
+                                     status__in=PLAYED_STATUSES).exists()):
+        # A reseeded round is paired from the whole round before (P3 W1).
+        raise ResultError('NEXT_MATCH_ALREADY_PLAYED')
     if closed:
         raise ResultError('STAGE_CLOSED')
 

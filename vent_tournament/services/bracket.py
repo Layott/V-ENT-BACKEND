@@ -395,24 +395,51 @@ def _seed_slots(ordered, bracket_size):
     return [padded[pos - 1] for pos in positions]
 
 
+def _threshold(settings, bracket_size):
+    """The stage's threshold, refused when the bracket is too small for it.
+
+    A threshold keeps whole rounds, so it may be at most half the bracket:
+    sixteen seats can stop at eight, five entrants (eight seats) at four.
+    """
+    from .. import stage_settings
+    threshold = stage_settings.threshold_of(settings)
+    if threshold and threshold * 2 > bracket_size:
+        raise BracketError('threshold_too_big',
+                           'A bracket of %s stops at %s at most.' % (bracket_size, bracket_size // 2))
+    return threshold
+
+
 def _generate_single_elimination(tournament, ordered, stage=None, settings=None, early=False):
     settings = settings or {}
     n = len(ordered)
     bracket_size = next_power_of_2(n)
     rounds = int(math.log2(bracket_size))
     slots = _seed_slots(ordered, bracket_size)
+    # A threshold stops when that many are left (P3 W1): the rounds that would
+    # decide between them are not drawn, and no match is the final.
+    threshold = _threshold(settings, bracket_size)
+    kept = rounds - int(math.log2(threshold)) if threshold else rounds
 
     per_round = []
-    for r in range(1, rounds + 1):
+    for r in range(1, kept + 1):
         count = bracket_size // (2 ** r)
         per_round.append([
             _new_match(tournament, stage, settings, r, m + 1, 'winners',
                        rounds_total=rounds, is_final=(r == rounds))
             for m in range(count)
         ])
+    rounds = kept
 
-    # Wire winner pointers R -> R+1.
+    # Wire winner pointers R -> R+1. A reseeded knockout has none after round
+    # one: each seat waits for a rank among the survivors, match m of M
+    # taking ranks m and 2M+1-m (P3 W1, `match_slots.sync_reseeded`).
     for r in range(rounds - 1):
+        if settings.get('reseed'):
+            size = len(per_round[r + 1])
+            for m, tgt in enumerate(per_round[r + 1]):
+                match_slots.wait_reseed(tgt, 1, m + 1)
+                match_slots.wait_reseed(tgt, 2, 2 * size - m)
+            continue
         for m, match in enumerate(per_round[r]):
             tgt = per_round[r + 1][m // 2]
             match_slots.link(match, 'winner', tgt, 1 if m % 2 == 0 else 2)
@@ -425,7 +452,7 @@ def _generate_single_elimination(tournament, ordered, stage=None, settings=None,
     # Created BEFORE round one is seated, so a semi-final settled by a bye
     # already has somewhere to send its loser.
     third_place = None
-    if settings.get('third_place') and rounds >= 2:
+    if settings.get('third_place') and rounds >= 2 and not threshold:
         semis = per_round[rounds - 2]
         third_place = _new_match(tournament, stage, settings, rounds, 2,
                                  'winners', rounds_total=rounds)
@@ -838,6 +865,10 @@ def _generate_double_elimination(tournament, ordered, stage=None, settings=None,
     bracket_size = next_power_of_2(n)
     k = int(math.log2(bracket_size))
     slots = _seed_slots(ordered, bracket_size)
+    # A threshold, or no grand final (which is a threshold of two), stops
+    # before the brackets meet (P3 W1, toornament's threshold and grand final
+    # none): half go through from the upper bracket and half from the lower.
+    threshold = _threshold(settings, bracket_size)
     created = []
 
     def mk(round_number, match_number, side, is_final=False):
@@ -937,28 +968,47 @@ def _generate_double_elimination(tournament, ordered, stage=None, settings=None,
     # a reset, a win for the losers' side in the first grand final forces a
     # second, because otherwise the winners' side is out after ONE loss in a
     # format whose whole promise is two. Without a reset the first is final.
-    reset = settings.get('grand_final', 'single') == 'reset'
-    gf = mk(k + 1, 1, 'grand_final', is_final=not reset)
-    match_slots.link(wb[-1][0], 'winner', gf, 1)
-    if lb:
-        match_slots.link(lb[-1][0], 'winner', gf, 2)
-    if reset:
-        gf2 = mk(k + 2, 1, 'grand_final', is_final=True)
-        # Routing into the reset is decided in advance.py: it is played only
-        # when the losers' champion wins the first grand final.
-        match_slots.link_reset(gf, gf2)
+    reset = settings.get('grand_final', 'single') == 'reset' and not threshold
+    if not threshold:
+        gf = mk(k + 1, 1, 'grand_final', is_final=not reset)
+        match_slots.link(wb[-1][0], 'winner', gf, 1)
+        if lb:
+            match_slots.link(lb[-1][0], 'winner', gf, 2)
+        if reset:
+            gf2 = mk(k + 2, 1, 'grand_final', is_final=True)
+            # Routing into the reset is decided in advance.py: it is played only
+            # when the losers' champion wins the first grand final.
+            match_slots.link_reset(gf, gf2)
+    else:
+        # Threshold 2**j keeps upper rounds 1 .. k-j+1 (threshold / 2 left
+        # there) and the lower rounds up to the one the last kept upper
+        # round's losers drop into (threshold / 2 left there too). The rest
+        # is drawn whole and cut before anybody is seated: what is cut only
+        # ever feeds what is cut, so the pointers into it go null with it.
+        last_upper = k - int(math.log2(threshold)) + 1
+        cut = [m for r in wb[last_upper:] for m in r] + [m for r in lb[2 * last_upper - 2:] for m in r]
+        if cut:
+            from ..models import BracketMatch
+            gone = {m.pk for m in cut}
+            BracketMatch.objects.filter(pk__in=gone).delete()
+            created = [m for m in created if m.pk not in gone]
+            wb, lb = wb[:last_upper], lb[:2 * last_upper - 2]
+            # Read round one again: its in-memory pointers predate the cut.
+            wb[0] = list(BracketMatch.objects.filter(pk__in=[m.pk for m in wb[0]])
+                         .order_by('match_number'))
 
     seat = _place_tokens if early else _seat_round_one
     for match in seat(wb[0], slots):
         advance.cascade(match)
 
+    finals = 0 if threshold else (2 if reset else 1)
     return {
-        'rounds_count': k + (2 if reset else 1),
+        'rounds_count': len(wb) + finals,
         'matches_created': len(created),
         'structure_summary': [
-            {'bracket': 'winners', 'rounds': k},
+            {'bracket': 'winners', 'rounds': len(wb)},
             {'bracket': 'losers', 'rounds': len(lb)},
-            {'bracket': 'grand_final', 'matches': 2 if reset else 1},
+            {'bracket': 'grand_final', 'matches': finals},
         ],
     }
 

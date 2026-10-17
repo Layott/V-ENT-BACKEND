@@ -435,7 +435,44 @@ def _loser(m):
     return m.participant_2_id if m.winner_id == m.participant_1_id else m.participant_1_id
 
 
-def knockout_places(matches):
+def threshold_exits(matches):
+    """(upper, lower): the matches of a threshold knockout whose winners go
+    through, the ones nothing is drawn after (P3 W1). Their winners are the
+    stage's qualifiers, the upper bracket's ahead of the lower bracket's."""
+    exits = [m for m in matches if not m.winner_to_match_id and not m.is_final
+             and m.bracket_side in ('winners', 'losers')]
+    return ([m for m in exits if m.bracket_side == 'winners'],
+            [m for m in exits if m.bracket_side == 'losers'])
+
+
+def _threshold_places(matches):
+    """Places of a knockout that stops at a threshold: the upper bracket's
+    qualifiers share first, the lower bracket's share the place after them,
+    and everybody knocked out shares a place by the round they went out in,
+    later rounds first, as in a knockout played to the end."""
+    upper, lower = threshold_exits(matches)
+    place = {}
+    for exits, at in ((upper, 1), (lower, len(upper) + 1)):
+        for m in exits:
+            if m.status in TERMINAL and m.winner_id:
+                place[m.winner_id] = at
+    nxt = len(upper) + len(lower) + 1
+    rounds = {}
+    for m in matches:
+        if m.status != 'completed':
+            continue
+        if m.bracket_side == 'winners' and m.loser_to_match_id:
+            continue
+        rounds.setdefault((m.round_number, m.bracket_side), []).append(m)
+    for key in sorted(rounds, key=lambda k: (-k[0], k[1])):
+        out = [lost for lost in (_loser(m) for m in rounds[key]) if lost and lost not in place]
+        for lost in out:
+            place[lost] = nxt
+        nxt += len(out)
+    return place
+
+
+def knockout_places(matches, threshold=0):
     """Finishing places from a knockout's matches: {registration id: place}.
 
     The final decides first and second, a third-place match third and fourth,
@@ -445,11 +482,14 @@ def knockout_places(matches):
     losers fifth. They were given different places by match number, and prizes
     were paid by those places. A bracket whose matches state places (every
     place, stepladder, page playoff) keeps them. In double elimination a loss
-    on the winners side is not an elimination.
+    on the winners side is not an elimination. A stage that stops at a
+    threshold (P3 W1) has no final: `_threshold_places`.
     """
     from .services.bracket import places_from_matches
 
     matches = list(matches)
+    if threshold:
+        return _threshold_places(matches)
     stated = places_from_matches(matches)
     if stated is not None:
         return stated
@@ -497,12 +537,18 @@ def _knockout_standings(stage):
 
     matches = list(stage.matches.all())
     regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or []).select_related('user', 'team', 'squad')}
-    place = knockout_places(matches)
+    threshold = stage_settings.threshold_of(stage.settings)
+    place = knockout_places(matches, threshold)
+    qualified = set()
+    if threshold:
+        upper, lower = threshold_exits(matches)
+        qualified = {m.winner_id for m in upper + lower if m.status in TERMINAL and m.winner_id}
     rows = []
     for rid, reg in regs.items():
         row = _blank(reg)
         row['rank'] = place.get(rid)
-        row['status'] = 'placed' if rid in place else 'playing'
+        row['status'] = ('qualified' if rid in qualified
+                         else 'placed' if rid in place else 'playing')
         rows.append(row)
     by_id = {r['registration_id']: r for r in rows}
     for m in matches:
@@ -940,6 +986,10 @@ def on_match_resolved(match):
         next_swiss_round(stage)
     elif stage.format == 'winner_stays_on':
         _next_challenge(stage.tournament, stage)
+    elif (stage.settings or {}).get('reseed'):
+        # A reseeded knockout seats the next round once this one is decided.
+        from . import match_slots
+        match_slots.sync_reseeded(stage)
     # A line set to go as soon as the stage ends goes now (P1b, design 477).
     _close_by_itself(stage)
 

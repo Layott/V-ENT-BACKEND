@@ -202,14 +202,15 @@ def plan(raw_stages, *, participants=None, lines=False):
             raise StageError('GSL_SENDS_TWO_PER_GROUP', 'advances', index)
 
         nxt = cleaned[index + 1]
-        if fmt.can_feed_into and nxt['format'] not in fmt.can_feed_into:
-            allowed = ', '.join(formats.get(k).label for k in fmt.can_feed_into)
+        feeds = stage_settings.feeds_into(fmt.key, stage['settings'])
+        if feeds and nxt['format'] not in feeds:
+            allowed = ', '.join(formats.get(k).label for k in feeds if formats.get(k))
             raise StageError(
                 '%s cannot feed into %s. It can feed into: %s.'
                 % (fmt.label, formats.get(nxt['format']).label, allowed),
                 'format', index + 1, code='FORMAT_CANNOT_FOLLOW',
                 previous=stage['label'])
-        if not fmt.can_feed_into:
+        if not feeds:
             raise StageError(
                 '%s decides a tournament on its own, so nothing can follow it.'
                 % fmt.label, 'format', index, code='FORMAT_FEEDS_NOTHING',
