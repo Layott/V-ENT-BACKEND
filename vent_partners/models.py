@@ -643,3 +643,71 @@ class StudioDelivery(models.Model):
 
     def __str__(self):
         return f'{self.ref} {self.kind} {self.status}'
+
+
+def _link_ref():
+    return 'ln_' + secrets.token_hex(6)
+
+
+def _code_ref():
+    return 'lc_' + secrets.token_hex(6)
+
+
+class StudioAccountLink(models.Model):
+    """A V-ENT account and the account it plays as in a studio's game (P6c).
+
+    Design section 14, item 2. One account per person per game, and one person
+    per account: `studio_links` refuses anything else with a code rather than
+    moving a link from one person to another without anybody saying so.
+    """
+
+    METHOD_CHOICES = [('code', 'A code shown in the game'), ('oauth', 'Sign in with V-ENT')]
+
+    id = models.AutoField(primary_key=True)
+    ref = models.CharField(max_length=24, unique=True, default=_link_ref)
+    game = models.ForeignKey(StudioGame, on_delete=models.CASCADE, related_name='account_links')
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='studio_account_links')
+    # The studio's own id for the account, and the name the game shows.
+    external_id = models.CharField(max_length=190)
+    external_name = models.CharField(max_length=120, blank=True, default='')
+    method = models.CharField(max_length=10, choices=METHOD_CHOICES, default='code')
+    linked_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-linked_at',)
+        constraints = [
+            models.UniqueConstraint(fields=['game', 'external_id'], name='studio_link_one_person_per_account'),
+            models.UniqueConstraint(fields=['game', 'user'], name='studio_link_one_account_per_person'),
+        ]
+
+    def __str__(self):
+        return f'{self.game_id}:{self.external_id} -> {self.user_id}'
+
+
+class StudioLinkCode(models.Model):
+    """A code a game shows a player so they can link their account (P6c).
+
+    Only a hash is kept: the code itself is shown once, in the game. Ten
+    minutes, one use, and a newer code for the same account ends the older one.
+    """
+
+    id = models.AutoField(primary_key=True)
+    # What the studio polls by. Never the code.
+    ref = models.CharField(max_length=24, unique=True, default=_code_ref)
+    game = models.ForeignKey(StudioGame, on_delete=models.CASCADE, related_name='link_codes')
+    code_hash = models.CharField(max_length=64, db_index=True)
+    external_id = models.CharField(max_length=190)
+    external_name = models.CharField(max_length=120, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    claimed_by = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='studio_link_codes_claimed')
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    link = models.ForeignKey(StudioAccountLink, on_delete=models.SET_NULL, null=True, blank=True,
+                             related_name='codes')
+
+    class Meta:
+        ordering = ('-created_at',)
+
+    def __str__(self):
+        return f'{self.ref} for {self.game_id}:{self.external_id}'

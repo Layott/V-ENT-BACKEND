@@ -540,6 +540,125 @@ def ping_game(request, slug):
 
 
 # ---------------------------------------------------------------------------
+# The player's side of linking (P6c)
+# ---------------------------------------------------------------------------
+
+LINK_REFUSALS = {
+    'LINK_CODE_NOT_FOUND': (status.HTTP_404_NOT_FOUND, 'That code is not valid, or it has run out.'),
+    'ACCOUNT_TAKEN': (status.HTTP_409_CONFLICT, 'That game account is linked to another V-ENT account.'),
+    'STUDIO_ALREADY_LINKED': (status.HTTP_409_CONFLICT,
+                              'You already have a game account linked in this game. Unlink it first.'),
+    'SANDBOX_TESTERS_ONLY': (status.HTTP_403_FORBIDDEN,
+                             'This game is still being tested, and only its testers can link.'),
+}
+
+
+def _link_refusal(code):
+    http, message = LINK_REFUSALS.get(code, (status.HTTP_400_BAD_REQUEST, 'That link was refused.'))
+    return _err(message, code, http)
+
+
+def _guessing(request, user):
+    """Ten tries a minute for one account, beside the per-address limiter, so a
+    code cannot be walked from many addresses by one person either."""
+    from django.conf import settings
+    from vent_auth.throttle import too_many
+
+    return (getattr(settings, 'AUTH_THROTTLE_ENABLED', True)
+            and too_many(request, 'studio-link-user', 10, extra=str(user.pk)))
+
+
+def _typed_code(request, user):
+    """(code row, error) for the code in the body."""
+    from . import studio_links
+
+    if _guessing(request, user):
+        return None, _err('Too many attempts. Wait a minute and try again.',
+                          'TOO_MANY_ATTEMPTS', status.HTTP_429_TOO_MANY_REQUESTS)
+    code = inputs.read_text(request.data, 'code', max_length=20, required=True)
+    row = studio_links.find(code)
+    if row is None:
+        return None, _link_refusal('LINK_CODE_NOT_FOUND')
+    return row, None
+
+
+@api_view(['POST'])
+@limited('studio-link', 10)
+def link_preview(request):
+    """POST /partners/studios/link/preview/ - whose game account is this code?
+
+    Nothing is linked here. The person sees the game and the account name and
+    decides whether it is theirs.
+    """
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+    row, err = _typed_code(request, user)
+    if err:
+        return err
+    game = row.game
+    return _ok({
+        'game': {'name': game.name, 'studio': game.partner.name,
+                 'title': game.game.game_title if game.game_id else None},
+        'account': {'display_name': row.external_name},
+        'expires_at': row.expires_at,
+    }, 'Is this your account?')
+
+
+@api_view(['POST'])
+@limited('studio-link', 10)
+def link_confirm(request):
+    """POST /partners/studios/link/confirm/ - link it."""
+    from . import studio_links
+
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+    row, err = _typed_code(request, user)
+    if err:
+        return err
+    try:
+        link = studio_links.claim(row, user)
+    except studio_links.LinkRefused as exc:
+        return _link_refusal(exc.code)
+    return _ok({'link': studio_links.my_link_row(link)}, 'Linked.', status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@limited('studio-portal-read', 120)
+def my_links(request):
+    """GET /partners/studios/my-links/ - the game accounts linked to me."""
+    from . import studio_links
+    from .models import StudioAccountLink
+
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+    rows = (StudioAccountLink.objects.filter(user=user)
+            .select_related('game', 'game__partner', 'game__game').order_by('-linked_at'))
+    return _ok({'links': [studio_links.my_link_row(l) for l in rows]}, 'Your game accounts')
+
+
+@api_view(['POST'])
+@limited('studio-portal', 30)
+def my_link_unlink(request, link_ref):
+    """POST /partners/studios/my-links/<link_ref>/unlink/ - remove one of mine."""
+    from . import studio_links
+    from .models import StudioAccountLink
+
+    user, err = _user_from_bearer(request)
+    if err:
+        return err
+    link = (StudioAccountLink.objects.select_related('game', 'user')
+            .filter(user=user, ref=str(link_ref)[:24]).first())
+    if link is None:
+        return _err('No such link.', 'STUDIO_LINK_NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    ref = link.ref
+    studio_links.unlink(link, by='player')
+    return _ok({'unlinked': ref}, 'Unlinked.')
+
+
+# ---------------------------------------------------------------------------
 # The review
 # ---------------------------------------------------------------------------
 

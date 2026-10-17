@@ -170,6 +170,7 @@ SENSITIVE = {
     'vent_partners.inboundlogin': {'code_verifier': 'a sign-in proof'},
     'vent_partners.studiogame': {'signing_secret_encrypted': 'a studio signing secret, encrypted',
                                  'previous_secret_encrypted': 'the signing secret before a rotation'},
+    'vent_partners.studiolinkcode': {'code_hash': 'a game account linking code hash'},
     'vent_billing.subscription': {'token': 'the link that manages a membership', 'card': 'a saved card'},
     'vent_billing.invoice': {'token': 'the link that pays an invoice'},
     'vent_event.tickettier': {'access_code': 'the code that unlocks a hidden ticket'},
