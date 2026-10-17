@@ -53,7 +53,7 @@ class DoorsBase(TestCase):
         self.seated = [s.registration for s in self.lobby1.seats.all()]
         self.other = next(r for r in self.regs if r not in self.seated)
         self.keeper = make_user(9_900_001 + 10 * _n())
-        TournamentStaff.objects.create(tournament=self.t, user=self.keeper)
+        TournamentStaff.objects.create(tournament=self.t, user=self.keeper, permissions=['report'])
         self.stranger = make_user(9_900_002 + 10 * _n())
         self.admin = make_user(9_900_003 + 10 * _n(), staff=True)
         self.base = '/tournament/%s/br/' % self.t.tournament_id

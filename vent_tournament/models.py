@@ -2205,29 +2205,31 @@ class BroadcastElement(models.Model):
 # ---------------------------------------------------------------------------
 
 class TournamentStaff(models.Model):
-    """Somebody the organiser has let record results for one tournament.
+    """Somebody the organiser has let help run one tournament, and with what.
 
     CEO, 3 September 2026: "only those given the access to, should be able to"
-    input results. A scorekeeper is named by username by the organiser, may
-    record a knockout score or a league fixture on this tournament, and may do
-    nothing else: not edit the tournament, not run the studio, not add another
-    scorekeeper. Removing the row revokes it at once. Mirrors EventManager's
-    door staff, which is the same idea for a ticket desk.
+    input results. That made the first helper, a scorekeeper. P7 (design
+    section 16, "granular roles (structure, report, place entrants, standings,
+    caster)") splits the work further: `permissions` lists which parts of the
+    tournament this person runs, from `access.PERMISSIONS`, and every door asks
+    `access.may` for the one it needs. A helper never edits the tournament's
+    settings, its money or its staff; that stays with the organiser. Removing
+    the row revokes everything at once. Mirrors EventManager's door staff,
+    which is the same idea for a ticket desk.
 
     A row per tournament rather than a platform role, because the person who
     keeps score at one league is a stranger to every other.
     """
-
-    ROLE_CHOICES = [
-        ('scorekeeper', 'Scorekeeper'),
-    ]
 
     id = models.AutoField(primary_key=True)
     tournament = models.ForeignKey(
         Tournament, on_delete=models.CASCADE, related_name='staff')
     user = models.ForeignKey(
         Users, on_delete=models.CASCADE, related_name='tournament_staff_roles')
-    role = models.CharField(max_length=16, choices=ROLE_CHOICES, default='scorekeeper')
+    # Names from access.PERMISSIONS, in that order; written through
+    # access.clean_permissions, so a name nobody knows is never stored. Every
+    # row written before 17 October 2026 was a scorekeeper and became ['report'].
+    permissions = models.JSONField(default=list, blank=True)
     added_by = models.ForeignKey(
         Users, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='tournament_staff_added')
@@ -2238,7 +2240,8 @@ class TournamentStaff(models.Model):
         ordering = ['user__username']
 
     def __str__(self):
-        return '%s on %s (%s)' % (self.user.username, self.tournament_id, self.role)
+        return '%s on %s (%s)' % (self.user.username, self.tournament_id,
+                                  ', '.join(self.permissions or []))
 
 
 class StudioAsset(models.Model):

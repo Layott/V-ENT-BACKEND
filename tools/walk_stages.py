@@ -85,7 +85,7 @@ def setup():
     league = tournament('FC Mobile One Format League', fc, organiser, 4, 'lg', 'round_robin')
     for t in (cup, swiss, league):
         TournamentStaff.objects.get_or_create(
-            tournament=t, user=scorer, defaults={'role': 'scorekeeper', 'added_by': organiser})
+            tournament=t, user=scorer, defaults={'permissions': ['report'], 'added_by': organiser})
 
     state = {
         'password': WALK_PASSWORD,
