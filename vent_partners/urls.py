@@ -12,6 +12,7 @@ from django.urls import path
 from . import views_api as api
 from . import views_manage as manage
 from . import views_sso as sso
+from . import views_studios as studios
 
 api_urlpatterns = [
     path('', api.api_index),
@@ -41,6 +42,19 @@ partner_urlpatterns = [
     path('<int:partner_id>/update/', manage.update_partner),
     path('<int:partner_id>/keys/', manage.create_key),
     path('<int:partner_id>/keys/<int:key_id>/revoke/', manage.revoke_key),
+
+    # Game studios (design section 14). The fixed words come before the slug,
+    # and a game cannot take one of them as its address (STUDIO_RESERVED_SLUGS).
+    path('studios/', studios.studios_home),
+    path('studios/register/', studios.register_game),
+    path('studios/sandbox-key/', studios.sandbox_key),
+    path('studios/<str:slug>/', studios.game_detail),
+    path('studios/<str:slug>/update/', studios.update_game),
+    path('studios/<str:slug>/rotate-secret/', studios.rotate_secret),
+    path('studios/<str:slug>/request-live/', studios.request_live),
+    path('studios/<str:slug>/try-scoring/', studios.try_scoring),
+    path('admin/studios/', studios.admin_studios),
+    path('admin/studios/<str:slug>/review/', studios.admin_review_game),
 
     # Admin review
     path('admin/list/', manage.admin_list),

@@ -43,9 +43,18 @@ SCOPES = {
     'players:read': 'Read public player profiles',
     'players:stats:read': 'Read player win and loss records',
     'rankings:read': 'Read platform rankings',
+    # Game studios (design section 14). Reviewed for live keys, because they
+    # put results into real matches and tie game accounts to real people.
+    'studio:accounts': 'Link player accounts in your game to V-ENT accounts',
+    'studio:sessions': 'Run game sessions for V-ENT matches and report their results',
 }
 
 SCOPE_CHOICES = [(key, label) for key, label in SCOPES.items()]
+
+# What a sandbox key may carry with nobody reviewing it. A sandbox game reaches
+# only its own studio's test tournaments and the testers it names, so a test
+# key with these scopes can touch nothing real. Going live is the review.
+SANDBOX_SCOPES = ['studio:accounts', 'studio:sessions']
 
 # The tier anybody gets by asking.
 #
@@ -194,6 +203,11 @@ class PartnerApiKey(models.Model):
     """
 
     PREFIX = 'vent_pk_'
+    # A test key's id starts with this, so the key itself reads
+    # `vent_pk_test_...` and nobody pastes one into production by accident.
+    SANDBOX_ID_PREFIX = 'test_'
+
+    ENVIRONMENT_CHOICES = [('live', 'Live'), ('sandbox', 'Sandbox')]
 
     id = models.AutoField(primary_key=True)
     partner = models.ForeignKey(Partner, on_delete=models.CASCADE, related_name='api_keys')
@@ -201,6 +215,7 @@ class PartnerApiKey(models.Model):
     key_id = models.CharField(max_length=32, unique=True, db_index=True)
     secret_hash = models.CharField(max_length=128)
     scopes = models.JSONField(default=list, blank=True)
+    environment = models.CharField(max_length=10, choices=ENVIRONMENT_CHOICES, default='live')
 
     # A partner that starts hammering the API should slow down, not take the
     # platform with it.
@@ -225,9 +240,10 @@ class PartnerApiKey(models.Model):
 
     @classmethod
     def issue(cls, partner, *, name='Default key', scopes=None, created_by=None,
-              rate_limit_per_minute=60):
+              rate_limit_per_minute=60, environment='live'):
         """Create a key and hand back the one plaintext copy of it."""
-        key_id = secrets.token_hex(8)
+        sandbox = environment == 'sandbox'
+        key_id = (cls.SANDBOX_ID_PREFIX if sandbox else '') + secrets.token_hex(8)
         secret = secrets.token_urlsafe(32)
         obj = cls.objects.create(
             partner=partner,
@@ -235,10 +251,13 @@ class PartnerApiKey(models.Model):
             key_id=key_id,
             secret_hash=hashlib.sha256(secret.encode()).hexdigest(),
             # A key can never carry a scope the partner was not approved for,
-            # whatever the caller asked for.
-            scopes=[s for s in valid_scopes(scopes) if partner.allows(s)],
+            # whatever the caller asked for. A sandbox key may also carry the
+            # studio scopes, which reach nothing real.
+            scopes=[s for s in valid_scopes(scopes)
+                    if partner.allows(s) or (sandbox and s in SANDBOX_SCOPES)],
             created_by=created_by,
             rate_limit_per_minute=rate_limit_per_minute or 60,
+            environment='sandbox' if sandbox else 'live',
         )
         return obj, f'{cls.PREFIX}{key_id}.{secret}'
 
@@ -249,13 +268,17 @@ class PartnerApiKey(models.Model):
         )
 
     def allows(self, scope):
-        """A key grants a scope only while its partner still does."""
-        return (
-            self.is_active
-            and self.partner.is_active
-            and scope in (self.scopes or [])
-            and self.partner.allows(scope)
-        )
+        """A key grants a scope only while its partner still does.
+
+        The one exception is a sandbox key holding a studio scope: that needs
+        the partner to be active, not to hold the scope, because a sandbox
+        game reaches nothing real (see SANDBOX_SCOPES).
+        """
+        if not (self.is_active and self.partner.is_active and scope in (self.scopes or [])):
+            return False
+        if self.environment == 'sandbox' and scope in SANDBOX_SCOPES:
+            return True
+        return self.partner.allows(scope)
 
 
 class OAuthAuthorizationCode(models.Model):
@@ -381,3 +404,165 @@ class InboundLogin(models.Model):
         from datetime import timedelta
         cutoff = _tz.now() - timedelta(seconds=older_than_seconds)
         return cls.objects.filter(created_at__lt=cutoff).delete()
+
+
+# ---------------------------------------------------------------------------
+# Game studios (bracket structure design, section 14; P6)
+# ---------------------------------------------------------------------------
+
+#: How many games one partner may register.
+STUDIO_GAME_LIMIT = 10
+
+#: How long the secret before a rotation still signs and verifies, so a studio
+#: can swap its secret without dropping an event in between.
+SECRET_OVERLAP = timedelta(hours=24)
+
+#: Usernames a sandbox game may name as its testers.
+STUDIO_TESTER_LIMIT = 20
+
+#: Words a game's address may not be, because a route beside it already is.
+STUDIO_RESERVED_SLUGS = {'register', 'sandbox-key', 'link', 'my-links', 'tournament'}
+
+
+class StudioGame(models.Model):
+    """A game a studio has connected to V-ENT.
+
+    CEO, 16 October 2026 (inbox 482): "then even build the section and part for
+    integration with game developers." Design section 14, item 1: webhook
+    addresses, a signing secret encrypted at rest, a result schema, a scoring
+    expression, sandbox or live.
+
+    A game starts in the sandbox. There it reaches only tournaments its own
+    studio runs and the testers it names, with test keys nobody reviews. Live
+    is a second approval by a super admin, the same shape as Sign in with V-ENT
+    on a partner: asking does not grant it.
+    """
+
+    MODE_CHOICES = [('sandbox', 'Sandbox'), ('live', 'Live')]
+    LIVE_CHOICES = [
+        ('none', 'Not requested'),
+        ('requested', 'Requested'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    partner = models.ForeignKey(Partner, on_delete=models.CASCADE, related_name='studio_games')
+    name = models.CharField(max_length=120)
+    slug = models.SlugField(max_length=160, unique=True, null=True, blank=True)
+    # The V-ENT game this serves: tournaments of that game may run through it.
+    game = models.ForeignKey('vent_auth.Games', on_delete=models.SET_NULL, null=True,
+                             blank=True, related_name='studio_games')
+
+    mode = models.CharField(max_length=10, choices=MODE_CHOICES, default='sandbox')
+    live_status = models.CharField(max_length=12, choices=LIVE_CHOICES, default='none')
+
+    session_webhook_url = models.URLField(max_length=300, blank=True, default='')
+    events_webhook_url = models.URLField(max_length=300, blank=True, default='')
+
+    # Encrypted, never hashed: every webhook is signed with it, so we need it
+    # back (studio_secrets). The hint is its last four characters, so a studio
+    # can tell which secret it is holding without us showing it again.
+    signing_secret_encrypted = models.TextField(blank=True, default='')
+    previous_secret_encrypted = models.TextField(blank=True, default='')
+    previous_secret_expires_at = models.DateTimeField(null=True, blank=True)
+    secret_hint = models.CharField(max_length=8, blank=True, default='')
+
+    result_schema = models.JSONField(default=dict, blank=True)
+    scoring_expression = models.CharField(max_length=500, default='team.score')
+    settings_schema = models.JSONField(default=dict, blank=True)
+    # Empty means every event in the catalogue.
+    subscribed_events = models.JSONField(default=list, blank=True)
+    testers = models.JSONField(default=list, blank=True)
+
+    review_note = models.TextField(blank=True, default='')
+    reviewed_by = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='studio_game_reviews')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='studio_games_created')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('name',)
+
+    def __str__(self):
+        return f'{self.name} ({self.mode})'
+
+    def save(self, *args, **kwargs):
+        from django.utils.text import slugify
+        from vent_auth.slugs import sync_slug
+
+        # A game called "Register" must not take the address of the register
+        # route beside it, so a name that would shadow one gets a suffix.
+        basis = self.name
+        if slugify(basis or '') in STUDIO_RESERVED_SLUGS:
+            basis = '%s game' % basis
+        changed = sync_slug(self, basis, entity_type='studio_game', id_attr='id')
+        fields = kwargs.get('update_fields')
+        if changed and fields is not None:
+            kwargs['update_fields'] = list(set(fields) | {'slug'})
+        super().save(*args, **kwargs)
+
+    # -- the secret ---------------------------------------------------------
+
+    def set_secret(self, plain=None):
+        """Lock a secret onto this game and return its one readable copy."""
+        from . import studio_secrets
+
+        plain = plain or studio_secrets.new_signing_secret()
+        self.signing_secret_encrypted = studio_secrets.encrypt(plain)
+        self.secret_hint = plain[-4:]
+        return plain
+
+    def rotate_secret(self):
+        """A new secret now; the one it replaces still works for a day."""
+        self.previous_secret_encrypted = self.signing_secret_encrypted
+        self.previous_secret_expires_at = timezone.now() + SECRET_OVERLAP
+        plain = self.set_secret()
+        self.save(update_fields=['signing_secret_encrypted', 'previous_secret_encrypted',
+                                 'previous_secret_expires_at', 'secret_hint', 'updated_at'])
+        return plain
+
+    def signing_secrets(self, now=None):
+        """The secrets that sign and verify right now: current first.
+
+        An unreadable secret (the server lost its key) signs nothing rather
+        than raising, so one broken game never stops anybody else's delivery.
+        """
+        from . import studio_secrets
+
+        now = now or timezone.now()
+        out = []
+        try:
+            if self.signing_secret_encrypted:
+                out.append(studio_secrets.decrypt(self.signing_secret_encrypted))
+        except studio_secrets.SecretUnreadable:
+            return []
+        if (self.previous_secret_encrypted and self.previous_secret_expires_at
+                and now < self.previous_secret_expires_at):
+            try:
+                out.append(studio_secrets.decrypt(self.previous_secret_encrypted))
+            except studio_secrets.SecretUnreadable:
+                pass
+        return out
+
+    # -- where it may reach ----------------------------------------------------
+
+    @property
+    def is_live(self):
+        return self.mode == 'live' and self.live_status == 'approved'
+
+    @property
+    def environment(self):
+        return 'live' if self.is_live else 'sandbox'
+
+    def may_test(self, user):
+        """The studio's own account, or a tester it named."""
+        if user is None:
+            return False
+        if self.partner.owner_id == user.user_id:
+            return True
+        names = {str(n).lower() for n in (self.testers or [])}
+        return (user.username or '').lower() in names
