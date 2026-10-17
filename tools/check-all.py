@@ -25,6 +25,7 @@ import json
 import os
 import re
 import subprocess
+import shutil
 import sys
 
 
@@ -734,6 +735,14 @@ CATCHERS = [
     ('one link writer self-test',
      'the one link writer catcher still catches a pointer written by hand',
      BACKEND, [sys.executable, 'tools/check-one-link-writer.py', '--self-test'], True),
+    # A frontend build that died on the box (out of heap, 17 October 2026) had
+    # already emptied what the live servers read: every /images file answered
+    # 400 until a second deploy. deploy.sh now snapshots and restores; this
+    # runs its build block against a fake build that fails the same way.
+    # Git's bash by full path: a bare 'bash' from Windows can start WSL's.
+    ('deploy restore',
+     'a failed frontend build puts back the files the live servers read',
+     BACKEND, [shutil.which('bash') or 'bash', 'tools/test-deploy-restore.sh', 'deploy/deploy.sh'], True),
     # A screen showing the username where every other screen shows the full
     # name: twice on 17 October 2026 (the happenings ticker, the feeds panel).
     # Debt: the ledger holds the count of entrant_name reads, a new one blocks.
