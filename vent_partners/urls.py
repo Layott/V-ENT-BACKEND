@@ -76,6 +76,7 @@ partner_urlpatterns = [
     path('studios/<str:slug>/deliveries/', studios.game_deliveries),
     path('studios/<str:slug>/deliveries/<str:delivery_ref>/resend/', studios.resend_delivery),
     path('studios/<str:slug>/ping/', studios.ping_game),
+    path('studios/<str:slug>/usage/', studios.game_usage),
     path('admin/studios/', studios.admin_studios),
     path('admin/studios/<str:slug>/review/', studios.admin_review_game),
 
