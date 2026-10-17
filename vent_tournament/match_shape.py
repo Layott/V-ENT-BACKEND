@@ -71,6 +71,11 @@ def slot_rows(m):
     return rows
 
 
+def _rules(m):
+    from .match_rules import rules_of
+    return rules_of(m)
+
+
 def match_row(m, *, private=False):
     row = {
         'match_id': m.id,
@@ -109,6 +114,8 @@ def match_row(m, *, private=False):
         # it is.
         'has_room': bool(m.room_code),
         'slots': slot_rows(m),
+        # How it is played and where each rule comes from (P1c).
+        'rules': _rules(m),
     }
     if private:
         row['room_code'] = m.room_code
@@ -177,4 +184,4 @@ def select_related(qs):
     return qs.select_related(
         'participant_1__team', 'participant_1__user', 'participant_1__squad',
         'participant_2__team', 'participant_2__user', 'participant_2__squad',
-        'winner__team', 'winner__user', 'winner__squad', 'stage')
+        'winner__team', 'winner__user', 'winner__squad', 'stage', 'tournament')
