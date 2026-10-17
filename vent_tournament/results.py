@@ -251,6 +251,8 @@ def apply(match, decision, *, recorded_by=None, forfeit_reason=''):
         match.recorded_at = now
         fields += ['recorded_by', 'recorded_at']
     match.save(update_fields=fields)
+    from . import happenings
+    happenings.result(match)
     _settle_open_disputes(match, recorded_by, now)
     return match
 
