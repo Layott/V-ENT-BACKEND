@@ -7393,6 +7393,21 @@
    "id": "90"
   },
   {
+   "name": "B cannot send a link out of a stage in A's tournament",
+   "route": "<str:tournament_id>/stages/<int:stage_id>/lines/<int:line_id>/pull/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/p0-scoring-walk/stages/31/lines/{id}/pull/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {}
+   },
+   "id": "10"
+  },
+  {
    "name": "B cannot read A's studio game",
    "route": "studios/<str:slug>/",
    "attempt": {
