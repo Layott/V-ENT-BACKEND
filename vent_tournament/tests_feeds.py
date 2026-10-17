@@ -18,8 +18,8 @@ from .tests_stage_engine import add_stage, draw, field, play_out
 
 # The finals' own entrants, numbered from a counter of their own. They were
 # 90000 + q.pk * 10 + i, which lands on the fixed users below (92001, 92003)
-# whenever the qualifier's key is 200: a test run in parallel numbers keys
-# differently and failed on a duplicate email (17 October 2026).
+# whenever the qualifier's key is 200. (The duplicate email seen on 17 October
+# came from field() in tests_stage_engine; this was the second way to it.)
 _OWN_ENTRANTS = itertools.count(950000)
 
 
