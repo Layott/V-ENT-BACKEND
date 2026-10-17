@@ -1,5 +1,7 @@
 """Circuits, the doors (P5). Mounted at /circuits/.
 
+    The leagues of division circuits (P5d) are views_leagues.py.
+
     GET    /circuits/                                  published circuits; ?mine=1 my own, drafts too;
                                                        ?tournament=<ref> the circuit a tournament is in
     POST   /circuits/                                  make one
@@ -171,6 +173,8 @@ def _circuit_row(circuit, request, viewer=None):
         'organization': _org(circuit.organization, request),
         'is_published': circuit.is_published,
         'can_manage': access.may_manage(viewer, circuit),
+        # The league it is a division of (P5d), so a picker can leave it out.
+        'league': circuit.league.slug if circuit.league_id else None,
     }
 
 
@@ -230,12 +234,21 @@ def _adjustment_rows(circuit):
 
 
 def _detail(circuit, request, viewer):
+    rows = _standing_rows(circuit, request)
+    league = None
+    if circuit.league_id:
+        # A division of a league (P5d): who goes up and down, where each came
+        # from, and the league around it.
+        from . import views_leagues
+        views_leagues.annotate(circuit, rows)
+        league = views_leagues.circuit_league(circuit, viewer)
     return {
         'circuit': _circuit_row(circuit, request, viewer),
         'tiers': [_tier_row(t) for t in circuit.tiers.all()],
         'tournaments': _tournament_rows(circuit, viewer),
-        'standings': _standing_rows(circuit, request),
+        'standings': rows,
         'adjustments': _adjustment_rows(circuit),
+        'league': league,
     }
 
 
@@ -317,7 +330,7 @@ def circuit_list(request):
     if request.method == 'POST':
         return _create(request)
     viewer = _viewer(request)
-    rows = Circuit.objects.select_related('game', 'owner', 'organization')
+    rows = Circuit.objects.select_related('game', 'owner', 'organization', 'league')
     if inputs.read_bool(request.query_params, 'mine'):
         user, err = actor_from_request(request)
         if err:

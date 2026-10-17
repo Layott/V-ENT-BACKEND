@@ -7916,6 +7916,176 @@
     ],
     "reason": "a published circuit's tiers and adjustments are on its public page, so whether one exists is no secret"
    }
+  },
+  {
+   "name": "B cannot read A's draft league (P5d)",
+   "route": "circuits/leagues/<str:league_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/circuits/leagues/{id}/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "walk-league-draft"
+  },
+  {
+   "name": "B cannot change A's league (P5d)",
+   "route": "circuits/leagues/<str:league_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/circuits/leagues/{id}/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "name": "Mine now",
+     "up": 9
+    }
+   },
+   "id": "walk-league"
+  },
+  {
+   "name": "B cannot delete A's league (P5d)",
+   "route": "circuits/leagues/<str:league_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/circuits/leagues/{id}/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "walk-league"
+  },
+  {
+   "name": "B cannot add a division to A's league (P5d)",
+   "route": "circuits/leagues/<str:league_ref>/divisions/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/circuits/leagues/{id}/divisions/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "circuit": "walk-circuit"
+    }
+   },
+   "id": "walk-league"
+  },
+  {
+   "name": "B cannot reorder A's league (P5d)",
+   "route": "circuits/leagues/<str:league_ref>/divisions/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/circuits/leagues/{id}/divisions/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "order": [
+      "walk-division"
+     ]
+    }
+   },
+   "id": "walk-league"
+  },
+  {
+   "name": "B cannot take a division out of A's league (P5d)",
+   "route": "circuits/leagues/<str:league_ref>/divisions/<str:circuit_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/circuits/leagues/walk-league/divisions/{id}/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "walk-division",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "a published league's divisions and their members are on its public page, so whether one exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot see what ending A's season does (P5d)",
+   "route": "circuits/leagues/<str:league_ref>/next-season/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/circuits/leagues/{id}/next-season/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "walk-league"
+  },
+  {
+   "name": "B cannot end A's season (P5d)",
+   "route": "circuits/leagues/<str:league_ref>/next-season/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/circuits/leagues/{id}/next-season/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "season": "Mine"
+    }
+   },
+   "id": "walk-league"
+  },
+  {
+   "name": "B cannot put somebody in A's division (P5d)",
+   "route": "circuits/<str:circuit_ref>/members/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/circuits/{id}/members/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "entrant": "walk_buyer_ada"
+    }
+   },
+   "id": "walk-division"
+  },
+  {
+   "name": "B cannot take somebody out of A's division (P5d)",
+   "route": "circuits/<str:circuit_ref>/members/<int:circuit_member_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/circuits/walk-division/members/{id}/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "a published league's divisions and their members are on its public page, so whether one exists is no secret"
+   }
   }
  ]
 }

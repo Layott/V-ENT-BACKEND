@@ -24,3 +24,16 @@ def may_read(user, circuit):
 def may_link(user, circuit, tournament):
     from vent_tournament.access import may_manage as may_manage_tournament
     return may_manage(user, circuit) and may_manage_tournament(user, tournament)
+
+
+def may_manage_league(user, league):
+    """A league (P5d) is run by its owner or an admin, as a circuit is."""
+    if user is None or league is None:
+        return False
+    if league.owner_id == getattr(user, 'user_id', None):
+        return True
+    return may_override(user, 'manage_tournaments')
+
+
+def may_read_league(user, league):
+    return league is not None and (league.is_published or may_manage_league(user, league))

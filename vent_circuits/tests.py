@@ -762,3 +762,280 @@ class CircuitLineTests(TestCase):
         self.assertEqual(res.status_code, 200, res.content[:300])
         from vent_tournament.models import Progression
         self.assertFalse(Progression.objects.filter(pk=line.pk).exists())
+
+
+# ---------------------------------------------------------------------------
+# Divisions (P5d)
+# ---------------------------------------------------------------------------
+
+class DivisionTests(TestCase):
+    """Design section 13: "Promotion and relegation move entrants between
+    division circuits across seasons". A league is a ladder of circuits, one
+    per division; ending a season copies them and moves the top `up` of each
+    division but the top one up, the bottom `down` of each but the bottom one
+    down, and tells the people moved. Approved mockup inbox 514."""
+
+    TABLE = '1: 100, 2: 60, 3: 40, 4: 20'
+
+    def setUp(self):
+        from .models import CircuitLeague
+        from . import leagues
+        self.game = Games.objects.get_or_create(game_title='EA FC 26')[0]
+        self.owner = person(full_name='Sadiq Bello')
+        self.league = CircuitLeague.objects.create(name='Naija FC League', owner=self.owner, game=self.game,
+                                                   entrant='player', up=1, down=1, is_published=True)
+        self.divisions = []
+        self.people = {}
+        for name in ('Premier', 'Division 1', 'Division 2'):
+            circuit = Circuit.objects.create(
+                name='Naija FC %s' % name, owner=self.owner, game=self.game, entrant='player',
+                season='2026 Season 1', default_table=tables.parse(self.TABLE), is_published=True)
+            CircuitTier.objects.create(circuit=circuit, name='Major', table=tables.parse('1: 300, default 10'))
+            leagues.add_division(self.league, circuit)
+            players = [person(full_name='%s player %d' % (name, i + 1)) for i in range(4)]
+            for p in players:
+                leagues.add_member(circuit, ('user', p.user_id))
+            self.divisions.append(circuit)
+            self.people[circuit.pk] = players
+
+    def play(self, circuit, order):
+        """A finished tournament of the division, its players placed in `order`."""
+        t, _ = finished(self.owner, self.game, {str(i): (p, i + 1) for i, p in enumerate(order)})
+        CircuitTournament.objects.create(circuit=circuit, tournament=t)
+        return t
+
+    def play_all(self):
+        for circuit in self.divisions:
+            self.play(circuit, self.people[circuit.pk])
+
+    def test_divisions_are_numbered_top_first_in_one_season(self):
+        self.assertEqual([(c.division, c.league_season) for c in Circuit.objects.filter(league=self.league)
+                          .order_by('division')], [(1, 1), (2, 1), (3, 1)])
+        # Every season of a league has a "Division 1": the slug says which.
+        self.assertEqual(self.divisions[1].slug, 'naija-fc-division-1-2026-season-1')
+
+    def test_a_division_ranks_its_members_from_the_first_day(self):
+        premier = self.divisions[0]
+        rows = standings.table(premier)
+        self.assertEqual(len(rows), 4)
+        self.assertEqual({r['points'] for r in rows}, {Decimal('0')})
+        # Somebody from another division entering this one's event earns
+        # nothing here.
+        outsider = self.people[self.divisions[2].pk][0]
+        self.play(premier, [outsider] + self.people[premier.pk][:2])
+        rows = standings.table(premier)
+        self.assertNotIn(outsider.user_id, [r['entrant']['id'] for r in rows])
+        self.assertEqual(rows[0]['entrant']['id'], self.people[premier.pk][0].user_id)
+        self.assertEqual(rows[0]['points'], Decimal('60'))
+        # Read as if in no league (the door that puts everybody in), he is there.
+        everyone = standings.table(premier, everyone=True)
+        self.assertIn(outsider.user_id, [r['entrant']['id'] for r in everyone])
+
+    def test_on_elo_a_member_who_has_played_nothing_is_on_1000(self):
+        premier = self.divisions[0]
+        premier.engine = 'elo'
+        premier.save(update_fields=['engine'])
+        self.assertEqual({r['points'] for r in standings.table(premier)}, {Decimal('1000')})
+
+    def test_the_circuit_page_says_who_goes_up_and_down(self):
+        self.play_all()
+        zones = []
+        for circuit in self.divisions:
+            data = self.client.get('/circuits/%s/' % circuit.slug).json()['data']
+            zones.append([r['zone'] for r in data['standings']])
+            self.assertEqual(data['league']['slug'], self.league.slug)
+            self.assertEqual(data['league']['division'], circuit.division)
+            self.assertFalse(data['league']['ended'])
+        self.assertEqual(zones, [[None, None, None, 'down'], ['up', None, None, 'down'], ['up', None, None, None]])
+
+    def test_no_zones_before_anything_has_counted(self):
+        # A new season: everybody on 0 and ranked by name. Nobody is "going
+        # down" because of their name.
+        data = self.client.get('/circuits/%s/' % self.divisions[1].slug).json()['data']
+        self.assertEqual({r['zone'] for r in data['standings']}, {None})
+        self.play(self.divisions[1], self.people[self.divisions[1].pk])
+        data = self.client.get('/circuits/%s/' % self.divisions[1].slug).json()['data']
+        self.assertEqual([r['zone'] for r in data['standings']], ['up', None, None, 'down'])
+
+    def test_the_plan_is_shown_first_and_changes_nothing(self):
+        self.play_all()
+        res = client_for(self.owner).get('/circuits/leagues/%s/next-season/' % self.league.slug)
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        plan = res.json()['data']['plan']
+        names = lambda rows: [r['entrant']['name'] for r in rows]  # noqa: E731
+        self.assertEqual(names(plan[0]['up']), [])
+        self.assertEqual(names(plan[0]['down']), ['Premier player 4'])
+        self.assertEqual(names(plan[1]['up']), ['Division 1 player 1'])
+        self.assertEqual(names(plan[1]['down']), ['Division 1 player 4'])
+        self.assertEqual(names(plan[2]['up']), ['Division 2 player 1'])
+        self.assertEqual(names(plan[2]['down']), [])
+        self.assertEqual(plan[1]['above']['slug'], self.divisions[0].slug)
+        self.assertEqual(Circuit.objects.filter(league=self.league).count(), 3)
+
+    def test_ending_the_season_moves_everybody_and_tells_them(self):
+        from vent_auth.models import Notification
+        from .models import CircuitMember
+        self.play_all()
+        with self.captureOnCommitCallbacks(execute=True):
+            res = client_for(self.owner).post('/circuits/leagues/%s/next-season/' % self.league.slug,
+                                              {'season': '2026 Season 2', 'starts_on': '2027-01-05',
+                                               'ends_on': '2027-03-28'}, format='json')
+        self.assertEqual(res.status_code, 201, res.content[:300])
+        self.assertEqual(res.json()['data']['moved'], 4)
+        following = list(Circuit.objects.filter(league=self.league, league_season=2).order_by('division'))
+        self.assertEqual([c.name for c in following], [c.name for c in self.divisions])
+        self.assertEqual([c.previous_id for c in following], [c.pk for c in self.divisions])
+        self.assertEqual({c.season for c in following}, {'2026 Season 2'})
+        self.assertEqual(str(following[0].starts_on), '2027-01-05')
+        self.assertEqual([t.name for t in following[0].tiers.all()], ['Major'])
+        self.assertFalse(following[0].links.exists())
+
+        def members(circuit):
+            return {(m.user.full_name, m.came) for m in CircuitMember.objects.filter(circuit=circuit)
+                    .select_related('user')}
+        p, d1, d2 = following
+        self.assertEqual(members(p), {('Premier player 1', 'stayed'), ('Premier player 2', 'stayed'),
+                                      ('Premier player 3', 'stayed'), ('Division 1 player 1', 'up')})
+        self.assertEqual(members(d1), {('Premier player 4', 'down'), ('Division 1 player 2', 'stayed'),
+                                       ('Division 1 player 3', 'stayed'), ('Division 2 player 1', 'up')})
+        self.assertEqual(members(d2), {('Division 1 player 4', 'down'), ('Division 2 player 2', 'stayed'),
+                                       ('Division 2 player 3', 'stayed'), ('Division 2 player 4', 'stayed')})
+        told = Notification.objects.filter(user=self.people[self.divisions[1].pk][0]).first()
+        self.assertIsNotNone(told)
+        self.assertIn('Promoted', told.title)
+        self.assertFalse(Notification.objects.filter(user=self.people[self.divisions[0].pk][0]).exists())
+        # The season that ended now says where people went, and the new one
+        # lists everybody on 0 and where they came from.
+        old = self.client.get('/circuits/%s/' % self.divisions[1].slug).json()['data']
+        self.assertTrue(old['league']['ended'])
+        self.assertEqual(old['league']['following']['slug'], d1.slug)
+        self.assertEqual([r['zone'] for r in old['standings']], ['up', None, None, 'down'])
+        new = self.client.get('/circuits/%s/' % p.slug).json()['data']
+        self.assertEqual(len(new['standings']), 4)
+        self.assertEqual({r['came'] for r in new['standings']}, {'stayed', 'up'})
+        league = self.client.get('/circuits/leagues/%s/' % self.league.slug).json()['data']
+        self.assertEqual([s['number'] for s in league['seasons']], [1, 2])
+        self.assertEqual(league['season'], 2)
+        first = self.client.get('/circuits/leagues/%s/?season=1' % self.league.slug).json()['data']
+        self.assertEqual([d['slug'] for d in first['divisions']], [c.slug for c in self.divisions])
+
+    def test_level_at_a_line_is_named(self):
+        d1 = self.divisions[1]
+        a, b, c, d = self.people[d1.pk]
+        # c and d share 3rd: level on points, best place and wins across the
+        # line for going down.
+        t, regs = finished(self.owner, self.game, {'a': (a, 1), 'b': (b, 2), 'c': (c, 3), 'd': (d, 3)})
+        CircuitTournament.objects.create(circuit=d1, tournament=t)
+        plan = client_for(self.owner).get('/circuits/leagues/%s/next-season/' % self.league.slug) \
+            .json()['data']['plan']
+        self.assertEqual(plan[1]['level'], [{'line': 'down', 'names': ['Division 1 player 3', 'Division 1 player 4']}])
+
+    def test_refused_by_name(self):
+        from . import leagues
+        stranger = person()
+        base = '/circuits/leagues/%s/' % self.league.slug
+        cases = (
+            (client_for(stranger).post(base + 'next-season/', {'season': 'X'}, format='json'), 403, 'NOT_YOUR_LEAGUE'),
+            (client_for(self.owner).post(base + 'next-season/', {'season': ''}, format='json'), 400, 'SEASON_REQUIRED'),
+            (client_for(self.owner).post(base + 'next-season/', {'season': '2026 Season 1'}, format='json'),
+             409, 'SEASON_SAME_NAME'),
+            (client_for(self.owner).post(base + 'next-season/', {'season': 'Next', 'starts_on': '2027-02-01',
+                                                                 'ends_on': '2027-01-01'}, format='json'),
+             400, 'CIRCUIT_DATES_ORDER'),
+        )
+        for res, http, code in cases:
+            self.assertEqual((res.status_code, res.json().get('code')), (http, code), res.content[:300])
+        other_game = Games.objects.get_or_create(game_title='Free Fire')[0]
+        stray = Circuit.objects.create(name='Free Fire Cup', owner=self.owner, game=other_game, entrant='player')
+        res = client_for(self.owner).post(base + 'divisions/', {'circuit': stray.slug}, format='json')
+        self.assertEqual((res.status_code, res.json()['code']), (409, 'CIRCUIT_GAME_MISMATCH'))
+        teams = Circuit.objects.create(name='Club Cup', owner=self.owner, game=self.game, entrant='team')
+        res = client_for(self.owner).post(base + 'divisions/', {'circuit': teams.slug}, format='json')
+        self.assertEqual((res.status_code, res.json()['code']), (409, 'CIRCUIT_ENTRANT_MISMATCH'))
+        # One division per season.
+        premier_player = self.people[self.divisions[0].pk][0]
+        res = client_for(self.owner).post('/circuits/%s/members/' % self.divisions[1].slug,
+                                          {'entrant': premier_player.username}, format='json')
+        self.assertEqual((res.status_code, res.json()['code']), (409, 'ALREADY_IN_DIVISION'))
+        self.assertEqual(res.json()['data']['division'], 'Naija FC Premier')
+        alone = Circuit.objects.create(name='Lagos Weekly', owner=self.owner, game=self.game, entrant='player')
+        res = client_for(self.owner).post('/circuits/%s/members/' % alone.slug,
+                                          {'entrant': premier_player.username}, format='json')
+        self.assertEqual((res.status_code, res.json()['code']), (409, 'CIRCUIT_NOT_IN_LEAGUE'))
+        # A draft league is nothing to a stranger, and its manager's own.
+        self.league.is_published = False
+        self.league.save(update_fields=['is_published'])
+        self.assertEqual(client_for(stranger).get(base).status_code, 404)
+        self.assertEqual(client_for(self.owner).get(base).status_code, 200)
+        # An ended season is history: its divisions stay where they are.
+        self.league.is_published = True
+        self.league.save(update_fields=['is_published'])
+        leagues.start_next(self.league, '2026 Season 2')
+        res = client_for(self.owner).delete(base + 'divisions/%s/' % self.divisions[2].slug)
+        self.assertEqual((res.status_code, res.json()['code']), (409, 'SEASON_OVER'))
+        res = client_for(self.owner).post(base + 'divisions/', {'circuit': alone.slug}, format='json')
+        self.assertEqual(res.status_code, 201, res.content[:300])
+        self.assertEqual(Circuit.objects.get(pk=alone.pk).league_season, 2)
+
+    def test_the_doors(self):
+        owner = person(full_name='Kemi Adeyemi')
+        c = client_for(owner)
+        res = c.post('/circuits/leagues/', {'name': 'Accra League', 'game': self.game.game_id,
+                                            'entrant': 'player', 'up': 2, 'down': 2}, format='json')
+        self.assertEqual(res.status_code, 201, res.content[:300])
+        slug = res.json()['data']['league']['slug']
+        base = '/circuits/leagues/%s/' % slug
+        made = []
+        for name in ('Accra Premier', 'Accra Division 1'):
+            made.append(c.post('/circuits/', {'name': name, 'game': self.game.game_id, 'season': 'Season 1'},
+                               format='json').json()['data']['circuit']['slug'])
+            res = c.post(base + 'divisions/', {'circuit': made[-1]}, format='json')
+            self.assertEqual(res.status_code, 201, res.content[:300])
+        made = [d['slug'] for d in res.json()['data']['divisions']]
+        res = c.patch(base + 'divisions/', {'order': list(reversed(made))}, format='json')
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.assertEqual([d['slug'] for d in res.json()['data']['divisions']], list(reversed(made)))
+        res = c.patch(base + 'divisions/', {'order': made[:1]}, format='json')
+        self.assertEqual(res.json()['code'], 'DIVISIONS_ORDER')
+        top = made[1]
+        player = person(full_name='Yaw Mensah')
+        res = c.post('/circuits/%s/members/' % top, {'entrant': '@' + player.username}, format='json')
+        self.assertEqual(res.status_code, 201, res.content[:300])
+        member = res.json()['data']['members'][0]
+        self.assertEqual(member['entrant']['handle'], player.username)
+        # Everybody the division's tournaments rank, in one press.
+        others = [person() for _ in range(3)]
+        t, _ = finished(owner, self.game, {str(i): (p, i + 1) for i, p in enumerate([player] + others)})
+        CircuitTournament.objects.create(circuit=Circuit.objects.get(slug=top), tournament=t)
+        res = c.post('/circuits/%s/members/' % top, {'everyone': True}, format='json')
+        self.assertEqual(res.json()['data']['added'], 3)
+        # A draft division is its manager's to read.
+        self.assertEqual(self.client.get('/circuits/%s/members/' % top).status_code, 404)
+        self.assertEqual(len(c.get('/circuits/%s/members/' % top).json()['data']['members']), 4)
+        res = c.delete('/circuits/%s/members/%d/' % (top, member['id']))
+        self.assertEqual(len(res.json()['data']['members']), 3)
+        # Signed out: the league reads, nothing writes.
+        self.assertEqual(self.client.get(base).status_code, 404)
+        c.patch(base, {'is_published': True}, format='json')
+        self.assertEqual(self.client.get(base).status_code, 200)
+        self.assertEqual(self.client.post(base + 'next-season/', {'season': 'S2'}, format='json').status_code, 401)
+        self.assertEqual(self.client.post('/circuits/%s/members/' % top, {'everyone': True},
+                                          format='json').status_code, 401)
+        listed = self.client.get('/circuits/leagues/').json()['data']['leagues']
+        self.assertIn(slug, [l['slug'] for l in listed])
+        mine = c.get('/circuits/leagues/?mine=1').json()['data']['leagues']
+        self.assertEqual([l['slug'] for l in mine], [slug])
+        # A rename keeps the old address answering.
+        res = c.patch(base, {'name': 'Ghana League'}, format='json')
+        self.assertEqual(res.json()['data']['league']['slug'], 'ghana-league')
+        moved = self.client.get(base).json()
+        self.assertEqual((moved['status'], moved['data']['slug']), ('moved', 'ghana-league'))
+        # Deleting the league keeps its circuits, out of any league.
+        res = c.delete('/circuits/leagues/ghana-league/')
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.assertIsNone(Circuit.objects.get(slug__startswith='accra-premier').league_id)
+
+    def test_leagues_is_never_a_circuit_address(self):
+        circuit = Circuit.objects.create(name='Leagues', owner=self.owner, game=self.game)
+        self.assertNotEqual(circuit.slug, 'leagues')
+        self.assertEqual(self.client.get('/circuits/leagues/').status_code, 200)

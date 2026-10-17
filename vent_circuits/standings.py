@@ -27,6 +27,12 @@ Who earns them:
 
 Rows rank on points, then the best single place, then the number of events
 won, and every row says what put it below the row above (`decided_by`).
+
+A division of a league (P5d) ranks its members: everybody in it is listed
+from the first day (on 0, or 1000 on Elo), and somebody who is not in it earns
+nothing there, so a player from another division entering an open event of
+this one cannot take its places. `everyone=True` reads the circuit as if it
+were in no league, for the door that puts everybody ranked in.
 """
 from collections import Counter
 from decimal import Decimal
@@ -122,6 +128,24 @@ def _name_rows(rows):
         r['name'] = r['entrant']['name'] or ''
 
 
+def members(circuit):
+    """Who is in a division, as {(kind, id)}; None for a circuit in no league."""
+    if not circuit.league_id:
+        return None
+    return {m.key for m in circuit.members.all()}
+
+
+def _finish(circuit, rows, row, everyone):
+    """Adjustments, the division's members, names, and the order."""
+    inside = None if everyone else members(circuit)
+    for key in sorted(inside or ()):
+        row(*key)
+    _add_adjustments(circuit, row)
+    out = [r for key, r in rows.items() if inside is None or key in inside]
+    _name_rows(out)
+    return ranking.order(out, TIEBREAKERS, value=_value)
+
+
 def _value(row, key):
     if key == 'best_place':
         return -(row['best_place'] or _UNPLACED)
@@ -130,7 +154,7 @@ def _value(row, key):
     return None
 
 
-def points_table(circuit):
+def points_table(circuit, everyone=False):
     """The circuit's ranking by points, best first. Each row:
     {entrant {type, id, name, handle, slug, avatar_path}, points, events
     [{tournament {slug, title}, tier, place, shared_with, points}],
@@ -167,10 +191,7 @@ def points_table(circuit):
             link.roster = dict(link.roster or {}, **frozen)
             link.save(update_fields=['roster'])
 
-    _add_adjustments(circuit, row)
-    out = list(rows.values())
-    _name_rows(out)
-    return ranking.order(out, TIEBREAKERS, value=_value)
+    return _finish(circuit, rows, row, everyone)
 
 
 def _add_adjustments(circuit, row):
@@ -214,7 +235,7 @@ def _side(circuit, reg):
     return ('user', reg.user_id) if reg.user_id and not reg.team_id and not reg.squad_id else None
 
 
-def elo_table(circuit):
+def elo_table(circuit, everyone=False):
     """The circuit's ranking by Elo: every completed match of its tournaments,
     in the order they were played, from 1000 with the circuit's K. A draw is
     half each; a walkover, a bye and an unfinished match move nothing. Each
@@ -226,8 +247,10 @@ def elo_table(circuit):
     ratings, rows = {}, {}
 
     def row(kind, ident):
+        # Everybody starts at 1000, also one who has played nothing yet (a
+        # division's member, an adjustment on its own).
         if (kind, ident) not in rows:
-            rows[(kind, ident)] = _blank(kind, ident)
+            rows[(kind, ident)] = dict(_blank(kind, ident), points=Decimal(ELO_START))
         return rows[(kind, ident)]
 
     matches = (BracketMatch.objects
@@ -277,10 +300,7 @@ def elo_table(circuit):
     for side, rating in ratings.items():
         rows[side]['points'] = Decimal(round(rating))
 
-    _add_adjustments(circuit, row)
-    out = list(rows.values())
-    _name_rows(out)
-    return ranking.order(out, TIEBREAKERS, value=_value)
+    return _finish(circuit, rows, row, everyone)
 
 
 def _finished_registrations(by_tournament):
@@ -290,6 +310,8 @@ def _finished_registrations(by_tournament):
             .exclude(status__in=NOT_COUNTED))
 
 
-def table(circuit):
+def table(circuit, everyone=False):
     """The circuit's ranking by its own engine."""
-    return elo_table(circuit) if circuit.engine == 'elo' else points_table(circuit)
+    if circuit.engine == 'elo':
+        return elo_table(circuit, everyone)
+    return points_table(circuit, everyone)
