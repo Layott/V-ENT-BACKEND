@@ -54,7 +54,12 @@ def _workspace_root(start):
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = _workspace_root(__file__)
 BACKEND = (os.environ.get('VENT_BACKEND') or os.path.join(ROOT, 'V-ENT-BACKEND'))
-FRONTEND = os.path.join(ROOT, 'V-ENT-FRONTEND', 'src')
+# The frontend being committed beside this backend, when the hook names it
+# (VENT_FRONTEND, a worktree on the same branch), like every other catcher in
+# check-all. Reading the main checkout instead judged a pair by half of it: on
+# 17 October a blueprint branch was refused for three endpoints whose screens
+# were in its own frontend worktree.
+FRONTEND = os.path.join(os.environ.get('VENT_FRONTEND') or os.path.join(ROOT, 'V-ENT-FRONTEND'), 'src')
 BASELINE = os.path.join(HERE, 'endpoint-callers-baseline.json')
 
 # A path segment that is a parameter rather than a literal.
