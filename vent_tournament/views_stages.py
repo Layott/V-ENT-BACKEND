@@ -127,11 +127,16 @@ def _lines(tournament, rows):
         return [{'id': l.id, 'source': l.source_id, 'target': l.target_id, 'group': l.group,
                  'place_from': l.place_from, 'place_to': l.place_to, 'side': l.side,
                  'carry_points': l.carry_points, 'fire': l.fire, 'order': l.order,
-                 'fired_at': l.fired_at, 'sent_count': len(l.sent or [])} for l in stored]
+                 'fired_at': l.fired_at, 'sent_count': len(l.sent or []),
+                 # Who went through, by name, for the public Path view (P1f).
+                 # Names and places only: the same facts the standings show.
+                 'sent': [{'registration_id': r.get('registration_id'), 'name': r.get('name'),
+                           'group': r.get('group'), 'rank': r.get('rank')}
+                          for r in (l.sent or [])]} for l in stored]
     return [{'id': None, 'source': rows[l['source']].id, 'target': rows[l['target']].id,
              'group': l['group'], 'place_from': l['place_from'], 'place_to': l['place_to'],
              'side': l['side'], 'carry_points': l['carry_points'], 'fire': l['fire'],
-             'order': l['order'], 'fired_at': None, 'sent_count': 0}
+             'order': l['order'], 'fired_at': None, 'sent_count': 0, 'sent': []}
             for l in progressions.chain(rows)]
 
 

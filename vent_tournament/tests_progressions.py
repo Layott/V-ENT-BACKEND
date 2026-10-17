@@ -370,3 +370,22 @@ class FinalPlaceTests(TestCase):
         self.assertEqual(len(thirds), 2)
         self.assertEqual(placed[thirds[0]], placed[thirds[1]])
         self.assertEqual(placed[thirds[0]], 5)
+
+
+class PublicPathTests(TestCase):
+    """The public Path view (P1f) reads who each line sent, by name, signed out."""
+
+    def test_public_stages_name_who_was_sent(self):
+        from rest_framework.test import APIClient
+        from .tests_draw_early import advance, groups_into_knockout
+        t, creator, first, _ko = groups_into_knockout()
+        play_out(first)
+        advance(first, creator)
+        res = APIClient().get('/tournament/%s/stages/' % t.slug)
+        self.assertEqual(res.status_code, 200, res.content)
+        line = res.json()['data']['progressions'][0]
+        sent = Progression.objects.get(source=first).sent
+        self.assertEqual(line['sent'], [{'registration_id': r['registration_id'], 'name': r['name'],
+                                         'group': r['group'], 'rank': r['rank']} for r in sent])
+        self.assertEqual(len(line['sent']), 4)
+        self.assertTrue(all(row['name'] for row in line['sent']))
