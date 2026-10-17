@@ -167,6 +167,14 @@ def points_table(circuit):
             link.roster = dict(link.roster or {}, **frozen)
             link.save(update_fields=['roster'])
 
+    _add_adjustments(circuit, row)
+    out = list(rows.values())
+    _name_rows(out)
+    return ranking.order(out, TIEBREAKERS, value=_value)
+
+
+def _add_adjustments(circuit, row):
+    """Points given or taken by hand, on whichever engine ranks the circuit."""
     kind_wanted = 'team' if circuit.entrant == 'team' else 'user'
     for adj in circuit.adjustments.all().order_by('at', 'id'):
         kind, ident = ('team', adj.team_id) if adj.team_id else ('user', adj.user_id)
@@ -176,6 +184,112 @@ def points_table(circuit):
         r['points'] += adj.points
         r['adjustments'].append({'points': adj.points, 'reason': adj.reason})
 
+
+# ---------------------------------------------------------------------------
+# Elo (P5b)
+# ---------------------------------------------------------------------------
+
+#: Where every entrant starts, and the K a circuit has unless it sets one.
+ELO_START = 1000
+ELO_K = 32
+ELO_K_RANGE = (4, 64)
+
+
+def elo_k(circuit):
+    try:
+        k = int((circuit.settings or {}).get('k', ELO_K))
+    except (TypeError, ValueError):
+        return ELO_K
+    return min(max(k, ELO_K_RANGE[0]), ELO_K_RANGE[1])
+
+
+def _side(circuit, reg):
+    """The entrant a match side rates in this circuit, or None. A team
+    circuit rates clubs; a player circuit rates one against one only, because
+    a club's result is not one player's."""
+    if reg is None:
+        return None
+    if circuit.entrant == 'team':
+        return ('team', reg.team_id) if reg.team_id and not reg.squad_id else None
+    return ('user', reg.user_id) if reg.user_id and not reg.team_id and not reg.squad_id else None
+
+
+def elo_table(circuit):
+    """The circuit's ranking by Elo: every completed match of its tournaments,
+    in the order they were played, from 1000 with the circuit's K. A draw is
+    half each; a walkover, a bye and an unfinished match move nothing. Each
+    row's events say how far each tournament moved the rating."""
+    from vent_tournament.models import BracketMatch
+    links = counted_links(circuit)
+    by_tournament = {link.tournament_id: link for link in links}
+    k = elo_k(circuit)
+    ratings, rows = {}, {}
+
+    def row(kind, ident):
+        if (kind, ident) not in rows:
+            rows[(kind, ident)] = _blank(kind, ident)
+        return rows[(kind, ident)]
+
+    matches = (BracketMatch.objects
+               .filter(tournament_id__in=list(by_tournament), status='completed',
+                       participant_1__isnull=False, participant_2__isnull=False)
+               .select_related('participant_1', 'participant_2')
+               .order_by('completed_at', 'id'))
+    moved = {}
+    for m in matches:
+        home, away = _side(circuit, m.participant_1), _side(circuit, m.participant_2)
+        if home is None or away is None or home == away:
+            continue
+        if m.winner_id is None:
+            score = 0.5
+        elif m.winner_id == m.participant_1_id:
+            score = 1.0
+        elif m.winner_id == m.participant_2_id:
+            score = 0.0
+        else:
+            continue
+        ra, rb = ratings.get(home, ELO_START), ratings.get(away, ELO_START)
+        expect = 1 / (1 + 10 ** ((rb - ra) / 400))
+        delta = k * (score - expect)
+        ratings[home], ratings[away] = ra + delta, rb - delta
+        for side, change, won in ((home, delta, score == 1.0), (away, -delta, score == 0.0)):
+            r = row(*side)
+            r['played'] += 1
+            r['wins'] += 1 if won else 0
+            moved.setdefault((side, m.tournament_id), 0.0)
+            moved[(side, m.tournament_id)] += change
+
+    places = {}
+    for reg in _finished_registrations(by_tournament):
+        side = _side(circuit, reg)
+        if side is not None:
+            places[(side, reg.tournament_id)] = reg.final_position
+    for (side, tid), change in moved.items():
+        r = rows[side]
+        link = by_tournament[tid]
+        place = places.get((side, tid))
+        if place is not None:
+            r['best_place'] = place if r['best_place'] is None else min(r['best_place'], place)
+        r['events'].append({
+            'tournament': {'slug': link.tournament.slug, 'title': link.tournament.tournament_title},
+            'tier': link.tier.name if link.tier is not None else None,
+            'place': place, 'shared_with': 0, 'points': Decimal(round(change))})
+    for side, rating in ratings.items():
+        rows[side]['points'] = Decimal(round(rating))
+
+    _add_adjustments(circuit, row)
     out = list(rows.values())
     _name_rows(out)
     return ranking.order(out, TIEBREAKERS, value=_value)
+
+
+def _finished_registrations(by_tournament):
+    from vent_tournament.models import TournamentRegistration
+    return (TournamentRegistration.objects
+            .filter(tournament_id__in=list(by_tournament), final_position__isnull=False)
+            .exclude(status__in=NOT_COUNTED))
+
+
+def table(circuit):
+    """The circuit's ranking by its own engine."""
+    return elo_table(circuit) if circuit.engine == 'elo' else points_table(circuit)

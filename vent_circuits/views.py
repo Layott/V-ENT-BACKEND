@@ -37,8 +37,8 @@ from . import access, standings, tables
 from .models import Circuit, CircuitAdjustment, CircuitTier, CircuitTournament
 
 ENTRANTS = [key for key, _label in Circuit.ENTRANTS]
-#: P5b adds 'elo'; until then the points engine is the only one a circuit can have.
-ENGINES = ['points']
+#: Points from final standings, or Elo from the matches (P5b).
+ENGINES = ['points', 'elo']
 LIST_LIMIT = 60
 
 
@@ -165,6 +165,7 @@ def _circuit_row(circuit, request, viewer=None):
         'starts_on': circuit.starts_on.isoformat() if circuit.starts_on else None,
         'ends_on': circuit.ends_on.isoformat() if circuit.ends_on else None,
         'engine': circuit.engine,
+        'elo_k': standings.elo_k(circuit),
         'default_table': tables.text(circuit.default_table),
         'owner': _person(circuit.owner),
         'organization': _org(circuit.organization, request),
@@ -200,7 +201,7 @@ def _tournament_rows(circuit, viewer):
 
 
 def _standing_rows(circuit, request):
-    rows = standings.points_table(circuit)
+    rows = standings.table(circuit)
     for row in rows:
         entrant = row['entrant']
         entrant['avatar'] = _media(request, entrant.pop('avatar_path', None))
@@ -292,6 +293,10 @@ def _read_circuit(data, user, partial):
         out['organization'] = org
     if 'is_published' in data:
         out['is_published'] = inputs.read_bool(data, 'is_published')
+    if 'elo_k' in data:
+        # Kept in settings: how far one match moves a rating (P5b).
+        low, high = standings.ELO_K_RANGE
+        out['elo_k'] = inputs.read_int(data, 'elo_k', minimum=low, maximum=high, required=True)
     return out, None
 
 
@@ -362,7 +367,11 @@ def _create(request):
     problem = _dates_problem(values.get('starts_on'), values.get('ends_on'))
     if problem:
         return problem
-    circuit = Circuit.objects.create(owner=user, **values)
+    k = values.pop('elo_k', None)
+    circuit = Circuit(owner=user, **values)
+    if k is not None:
+        circuit.settings = {'k': k}
+    circuit.save()
     return _ok({'circuit': _circuit_row(circuit, request, user)}, 'Circuit made.', status.HTTP_201_CREATED)
 
 
@@ -393,6 +402,9 @@ def circuit_detail(request, circuit_ref):
     problem = _dates_problem(values.get('starts_on', circuit.starts_on), values.get('ends_on', circuit.ends_on))
     if problem:
         return problem
+    k = values.pop('elo_k', None)
+    if k is not None:
+        circuit.settings = dict(circuit.settings or {}, k=k)
     for name, value in values.items():
         setattr(circuit, name, value)
     circuit.save()

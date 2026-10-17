@@ -11,6 +11,7 @@ PointTableTests pin the table's words both ways; StandingsTests the ranking
 adjustments, what never counts); ApiTests the doors.
 """
 import itertools
+from datetime import timedelta
 from decimal import Decimal
 
 from django.test import TestCase
@@ -481,3 +482,121 @@ class ApiTests(TestCase):
         self.assertEqual(self.as_(self.owner).delete('/circuits/%s/' % slug).status_code, 200)
         self.assertFalse(Circuit.objects.exists())
         self.assertTrue(Tournament.objects.filter(pk=t.pk).exists())
+
+
+# ---------------------------------------------------------------------------
+# The Elo engine (P5b)
+# ---------------------------------------------------------------------------
+
+def expected(mine, theirs):
+    return 1 / (1 + 10 ** ((theirs - mine) / 400))
+
+
+class EloTests(TestCase):
+    def setUp(self):
+        self.game = Games.objects.get_or_create(game_title='EA FC 26')[0]
+        self.owner = person()
+        self.circuit = Circuit.objects.create(name='Naija FC Elo', owner=self.owner, game=self.game,
+                                              entrant='player', engine='elo', is_published=True)
+        self.a, self.b, self.c = (person(full_name=n) for n in ('Ada Obi', 'Bola Ade', 'Chidi Eze'))
+        self.t, self.regs = finished(self.owner, self.game, {'a': (self.a, None), 'b': (self.b, None),
+                                                             'c': (self.c, None)})
+        CircuitTournament.objects.create(circuit=self.circuit, tournament=self.t)
+        self.minute = 0
+
+    def play(self, home, away, winner=None, status='completed', tournament=None, regs=None):
+        from vent_tournament.models import BracketMatch
+        regs = regs or self.regs
+        self.minute += 1
+        return BracketMatch.objects.create(
+            tournament=tournament or self.t, round_number=1, match_number=self.minute,
+            participant_1=regs[home], participant_2=regs[away],
+            winner=regs[winner] if winner else None, status=status,
+            completed_at=timezone.now() + timedelta(minutes=self.minute))
+
+    def rating(self, rows, user):
+        return row_of(rows, 'user', user.user_id)['points']
+
+    def test_a_win_between_equals_moves_sixteen_each_way(self):
+        self.play('a', 'b', winner='a')
+        rows = standings.table(self.circuit)
+        self.assertEqual((self.rating(rows, self.a), self.rating(rows, self.b)), (Decimal('1016'), Decimal('984')))
+        self.assertEqual(rows[0]['entrant']['id'], self.a.user_id)
+        self.assertEqual((rows[0]['played'], rows[0]['wins']), (1, 1))
+
+    def test_a_draw_between_equals_changes_nothing(self):
+        self.play('a', 'b')
+        rows = standings.table(self.circuit)
+        self.assertEqual((self.rating(rows, self.a), self.rating(rows, self.b)), (Decimal('1000'), Decimal('1000')))
+
+    def test_the_order_matches_were_played_in_decides(self):
+        self.play('a', 'b', winner='a')
+        self.play('b', 'c', winner='b')
+        a = 1000 + 32 * (1 - expected(1000, 1000))
+        b = 1000 + 32 * (0 - expected(1000, 1000))
+        b2 = b + 32 * (1 - expected(b, 1000))
+        c = 1000 + 32 * (0 - expected(1000, b))
+        rows = standings.table(self.circuit)
+        self.assertEqual(self.rating(rows, self.a), Decimal(round(a)))
+        self.assertEqual(self.rating(rows, self.b), Decimal(round(b2)))
+        self.assertEqual(self.rating(rows, self.c), Decimal(round(c)))
+
+    def test_a_walkover_and_an_unfinished_match_count_nothing(self):
+        self.play('a', 'b', winner='a', status='walkover_p1')
+        self.play('a', 'c', winner=None, status='scheduled')
+        self.assertEqual(standings.table(self.circuit), [])
+
+    def test_k_comes_from_the_circuit(self):
+        self.circuit.settings = {'k': 16}
+        self.circuit.save(update_fields=['settings'])
+        self.play('a', 'b', winner='a')
+        self.assertEqual(self.rating(standings.table(self.circuit), self.a), Decimal('1008'))
+
+    def test_adjustments_move_the_rating_with_their_reason(self):
+        self.play('a', 'b', winner='a')
+        CircuitAdjustment.objects.create(circuit=self.circuit, user=self.b, points=Decimal('40'),
+                                         reason='Replayed after a server crash', by=self.owner)
+        rows = standings.table(self.circuit)
+        self.assertEqual(self.rating(rows, self.b), Decimal('1024'))
+        self.assertEqual(rows[0]['entrant']['id'], self.b.user_id)
+
+    def test_each_tournament_says_how_far_it_moved_the_rating(self):
+        self.play('a', 'b', winner='a')
+        row = row_of(standings.table(self.circuit), 'user', self.a.user_id)
+        # The place is the tournament's own final place, read live: the match
+        # signal places the field as results land.
+        place = TournamentRegistration.objects.get(pk=self.regs['a'].pk).final_position
+        self.assertEqual(row['events'], [{'tournament': {'slug': self.t.slug, 'title': self.t.tournament_title},
+                                          'tier': None, 'place': place, 'shared_with': 0,
+                                          'points': Decimal('16')}])
+
+    def test_a_player_circuit_rates_one_against_one_only(self):
+        team_x, team_y = club(self.a, self.game), club(self.b, self.game)
+        t, regs = finished(self.owner, self.game, {'x': (team_x, None), 'y': (team_y, None)},
+                           access='team')
+        CircuitTournament.objects.create(circuit=self.circuit, tournament=t)
+        self.play('x', 'y', winner='x', tournament=t, regs=regs)
+        self.assertEqual(standings.table(self.circuit), [])
+        self.circuit.entrant = 'team'
+        self.circuit.save(update_fields=['entrant'])
+        rows = standings.table(self.circuit)
+        self.assertEqual([(r['entrant']['type'], r['entrant']['id'], r['points']) for r in rows],
+                         [('team', team_x.team_id, Decimal('1016')), ('team', team_y.team_id, Decimal('984'))])
+
+    def test_switching_the_engine_reranks_the_same_results(self):
+        self.play('a', 'b', winner='b')
+        TournamentRegistration.objects.filter(pk=self.regs['a'].pk).update(final_position=1)
+        TournamentRegistration.objects.filter(pk=self.regs['b'].pk).update(final_position=2)
+        self.circuit.default_table = tables.parse('1: 100, 2: 60')
+        self.circuit.save(update_fields=['default_table'])
+        self.assertEqual(standings.table(self.circuit)[0]['entrant']['id'], self.b.user_id)
+        res = client_for(self.owner).patch('/circuits/%s/' % self.circuit.slug, {'engine': 'points'}, format='json')
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.assertEqual(res.json()['data']['standings'][0]['entrant']['id'], self.a.user_id)
+
+    def test_k_is_set_through_the_door_within_bounds(self):
+        url = '/circuits/%s/' % self.circuit.slug
+        res = client_for(self.owner).patch(url, {'elo_k': 24}, format='json')
+        self.assertEqual(res.json()['data']['circuit']['elo_k'], 24)
+        res = client_for(self.owner).patch(url, {'elo_k': 500}, format='json')
+        self.assertEqual((res.status_code, res.json()['field']), (400, 'elo_k'))
