@@ -11,8 +11,8 @@ A fault that happens twice gets a catcher (owner rule R28).
 Counts every attribute read of `.entrant_name` in the backend apps outside
 tests and migrations (comments and strings do not count; the property itself
 does not count). Some reads are right (an export column, a lookup key), so it
-does not fail: the debt ledger holds the count, and a new read makes it rise,
-which blocks the commit. Use `match_shape.names(reg)[0]` for anything shown.
+exits 1 while any remain, which check-all reads as debt: the ledger holds the
+count, and a new read makes it rise, which blocks the commit. Use `match_shape.names(reg)[0]` for anything shown.
 
     python tools/check-display-names.py
     python tools/check-display-names.py --self-test
@@ -24,6 +24,10 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APPS = ('vent_tournament', 'vent_auth', 'vent_event', 'vent_partners')
 ATTR = 'entrant_name'
+# The two reads that are right: `match_shape.names` itself (a team's or squad's
+# own name IS its entrant_name), and the model's own label for the admin site.
+ALLOWED = {os.path.join('vent_tournament', 'match_shape.py'),
+           os.path.join('vent_tournament', 'models.py')}
 
 
 def reads(source, filename='<source>'):
@@ -39,8 +43,10 @@ def files():
         for here, dirs, names in os.walk(root):
             dirs[:] = [d for d in dirs if d not in ('migrations', '__pycache__', 'tests')]
             for name in names:
-                if name.endswith('.py') and not name.startswith('tests'):
-                    yield os.path.join(here, name)
+                path = os.path.join(here, name)
+                if (name.endswith('.py') and not name.startswith('tests')
+                        and os.path.relpath(path, REPO) not in ALLOWED):
+                    yield path
 
 
 def self_test():
@@ -73,7 +79,9 @@ def main():
     for hit in hits:
         print('  ' + hit)
     print('%d place(s) reading entrant_name, where a screen may show a username' % len(hits))
-    return 0
+    # Non-zero while any remain: check-all records a row that exits 0 as
+    # clean at 0, so a debt catcher that always exits 0 can never catch a rise.
+    return 1 if hits else 0
 
 
 if __name__ == '__main__':
