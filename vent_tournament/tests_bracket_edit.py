@@ -360,12 +360,9 @@ class InsideTheBracketTests(Base):
             play(s, 2, 0)
         final = stage.matches.get(round_number=2)
         play(final, 1, 0)
-        t.refresh_from_db()
-        if t.completed_at:
-            # A finished tournament is history; reopen the stage tools stop here.
-            res = client_for(creator).post(url(t, 'matches/%d/reopen/' % semis[0].id), {}, format='json')
-            self.assertEqual(res.json()['code'], 'TOURNAMENT_FINISHED')
-            return
+        # Finished or not, the final comes off before the semi it was built on:
+        # since inbox 521 (CEO, 17 October 2026) a finished tournament's results
+        # can still change, so this no longer stops at TOURNAMENT_FINISHED.
         res = client_for(creator).post(url(t, 'matches/%d/reopen/' % semis[0].id), {}, format='json')
         self.assertEqual(res.json()['code'], 'NEXT_MATCH_ALREADY_PLAYED')
 
