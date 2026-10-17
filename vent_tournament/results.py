@@ -250,9 +250,12 @@ def apply(match, decision, *, recorded_by=None, forfeit_reason=''):
         match.recorded_by = recorded_by
         match.recorded_at = now
         fields += ['recorded_by', 'recorded_at']
-    match.save(update_fields=fields)
+    # Listed before the save: saving to a terminal status fires the cascade,
+    # which can close the stage and start the next, and the result that
+    # closed a stage must come before "finished" in the list (walk, 17 Oct).
     from . import happenings
     happenings.result(match)
+    match.save(update_fields=fields)
     _settle_open_disputes(match, recorded_by, now)
     return match
 

@@ -119,6 +119,26 @@ class StageTests(TestCase):
         self.assertEqual(got, [('stage_started', first.id), ('line_sent', first.id),
                                ('stage_closed', first.id), ('stage_started', ko.id)])
 
+    def test_the_deciding_result_comes_before_the_close(self):
+        # The last result of a stage closes it inside the match save; the
+        # result must still be listed before "finished" and "started".
+        t, creator, first, _ko = groups_into_knockout()
+        play_out(first)
+        advance(first, creator)
+        kinds = list(Happening.objects.filter(tournament=t).order_by('id').values_list('kind', flat=True))
+        last_result = max(i for i, k in enumerate(kinds) if k == 'result_confirmed')
+        self.assertLess(last_result, kinds.index('stage_closed'))
+
+    def test_an_on_close_line_lists_the_deciding_result_first(self):
+        from .models import Progression
+        t, creator, first, _ko = groups_into_knockout()
+        Progression.objects.filter(source=first).update(fire='on_close')
+        play_out(first)
+        kinds = list(Happening.objects.filter(tournament=t).order_by('id').values_list('kind', flat=True))
+        self.assertIn('stage_closed', kinds)
+        last_result = max(i for i, k in enumerate(kinds) if k == 'result_confirmed')
+        self.assertLess(last_result, kinds.index('stage_closed'))
+
     def test_line_sent_names_target_and_count(self):
         t, creator, first, _ko = groups_into_knockout()
         play_out(first)
