@@ -54,11 +54,11 @@ def _workspace_root(start):
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = _workspace_root(__file__)
 BACKEND = (os.environ.get('VENT_BACKEND') or os.path.join(ROOT, 'V-ENT-BACKEND'))
-# The frontend being committed beside this backend, when the hook names it
-# (VENT_FRONTEND, a worktree on the same branch), like every other catcher in
-# check-all. Reading the main checkout instead judged a pair by half of it: on
-# 17 October a blueprint branch was refused for three endpoints whose screens
-# were in its own frontend worktree.
+# The frontend being committed when the hook names it (VENT_FRONTEND, the
+# worktree on the same branch), else the main checkout. Reading only the main
+# checkout judged a branch's new endpoints against a frontend that had never
+# heard of them, and reported every one as having no screen (P8, 17 October
+# 2026). check-all.py and the commit hook already pass it.
 FRONTEND = os.path.join(os.environ.get('VENT_FRONTEND') or os.path.join(ROOT, 'V-ENT-FRONTEND'), 'src')
 BASELINE = os.path.join(HERE, 'endpoint-callers-baseline.json')
 

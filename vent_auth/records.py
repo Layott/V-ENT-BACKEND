@@ -218,6 +218,8 @@ NOT_SENSITIVE = {
                                                  'only its owner is ever answered (R88)',
     'vent_event.eventpresence.pings_open': 'whether somebody accepts meet-up requests',
     'vent_event.eventgame.catalogue_key': 'which of the fifty catalogue games it is',
+    'vent_sites.site.token': 'the value an organiser publishes in public DNS or on their home page',
+    'vent_sites.site.last_code': 'why the last check of a site failed',
 }
 
 SECRET_WORDS = re.compile(
