@@ -90,6 +90,10 @@ class Format:
     # into a playoff.
     can_feed_into: tuple = ()
     plays_all_at_once: bool = False    # battle royale: everybody in one match
+    # Only ever a stage of something larger, never a tournament on its own:
+    # bracket groups exist to feed a playoff, so the stage planner offers them
+    # and the one-format wizard does not (P3 W1).
+    stage_only: bool = False
 
     notes: str = ''
 
@@ -226,6 +230,32 @@ FORMATS = {
         notes=(
             'Five matches per group of four: two openers, a winners match, a '
             'losers match, and a decider. It feeds a knockout stage.'
+        ),
+    ),
+    # P3 W1 (design section 11): several small knockouts, each group its own
+    # single or double elimination with a threshold, "a group stage working
+    # as an Elimination Bracket (Simple or Double)" (toornament, research
+    # section 4.5). GSL above is its preset: groups of four, double, two
+    # through, and it is drawn by the same code.
+    'bracket_groups': Format(
+        key='bracket_groups',
+        label='Bracket groups',
+        summary=(
+            'Several small knockouts, single or double elimination. Everybody '
+            'stays in their group, and the best of each go through.'
+        ),
+        min_participants=4,
+        seeding='groups',
+        advancement='knockout',
+        scoring='match_win',
+        tiebreakers=('head_to_head',),
+        stage_only=True,
+        can_feed_into=('single_elimination', 'double_elimination', 'stepladder',
+                       'page_playoff', 'round_robin', 'swiss'),
+        notes=(
+            'How many go through each group decides how much is played: the '
+            'matches between them are not. Groups of four, double elimination '
+            'and two through is the GSL format.'
         ),
     ),
     'battle_royale': Format(
@@ -375,6 +405,8 @@ ALIASES = {
     'de': 'double_elimination',
     'br': 'battle_royale',
     'gsl_groups': 'gsl',
+    'bracket_group': 'bracket_groups',
+    'knockout_groups': 'bracket_groups',
     'aggregate': 'aggregate_2v2',
     'aggregate_2_v_2': 'aggregate_2v2',
     # Spellings the old map in views.py accepted, kept so a row or a
@@ -429,6 +461,7 @@ def catalogue():
                 {'key': t, 'label': TIEBREAKERS.get(t, 'Seed')} for t in _ranking().offered(f.key)
             ],
             'can_feed_into': list(f.can_feed_into),
+            'stage_only': f.stage_only,
             'notes': f.notes,
         }
         for f in FORMATS.values()

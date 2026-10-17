@@ -253,7 +253,13 @@ def draw(stage, user, seed_strategy='registration', manual_order=None, early=Fal
     stage.drawn_at = timezone.now()
     stage.status = 'running'
     stage.settings = settings
-    stage.save(update_fields=['entrants', 'drawn_at', 'status', 'settings'])
+    fields = ['entrants', 'drawn_at', 'status', 'settings']
+    if key == 'bracket_groups' and (stage.groups or 0) < 2 and summary.get('groups', 0) > 1:
+        # Groups worked out from the group size: kept, so the lines out of
+        # the stage read them as any group stage's (P3 W1).
+        stage.groups = summary['groups']
+        fields.append('groups')
+    stage.save(update_fields=fields)
     from . import happenings
     happenings.started(stage)
 
@@ -674,6 +680,43 @@ def _gsl_standings(stage):
     return out
 
 
+def _bracket_groups_standings(stage):
+    """Each group ranked as the knockout it is (P3 W1): its qualifiers
+    first, then everybody out by the round they went out in, sharing places as
+    any knockout does. GSL is bracket groups with a threshold of two."""
+    from .models import TournamentRegistration
+
+    matches = list(stage.matches.all())
+    threshold = 2 if stage.format == 'gsl' else stage_settings.threshold_of(stage.settings)
+    regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or []).select_related('user', 'team', 'squad')}
+    out = []
+    for g in sorted({m.group_number for m in matches if m.group_number}):
+        ms = [m for m in matches if m.group_number == g]
+        place = knockout_places(ms, threshold)
+        if threshold:
+            upper, lower = threshold_exits(ms)
+            through = {m.winner_id for m in upper + lower if m.status in TERMINAL and m.winner_id}
+        else:
+            through = {rid for rid, p in place.items() if p == 1}
+        members = {pid for m in ms for pid in (m.participant_1_id, m.participant_2_id) if pid}
+        rows = []
+        for pid in members:
+            if pid not in regs:
+                continue
+            row = _blank(regs[pid], g)
+            row['rank'] = place.get(pid)
+            row['status'] = ('qualified' if pid in through
+                             else 'eliminated' if pid in place else 'playing')
+            rows.append(row)
+        by_id = {r['registration_id']: r for r in rows}
+        for m in ms:
+            if m.status == 'completed' and m.participant_1_id in by_id and m.participant_2_id in by_id:
+                _tally(by_id, m, (1, 0, 0))
+        rows.sort(key=lambda r: (r['rank'] is None, r['rank'] or 0, r['seed'] or 10 ** 6))
+        out.extend(rows)
+    return out
+
+
 def standings(stage):
     """Rows for this stage, whatever its format, ranked."""
     fmt = formats.get(stage.format)
@@ -687,8 +730,10 @@ def standings(stage):
         return _streak_standings(stage)
     if key == 'swiss':
         return _swiss_standings(stage)
-    if key == 'gsl':
-        return _gsl_standings(stage)
+    if key == 'gsl' and not stage.matches.filter(bracket_side='losers').exists():
+        return _gsl_standings(stage)            # drawn by hand before P3
+    if key in ('gsl', 'bracket_groups'):
+        return _bracket_groups_standings(stage)
     if key in ('single_elimination', 'double_elimination', 'stepladder', 'page_playoff'):
         return _knockout_standings(stage)
     return _table_standings(stage)

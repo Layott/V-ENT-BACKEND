@@ -69,6 +69,12 @@ PRESETS = {
         'group_size': 4,
         'advance_per_group': 2,
     },
+    'bracket_groups': {
+        'points': {'win': 1, 'draw': 0, 'loss': 0},
+        'tiebreakers': ['head_to_head', 'rounds_difference'],
+        'group_size': 4,
+        'advance_per_group': 2,
+    },
     'battle_royale': {
         'points': {'win': 0, 'draw': 0, 'loss': 0},
         'placement_points': dict(scoring.PUBG_PLACEMENT),
