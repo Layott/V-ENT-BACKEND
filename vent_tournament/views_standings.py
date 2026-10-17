@@ -30,8 +30,9 @@ def _err(message, code, http=status.HTTP_400_BAD_REQUEST):
                     status=http)
 
 
-def _organiser_or_admin(request, tournament):
-    """(user, error). The tournament's own creator, or somebody overriding.
+def _organiser_or_admin(request, tournament, permission='manage'):
+    """(user, error). The tournament's own creator, somebody overriding, or a
+    helper holding `permission` (P7: 'standings' runs the table).
 
     These endpoints were admin-only, which meant an organiser could not set the
     points for their own league or record a score in it. Everything they run
@@ -44,10 +45,11 @@ def _organiser_or_admin(request, tournament):
     user, err = actor_from_request(request)
     if err:
         return None, err
-    # The organiser or an admin overriding: the people who may set the points
-    # and correct the table. One question, asked in access.py.
-    from .access import may_manage
-    if may_manage(user, tournament):
+    # The organiser, an admin overriding, or a helper given the standings: the
+    # people who may set the points and correct the table. One question, asked
+    # in access.py.
+    from .access import may
+    if may(user, tournament, permission):
         return user, None
     return None, _err(
         'Only the tournament organizer can do that.',
@@ -253,7 +255,7 @@ def set_league_rules(request, tournament_id):
     if tournament is None:
         return _err('Tournament not found', 'TOURNAMENT_NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
-    _user, err = _organiser_or_admin(request, tournament)
+    _user, err = _organiser_or_admin(request, tournament, 'standings')
     if err:
         return err
 
@@ -361,7 +363,7 @@ def stat_settings(request, tournament_id):
                     'defaults': dict(_stats.DEFAULTS),
                     'choices': _stat_choices()}, 'Scoring')
 
-    _user, err = _organiser_or_admin(request, tournament)
+    _user, err = _organiser_or_admin(request, tournament, 'standings')
     if err:
         return err
 
@@ -395,7 +397,7 @@ def league_adjustment(request, tournament_id):
         return _err('Tournament not found', 'TOURNAMENT_NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)
 
-    user, err = _organiser_or_admin(request, tournament)
+    user, err = _organiser_or_admin(request, tournament, 'standings')
     if err:
         return err
 
