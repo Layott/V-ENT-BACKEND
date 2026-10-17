@@ -29,6 +29,7 @@ reason refusals carry a `code`.
 import math
 
 from . import formats as fmt
+from . import stage_settings
 
 
 def _next_power_of_two(n):
@@ -55,6 +56,36 @@ def drawn_as(key):
     if definition.key in ('double_elimination', 'swiss', 'gsl'):
         return definition.key
     return 'single_elimination'
+
+
+def _threshold_shape(shape, n, threshold, double=False):
+    """A knockout that stops when `threshold` are left (P3 W1): the rounds
+    that would decide between them are not drawn. Mirrors the cut in
+    `services.bracket`, and the agreement test holds the two together."""
+    slots = shape['slots']
+    shape['qualify'] = threshold
+    if threshold * 2 > slots:
+        shape['threshold_problem'] = 'threshold_too_big'
+        return shape
+    cut = int(math.log2(threshold))
+    if double:
+        upper = shape['winners_rounds'] - cut + 1
+        shape.update({
+            'rounds': upper, 'winners_rounds': upper, 'losers_rounds': 2 * upper - 2,
+            # Upper rounds keep slots - threshold/2 matches, lower rounds
+            # slots - threshold; there is no grand final.
+            'matches': 2 * slots - 3 * threshold // 2,
+            # Everybody knocked out lost twice; the lower qualifiers once.
+            'games': max(2 * (n - threshold) + threshold // 2, 0),
+            'grand_final_reset': False,
+        })
+        shape['games_on_the_floor'] = shape['games']
+        shape.pop('games_at_most', None)
+    else:
+        shape.update({'rounds': shape['rounds'] - cut, 'matches': slots - threshold,
+                      'games': max(n - threshold, 0)})
+        shape['games_on_the_floor'] = shape['games']
+    return shape
 
 
 def _knockout_shape(n, seats):
@@ -209,14 +240,19 @@ def _shape_for(definition, drawn, n, seats, settings=None, groups=0):
         # a doubled count (walk of inbox 440: "each meet once: 39800").
         shape['legs'] = legs
         return shape
+    threshold = stage_settings.threshold_of(settings) if drawn in (
+        'single_elimination', 'double_elimination') else 0
     if drawn == 'double_elimination':
-        return _double_elimination_shape(
-            n, seats, reset=settings.get('grand_final') == 'reset')
+        shape = _double_elimination_shape(
+            n, seats, reset=settings.get('grand_final') == 'reset' and not threshold)
+        return _threshold_shape(shape, n, threshold, double=True) if threshold else shape
     if drawn == 'swiss':
         return _swiss_shape(n, seats, int(settings.get('rounds') or 0))
     if drawn == 'gsl':
         return _gsl_shape(n, seats)
     shape = _knockout_shape(n, seats)
+    if threshold:
+        return _threshold_shape(shape, n, threshold)
     if settings.get('third_place') and shape['rounds'] >= 2:
         shape['matches'] += 1
         shape['games'] += 1
@@ -279,6 +315,7 @@ def describe(raw, participants=None, seats=1, settings=None, groups=0):
     shape['participants'] = n
     # Why this count will be refused, in the catalogue's own words, so the
     # screen does not need a second opinion about what is valid.
-    shape['problem'] = definition.count_problem(n)
+    shape['problem'] = definition.count_problem(n) or shape.pop('threshold_problem', None)
+    shape.pop('threshold_problem', None)
     out['shape'] = shape
     return out
