@@ -144,11 +144,13 @@ def setup():
 
     t = tournament('walk-br-cup', 'Walk BR Cup', org, fire, 'battle_royale', access='team')
     enter(t, teams, team=True)
-    TournamentStaff.objects.get_or_create(tournament=t, user=keeper)
+    TournamentStaff.objects.get_or_create(tournament=t, user=keeper,
+                                          defaults={'permissions': ['report']})
 
     t = tournament('walk-br-chain', 'Walk BR Chain', org, fire, 'battle_royale', access='team')
     enter(t, teams, team=True)
-    TournamentStaff.objects.get_or_create(tournament=t, user=keeper)
+    TournamentStaff.objects.get_or_create(tournament=t, user=keeper,
+                                          defaults={'permissions': ['report']})
     TournamentStage.objects.create(
         tournament=t, order=0, label='Lobbies', format='battle_royale', advances=2,
         settings=stage_settings.clean('battle_royale', {
@@ -165,7 +167,8 @@ def setup():
             ('Walk Every Place Cup', 'single_elimination', 8, {'every_place': True})):
         t = tournament(None, title, org, efoot, fmt, options=opts)
         enter(t, solos[:n])
-        TournamentStaff.objects.get_or_create(tournament=t, user=keeper)
+        TournamentStaff.objects.get_or_create(tournament=t, user=keeper,
+                                          defaults={'permissions': ['report']})
 
     for t in Tournament.objects.filter(tournament_title__startswith='Walk ').order_by('tournament_id'):
         if t.tournament_title in ('Walk BR Cup', 'Walk BR Chain', 'Walk Stepladder Cup', 'Walk Page Cup',
@@ -189,7 +192,8 @@ def br_live():
     teams = [squad(i, fire) for i in range(1, 9)]
     t = tournament('walk-br-live', 'Walk BR Live', org, fire, 'battle_royale', access='team')
     enter(t, teams, team=True)
-    TournamentStaff.objects.get_or_create(tournament=t, user=keeper)
+    TournamentStaff.objects.get_or_create(tournament=t, user=keeper,
+                                          defaults={'permissions': ['report']})
     stage = br_engine.ensure_stage(t)
     stage.settings = stage_settings.clean('battle_royale', {'lobby_size': 4, 'maps': 3})
     stage.save(update_fields=['settings'])

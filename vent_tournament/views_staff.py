@@ -51,7 +51,7 @@ def _person(row):
             'founder_badge': bool(getattr(user, 'is_founder', False)
                                   and user.show_founder_badge),
         }
-    described['role'] = row.role
+    described['permissions'] = list(row.permissions or [])
     described['added_at'] = row.created_at.isoformat()
     return described
 
@@ -103,7 +103,8 @@ def staff(request, tournament_id):
         return _err('There is no account with that username.', 'USER_NOT_FOUND',
                     status.HTTP_404_NOT_FOUND, field='username')
     if person is None:
-        invite = offer_role(RoleInvite.KIND_TOURNAMENT, tournament, email, 'scorekeeper', user)
+        invite = offer_role(RoleInvite.KIND_TOURNAMENT, tournament, email, 'staff', user,
+                            scopes=['report'])
         return _ok({'invited': email, 'awaiting_signup': True, 'invite': _invite_row(invite)},
                    'Invitation sent to %s.' % email)
     if person.user_id == tournament.tournament_creator_id:
@@ -111,7 +112,7 @@ def staff(request, tournament_id):
                     'ALREADY_ORGANISER', field='username')
     row, made = TournamentStaff.objects.get_or_create(
         tournament=tournament, user=person,
-        defaults={'role': 'scorekeeper', 'added_by': user})
+        defaults={'permissions': ['report'], 'added_by': user})
     rows = TournamentStaff.objects.filter(tournament=tournament).select_related('user')
     return _ok({'staff': [_person(r) for r in rows], 'added': made},
                'Added.' if made else 'Already a scorekeeper.')
@@ -119,6 +120,7 @@ def staff(request, tournament_id):
 
 def _invite_row(invite):
     return {'token': invite.token, 'email': invite.email, 'role': invite.role,
+            'permissions': list(invite.scopes or []),
             'created_at': invite.created_at, 'claimed': invite.user_id is not None}
 
 
