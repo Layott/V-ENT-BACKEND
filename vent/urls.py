@@ -56,6 +56,8 @@ urlpatterns = [
     path("auth/", include('vent_auth.urls')),
     path("tournament/", include('vent_tournament.urls')),
     path("event/", include('vent_event.urls')),
+    # Tournaments and events on the organiser's own website (P8).
+    path("sites/", include('vent_sites.urls')),
     path("team/", include('vent_team.urls')),
     # Subscriptions and memberships an organiser sells.
     path("billing/", include('vent_billing.urls')),

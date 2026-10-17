@@ -164,7 +164,12 @@ def serialize_linked_tournament(request, link, viewer=None):
 def event_brand(request, event):
     """The block the tournament page renders as "part of this event"."""
     from .serializers import absolute_media_url
+    from .site import public as site_public
 
+    # The event website's colours (inbox 360), so the tournament's widgets on
+    # the organiser's own website start in them (P8). Through site.public,
+    # the one reader of those settings.
+    look = site_public(event)
     return {
         'id': event.event_id,
         'event_id': event.event_id,
@@ -176,6 +181,7 @@ def event_brand(request, event):
         'end_date': event.end_date,
         'banner': absolute_media_url(request, event.banner, event.banner_url),
         'logo': absolute_media_url(request, event.logo),
+        'site': {'accent': look['accent'], 'theme': look['theme']},
     }
 
 
