@@ -196,6 +196,23 @@ def sync_lost_to(stage):
     return changed
 
 
+def repechage_built_on(match):
+    """Whether a repechage match already played was seated from `match`: a
+    main draw match before the final, in a stage whose repechage has started.
+    Its result is then fixed, as a played next match fixes it elsewhere."""
+    from .models import MatchSlot
+    if not match.stage_id:
+        return False
+    for slot in (MatchSlot.objects.filter(match__stage_id=match.stage_id, kind='lost_to',
+                                          match__status__in=PLAYED)
+                 .select_related('source_match')):
+        final = slot.source_match
+        if (match.bracket_side == final.bracket_side and match.branch == final.branch
+                and match.round_number < final.round_number):
+            return True
+    return False
+
+
 def mark_bye(match, slot):
     """A seat that stays empty by design: nobody is sent there."""
     _put(match, slot, 'bye')
