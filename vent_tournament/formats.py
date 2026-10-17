@@ -266,6 +266,29 @@ FORMATS = {
             'and two through is the GSL format.'
         ),
     ),
+    # P3 W2 (design section 11): any knockout shape, from a schema the
+    # organiser writes or one a preset function produces for the field
+    # (bracket_schema.py, bracket_presets.py).
+    'custom_bracket': Format(
+        key='custom_bracket',
+        label='Custom bracket',
+        summary=(
+            'A bracket of your own shape, written match by match or taken from '
+            'a ready-made one: AFL final eight, compass draw, feed-in consolation.'
+        ),
+        min_participants=2,
+        advancement='knockout',
+        scoring='match_win',
+        tiebreakers=('head_to_head',),
+        stage_only=True,
+        can_feed_into=('single_elimination', 'double_elimination', 'round_robin', 'league',
+                       'swiss', 'stepladder', 'page_playoff', 'gsl', 'bracket_groups'),
+        notes=(
+            'Every match says where its two sides come from: a seed, or the winner '
+            'or loser of an earlier match. Places a match does not state are '
+            'shared by the round a side went out in.'
+        ),
+    ),
     'battle_royale': Format(
         key='battle_royale',
         label='Battle royale points',
@@ -414,6 +437,7 @@ ALIASES = {
     'br': 'battle_royale',
     'gsl_groups': 'gsl',
     'bracket_group': 'bracket_groups',
+    'custom': 'custom_bracket',
     'knockout_groups': 'bracket_groups',
     'aggregate': 'aggregate_2v2',
     'aggregate_2_v_2': 'aggregate_2v2',

@@ -28,10 +28,12 @@ from . import formats
 
 
 class SettingsError(ValueError):
-    def __init__(self, code, field):
+    def __init__(self, code, field, detail=None):
         super().__init__(code)
         self.code = code
         self.field = field
+        # Where in a written schema the fault is: {'match': 'C'} or {'line': 3}.
+        self.detail = detail or {}
 
 
 # `none`: the upper and the lower bracket winners never meet and both go
@@ -249,6 +251,26 @@ def clean_battle_royale(raw):
     return out
 
 
+def _clean_custom(raw):
+    """A custom bracket (P3 W2): a preset by name, or a schema the organiser
+    wrote in the line language, read and checked here so a plan that cannot be
+    drawn is refused when it is saved, with the match or line it is about."""
+    from . import bracket_presets, bracket_schema
+    preset = str(raw.get('preset') or '').strip().lower()
+    if preset and preset not in bracket_presets.PRESETS:
+        raise SettingsError('UNKNOWN_CHOICE', 'preset')
+    text = str(raw.get('schema_text') or '')[:20000]
+    if preset:
+        return {'preset': preset, 'schema_text': '', 'schema': None}
+    try:
+        schema = bracket_schema.parse(text) if text.strip() else raw.get('schema') or {'matches': []}
+        bracket_schema.check(schema)
+    except bracket_schema.SchemaError as exc:
+        detail = {k: v for k, v in (('match', exc.match), ('line', exc.line)) if v is not None}
+        raise SettingsError(exc.code, 'schema', detail)
+    return {'preset': '', 'schema_text': text, 'schema': schema}
+
+
 def is_table(format_key):
     fmt = formats.get(format_key)
     return bool(fmt and fmt.advancement in ('table', 'swiss'))
@@ -269,6 +291,8 @@ def clean(format_key, raw):
         return clean_battle_royale(raw)
 
     out = {}
+    if key == 'custom_bracket':
+        out.update(_clean_custom(raw))
 
     # ---- the format's own switches ---------------------------------------
     if key == 'single_elimination':

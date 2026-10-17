@@ -18,7 +18,7 @@ from rest_framework.response import Response
 
 from vent_auth.actors import actor_from_request
 
-from . import formats, match_shape, ranking, stage_engine, stage_settings, stages
+from . import bracket_presets, formats, match_shape, ranking, stage_engine, stage_settings, stages
 from .access import MANAGE, may, may_manage, permissions_list, permissions_of
 from .models import TournamentRegistration
 
@@ -212,6 +212,9 @@ def tournament_stages(request, tournament_id):
                   'settings': stage_settings.clean(p['format'], p['settings']),
                   'rules': ranking.clean_rules(p['format'], p['rules'])}
             for key, p in stage_settings.FORMAT_PRESETS.items()},
+        # The ready-made custom brackets (P3 W2) and the fields each is proven on.
+        'custom_presets': [{'key': key, 'sizes': list(bracket_presets.SIZES[key])}
+                           for key in bracket_presets.PRESETS],
         'tournament_when': tournament_when,
         # The game's preset, so the builder can offer "use the FC Mobile
         # settings" and fill each stage with them.

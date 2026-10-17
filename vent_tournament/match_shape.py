@@ -64,6 +64,10 @@ def slot_rows(m):
             'seed': s.seed,
             # A seat of a reseeded knockout: the survivor at this rank of seed.
             'rank': s.source_place if s.kind == 'reseed' else None,
+            # A repechage seat: lost to the finalist in this seat of `from`, in
+            # this round (P3 W2b).
+            'lost_to': ({'side': s.source_group, 'round': s.source_place}
+                        if s.kind == 'lost_to' else None),
             'from': None if src is None else {
                 'match_id': src.id, 'round': src.round_number, 'side': src.bracket_side,
                 'group': src.group_number, 'number': src.match_number,
@@ -105,6 +109,8 @@ def match_row(m, *, private=False):
         'match_id': m.id,
         'stage_id': m.stage_id,
         'group_number': m.group_number,
+        # The part of a custom bracket it is in (P3 W2), blank elsewhere.
+        'branch': m.branch,
         'round_number': m.round_number,
         'match_number': m.match_number,
         'bracket_side': m.bracket_side,

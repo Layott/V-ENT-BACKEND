@@ -383,6 +383,8 @@ def reopen(match, user):
     if stage is not None and stage.format == 'swiss' and stage.matches.filter(
             round_number__gt=match.round_number).exists():
         raise EditError('NEXT_ROUND_ALREADY_DRAWN')
+    if stage is not None and stage.format == 'custom_bracket' and match_slots.repechage_built_on(match):
+        raise EditError('NEXT_MATCH_ALREADY_PLAYED')
     reseeded = stage is not None and bool((stage.settings or {}).get('reseed'))
     if reseeded and stage.matches.filter(round_number=match.round_number + 1,
                                          slots__kind='reseed',
