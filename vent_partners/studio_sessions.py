@@ -36,6 +36,7 @@ from django.utils import timezone
 
 from . import studio_delivery, studio_schema, studio_scoring, studio_usage
 from .studio_scoring import ExpressionError
+from vent_tournament import match_shape
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +129,9 @@ def lineups(match, game):
                 'display_name': (link.external_name or None) if link else None,
                 'linked': link is not None,
             })
-        out.append({'side': side, 'name': reg.entrant_name if reg is not None else None,
+        # Named as every screen names a side: the full name, never the bare
+        # username (match_shape.names).
+        out.append({'side': side, 'name': match_shape.names(reg)[0],
                     'players': players})
     return out
 

@@ -158,6 +158,17 @@ class CreateSessionTests(TestCase):
         self.assertEqual(two['players'], [{'username': 'side_two', 'account_id': None,
                                            'display_name': None, 'linked': False}])
 
+    def test_a_side_is_named_by_the_full_name_not_the_username(self):
+        # Every screen shows a person by match_shape.names: the full name,
+        # never the bare username (display names catcher, 17 October 2026).
+        self.f.p1.full_name = 'Side One Person'
+        self.f.p1.save(update_fields=['full_name'])
+        with mock.patch(PUBLIC, return_value=True), mock.patch(POST, return_value=answer(202)) as post:
+            with self.captureOnCommitCallbacks(execute=True):
+                studio_sessions.create(self.link, self.f.match, 1, 1)
+        one, _ = json.loads(post.call_args.kwargs['data'])['data']['lineups']
+        self.assertEqual(one['name'], 'Side One Person')
+
     def test_linked_players_are_counted_once_a_month(self):
         studio_sessions.create(self.link, self.f.match, 1, 1)
         studio_sessions.create(self.link, self.f.match, 1, 2)
