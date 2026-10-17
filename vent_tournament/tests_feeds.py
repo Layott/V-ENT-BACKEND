@@ -6,6 +6,8 @@ source stage in another tournament; firing it registers the qualifiers in the
 target. Decisions accepted by silence: fee waived by default, a 48 hour decline
 window, automatic pull, same game only.
 """
+import itertools
+
 from django.db import transaction
 from django.test import TestCase
 
@@ -13,6 +15,12 @@ from . import bracket_edit, feeds, progressions, stage_engine, stage_settings
 from .models import Progression, TournamentRegistration
 from .tests import client_for, make_tournament, make_user, register
 from .tests_stage_engine import add_stage, draw, field, play_out
+
+# The finals' own entrants, numbered from a counter of their own. They were
+# 90000 + q.pk * 10 + i, which lands on the fixed users below (92001, 92003)
+# whenever the qualifier's key is 200: a test run in parallel numbers keys
+# differently and failed on a duplicate email (17 October 2026).
+_OWN_ENTRANTS = itertools.count(950000)
 
 
 def advance(stage, user):
@@ -27,7 +35,7 @@ def qualifier_and_finals(n=4, finals_own=2, fire='after_preview'):
     q, creator, q_regs = field(n, 'round_robin')
     q_stage = add_stage(q, 0, 'round_robin', label='League')
     finals = make_tournament(creator, bracket_type='single_elimination')
-    own = [register(finals, make_user(90000 + q.pk * 10 + i)) for i in range(finals_own)]
+    own = [register(finals, make_user(next(_OWN_ENTRANTS))) for _ in range(finals_own)]
     for i, r in enumerate(own, start=1):
         r.seed = i
         r.save(update_fields=['seed'])
