@@ -313,12 +313,17 @@ def _maybe_complete(tournament_id):
         tournament.status = 'completed'
         tournament.completed_at = timezone.now()
         tournament.save(update_fields=['status', 'completed_at'])
+        from .. import happenings
+        happenings.closed(last)
+        happenings.won(tournament)
         return
 
     assign_final_positions(tournament)
     tournament.status = 'completed'
     tournament.completed_at = timezone.now()
     tournament.save(update_fields=['status', 'completed_at'])
+    from .. import happenings
+    happenings.won(tournament)
 
 
 def assign_final_positions(tournament):

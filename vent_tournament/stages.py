@@ -153,11 +153,16 @@ def clean(raw):
     }
 
 
-def plan(raw_stages, *, participants=None):
+def plan(raw_stages, *, participants=None, lines=False):
     """Check a whole plan, in order, and say what is wrong with it.
 
     Raises `StageError` carrying the index of the offending stage, so the wizard
     can point at the row rather than saying the plan is invalid.
+
+    `lines` True means the plan comes with its own progression lines (P1b), so
+    the checks below that assume a straight chain (each stage feeds the next by
+    order, the last advances nobody) are the lines' to make instead
+    (`progressions.clean`).
     """
     if not isinstance(raw_stages, list):
         raise StageError('Send the stages as a list, in the order they are played.', code='STAGES_NOT_A_LIST')
@@ -172,7 +177,7 @@ def plan(raw_stages, *, participants=None):
             exc.index = index
             raise
 
-    for index, stage in enumerate(cleaned):
+    for index, stage in enumerate(cleaned if not lines else []):
         fmt = formats.get(stage['format'])
         last = index == len(cleaned) - 1
 

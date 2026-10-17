@@ -119,9 +119,13 @@ def adopt(tournament, user):
 # ---------------------------------------------------------------------------
 
 def _next_drawn(stage):
-    nxt = stage_engine.next_stage(stage)
-    return nxt is not None and (nxt.drawn_at is not None or nxt.matches.exists()
-                                or nxt.br_lobbies.exists())
+    """Whether any stage this one's lines feed has been drawn (P1b)."""
+    from . import progressions
+    for line in progressions.outgoing(stage):
+        nxt = line.target
+        if nxt.drawn_at is not None or nxt.matches.exists() or nxt.br_lobbies.exists():
+            return True
+    return False
 
 
 def undraw(stage, user, discard_results=False):
@@ -150,6 +154,9 @@ def undraw(stage, user, discard_results=False):
     stage.advanced = []
     stage.completed_at = None
     stage.save(update_fields=['entrants', 'drawn_at', 'status', 'advanced', 'completed_at'])
+    # Its lines send again when it is played again (P1b).
+    from . import progressions
+    progressions.clear(stage)
 
     # Nothing drawn anywhere any more: the tournament is back to waiting for
     # its draw, as it was before the first one.
@@ -173,6 +180,8 @@ def unadvance(stage, user):
     stage.advanced = []
     stage.completed_at = None
     stage.save(update_fields=['status', 'advanced', 'completed_at'])
+    from . import progressions
+    progressions.clear(stage)
     _log(tournament, user, 'unadvance', stage)
     return stage
 
@@ -429,6 +438,8 @@ def set_rules(match, user, *, best_of=None, legs=None, draw_allowed=None, whole_
     if not update:
         raise EditError('NOTHING_TO_CHANGE')
 
+    # Where each changed rule was set, so the screen can say so (P1c).
+    level = 'round' if whole_round else 'match'
     if whole_round:
         group = (scope(tournament, match.stage).filter(
             round_number=match.round_number, bracket_side=match.bracket_side,
@@ -436,9 +447,27 @@ def set_rules(match, user, *, best_of=None, legs=None, draw_allowed=None, whole_
         if update.get('draw_allowed'):
             group = group.filter(winner_to_match__isnull=True, loser_to_match__isnull=True,
                                  is_final=False)
-        changed = group.update(**update)
+        # A round's best of has one store, the stage's per round list the
+        # planner writes too, so a match the round makes later (a Swiss round)
+        # follows it.
+        if 'best_of' in update and match.stage_id:
+            stage = match.stage
+            settings = dict(stage.settings or {})
+            per_round = dict(settings.get('round_best_of') or {})
+            per_round[str(match.round_number)] = update['best_of']
+            settings['round_best_of'] = per_round
+            stage.settings = settings
+            stage.save(update_fields=['settings'])
+        changed = 0
+        for row in group:
+            marked = dict(row.settings or {})
+            marked.update({k: level for k in update if k != 'best_of' or not match.stage_id})
+            BracketMatch.objects.filter(pk=row.pk).update(settings=marked, **update)
+            changed += 1
     else:
-        changed = BracketMatch.objects.filter(pk=match.pk).update(**update)
+        marked = dict(match.settings or {})
+        marked.update({k: level for k in update})
+        changed = BracketMatch.objects.filter(pk=match.pk).update(settings=marked, **update)
     _log(tournament, user, 'rules', match.stage, match=match.id, whole_round=whole_round or None,
          **update)
     return {'matches_changed': changed}
@@ -456,7 +485,7 @@ def _drawn(stage):
     return stage.drawn_at is not None or stage.status != 'pending'
 
 
-def save_plan(tournament, raw_stages, user, participants=None):
+def save_plan(tournament, raw_stages, user, participants=None, raw_lines=None):
     """Save the stage plan at any point before the tournament ends.
 
     Stages already drawn stay first, in their order, with their format, groups,
@@ -505,7 +534,25 @@ def save_plan(tournament, raw_stages, user, participants=None):
                 raw['advances'] = stage.advances    # who went through is decided
         merged.append(raw)
 
-    cleaned = _checked_plan(merged, participants=participants if not drawn else None)
+    cleaned = _checked_plan(merged, participants=participants if not drawn else None,
+                            lines=raw_lines is not None)
+
+    # The lines between the stages (P1b). None is the old planner, which only
+    # ever meant the chain its order and advances describe.
+    from . import progressions
+    if raw_lines is None:
+        lines = progressions.chain(cleaned)
+    else:
+        try:
+            lines = progressions.clean(raw_lines, cleaned,
+                                       participants=participants if not drawn else None)
+        except progressions.LineError as exc:
+            raise EditError(exc.code, exc.field, line_index=exc.index)
+        # `advances` stays meaningful for every reader that still asks it: the
+        # most places any line takes out of the stage.
+        for index, stage in enumerate(cleaned):
+            stage['advances'] = max([l['place_to'] for l in lines if l['source'] == index],
+                                    default=0)
 
     own = set(tournament.registrations.values_list('id', flat=True))
     for index, stage in enumerate(cleaned):
@@ -538,9 +585,35 @@ def save_plan(tournament, raw_stages, user, participants=None):
 
     removed = [s.id for s in existing if s.id not in kept]
     TournamentStage.objects.filter(pk__in=removed).delete()
+    _save_lines(tournament, lines)
     if drawn or removed:
         _log(tournament, user, 'plan', None, stages=len(cleaned), removed=len(removed) or None)
     return list(tournament.stages.all().order_by('order'))
+
+
+def _save_lines(tournament, lines):
+    """Write the plan's lines. A line that already sent people is what
+    happened: it must come back unchanged, and it is kept as it was."""
+    from .models import Progression
+    saved = list(tournament.stages.all().order_by('order'))
+    wanted = [(saved[l['source']].id, saved[l['target']].id, l['group'], l['place_from'],
+               l['place_to'], l['side']) for l in lines]
+    existing = list(Progression.objects.filter(source__tournament=tournament))
+    fired = {(l.source_id, l.target_id, l.group, l.place_from, l.place_to, l.side): l
+             for l in existing if l.fired_at is not None}
+    if any(shape not in wanted for shape in fired):
+        raise EditError('PROGRESSION_FIRED_LOCKED', 'progressions')
+    Progression.objects.filter(pk__in=[l.id for l in existing if l.fired_at is None]).delete()
+    for line, shape in zip(lines, wanted):
+        if shape in fired:
+            kept = fired[shape]
+            kept.fire, kept.carry_points, kept.order = line['fire'], line['carry_points'], line['order']
+            kept.save(update_fields=['fire', 'carry_points', 'order'])
+            continue
+        Progression.objects.create(
+            source_id=shape[0], target_id=shape[1], group=line['group'],
+            place_from=line['place_from'], place_to=line['place_to'], side=line['side'],
+            carry_points=line['carry_points'], fire=line['fire'], order=line['order'])
 
 
 def _format_label(key):
@@ -548,12 +621,12 @@ def _format_label(key):
     return fmt.label if fmt else ''
 
 
-def _checked_plan(rows, participants=None):
+def _checked_plan(rows, participants=None, lines=False):
     """`stages.plan`, refusing the way the plan door always has: a refusal that
     is a code goes as the code, a sentence goes as VALIDATION_FAILED with the
     sentence beside it and the row it is about."""
     try:
-        return stages.plan(rows, participants=participants)
+        return stages.plan(rows, participants=participants, lines=lines)
     except stages.StageError as exc:
         text = str(exc)
         if getattr(exc, 'code', None):
