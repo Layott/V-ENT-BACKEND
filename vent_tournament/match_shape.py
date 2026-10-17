@@ -41,6 +41,46 @@ def entrant(reg):
     }
 
 
+def attach_slots(matches):
+    """Fetch every match's slots and their source matches in two queries."""
+    from django.db.models import Prefetch, prefetch_related_objects
+    from .models import MatchSlot
+    prefetch_related_objects(list(matches), Prefetch(
+        'slots', queryset=MatchSlot.objects.select_related('source_match', 'progression__source')))
+
+
+def slot_rows(m):
+    """Where each side comes from (P1a): a seed, the winner or loser of a match,
+    a bye. The screen turns it into words ("Winner of Round 1, match 2"); the
+    server sends the facts, never a sentence. Empty for a match not yet
+    converted, which the screen reads as "To be decided"."""
+    rows = []
+    for s in m.slots.all():
+        src = s.source_match
+        rows.append({
+            'slot': s.slot,
+            'kind': s.kind,
+            'seed': s.seed,
+            'from': None if src is None else {
+                'match_id': src.id, 'round': src.round_number, 'side': src.bracket_side,
+                'group': src.group_number, 'number': src.match_number,
+                'is_final': src.is_final, 'winner_place': src.winner_place,
+                'loser_place': src.loser_place,
+            },
+            # A seat in a stage drawn early waits for a place (P1d).
+            'from_place': None if s.kind != 'place' or s.progression is None else {
+                'stage': s.progression.source.label, 'group': s.source_group,
+                'place': s.source_place,
+            },
+        })
+    return rows
+
+
+def _rules(m):
+    from .match_rules import rules_of
+    return rules_of(m)
+
+
 def match_row(m, *, private=False):
     row = {
         'match_id': m.id,
@@ -78,6 +118,9 @@ def match_row(m, *, private=False):
         # Whether there is a room yet, which a stranger may know; never what
         # it is.
         'has_room': bool(m.room_code),
+        'slots': slot_rows(m),
+        # How it is played and where each rule comes from (P1c).
+        'rules': _rules(m),
     }
     if private:
         row['room_code'] = m.room_code
@@ -120,6 +163,7 @@ def place_ranges(matches):
 def rounds_of(matches, *, private_for=None):
     """[{round, bracket_side, group_number, matches}] in playing order."""
     ranges = place_ranges(matches)
+    attach_slots(matches)
     buckets = {}
     for m in matches:
         key = (m.group_number or 0, {'winners': 0, 'losers': 1, 'grand_final': 2,
@@ -145,4 +189,4 @@ def select_related(qs):
     return qs.select_related(
         'participant_1__team', 'participant_1__user', 'participant_1__squad',
         'participant_2__team', 'participant_2__user', 'participant_2__squad',
-        'winner__team', 'winner__user', 'winner__squad', 'stage')
+        'winner__team', 'winner__user', 'winner__squad', 'stage', 'tournament')
