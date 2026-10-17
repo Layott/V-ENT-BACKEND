@@ -441,6 +441,16 @@ CATCHERS = [
     ('route path',
      'every menu and guard compares the route, not the address with its language',
      FRONTEND, ['node', 'scripts/check-route-path.mjs'], True),
+    # P8, design 14c: a frame on somebody else's website never asks for a
+    # password, a card or a session, carries no token in an address, and is
+    # drawn through EmbedFrame (which sizes it, counts it and keeps V-ENT
+    # links out of the frame).
+    ('embed safety',
+     'no password, card, form or session inside an embed; every embed page through EmbedFrame (P8)',
+     FRONTEND, ['node', 'scripts/check-embed-safety.mjs'], True),
+    ('embed safety self-test',
+     'the embed safety catcher still catches each fault and leaves the allowed shapes alone',
+     FRONTEND, ['node', 'scripts/check-embed-safety.mjs', '--self-test'], True),
     ('country order',
      'every country list on the site is alphabetical (inbox 443)',
      FRONTEND, ['node', 'scripts/check-country-order.mjs'], True),

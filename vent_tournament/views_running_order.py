@@ -69,36 +69,32 @@ def _organiser_or_admin(request, tournament):
                       'ONLY_TOURNAMENT_ORGANIZER_CAN', status.HTTP_403_FORBIDDEN)
 
 
-def _side(registration):
-    # Through the shared accessors: a hand-built branch here knew teams and
-    # lone players only, so a squad came back as 'unknown' with no name.
-    # And the same two names the bracket shows (CEO, 27 September 2026:
-    # "both"): `entrant_name` alone is a person's username, so the running
-    # order read "walk_ha_01" beside a bracket reading "Ha 01" (second bracket
-    # walk, 28 September 2026).
-    from .match_shape import entrant
-    return entrant(registration)
-
-
 def _row(match):
-    return {
-        'match_id': match.pk,
-        'round': match.round_number,
-        'match_number': match.match_number,
-        'day': match.day.isoformat() if match.day else None,
-        'running_order': match.running_order,
-        'status': match.status,
-        'participant_1': _side(match.participant_1),
-        'participant_2': _side(match.participant_2),
-    }
+    """One fixture: the one description of a match, and where it sits in the order.
+
+    Each side through match_shape.entrant, the shared accessor: a hand-built
+    branch here once knew teams and lone players only, so a squad came back as
+    'unknown', and read a person's username where the bracket showed their
+    full name (second bracket walk, 28 September 2026).
+
+    The schedule a tournament puts on somebody else's website (P8) reads this
+    list, so it needs what the bracket shows: the time, the score, the winner
+    and where an empty seat's player comes from. The public shape only; the
+    room code is never in a schedule.
+    """
+    from .match_shape import match_row
+    return dict(match_row(match),
+                round=match.round_number,
+                day=match.day.isoformat() if match.day else None,
+                running_order=match.running_order)
 
 
 def _serialize_order(tournament):
     """The schedule as stored, grouped by day, with the leftovers named."""
-    matches = list(BracketMatch.objects.filter(tournament=tournament)
-                   .select_related('participant_1__team', 'participant_1__user',
-                                   'participant_2__team', 'participant_2__user')
+    from . import match_shape
+    matches = list(match_shape.select_related(BracketMatch.objects.filter(tournament=tournament))
                    .order_by('day', 'running_order', 'round_number', 'match_number'))
+    match_shape.attach_slots(matches)
 
     days = {}
     unscheduled = []
