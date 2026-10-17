@@ -58,7 +58,9 @@ def _workspace_root():
 ROOT = _workspace_root()
 
 BACKEND = (os.environ.get('VENT_BACKEND') or os.path.join(ROOT, 'V-ENT-BACKEND'))
-FRONTEND = os.path.join(ROOT, 'V-ENT-FRONTEND')
+# The frontend being committed when the hook names it (VENT_FRONTEND), else
+# the main checkout, for the same reason as BACKEND above (P8, 17 October 2026).
+FRONTEND = (os.environ.get('VENT_FRONTEND') or os.path.join(ROOT, 'V-ENT-FRONTEND'))
 
 
 def read(*parts):
@@ -298,6 +300,25 @@ PAIRS = [
         'event had no organiser cancel at all and the admin cancel refunded nobody.',
         'event', (BACKEND, 'vent_event/views_delete.py', r'def cancel_event[\s\S]*refund_event'),
         'tournament', (BACKEND, 'vent_tournament/views_bracket.py', r'def cancel_tournament[\s\S]*tx_type=.refund.'),
+    ),
+
+    # P8, approved sites (design 14c): an event's tickets and a tournament's
+    # widgets are one embed feature, so locking them to the organiser's own
+    # websites, and counting views per website, exist on both or on neither.
+    (
+        'approved sites are offered on both consoles',
+        'Locking embeds to proven websites built for one kind of record is the '
+        'other kind framable by anybody, with nothing on its console to say so.',
+        'event', (FRONTEND, 'src/components/event-site/EventSitePanel.js', r'<ApprovedSites kind="event"'),
+        'tournament', (FRONTEND, 'src/components/embed-sites/TournamentEmbedPanel.js',
+                       r'<ApprovedSites kind="tournament"'),
+    ),
+    (
+        'an embed counts its views per website',
+        'Views per website on one console and an empty list on the other reads '
+        'as nobody having embedded it.',
+        'event', (FRONTEND, 'src/components/embed/EmbedEvent.js', r'<EmbedFrame kind="event"'),
+        'tournament', (FRONTEND, 'src/components/embed/EmbedTournament.js', r'<EmbedFrame kind="tournament"'),
     ),
 ]
 
