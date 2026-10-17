@@ -21,6 +21,7 @@ from rest_framework.response import Response
 from vent.settings import FRONTEND_URL
 from vent_auth import inputs
 from vent_auth.slugs import find_by_ref
+from vent_tournament import match_shape
 
 from . import (studio_delivery, studio_events, studio_links, studio_schema, studio_scoring,
                studio_signing)
@@ -237,7 +238,7 @@ def next_match(request, slug, account_id):
                   'best_of': match.best_of or 1, 'scheduled_at': match.scheduled_at,
                   'check_in_deadline': match.check_in_deadline},
         'side': side,
-        'opponent': {'name': other.entrant_name if other is not None else None},
+        'opponent': {'name': match_shape.names(other)[0]},
         'session': {'ref': session.ref, 'state': session.state, 'join': session.join or {}}
         if session is not None else None,
     }}, 'Next match')

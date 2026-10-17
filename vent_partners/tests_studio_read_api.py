@@ -112,12 +112,16 @@ class NextMatchTests(TestCase):
     def test_the_linked_player_s_next_match(self):
         BracketMatch.objects.filter(pk=self.f.match.pk).update(
             scheduled_at=timezone.now() + timedelta(hours=1))
+        # The opponent is named as every screen names a person: the full
+        # name, never the bare username (display names catcher, 17 Oct 2026).
+        self.f.p2.full_name = 'Side Two Person'
+        self.f.p2.save(update_fields=['full_name'])
         res = self.client.get(self.path, **self.auth)
         self.assertEqual(res.status_code, 200, res.content)
         data = res.json()['data']['next_match']
         self.assertEqual(data['tournament']['slug'], self.f.tournament.slug)
         self.assertEqual(data['side'], 1)
-        self.assertEqual(data['opponent']['name'], 'side_two')
+        self.assertEqual(data['opponent']['name'], 'Side Two Person')
         self.assertEqual(data['match']['round'], 1)
         self.assertIsNone(data['session'])
 
