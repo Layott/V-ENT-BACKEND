@@ -233,6 +233,10 @@ def rows_for(line, rows=None):
     sends what the battle royale engine qualifies, with each squad's head start.
     """
     from . import formats, stage_engine
+    if line.is_circuit_line:
+        # A circuit ranking (P5c): its places, best first, as feed rows.
+        from . import feeds
+        return feeds.circuit_rows(line)
     stage = line.source
     fmt = formats.get(stage.format)
     key = fmt.key if fmt else stage.format
@@ -273,7 +277,7 @@ def _by_record(line, rows):
     reordered on record, across groups (copies, so each row keeps the rank it
     had inside its own group)."""
     from . import ranking
-    if getattr(line.target, 'placement', None) != 'by_record' or not rows:
+    if line.is_circuit_line or getattr(line.target, 'placement', None) != 'by_record' or not rows:
         return rows
     by_id = {r['registration_id']: r for r in rows}
     across = ranking.order([dict(r) for r in rows], ['goal_difference', 'goals_for', 'seed'])
@@ -288,6 +292,11 @@ def _sent_row(row, carry_points):
     if row.get('source_registration_id'):
         out['source_registration_id'] = row['source_registration_id']
         out['reused'] = bool(row.get('reused'))
+    if row.get('source_entrant'):
+        # Sent from a circuit ranking (P5c): who it was there, `user:<id>` or
+        # `team:<id>`, since a ranking has no registrations.
+        out['source_entrant'] = row['source_entrant']
+        out['reused'] = bool(row.get('reused'))
     return out
 
 
@@ -296,6 +305,9 @@ def fire(line, user, order=None):
     from django.utils import timezone
     from . import stage_engine
     rows = sending(line) if not order else rows_for(line)
+    if order and line.is_circuit_line:
+        # A ranking sends in its own order; there is no field to reorder.
+        raise stage_engine.StageEngineError('NOT_IN_THIS_STAGE', 'order')
     if order:
         allowed = set(line.source.entrants or [])
         wanted = [int(i) for i in order]
@@ -307,10 +319,11 @@ def fire(line, user, order=None):
         every = {r['registration_id']: r for r in stage_engine.standings(line.source)}
         rows = [dict(every[i], carry=carry.get(i) or every[i].get('carry') or 0)
                 for i in wanted if i in every]
-    if line.source.tournament_id != line.target.tournament_id:
-        # A feed (P2): the qualifiers are registered in the target, and the
-        # rows sent are those target registrations.
-        from . import feeds
+    from . import feeds
+    if feeds.is_feed(line):
+        # A feed (P2), or a circuit ranking (P5c): the qualifiers are
+        # registered in the target, and the rows sent are those target
+        # registrations.
         rows = feeds.qualify(line, rows)
     line.sent = [_sent_row(r, line.carry_points) for r in rows]
     line.fired_at = timezone.now()
@@ -356,6 +369,11 @@ def pull(line, user):
     source = line.source
     if line.fired_at is not None:
         raise stage_engine.StageEngineError('ALREADY_ADVANCED')
+    if line.is_circuit_line:
+        # A ranking has no stage to finish: the organiser pulls it when the
+        # season says so (P5c).
+        fire(line, user)
+        return stage_engine.fill_targets(user, [line])
     if not stage_engine.stage_finished(source):
         raise stage_engine.StageEngineError('STAGE_NOT_FINISHED', open=stage_engine.open_count(source))
     fire(line, user)

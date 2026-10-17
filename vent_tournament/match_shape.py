@@ -41,13 +41,27 @@ def entrant(reg):
     }
 
 
+def _from_place(slot, match):
+    """Where a waiting seat's place comes from: a stage (named with its
+    tournament when it is another one), or a circuit's ranking (P5c)."""
+    line = slot.progression
+    if line.is_circuit_line:
+        return {'stage': None, 'group': None, 'place': slot.source_place,
+                'circuit': line.source_circuit.name, 'tournament': None}
+    return {
+        'stage': line.source.label, 'group': slot.source_group, 'place': slot.source_place,
+        'tournament': (line.source.tournament.tournament_title
+                       if line.source.tournament_id != match.tournament_id else None),
+    }
+
+
 def attach_slots(matches):
     """Fetch every match's slots and their source matches in two queries."""
     from django.db.models import Prefetch, prefetch_related_objects
     from .models import MatchSlot
     prefetch_related_objects(list(matches), Prefetch(
         'slots', queryset=MatchSlot.objects.select_related(
-            'source_match', 'progression__source__tournament')))
+            'source_match', 'progression__source__tournament', 'progression__source_circuit')))
 
 
 def slot_rows(m):
@@ -71,12 +85,7 @@ def slot_rows(m):
             # A seat in a stage drawn early waits for a place (P1d), named
             # with its tournament when the place comes from another one (P2):
             # "Lagos Qualifier, League: place 1".
-            'from_place': None if s.kind != 'place' or s.progression is None else {
-                'stage': s.progression.source.label, 'group': s.source_group,
-                'place': s.source_place,
-                'tournament': (s.progression.source.tournament.tournament_title
-                               if s.progression.source.tournament_id != m.tournament_id else None),
-            },
+            'from_place': None if s.kind != 'place' or s.progression is None else _from_place(s, m),
         })
     return rows
 

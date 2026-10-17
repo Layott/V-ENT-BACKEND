@@ -7559,6 +7559,22 @@
    }
   },
   {
+   "name": "B cannot send a circuit ranking's places into A's tournament",
+   "route": "tournament/<str:tournament_id>/feeds/<int:feed_id>/pull/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/feeds/1/pull/",
+    "body": {}
+   },
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament named is public, so whether it exists is no secret"
+   }
+  },
+  {
    "name": "B cannot fill a declined place in A's tournament",
    "route": "tournament/<str:tournament_id>/feeds/<int:feed_id>/pick/",
    "attempt": {

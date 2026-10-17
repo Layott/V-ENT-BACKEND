@@ -600,3 +600,165 @@ class EloTests(TestCase):
         self.assertEqual(res.json()['data']['circuit']['elo_k'], 24)
         res = client_for(self.owner).patch(url, {'elo_k': 500}, format='json')
         self.assertEqual((res.status_code, res.json()['field']), (400, 'elo_k'))
+
+
+# ---------------------------------------------------------------------------
+# A circuit ranking as the source of a progression (P5c)
+# ---------------------------------------------------------------------------
+
+class CircuitLineTests(TestCase):
+    """Design section 13: "A circuit ranking can be the source of a
+    progression: top 8 of the season ranking go to the finals". The same
+    Progression row as a feed from another tournament, with the circuit as
+    its source; firing it registers the ranking's top places in the target
+    exactly as a feed does."""
+
+    def setUp(self):
+        from vent_tournament.tests_stage_engine import add_stage
+        self.game = Games.objects.get_or_create(game_title='EA FC 26')[0]
+        self.owner = person(full_name='Sadiq Bello')
+        self.players = [person(full_name=n) for n in ('Ada Obi', 'Bola Ade', 'Chidi Eze', 'Dayo Bello')]
+        self.circuit = Circuit.objects.create(
+            name='Naija FC Season 1', owner=self.owner, game=self.game, entrant='player',
+            default_table=tables.parse('1: 100, 2: 60, 3: 40, 4: 20'), is_published=True)
+        season, _ = finished(self.owner, self.game, {str(i): (p, i + 1) for i, p in enumerate(self.players)})
+        CircuitTournament.objects.create(circuit=self.circuit, tournament=season)
+        self.finals = make_tournament(self.owner)
+        self.finals.tournament_game = self.game
+        self.finals.save(update_fields=['tournament_game'])
+        self.own = [TournamentRegistration.objects.create(tournament=self.finals, user=person(), status='confirmed',
+                                                          seed=i + 1) for i in range(2)]
+        self.stage = add_stage(self.finals, 0, 'single_elimination', label='Finals',
+                               direct=[r.id for r in self.own])
+
+    def line(self, **extra):
+        from vent_tournament import feeds
+        values = dict(place_from=1, place_to=2, fire='manual')
+        values.update(extra)
+        return feeds.create_from_circuit(self.stage, self.circuit, self.owner, **values)
+
+    def pull(self, line):
+        from django.db import transaction
+        from vent_tournament import progressions
+        from vent_tournament.models import Progression
+        with transaction.atomic():
+            progressions.pull(Progression.objects.get(pk=line.pk), self.owner)
+        line.refresh_from_db()
+        return line
+
+    def made(self, line):
+        return list(TournamentRegistration.objects.filter(tournament=self.finals, qualified_via=line)
+                    .exclude(status__in=('withdrawn', 'declined')).order_by('source_place', 'id'))
+
+    def test_the_ranking_top_places_are_registered_in_the_target(self):
+        from vent_auth.models import Notification
+        line = self.line()
+        self.assertEqual((line.source_id, line.source_circuit_id, line.target_id),
+                         (None, self.circuit.pk, self.stage.pk))
+        with self.captureOnCommitCallbacks(execute=True):
+            line = self.pull(line)
+        made = self.made(line)
+        self.assertEqual([(m.user_id, m.source_place) for m in made],
+                         [(self.players[0].user_id, 1), (self.players[1].user_id, 2)])
+        self.assertTrue(all(m.status == 'confirmed' and m.entry_fee_paid and m.decline_until for m in made))
+        self.assertEqual({r['registration_id'] for r in line.sent}, {m.id for m in made})
+        self.assertIsNotNone(line.fired_at)
+        note = Notification.objects.filter(user=self.players[0]).latest('pk')
+        self.assertIn('Naija FC Season 1', note.body)
+
+    def test_refused_by_name(self):
+        from vent_tournament import feeds
+        other = person()
+        theirs = Circuit.objects.create(name='Not mine', owner=other, game=self.game, is_published=True)
+        other_game = Games.objects.get_or_create(game_title='Free Fire')[0]
+        ff = Circuit.objects.create(name='FF circuit', owner=self.owner, game=other_game, is_published=True)
+        clubs = Circuit.objects.create(name='Clubs', owner=self.owner, game=self.game, entrant='team',
+                                       is_published=True)
+        for circuit, extra, code in ((theirs, {}, 'FEED_NOT_MANAGER'),
+                                     (ff, {}, 'FEED_GAME_MISMATCH'),
+                                     (clubs, {}, 'FEED_ENTRY_TYPE_MISMATCH'),
+                                     (self.circuit, {'place_from': 3, 'place_to': 2}, 'FEED_PLACES'),
+                                     (self.circuit, {'on_decline': 'organiser'}, 'FEED_ON_DECLINE')):
+            values = dict(place_from=1, place_to=2, fire='manual')
+            values.update(extra)
+            with self.assertRaises(feeds.FeedError, msg=code) as caught:
+                feeds.create_from_circuit(self.stage, circuit, self.owner, **values)
+            self.assertEqual(caught.exception.code, code)
+
+    def test_somebody_already_entered_keeps_their_place(self):
+        already = TournamentRegistration.objects.create(tournament=self.finals, user=self.players[0],
+                                                        status='confirmed')
+        line = self.pull(self.line())
+        self.assertEqual(TournamentRegistration.objects.filter(tournament=self.finals,
+                                                               user=self.players[0]).count(), 1)
+        already.refresh_from_db()
+        self.assertEqual((already.qualified_via_id, already.source_place), (line.pk, 1))
+
+    def test_the_target_waits_for_the_ranking(self):
+        from vent_tournament import progressions
+        line = self.line()
+        self.assertFalse(progressions.ready(self.stage))
+        self.pull(line)
+        self.stage.refresh_from_db()
+        self.assertTrue(progressions.ready(self.stage) or self.stage.drawn_at is not None)
+
+    def test_a_declined_place_goes_to_the_next_in_the_ranking(self):
+        from django.db import transaction
+        from vent_tournament import feeds
+        line = self.pull(self.line())
+        second = next(m for m in self.made(line) if m.source_place == 2)
+        with transaction.atomic():
+            feeds.decline(second, self.players[1])
+        line.refresh_from_db()
+        self.assertEqual([(m.user_id, m.source_place) for m in self.made(line)],
+                         [(self.players[0].user_id, 1), (self.players[2].user_id, 3)])
+
+    def test_a_recall_hands_the_place_to_the_next_in_the_ranking(self):
+        from django.db import transaction
+        from vent_tournament import feeds
+        line = self.pull(self.line())
+        first = next(m for m in self.made(line) if m.source_place == 1)
+        preview = feeds.recall_preview(first)
+        self.assertEqual(preview['next']['name'], 'Chidi Eze')
+        with transaction.atomic():
+            feeds.recall(first, self.owner, mode='hand_on')
+        line.refresh_from_db()
+        self.assertIn(self.players[2].user_id, [m.user_id for m in self.made(line)])
+
+    def test_the_public_feed_rows_name_the_circuit(self):
+        from vent_tournament import feeds
+        line = self.line()
+        row = next(r for r in feeds.rows(self.finals)['incoming'] if r['id'] == line.pk)
+        self.assertEqual(row['source']['circuit'], {'slug': self.circuit.slug, 'name': 'Naija FC Season 1'})
+        self.assertIsNone(row['source']['stage_id'])
+        self.assertEqual(row['target']['stage_id'], self.stage.pk)
+
+    def test_the_doors(self):
+        base = '/tournament/%s/feeds/' % self.finals.slug
+        res = client_for(self.owner).post(base, {'target_stage': self.stage.pk, 'source_circuit': self.circuit.slug,
+                                                 'place_from': 1, 'place_to': 2, 'fire': 'manual'}, format='json')
+        self.assertEqual(res.status_code, 201, res.content[:300])
+        feed = res.json()['data']['feed']
+        self.assertEqual(feed['source']['circuit']['slug'], self.circuit.slug)
+        stranger = person()
+        res = client_for(stranger).post('%s%d/pull/' % (base, feed['id']), {}, format='json')
+        self.assertEqual(res.status_code, 403)
+        res = client_for(self.owner).post('%s%d/pull/' % (base, feed['id']), {}, format='json')
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.assertEqual(TournamentRegistration.objects.filter(tournament=self.finals,
+                                                               qualified_via_id=feed['id']).count(), 2)
+        res = client_for(self.owner).post('%s%d/pull/' % (base, feed['id']), {}, format='json')
+        self.assertEqual((res.status_code, res.json()['code']), (409, 'ALREADY_ADVANCED'))
+        public = self.client.get(base).json()['data']['incoming']
+        self.assertEqual([r['id'] for r in public], [feed['id']])
+        # The target's bracket reads with seats filled from a ranking.
+        res = self.client.get('/tournament/get-tournament-brackets/%s/' % self.finals.slug)
+        self.assertEqual(res.status_code, 200, res.content[:300])
+
+    def test_an_unsent_circuit_line_can_be_removed(self):
+        base = '/tournament/%s/feeds/' % self.finals.slug
+        line = self.line()
+        res = client_for(self.owner).delete('%s%d/' % (base, line.pk))
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        from vent_tournament.models import Progression
+        self.assertFalse(Progression.objects.filter(pk=line.pk).exists())
