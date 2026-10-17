@@ -313,9 +313,12 @@ def _maybe_complete(tournament_id):
         tournament.status = 'completed'
         tournament.completed_at = timezone.now()
         tournament.save(update_fields=['status', 'completed_at'])
-        from .. import happenings
+        from .. import feeds, happenings
         happenings.closed(last)
         happenings.won(tournament)
+        # A qualifier's last stage closing by itself sends its feeds that go
+        # on close (P2): its result was the last thing they waited for.
+        feeds.send_on_close(last)
         return
 
     assign_final_positions(tournament)
