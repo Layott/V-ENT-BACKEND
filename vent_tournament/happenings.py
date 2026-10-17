@@ -37,7 +37,14 @@ def record(kind, tournament_id, *, stage=None, match_id=None, **data):
 
 
 def _name(reg):
-    return (reg.entrant_name or None) if reg is not None else None
+    """The name every screen shows (`match_shape.names`): a person's full
+    name, a team's or squad's own. `entrant_name` gave the username, so the
+    ticker read "demo_amara" beside a bracket reading "Amara Nwosu" (walk,
+    17 October 2026)."""
+    if reg is None:
+        return None
+    from .match_shape import names
+    return names(reg)[0]
 
 
 def result(match):
