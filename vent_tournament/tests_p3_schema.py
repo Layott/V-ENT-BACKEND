@@ -363,5 +363,6 @@ class SchemaRefusalReachesTheScreenTests(TestCase):
     def test_the_planner_reads_the_ready_made_brackets(self):
         res = self.client.get('/tournament/%s/stages/' % self.t.tournament_id)
         keys = [p['key'] for p in res.json()['data']['custom_presets']]
-        self.assertEqual(keys, ['shaughnessy', 'afl_final_eight', 'compass', 'feed_in_consolation'])
+        self.assertEqual(keys, ['shaughnessy', 'afl_final_eight', 'compass', 'feed_in_consolation',
+                                'repechage', 'triple_elimination'])
 

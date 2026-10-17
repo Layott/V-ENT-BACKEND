@@ -30,7 +30,10 @@ Organisers write it in toornament's line language (research section 4.7):
 
 `[WB]`, `[LB]`, `[GF]` and `[PL]` set the side of the matches below them,
 `@east` their branch (`@` alone clears it), `-` is a bye, and rounds left out
-are worked out from the sources. Every refusal is a code with the match or line
+are worked out from the sources. Two more sources (P3 W2b): `R:GF1` in both
+seats is the first final played again only if its second seat wins it (a
+reset), and `X:F:1:2` is whoever lost to the finalist in seat 1 of match F
+in round 2 (a repechage seat, filled when that finalist is known). Every refusal is a code with the match or line
 it is about, never a sentence, so the screen can say it in the organiser's
 language.
 """
@@ -38,7 +41,7 @@ import re
 
 SIDES = {'WB': 'winners', 'LB': 'losers', 'GF': 'grand_final', 'PL': 'placement'}
 SIDE_VALUES = tuple(SIDES.values())
-SOURCES = ('seed', 'winner', 'loser', 'bye')
+SOURCES = ('seed', 'winner', 'loser', 'bye', 'reset', 'lost_to')
 MAX_MATCHES = 512
 MAX_ROUND = 64
 MAX_PLACE = 1024
@@ -68,6 +71,12 @@ def _opponent(token, line):
     kind, _, ref = token.partition(':')
     if kind.upper() in ('W', 'L') and _ID_ONLY.match(ref):
         return {'winner' if kind.upper() == 'W' else 'loser': ref}
+    if kind.upper() == 'R' and _ID_ONLY.match(ref):
+        return {'reset': ref}
+    if kind.upper() == 'X':
+        parts = ref.split(':')
+        if len(parts) == 3 and _ID_ONLY.match(parts[0]) and parts[1] in ('1', '2') and parts[2].isdigit():
+            return {'lost_to': parts[0], 'side': int(parts[1]), 'round': int(parts[2])}
     raise SchemaError('SCHEMA_LINE', line=line)
 
 
@@ -115,10 +124,15 @@ def parse(text):
         # Rounds left out: one after the latest match a match is fed by.
         rounds = {}
         for m in matches:
-            fed = [rounds.get(s.get('winner') or s.get('loser'), 0) for s in m['slots']]
+            fed = [rounds.get(_ref(s), 0) for s in m['slots']]
             rounds[m['id']] = max(fed + [0]) + 1
             m['round'] = rounds[m['id']]
     return {'matches': matches}
+
+
+def _ref(slot):
+    """The match a slot takes its side from, or None (a seed, a bye)."""
+    return slot.get('winner') or slot.get('loser') or slot.get('reset') or slot.get('lost_to')
 
 
 def _value(match, key, low, high, allow_none=False):
@@ -165,7 +179,8 @@ def check(schema):
             raise SchemaError('SCHEMA_TWO_SLOTS', match=m['id'])
         for slot in slots:
             keys = [k for k in SOURCES if isinstance(slot, dict) and k in slot]
-            if len(keys) != 1 or len(slot) != 1:
+            extra = {'side', 'round'} if keys == ['lost_to'] else set()
+            if len(keys) != 1 or set(slot) != {keys[0]} | extra:
                 raise SchemaError('SCHEMA_SLOT_SOURCE', match=m['id'])
             kind = keys[0]
             if kind == 'seed':
@@ -182,6 +197,35 @@ def check(schema):
                     raise SchemaError('SCHEMA_WINNER_TWICE' if kind == 'winner' else 'SCHEMA_LOSER_TWICE',
                                       match=m['id'])
                 used[kind][ref] = m['id']
+            elif kind == 'reset':
+                ref = slot['reset']
+                if ref not in by_id:
+                    raise SchemaError('SCHEMA_UNKNOWN_MATCH', match=m['id'])
+                if by_id[ref]['round'] >= m['round']:
+                    raise SchemaError('SCHEMA_ROUND_ORDER', match=m['id'])
+            elif kind == 'lost_to':
+                ref = slot['lost_to']
+                if ref not in by_id:
+                    raise SchemaError('SCHEMA_UNKNOWN_MATCH', match=m['id'])
+                if slot.get('side') not in (1, 2) or not isinstance(slot.get('round'), int):
+                    raise SchemaError('SCHEMA_VALUE', match=m['id'])
+                # Lost to the finalist before the final, and drawn no earlier
+                # than the final: that is when the finalist is known.
+                if not 1 <= slot['round'] < by_id[ref]['round'] or by_id[ref]['round'] > m['round']:
+                    raise SchemaError('SCHEMA_ROUND_ORDER', match=m['id'])
+        resets = [s['reset'] for s in slots if 'reset' in s]
+        if resets:
+            # A reset is both seats of the replay, from one match, whose winner
+            # goes nowhere else.
+            if len(resets) != 2 or resets[0] != resets[1]:
+                raise SchemaError('SCHEMA_SLOT_SOURCE', match=m['id'])
+            if resets[0] in used['winner']:
+                raise SchemaError('SCHEMA_WINNER_TWICE', match=m['id'])
+            # The replay is decided by the grand final rules in advance.py,
+            # which read the grand final side.
+            if m.get('side') != 'grand_final' or by_id[resets[0]].get('side') != 'grand_final':
+                raise SchemaError('SCHEMA_RESET_SIDE', match=m['id'])
+            used['winner'][resets[0]] = m['id']
         if all('bye' in s for s in slots):
             raise SchemaError('SCHEMA_EMPTY_MATCH', match=m['id'])
     if _has_cycle(by_id):
@@ -208,7 +252,7 @@ def _has_cycle(by_id):
     def visit(ident):
         state[ident] = 1
         for slot in by_id[ident]['slots']:
-            ref = slot.get('winner') or slot.get('loser')
+            ref = _ref(slot)
             if ref is None:
                 continue
             if state.get(ref) == 1 or (state.get(ref) is None and visit(ref)):
@@ -269,7 +313,14 @@ def compile_into(tournament, stage, ordered, settings):
     for m in matches:
         match = rows[m['id']]
         seated, waiting = [], False
+        if any('reset' in s for s in m['slots']):
+            match_slots.link_reset(rows[m['slots'][0]['reset']], match)
+            continue
         for index, slot in enumerate(m['slots'], start=1):
+            if 'lost_to' in slot:
+                match_slots.wait_lost_to(match, index, rows[slot['lost_to']], slot['side'], slot['round'])
+                waiting = True
+                continue
             if 'winner' in slot or 'loser' in slot:
                 outcome = 'winner' if 'winner' in slot else 'loser'
                 match_slots.link(rows[slot[outcome]], outcome, match, index)

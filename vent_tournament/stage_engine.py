@@ -644,7 +644,10 @@ def custom_places(matches):
     round they went out in, later rounds first, after the last stated place."""
     place = {}
     stated = 0
-    for m in matches:
+    # The final first, then later rounds before earlier ones: a replayed
+    # final (a reset) states places that the first one's statement must not
+    # take first.
+    for m in sorted(matches, key=lambda x: (not x.is_final, -x.round_number)):
         win_at = m.winner_place or (1 if m.is_final else None)
         lose_at = m.loser_place or (2 if m.is_final else None)
         stated = max([stated] + [p for p in (win_at, lose_at) if p])
@@ -1160,6 +1163,10 @@ def on_match_resolved(match):
         # A reseeded knockout seats the next round once this one is decided.
         from . import match_slots
         match_slots.sync_reseeded(stage)
+    elif stage.format == 'custom_bracket' and stage.matches.filter(slots__kind='lost_to').exists():
+        # A repechage seats its rounds once the finalists are known (P3 W2b).
+        from . import match_slots
+        match_slots.sync_lost_to(stage)
     # A line set to go as soon as the stage ends goes now (P1b, design 477).
     _close_by_itself(stage)
 

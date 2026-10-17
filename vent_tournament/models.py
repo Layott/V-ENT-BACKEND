@@ -982,6 +982,9 @@ class MatchSlot(models.Model):
         # is decided, by the survivor at this rank of seed (`source_place`),
         # the best remaining against the worst remaining.
         ('reseed', 'A place among those still in'),
+        # A repechage seat (P3 W2b): whoever lost to the finalist in seat
+        # `source_group` of `source_match`, in round `source_place`.
+        ('lost_to', 'Lost to a finalist'),
         ('open', 'Not decided by the bracket'),
     )
 
