@@ -736,7 +736,11 @@ def feed(request, token):
                 event_block['next_on'] = (run_of_show.get('next') or {}).get('activity') or ''
                 event_block['next_room'] = (run_of_show.get('next') or {}).get('owner') or ''
 
-        return _ok({
+        # Everything the public event feed sends, then what the studio adds
+        # or answers differently. A hand-picked list here dropped `asset` and
+        # `fonts`, and the tournament branch dropped five keys the same way
+        # (walk, 17 October 2026).
+        return _ok(dict(data, **{
             'session': {'id': session.id, 'name': session.name,
                         'is_live': True, 'theme': session.theme,
                         'style': session.style or {}},
@@ -756,7 +760,7 @@ def feed(request, token):
             'version': '%s|%s|%s|%s' % (_version(session, elements),
                                         data.get('version', ''), len(assets),
                                         run_stamp),
-        }, 'Studio feed')
+        }), 'Studio feed')
 
     from .views_overlay_feed import (BLANK_BATTLE_ROYALE, BLANK_RIVALRY,
                                      overlay_feed, run_of_show_for)
@@ -771,7 +775,12 @@ def feed(request, token):
     # when the clock passes 14:00 and no row in any table moves when it does.
     run_of_show, run_stamp = run_of_show_for(session.tournament,
                                              include_private=True)
-    return _ok({
+    # Everything the public tournament feed sends (the bracket drawn from its
+    # seats and the list of what happened included, P1e), then what the
+    # studio adds or answers differently. It forwarded a hand-picked list, so
+    # `bracket`, `happenings`, `lineups`, `asset` and `fonts` never reached a
+    # studio element (walk, 17 October 2026).
+    return _ok(dict(data, **{
         'session': {'id': session.id, 'name': session.name,
                     'is_live': True, 'theme': session.theme,
                     'style': session.style or {}},
@@ -796,4 +805,4 @@ def feed(request, token):
         'version': '%s|%s|%s|%s' % (_version(session, elements),
                                     data.get('version', ''), len(assets),
                                     run_stamp),
-    }, 'Studio feed')
+    }), 'Studio feed')

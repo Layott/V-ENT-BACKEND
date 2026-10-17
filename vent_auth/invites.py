@@ -160,6 +160,7 @@ def claim_pending(user):
 
 #: How a role reads in a sentence ('as door staff', never 'as door').
 ROLE_WORDS = {'door': 'door staff', 'scorekeeper': 'scorekeeper', 'manager': 'manager',
+              'staff': 'tournament staff',
               'admin': 'admin', 'member': 'member'}
 
 #: The English the notification and the email carry. The screen translates the
@@ -212,20 +213,24 @@ def _tell(user, invite):
     )
 
 
-def offer_role(kind, target, email, role, inviter):
+def offer_role(kind, target, email, role, inviter, scopes=None):
     """Offer a role on an event or a tournament to an address with no account,
     and email them the link. A second offer to the same address for the same
-    thing corrects the first rather than sending two."""
+    thing corrects the first rather than sending two.
+
+    `scopes` is what a tournament helper will hold once they accept
+    (vent_tournament.access.PERMISSIONS, already cleaned by the caller)."""
     from .models import RoleInvite
     field = 'event' if kind == RoleInvite.KIND_EVENT else 'tournament'
+    scopes = list(scopes or [])
     invite = RoleInvite.objects.filter(**{field: target}, email__iexact=email,
                                        status=RoleInvite.STATUS_PENDING).first()
     if invite is None:
         invite = RoleInvite.objects.create(kind=kind, **{field: target}, email=email,
-                                           role=role, invited_by=inviter)
+                                           role=role, scopes=scopes, invited_by=inviter)
     else:
-        invite.role, invite.invited_by = role, inviter
-        invite.save(update_fields=['role', 'invited_by'])
+        invite.role, invite.scopes, invite.invited_by = role, scopes, inviter
+        invite.save(update_fields=['role', 'scopes', 'invited_by'])
     send_invitation_email(invite)
     return invite
 
@@ -332,10 +337,14 @@ def answer(invite, user, accept):
             row.role = invite.role
             row.save(update_fields=['role'])
     else:
+        from vent_tournament.access import PERMISSIONS
         from vent_tournament.models import TournamentStaff
+        # What the invitation offered; an invitation written before P7 (role
+        # 'scorekeeper', no scopes) offered results and nothing else.
+        offered = [name for name in PERMISSIONS if name in set(invite.scopes or [])] or ['report']
         TournamentStaff.objects.get_or_create(
             tournament=invite.tournament, user=user,
-            defaults={'role': 'scorekeeper', 'added_by': invite.invited_by})
+            defaults={'permissions': offered, 'added_by': invite.invited_by})
 
     if invite.invited_by_id:
         from .views_notifications import create_notification

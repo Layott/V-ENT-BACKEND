@@ -29,6 +29,7 @@ from . import views_layers
 from . import views_runsheet
 from . import views_staff
 from . import views_duplicate
+from . import views_blueprints
 from . import views_registration_draft
 from . import views_assets
 from . import views_export
@@ -37,6 +38,7 @@ from . import views_reminders
 from . import views_scheduled
 from . import views_requirements
 from . import views_stages
+from . import views_feeds
 from . import views_bracket_edit
 from . import views_match_day
 from . import views_prizes
@@ -55,6 +57,13 @@ from . import views_rules
 # Slug or id, everywhere. A route that takes only one of the two is a route half
 # the product cannot call.
 urlpatterns = [
+    # Blueprints and recurring tournaments (P7). Fixed words first, so
+    # "blueprints" is never read as a tournament reference.
+    path("blueprints/", views_blueprints.blueprint_list, name="tournament_blueprints"),
+    path("blueprints/<str:blueprint_ref>/", views_blueprints.blueprint_detail,
+         name="tournament_blueprint"),
+    path("blueprints/<str:blueprint_ref>/make/", views_blueprints.blueprint_make,
+         name="tournament_blueprint_make"),
     # A registration saved as it goes (inbox 436). The list is first, so its
     # fixed words are never read as a tournament reference.
     path("registration-drafts/mine/", views_registration_draft.my_registration_drafts,
@@ -121,10 +130,16 @@ urlpatterns = [
     path('<str:tournament_id>/rules/', views_rules.tournament_rules, name='tournament_rules'),
     # Who may enter, what they still owe, and the queue of what a person checks.
     path('<str:tournament_id>/stages/', views_stages.tournament_stages, name='tournament_stages'),
+    path('<str:tournament_id>/feeds/', views_feeds.tournament_feeds, name='tournament_feeds'),
+    path('<str:tournament_id>/feeds/<int:feed_id>/', views_feeds.delete_feed, name='tournament_feed_delete'),
+    path('<str:tournament_id>/feeds/<int:feed_id>/pick/', views_feeds.pick_place, name='tournament_feed_pick'),
+    path('<str:tournament_id>/qualifiers/<int:registration_id>/decline/', views_feeds.decline_place, name='tournament_qualifier_decline'),
+    path('<str:tournament_id>/qualifiers/<int:registration_id>/recall/', views_feeds.recall_place, name='tournament_qualifier_recall'),
     path('<str:tournament_id>/stages/set/', views_stages.set_stages, name='set_stages'),
     path('<str:tournament_id>/stages/<int:stage_id>/advance/', views_stages.advance_stage, name='advance_stage'),
     path('<str:tournament_id>/stages/<int:stage_id>/advance/preview/', views_stages.advance_preview, name='advance_preview'),
     path('<str:tournament_id>/stages/<int:stage_id>/draw/', views_stages.draw_stage, name='draw_stage'),
+    path('<str:tournament_id>/stages/<int:stage_id>/lines/<int:line_id>/pull/', views_stages.pull_line, name='stage_line_pull'),
     # Editing a started tournament and the brackets inside it (inbox 450, 452).
     path('<str:tournament_id>/stages/adopt/', views_bracket_edit.adopt, name='stages_adopt'),
     path('<str:tournament_id>/stages/<int:stage_id>/undraw/', views_bracket_edit.undraw, name='stage_undraw'),

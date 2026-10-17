@@ -32,6 +32,7 @@ from vent_auth.actors import actor_from_request, may_override
 from vent_auth import premium
 
 from . import documents
+from . import match_shape
 from .models import Tournament, TournamentInvite, TournamentRegistration
 from vent_auth.text import count as _count
 from vent_auth import inputs
@@ -313,7 +314,7 @@ def registrations(request, tournament_id):
                 'registered_at': r.registered_at,
                 # One accessor, so a squad is listed by its own name rather
                 # than blank and typed as a team.
-                'name': r.entrant_name,
+                'name': match_shape.names(r)[0],
                 'type': r.entrant_kind,
             } for r in rows],
             'pending': rows.filter(status='pending').count(),

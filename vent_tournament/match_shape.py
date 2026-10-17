@@ -46,7 +46,8 @@ def attach_slots(matches):
     from django.db.models import Prefetch, prefetch_related_objects
     from .models import MatchSlot
     prefetch_related_objects(list(matches), Prefetch(
-        'slots', queryset=MatchSlot.objects.select_related('source_match')))
+        'slots', queryset=MatchSlot.objects.select_related(
+            'source_match', 'progression__source__tournament')))
 
 
 def slot_rows(m):
@@ -67,8 +68,22 @@ def slot_rows(m):
                 'is_final': src.is_final, 'winner_place': src.winner_place,
                 'loser_place': src.loser_place,
             },
+            # A seat in a stage drawn early waits for a place (P1d), named
+            # with its tournament when the place comes from another one (P2):
+            # "Lagos Qualifier, League: place 1".
+            'from_place': None if s.kind != 'place' or s.progression is None else {
+                'stage': s.progression.source.label, 'group': s.source_group,
+                'place': s.source_place,
+                'tournament': (s.progression.source.tournament.tournament_title
+                               if s.progression.source.tournament_id != m.tournament_id else None),
+            },
         })
     return rows
+
+
+def _rules(m):
+    from .match_rules import rules_of
+    return rules_of(m)
 
 
 def match_row(m, *, private=False):
@@ -109,6 +124,8 @@ def match_row(m, *, private=False):
         # it is.
         'has_room': bool(m.room_code),
         'slots': slot_rows(m),
+        # How it is played and where each rule comes from (P1c).
+        'rules': _rules(m),
     }
     if private:
         row['room_code'] = m.room_code
@@ -177,4 +194,4 @@ def select_related(qs):
     return qs.select_related(
         'participant_1__team', 'participant_1__user', 'participant_1__squad',
         'participant_2__team', 'participant_2__user', 'participant_2__squad',
-        'winner__team', 'winner__user', 'winner__squad', 'stage')
+        'winner__team', 'winner__user', 'winner__squad', 'stage', 'tournament')
