@@ -59,6 +59,26 @@ def _threshold(raw):
     return value
 
 
+# What a knockout that stops at a threshold can send its qualifiers into:
+# whatever a group or a Swiss stage feeds (P3 W1). Played to one winner, a
+# knockout decides the tournament and feeds nothing.
+QUALIFIER_FEEDS = ('single_elimination', 'double_elimination', 'round_robin', 'league',
+                   'swiss', 'stepladder', 'page_playoff', 'gsl')
+
+
+def feeds_into(format_key, settings=None):
+    """The formats a stage of `format_key`, set up as `settings`, may send
+    people into. A format's own list, except that a single or double
+    elimination with a threshold has qualifiers to send (walk of P3, 17
+    October 2026: its line was refused PROGRESSION_FORMAT_CANNOT_FOLLOW)."""
+    fmt = formats.get(format_key)
+    if fmt is None:
+        return ()
+    if fmt.key in ('single_elimination', 'double_elimination') and threshold_of(settings):
+        return QUALIFIER_FEEDS
+    return tuple(fmt.can_feed_into or ())
+
+
 def threshold_of(settings):
     """How many a knockout stage sends on without playing for places between
     them: its threshold, 2 for a double elimination with no grand final, or 0

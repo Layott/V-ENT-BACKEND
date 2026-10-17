@@ -72,7 +72,9 @@ class SettingsTests(TestCase):
 # A threshold bracket: drawn, played, ranked (Task A2)
 # ---------------------------------------------------------------------------
 
-from . import stage_engine, structure  # noqa: E402
+from django.db import transaction  # noqa: E402
+
+from . import formats, progressions, stage_engine, stages, structure  # noqa: E402
 from .tests_stage_engine import add_stage, draw, field, play_out  # noqa: E402
 
 
@@ -351,3 +353,42 @@ class QualifyingMatchTests(TestCase):
         stage = add_stage(t, 0, 'single_elimination', settings={'third_place': True})
         draw(stage, creator)
         self.assertFalse(any(r['qualifies'] for r in self.rows(stage).values()))
+
+
+class ThresholdFeedsTests(TestCase):
+    """A knockout that stops at a threshold has qualifiers, so it can feed the
+    next stage; one played to a winner still cannot (walk of P3 by session A,
+    17 October 2026: the plan answered PROGRESSION_FORMAT_CANNOT_FOLLOW)."""
+
+    def save(self, fmt, settings):
+        from . import bracket_edit
+        t, creator, _regs = field(16, fmt)
+        plan = [{'format': fmt, 'label': 'Phase 1', 'advances': 4, 'settings': settings},
+                {'format': 'single_elimination', 'label': 'Phase 2'}]
+        lines = [{'source': 0, 'target': 1, 'place_from': 1, 'place_to': 4}]
+        with transaction.atomic():
+            bracket_edit.save_plan(t, plan, creator, participants=16, raw_lines=lines)
+        return t
+
+    def test_a_single_elimination_with_a_threshold_feeds_a_playoff(self):
+        t = self.save('single_elimination', {'threshold': 4})
+        self.assertEqual(t.stages.count(), 2)
+
+    def test_a_double_elimination_with_a_threshold_feeds_a_playoff(self):
+        t = self.save('double_elimination', {'threshold': 4})
+        self.assertEqual(t.stages.count(), 2)
+
+    def test_a_knockout_played_to_a_winner_still_feeds_nothing(self):
+        from . import bracket_edit
+        for fmt in ('single_elimination', 'double_elimination'):
+            with self.subTest(fmt=fmt):
+                with self.assertRaises((bracket_edit.EditError, stages.StageError,
+                                        progressions.LineError)) as caught:
+                    self.save(fmt, {})
+                self.assertEqual(caught.exception.code, 'PROGRESSION_FORMAT_CANNOT_FOLLOW')
+
+    def test_the_rule(self):
+        self.assertIn('single_elimination', stage_settings.feeds_into('single_elimination', {'threshold': 2}))
+        self.assertEqual(stage_settings.feeds_into('single_elimination', {}), ())
+        self.assertEqual(stage_settings.feeds_into('round_robin', {}),
+                         formats.get('round_robin').can_feed_into)
