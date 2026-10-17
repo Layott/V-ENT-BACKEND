@@ -97,7 +97,29 @@ CARRY=/srv/vent/frontend-static-carry
 mkdir -p "$CARRY"
 [ -d .next/static ] && cp -r .next/static/. "$CARRY"/ || true
 
-pnpm build
+# A build that fails must leave the live servers what they read. 17 October
+# 2026: the build ran out of Node's default heap (about 2 GB) after `next
+# build` had already emptied .next/standalone and .next/static. The two
+# instances kept answering from memory, so pages loaded, but every file under
+# /images answered 400, a page's own webpack chunk 404'd, and an instance that
+# restarted would not have come back at all.
+#
+# So: a snapshot of the standalone output by hard links before the build (no
+# copy of the bytes, and the build's deletes cannot reach them), a heap that
+# fits this build, and on failure the snapshot and the carried chunks are put
+# back before the script stops, with the old build still serving.
+PREV=/srv/vent/frontend-standalone-prev
+rm -rf "$PREV"
+[ -d .next/standalone ] && cp -al .next/standalone "$PREV" || true
+
+if ! NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=6144}" pnpm build; then
+    echo "BUILD FAILED: putting back what the live servers read, then stopping"
+    rm -rf .next/standalone
+    [ -d "$PREV" ] && cp -al "$PREV" .next/standalone
+    mkdir -p .next/static
+    cp -rn "$CARRY"/. .next/static/ 2>/dev/null || true
+    exit 1
+fi
 
 cp -rn "$CARRY"/. .next/static/ 2>/dev/null || true   # old names back, new ones win
 cp -r  .next/static/. "$CARRY"/                       # and this build joins the carry
@@ -127,6 +149,9 @@ for PORT in "${PORTS[@]}"; do
 done
 
 systemctl is-active vent-api "vent-web@${PORTS[0]}" "vent-web@${PORTS[1]}"
+
+# Both instances run the new build now; the snapshot is no longer anybody's.
+rm -rf "$PREV"
 
 # `is-active` answers "is a process running", and on 10 September the answer
 # was yes while both instances served the PREVIOUS build: the documented path
