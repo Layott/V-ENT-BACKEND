@@ -874,6 +874,10 @@ class BracketMatch(models.Model):
         related_name='matches')
     # Which group inside the stage, 1 upward. Null outside a group stage.
     group_number = models.PositiveSmallIntegerField(null=True, blank=True)
+    # Which part of a custom bracket the match is in ("east", "consolation"),
+    # so the bracket draws one section per branch (P3 W2). Blank everywhere
+    # else, which is every bracket the generators draw.
+    branch = models.CharField(max_length=20, blank=True, default='')
 
     # How the match is played, fixed when it is drawn so a rule changed later
     # cannot rewrite a match already in progress. `best_of` counts games; 2 is

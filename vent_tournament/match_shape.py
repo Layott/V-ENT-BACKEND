@@ -105,6 +105,8 @@ def match_row(m, *, private=False):
         'match_id': m.id,
         'stage_id': m.stage_id,
         'group_number': m.group_number,
+        # The part of a custom bracket it is in (P3 W2), blank elsewhere.
+        'branch': m.branch,
         'round_number': m.round_number,
         'match_number': m.match_number,
         'bracket_side': m.bracket_side,

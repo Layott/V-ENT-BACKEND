@@ -113,7 +113,10 @@ def clean(raw):
     try:
         settings = stage_settings.clean(fmt.key, raw.get('settings'))
     except stage_settings.SettingsError as exc:
-        raise StageError(exc.code, 'settings.%s' % exc.field)
+        # With its code, so the screen translates it, and with where in a
+        # written schema it is ({'match': 'C'}, {'line': 3}) for it to say.
+        raise StageError('That stage setting cannot be saved.', 'settings.%s' % exc.field,
+                         code=exc.code, **exc.detail)
 
     # The stage's own scoring, checked by the module that ranks with it.
     try:
