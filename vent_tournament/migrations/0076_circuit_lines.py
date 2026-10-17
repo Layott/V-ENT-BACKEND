@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('vent_circuits', '0001_initial'),
-        ('vent_tournament', '0073_blueprints'),
+        ('vent_tournament', '0074_reseed_slot'),
     ]
 
     operations = [

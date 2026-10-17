@@ -46,7 +46,17 @@ CATALOGUE = {
     'aggregate_goals': ('goals_for', True),
     'maps_won': ('wins', True),
     'seed': ('seed', False),
+    # Read off who played whom (P3 W1, stage_engine._opponent_numbers).
+    'buchholz_cut1': ('buchholz_cut1', True),
+    'buchholz_median1': ('buchholz_median1', True),
+    'sonneborn_berger': ('sonneborn_berger', True),
+    'progressive': ('progressive', True),
+    'koya': ('koya', True),
+    'opponents_win_pct': ('opponents_win_pct', True),
+    'opp_opp_win_pct': ('opp_opp_win_pct', True),
 }
+
+BUCHHOLZ_FORMS = ('wins', 'points', 'wins_minus_losses')
 
 # What a table and a Swiss fall back to when nobody chose, which is what they
 # did before 16 October 2026, so a tournament nobody configured ranks the same.
@@ -158,7 +168,9 @@ def stage_rules(stage):
         'points_loss': pick('points_loss', 0),
         'points_bye': int(raw['points_bye']) if raw.get('points_bye') is not None else win,
         'tiebreakers': chosen,
-        'buchholz': raw.get('buchholz') if raw.get('buchholz') in ('wins', 'points') else 'wins',
+        'buchholz': raw.get('buchholz') if raw.get('buchholz') in BUCHHOLZ_FORMS else 'wins',
+        # The lowest an opponent's win percentage counts as (card game rule).
+        'owp_floor': int(raw['owp_floor']) if raw.get('owp_floor') is not None else 25,
     }
 
 
@@ -177,9 +189,13 @@ def offered(format_key):
     if definition is None or definition.advancement not in ('table', 'swiss'):
         return []                          # it ranks another way; see clean_rules
     computable = (set(CATALOGUE) - {'points'}) | {'head_to_head'}
-    generic = ['head_to_head', 'goal_difference', 'goals_for', 'goals_against', 'wins']
+    generic = ['head_to_head', 'goal_difference', 'goals_for', 'goals_against', 'wins',
+               'sonneborn_berger', 'progressive', 'opponents_win_pct', 'opp_opp_win_pct']
     if format_key == 'swiss':
-        generic.insert(0, 'buchholz')
+        generic[:0] = ['buchholz', 'buchholz_cut1', 'buchholz_median1']
+    else:
+        # Koya is a round robin tie-break: it needs everybody to have met.
+        generic.append('koya')
     wanted = [t for t in formats.tiebreakers_for(format_key) if t in computable] + generic + ['seed']
     return [t for t in dict.fromkeys(wanted) if t in computable]
 
@@ -215,7 +231,15 @@ def clean_rules(format_key, raw):
         allowed = set(offered(format_key))
         out['tiebreakers'] = [str(k) for k in raw['tiebreakers'] if str(k) in allowed][:12]
     if raw.get('buchholz') not in (None, ''):
-        if raw['buchholz'] not in ('wins', 'points'):
+        if raw['buchholz'] not in BUCHHOLZ_FORMS:
             raise RulesError('RULES_INVALID', 'buchholz')
         out['buchholz'] = raw['buchholz']
+    if raw.get('owp_floor') not in (None, ''):
+        try:
+            floor = int(raw['owp_floor'])
+        except (TypeError, ValueError):
+            raise RulesError('RULES_INVALID', 'owp_floor')
+        if not 0 <= floor <= 50:
+            raise RulesError('RULES_INVALID', 'owp_floor')
+        out['owp_floor'] = floor
     return out or None

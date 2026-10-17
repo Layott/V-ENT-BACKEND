@@ -200,16 +200,23 @@ def plan(raw_stages, *, participants=None, lines=False):
         if fmt.key == 'gsl' and stage['advances'] != 2:
             # Two leave every GSL group; the format fixes it.
             raise StageError('GSL_SENDS_TWO_PER_GROUP', 'advances', index)
+        if fmt.key == 'bracket_groups' and stage['advances'] > max(
+                stage_settings.threshold_of(stage['settings']), 1):
+            # A group's places below the ones that go through are shared, so
+            # it can send at most the number its bracket stops at (P3 W1).
+            raise StageError('BRACKET_GROUPS_SEND_QUALIFIERS', 'advances', index,
+                             code='BRACKET_GROUPS_SEND_QUALIFIERS')
 
         nxt = cleaned[index + 1]
-        if fmt.can_feed_into and nxt['format'] not in fmt.can_feed_into:
-            allowed = ', '.join(formats.get(k).label for k in fmt.can_feed_into)
+        feeds = stage_settings.feeds_into(fmt.key, stage['settings'])
+        if feeds and nxt['format'] not in feeds:
+            allowed = ', '.join(formats.get(k).label for k in feeds if formats.get(k))
             raise StageError(
                 '%s cannot feed into %s. It can feed into: %s.'
                 % (fmt.label, formats.get(nxt['format']).label, allowed),
                 'format', index + 1, code='FORMAT_CANNOT_FOLLOW',
                 previous=stage['label'])
-        if not fmt.can_feed_into:
+        if not feeds:
             raise StageError(
                 '%s decides a tournament on its own, so nothing can follow it.'
                 % fmt.label, 'format', index, code='FORMAT_FEEDS_NOTHING',

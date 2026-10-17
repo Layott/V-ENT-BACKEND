@@ -39,9 +39,16 @@ class FormatAliasTests(SimpleTestCase):
 
     def test_the_wizard_covers_every_format_the_backend_runs(self):
         # The other half of the same question: a format the platform supports
-        # and the wizard does not offer cannot be built by anybody.
+        # and the wizard does not offer cannot be built by anybody. A format
+        # declared stage only (bracket groups, P3 W1) is offered by the stage
+        # planner, which lists the server's catalogue, instead.
         resolved = {formats.get(v).key for v in WIZARD_VALUES}
-        self.assertEqual(resolved, set(formats.FORMATS))
+        self.assertEqual(resolved, {k for k, f in formats.FORMATS.items() if not f.stage_only})
+
+    def test_a_stage_only_format_feeds_something(self):
+        for key, definition in formats.FORMATS.items():
+            if definition.stage_only:
+                self.assertTrue(definition.can_feed_into, key)
 
     def test_swiss_system_is_swiss(self):
         self.assertEqual(formats.get('swiss-system').key, 'swiss')
