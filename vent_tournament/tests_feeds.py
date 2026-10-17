@@ -462,3 +462,25 @@ class QualifierEndpointTests(TestCase):
         self.assertEqual(res.status_code, 200, res.content)
         self.assertIn('drawn', res.json()['data'])
         self.assertEqual(stranger.get(base + 'qualifiers/%s/recall/' % first.id).status_code, 403)
+
+
+class PlaceholderTests(TestCase):
+    def test_a_seat_waiting_on_a_feed_names_the_other_tournament(self):
+        from . import match_shape
+        q, q_stage, finals, f_stage, line, creator = qualifier_and_finals(finals_own=0, n=4)
+        Progression.objects.filter(pk=line.pk).update(place_to=4)
+        with transaction.atomic():
+            stage_engine.draw(f_stage, creator, early=True)
+        m = f_stage.matches.filter(round_number=1).order_by('match_number').first()
+        place = [s for s in match_shape.match_row(m)['slots'] if s['kind'] == 'place'][0]['from_place']
+        self.assertEqual(place['tournament'], q.tournament_title)
+        self.assertEqual(place['stage'], 'League')
+
+    def test_a_seat_waiting_inside_one_tournament_names_no_tournament(self):
+        from . import match_shape
+        from .tests_draw_early import draw_early, groups_into_knockout
+        t, creator, first, ko = groups_into_knockout()
+        draw_early(ko, creator)
+        m = ko.matches.filter(round_number=1).order_by('match_number').first()
+        place = match_shape.match_row(m)['slots'][0]['from_place']
+        self.assertIsNone(place['tournament'])
