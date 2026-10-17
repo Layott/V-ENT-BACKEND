@@ -18,7 +18,7 @@ from rest_framework.response import Response
 
 from vent_auth.actors import actor_from_request
 
-from . import formats, match_shape, stage_engine, stage_settings, stages
+from . import formats, match_shape, ranking, stage_engine, stage_settings, stages
 from .access import may_manage
 from .models import TournamentRegistration
 
@@ -203,6 +203,13 @@ def tournament_stages(request, tournament_id):
         'single_format': not rows,
         'summary': stages.summary(cleaned) if cleaned else [],
         'catalogue': formats.catalogue(),
+        # Whole setups a stage can start from (P3 W1): the Counter-Strike
+        # Major Swiss today. Settings and scoring cleaned as the server keeps them.
+        'format_presets': {
+            key: {'format': p['format'],
+                  'settings': stage_settings.clean(p['format'], p['settings']),
+                  'rules': ranking.clean_rules(p['format'], p['rules'])}
+            for key, p in stage_settings.FORMAT_PRESETS.items()},
         'tournament_when': tournament_when,
         # The game's preset, so the builder can offer "use the FC Mobile
         # settings" and fill each stage with them.

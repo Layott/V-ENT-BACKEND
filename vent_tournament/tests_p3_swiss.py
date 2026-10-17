@@ -245,3 +245,14 @@ class DecisiveMatchTests(TestCase):
         pairs = [frozenset((m.participant_1_id, m.participant_2_id)) for m in swiss.matches.all()
                  if m.participant_2_id]
         self.assertEqual(len(pairs), len(set(pairs)), 'a rematch was drawn')
+
+
+class PresetServedTests(TestCase):
+    def test_the_stage_planner_reads_the_format_presets(self):
+        t, _creator, _regs = field(4)
+        res = self.client.get('/tournament/%s/stages/' % t.tournament_id)
+        self.assertEqual(res.status_code, 200, res.content)
+        valve = res.json()['data']['format_presets']['valve_major']
+        self.assertEqual(valve['format'], 'swiss')
+        self.assertEqual((valve['settings']['pairing'], valve['settings']['decisive_best_of']), ('valve', 3))
+        self.assertEqual(valve['rules']['buchholz'], 'wins_minus_losses')
