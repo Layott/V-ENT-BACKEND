@@ -38,6 +38,18 @@ from django.utils import timezone
 
 STEP_DAYS = {'day': 1, 'week': 7, 'fortnight': 14}
 
+#: The dates an edition moves with its start, per row duplicate() copies (the
+#: tournament, each stage, the one-to-one rows by name). A date left out opens
+#: or closes on the SOURCE's calendar: an EA FC edition two weeks on would have
+#: its lineup window shut before it began. tests_blueprints checks every date
+#: column of every copied row is moved here, reset by duplicate, or bookkeeping.
+MOVED = {
+    'tournament': ('start_date_and_time', 'end_date_and_time',
+                   'registration_opens_at', 'registration_closes_at'),
+    'stages': ('starts_at', 'ends_at'),
+    'lineup_rules': ('opens_at', 'closes_at', 'changes_open_at', 'changes_close_at'),
+}
+
 #: The most editions one blueprint makes in one run. Only a lead longer than
 #: several periods ever reaches more than one; this bounds a typo of 60 days on
 #: a daily blueprint to a handful of tournaments per run, not sixty.
@@ -166,15 +178,10 @@ def make_edition(bp, starts_at, *, scheduled=False):
         number = locked.next_number
         edition = duplicate(source, locked.owner, title=edition_title(locked, number))
         moved = starts_at - source.start_date_and_time
-        edition.start_date_and_time = starts_at
-        edition.end_date_and_time = source.end_date_and_time + moved
-        for name in ('registration_opens_at', 'registration_closes_at'):
-            value = getattr(source, name)
-            setattr(edition, name, value + moved if value else None)
+        fields = _move(edition, MOVED['tournament'], moved)
         edition.blueprint = locked
         edition.blueprint_edition = number
-        fields = ['start_date_and_time', 'end_date_and_time', 'registration_opens_at',
-                  'registration_closes_at', 'blueprint', 'blueprint_edition']
+        fields += ['blueprint', 'blueprint_edition']
         if locked.publish:
             # The same pair the edit door writes when an organiser publishes.
             edition.is_draft = False
@@ -182,14 +189,17 @@ def make_edition(bp, starts_at, *, scheduled=False):
             fields += ['is_draft', 'status']
         edition.save(update_fields=fields)
         for stage in edition.stages.all():
-            changed = []
-            for name in ('starts_at', 'ends_at'):
-                value = getattr(stage, name)
-                if value:
-                    setattr(stage, name, value + moved)
-                    changed.append(name)
+            changed = _move(stage, MOVED['stages'], moved)
             if changed:
                 stage.save(update_fields=changed)
+        for name, columns in MOVED.items():
+            if name in ('tournament', 'stages'):
+                continue
+            row = _one_to_one(edition, name)
+            if row is not None:
+                changed = _move(row, columns, moved)
+                if changed:
+                    row.save(update_fields=changed)
 
         locked.made += 1
         locked.next_number = number + 1
@@ -202,6 +212,26 @@ def make_edition(bp, starts_at, *, scheduled=False):
 
     bp.refresh_from_db()
     return edition
+
+
+def _move(row, columns, moved):
+    """Move each date in `columns` that is set by `moved`; the names changed."""
+    changed = []
+    for name in columns:
+        value = getattr(row, name)
+        if value:
+            setattr(row, name, value + moved)
+            changed.append(name)
+    return changed
+
+
+def _one_to_one(tournament, name):
+    """The one-to-one row `name` of `tournament`, or None when it has none."""
+    from django.core.exceptions import ObjectDoesNotExist
+    try:
+        return getattr(tournament, name)
+    except ObjectDoesNotExist:
+        return None
 
 
 def _tell_owner(bp, edition):

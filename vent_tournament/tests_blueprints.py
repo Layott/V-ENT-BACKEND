@@ -116,6 +116,43 @@ class MakeTests(TestCase):
         bp.refresh_from_db()
         self.assertEqual((bp.made, bp.next_number), (1, 2))
 
+    def test_a_lineup_window_moves_with_the_edition(self):
+        # An absolute window on the source would shut before the edition began.
+        from vent_cards.models import LineupRules
+        start = self.t.start_date_and_time
+        LineupRules.objects.create(tournament=self.t, enabled=True,
+                                   opens_at=start - timedelta(days=2), closes_at=start - timedelta(hours=1),
+                                   changes_open_at=start + timedelta(hours=3),
+                                   changes_close_at=start + timedelta(hours=4))
+        edition = blueprints.make_edition(a_blueprint(self.owner, self.t), self.when)
+        rules = LineupRules.objects.get(tournament=edition)
+        self.assertEqual((rules.opens_at, rules.closes_at, rules.changes_open_at, rules.changes_close_at),
+                         (self.when - timedelta(days=2), self.when - timedelta(hours=1),
+                          self.when + timedelta(hours=3), self.when + timedelta(hours=4)))
+        self.assertEqual(LineupRules.objects.get(tournament=self.t).opens_at, start - timedelta(days=2))
+
+    def test_every_date_an_edition_copies_is_decided(self):
+        # A date column added to anything duplicate() copies must be moved by
+        # an edition (blueprints.MOVED), reset by duplicate (RESET or
+        # SKIP_COLUMNS), or bookkeeping. Otherwise every edition carries the
+        # source's date for it, which is the fault this test was written for.
+        from django.db import models as dj
+        from . import duplicate
+        bookkeeping = {'created_at', 'updated_at'}
+        tables = {'tournament': (Tournament, duplicate.SKIP_COLUMNS),
+                  'stages': (TournamentStage, duplicate.RESET['TournamentStage'])}
+        for name in duplicate.ONE_TO_ONE + duplicate.MANY:
+            model = Tournament._meta.get_field(name).related_model
+            tables[name] = (model, duplicate.RESET.get(model.__name__, set()))
+        undecided = []
+        for name, (model, reset) in tables.items():
+            for field in model._meta.concrete_fields:
+                if not isinstance(field, dj.DateTimeField) or field.name in bookkeeping | set(reset):
+                    continue
+                if field.name not in blueprints.MOVED.get(name, ()):
+                    undecided.append('%s.%s' % (model.__name__, field.name))
+        self.assertEqual(undecided, [], 'move it in blueprints.MOVED or reset it in duplicate')
+
     def test_published_when_the_blueprint_says(self):
         edition = blueprints.make_edition(a_blueprint(self.owner, self.t, publish=True), self.when)
         self.assertFalse(edition.is_draft)
