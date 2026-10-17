@@ -320,3 +320,34 @@ class ReseedTests(TestCase):
         for a, b in ((2, 7), (3, 6), (4, 5)):
             win(match_of(stage, 1, a, b), a)
         self.assertEqual(pairs(stage, 2), [(2, 8), (3, 4)])
+
+
+class QualifyingMatchTests(TestCase):
+    """A screen titles the last round of a threshold bracket "Qualifying
+    round" and notes that its winner goes through: the server says which
+    matches those are."""
+
+    def rows(self, stage):
+        return {(m.bracket_side, m.round_number, m.match_number): match_shape.match_row(m)
+                for m in stage.matches.select_related('stage')}
+
+    def test_a_match_whose_winner_goes_through_says_so(self):
+        t, creator, _regs = field(8)
+        stage = add_stage(t, 0, 'single_elimination', settings={'threshold': 2})
+        draw(stage, creator)
+        rows = self.rows(stage)
+        self.assertEqual([k for k, r in sorted(rows.items()) if r['qualifies']],
+                         [('winners', 2, 1), ('winners', 2, 2)])
+
+    def test_both_brackets_of_a_double_elimination_qualify(self):
+        t, creator, _regs = field(8, 'double_elimination')
+        stage = add_stage(t, 0, 'double_elimination', settings={'grand_final': 'none'})
+        draw(stage, creator)
+        sides = sorted(k[0] for k, r in self.rows(stage).items() if r['qualifies'])
+        self.assertEqual(sides, ['losers', 'winners'])
+
+    def test_a_knockout_played_to_one_winner_has_no_qualifying_match(self):
+        t, creator, _regs = field(8)
+        stage = add_stage(t, 0, 'single_elimination', settings={'third_place': True})
+        draw(stage, creator)
+        self.assertFalse(any(r['qualifies'] for r in self.rows(stage).values()))

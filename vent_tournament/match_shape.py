@@ -88,6 +88,18 @@ def _rules(m):
     return rules_of(m)
 
 
+def _qualifies(m):
+    """Whether this match's winner goes through a stage that stops at a
+    threshold (P3 W1): nothing is drawn after it and it is not a final."""
+    if m.winner_to_match_id or m.is_final or m.bracket_side not in ('winners', 'losers'):
+        return False
+    stage = m.stage if m.stage_id else None
+    if stage is None:
+        return False
+    from .stage_settings import threshold_of
+    return bool(threshold_of(stage.settings))
+
+
 def match_row(m, *, private=False):
     row = {
         'match_id': m.id,
@@ -101,6 +113,8 @@ def match_row(m, *, private=False):
         # stepladder rung, a match for fifth).
         'winner_place': m.winner_place,
         'loser_place': m.loser_place,
+        # Its winner goes through a stage that stops at a threshold.
+        'qualifies': _qualifies(m),
         'participant_1': entrant(m.participant_1),
         'participant_2': entrant(m.participant_2),
         'winner': entrant(m.winner),

@@ -50,6 +50,11 @@ STAGED = [(8, 2), (12, 3), (16, 4)]
 # (name, format, settings, sizes)
 STAGE_ONLY = [
     ('de_reset', 'double_elimination', {'grand_final': 'reset'}, [4, 8, 11, 16]),
+    # P3 W1a, recorded when they were built (17 October 2026).
+    ('se_threshold', 'single_elimination', {'threshold': 4}, [8, 9, 16]),
+    ('se_reseed', 'single_elimination', {'reseed': True}, [6, 8]),
+    ('de_none', 'double_elimination', {'grand_final': 'none'}, [4, 8, 11]),
+    ('de_threshold', 'double_elimination', {'threshold': 4}, [8, 16]),
 ]
 
 
