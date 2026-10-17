@@ -19,7 +19,7 @@ from rest_framework.response import Response
 from vent_auth.actors import actor_from_request
 
 from . import formats, match_shape, stage_engine, stage_settings, stages
-from .access import may_manage
+from .access import MANAGE, may, may_manage, permissions_list, permissions_of
 from .models import TournamentRegistration
 
 from . import lookup
@@ -116,6 +116,30 @@ def _row(stage):
     }
 
 
+def _lines(tournament, rows):
+    """The lines between the stages (P1b). Stages made without the planner
+    have none stored until the engine first runs; they are shown as the chain
+    their order and advances describe, unsaved (`id` None), so the screen
+    always reads the flow the engine will follow."""
+    from . import progressions
+    stored = list(progressions.lines_of(tournament))
+    if stored:
+        return [{'id': l.id, 'source': l.source_id, 'target': l.target_id, 'group': l.group,
+                 'place_from': l.place_from, 'place_to': l.place_to, 'side': l.side,
+                 'carry_points': l.carry_points, 'fire': l.fire, 'order': l.order,
+                 'fired_at': l.fired_at, 'sent_count': len(l.sent or []),
+                 # Who went through, by name, for the public Path view (P1f).
+                 # Names and places only: the same facts the standings show.
+                 'sent': [{'registration_id': r.get('registration_id'), 'name': r.get('name'),
+                           'group': r.get('group'), 'rank': r.get('rank')}
+                          for r in (l.sent or [])]} for l in stored]
+    return [{'id': None, 'source': rows[l['source']].id, 'target': rows[l['target']].id,
+             'group': l['group'], 'place_from': l['place_from'], 'place_to': l['place_to'],
+             'side': l['side'], 'carry_points': l['carry_points'], 'fire': l['fire'],
+             'order': l['order'], 'fired_at': None, 'sent_count': 0, 'sent': []}
+            for l in progressions.chain(rows)]
+
+
 def _played_count(tournament, stage):
     from . import bracket_edit
     return bracket_edit.played_count(tournament, stage)
@@ -137,11 +161,13 @@ def _stage(tournament, stage_id):
     return stage, None
 
 
-def _manager(request, tournament):
+def _manager(request, tournament, permission=MANAGE):
+    """(user, error) for somebody who holds `permission` here (access.may):
+    'structure' to change the plan, 'place' to draw and send people on."""
     user, err = actor_from_request(request)
     if err:
         return None, err
-    if not may_manage(user, tournament):
+    if not may(user, tournament, permission):
         return None, _err('This is not your tournament to run.', 'NOT_YOURS',
                           status.HTTP_403_FORBIDDEN)
     return user, None
@@ -173,6 +199,7 @@ def tournament_stages(request, tournament_id):
     viewer = _viewer(request)
     return _ok({
         'stages': [_row(s) for s in rows],
+        'progressions': _lines(tournament, rows),
         # An empty list is the normal case and means the tournament runs as one
         # format from start to finish, which is what almost all of them do.
         'single_format': not rows,
@@ -187,6 +214,9 @@ def tournament_stages(request, tournament_id):
                     'knockout': stage_settings.clean('single_elimination', preset['knockout'])}
                    if preset else None),
         'can_manage': bool(viewer and may_manage(viewer, tournament)),
+        # What this viewer may do to the plan (P7): 'structure' changes it,
+        # 'place' draws stages and sends people on.
+        'permissions': permissions_list(permissions_of(viewer, tournament)),
         # Whether any stage has been drawn. The plan still saves after that;
         # drawn stages keep what was played (bracket_edit.save_plan).
         'locked': any(s.drawn_at for s in rows),
@@ -206,7 +236,7 @@ def set_stages(request, tournament_id):
     tournament, err = _find(tournament_id)
     if err:
         return err
-    user, err = _manager(request, tournament)
+    user, err = _manager(request, tournament, 'structure')
     if err:
         return err
 
@@ -228,13 +258,17 @@ def set_stages(request, tournament_id):
             rows = bracket_edit.save_plan(
                 tournament, request.data.get('stages'), user,
                 participants=tournament.registrations.filter(
-                    status__in=('pending', 'confirmed')).count() or None)
+                    status__in=('pending', 'confirmed')).count() or None,
+                # The lines between the stages (P1b); absent means the old
+                # planner's chain.
+                raw_lines=request.data.get('progressions'))
     except bracket_edit.EditError as exc:
         return _refused(exc)
 
     cleaned = [{'format': s.format, 'label': s.label, 'advances': s.advances,
                 'groups': s.groups, 'rules': s.rules} for s in rows]
     return _ok({'stages': [_row(s) for s in rows],
+                'progressions': _lines(tournament, rows),
                 'summary': stages.summary(cleaned) if cleaned else []}, 'Stages saved.')
 
 
@@ -250,7 +284,7 @@ def draw_stage(request, tournament_id, stage_id):
     tournament, err = _find(tournament_id)
     if err:
         return err
-    user, err = _manager(request, tournament)
+    user, err = _manager(request, tournament, 'place')
     if err:
         return err
     stage, err = _stage(tournament, stage_id)
@@ -265,7 +299,7 @@ def draw_stage(request, tournament_id, stage_id):
     # The first stage takes the same check-in guard the one-format draw has:
     # entrants who never checked in are not drawn over while the window says
     # they forfeit. This door skipped it (27 September 2026).
-    if stage.order == 0 or not tournament.stages.filter(order__lt=stage.order).exists():
+    if stage_engine.previous_stage(stage) is None:
         window = tournament_options.check_in_state(tournament, timezone.now())
         if window and window['closed'] and window['forfeit_without_check_in']:
             missing = tournament.registrations.filter(
@@ -283,7 +317,10 @@ def draw_stage(request, tournament_id, stage_id):
     try:
         with transaction.atomic():
             summary = stage_engine.draw(stage, user, strategy,
-                                        request.data.get('manual_order'))
+                                        request.data.get('manual_order'),
+                                        # Before the stages feeding it finish,
+                                        # every seat waiting for its place (P1d).
+                                        early=inputs.read_bool(request.data, 'early'))
     except stage_engine.StageEngineError as exc:
         return _engine_err(exc)
     stage.refresh_from_db()
@@ -298,7 +335,7 @@ def advance_preview(request, tournament_id, stage_id):
     tournament, err = _find(tournament_id)
     if err:
         return err
-    user, err = _manager(request, tournament)
+    user, err = _manager(request, tournament, 'place')
     if err:
         return err
     stage, err = _stage(tournament, stage_id)
@@ -314,7 +351,53 @@ def advance_preview(request, tournament_id, stage_id):
             status__in=('open', 'under_review'), match__stage=stage).count(),
         'advancing': stage_engine.advancing(stage) if stage.drawn_at else [],
         'standings': stage_engine.standings(stage),
+        # What each line would send (P1b), so the organiser sees who goes
+        # where before pressing Advance.
+        'lines': _line_preview(stage),
     }, 'Preview')
+
+
+def _line_preview(stage):
+    from . import progressions
+    out = []
+    for line in progressions.outgoing(stage):
+        rows = (line.sent or []) if line.fired_at else (
+            progressions.sending(line) if stage.drawn_at else [])
+        out.append({'id': line.id, 'target': line.target_id, 'target_label': line.target.label,
+                    'group': line.group, 'place_from': line.place_from,
+                    'place_to': line.place_to, 'side': line.side, 'fire': line.fire,
+                    'fired_at': line.fired_at,
+                    'rows': [{'registration_id': r['registration_id'], 'name': r.get('name'),
+                              'handle': r.get('handle'), 'group': r.get('group'),
+                              'rank': r.get('rank')} for r in rows]})
+    return out
+
+
+@api_view(['POST'])
+def pull_line(request, tournament_id, stage_id, line_id):
+    """POST /tournament/<ref>/stages/<sid>/lines/<lid>/pull/ - send a line
+    that waits for the organiser to press (P1b, design 477)."""
+    from . import progressions
+    tournament, err = _find(tournament_id)
+    if err:
+        return err
+    user, err = _manager(request, tournament, 'place')
+    if err:
+        return err
+    stage, err = _stage(tournament, stage_id)
+    if err:
+        return err
+    line = stage.outgoing.filter(pk=line_id).select_related('source', 'target').first()
+    if line is None:
+        return _err('No such line from this stage.', 'LINE_NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    try:
+        with transaction.atomic():
+            result = progressions.pull(line, user)
+    except stage_engine.StageEngineError as exc:
+        return _engine_err(exc)
+    stage.refresh_from_db()
+    return _ok({'stage': _row(stage), 'lines': result['lines'], 'draws': list(result['draws']),
+                'waiting': result['waiting']}, 'Sent.')
 
 
 @api_view(['POST'])
@@ -334,7 +417,7 @@ def advance_stage(request, tournament_id, stage_id):
     tournament, err = _find(tournament_id)
     if err:
         return err
-    user, err = _manager(request, tournament)
+    user, err = _manager(request, tournament, 'place')
     if err:
         return err
     stage, err = _stage(tournament, stage_id)
@@ -360,4 +443,6 @@ def advance_stage(request, tournament_id, stage_id):
         'next': _row(nxt) if nxt else None,
         'advanced': result['advanced'],
         'draw': result['draw'],
+        'lines': result['lines'],
+        'waiting': result['waiting'],
     }, 'Advanced.')

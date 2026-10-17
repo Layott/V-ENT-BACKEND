@@ -48,6 +48,13 @@ def _tournament(key):
     return find(key)
 
 
+def _format_key(value):
+    """The catalogue key for however a format was stored, or ''."""
+    from . import formats as format_catalogue
+    found = format_catalogue.get(value)
+    return found.key if found else ''
+
+
 def _url(request, image):
     """An absolute URL, because the overlay is loaded by OBS, not by the site.
 
@@ -935,8 +942,53 @@ def battle_royale_for(tournament, logos):
     return {'enabled': True, 'stage': stage.label, 'rows': rows}, stamp
 
 
+def bracket_for(tournament):
+    """Every drawn stage's matches, as the public bracket describes them (P1e).
+
+    CEO, 16 October 2026: "i aprove the design". Section 14b: "Brackets on
+    stream draw from slots, placeholders included". The same rows the bracket
+    page reads (`match_shape.rounds_of`), each seat saying where it comes from,
+    so a graphic can name "Winner of Round 2, match 1" or "Groups: group A,
+    place 1" before anybody has played, and can never disagree with the page.
+    Public fields only: no room codes.
+    """
+    from . import match_shape
+
+    def rounds(qs):
+        matches = list(match_shape.select_related(qs).order_by('round_number', 'match_number'))
+        return match_shape.rounds_of(matches) if matches else []
+
+    stages = [s for s in tournament.stages.all() if s.drawn_at]
+    if not stages:
+        found = rounds(tournament.bracket_matches.all())
+        return [{'stage_id': None, 'label': '', 'format': tournament.bracket_type,
+                 'status': tournament.status, 'rounds': found}] if found else []
+    out = []
+    for s in stages:
+        found = rounds(s.matches.all())
+        if found:
+            out.append({'stage_id': s.id, 'label': s.label, 'format': s.format,
+                        'status': s.status, 'rounds': found})
+    return out
+
+
+def _bracket_stamp(bracket):
+    """Moves when a seat fills, a score changes or a stage is drawn: the
+    version alone counted wins, so a playoff drawn early, or a seat filled
+    from a group, left every bracket graphic on its first frame."""
+    parts = []
+    for stage in bracket:
+        for rnd in stage['rounds']:
+            for m in rnd['matches']:
+                parts.append('%s:%s:%s:%s:%s:%s' % (
+                    m['match_id'], m['status'], (m['participant_1'] or {}).get('registration_id'),
+                    (m['participant_2'] or {}).get('registration_id'), m['score_p1'], m['score_p2']))
+    return _digest('|'.join(parts)) if parts else ''
+
+
 @api_view(['GET'])
 def overlay_feed(request, tournament_id):
+    from . import match_shape
     tournament = _tournament(tournament_id)
     if tournament is None:
         return _error('Tournament not found.', 'NOT_FOUND',
@@ -1000,18 +1052,16 @@ def overlay_feed(request, tournament_id):
     def _side(registration):
         if registration is None:
             return ''
-        return registration.entrant_name or ''
+        # The name the bracket and the tree on stream show (a person's full
+        # name), never the username (17 October 2026).
+        from .match_shape import names
+        return names(registration)[0] or ''
 
-    live = [
-        {
-            'round': m.round_number,
-            'match': m.match_number,
-            'status': m.status,
-            'home': _side(m.participant_1),
-            'away': _side(m.participant_2),
-            'score': [m.score_p1 or 0, m.score_p2 or 0],
-        }
-        for m in BracketMatch.objects.filter(
+    def _slot(m, side):
+        return next((row for row in match_shape.slot_rows(m) if row['slot'] == side), None)
+
+    live_matches = list(
+        BracketMatch.objects.filter(
             tournament=tournament,
             # In progress first, then what has just been played and what is
             # next. A graphic showing ONLY matches in progress is blank for
@@ -1021,7 +1071,21 @@ def overlay_feed(request, tournament_id):
         .select_related('participant_1__team', 'participant_1__user',
                         'participant_1__squad', 'participant_2__team',
                         'participant_2__user', 'participant_2__squad')
-        .order_by('status', 'round_number', 'match_number')[:8]
+        .order_by('status', 'round_number', 'match_number')[:8])
+    match_shape.attach_slots(live_matches)
+    live = [
+        {
+            'round': m.round_number,
+            'match': m.match_number,
+            'status': m.status,
+            'home': _side(m.participant_1),
+            'away': _side(m.participant_2),
+            # Where an empty side comes from, for the placeholder (P1e).
+            'home_slot': _slot(m, 1),
+            'away_slot': _slot(m, 2),
+            'score': [m.score_p1 or 0, m.score_p2 or 0],
+        }
+        for m in live_matches
     ]
 
     # The people who paid for the banners. The event feed carried them from
@@ -1033,6 +1097,12 @@ def overlay_feed(request, tournament_id):
     ]
 
     battle_royale, br_stamp = battle_royale_for(tournament, logos)
+
+    # The bracket drawn from its seats, and the one list of what happened
+    # (P1e). Both are public facts; the list never says who recorded a result.
+    from . import happenings
+    bracket = bracket_for(tournament)
+    happened = happenings.rows(tournament)
 
     return Response({'status': 'success', 'data': {
         'tournament': {
@@ -1046,6 +1116,13 @@ def overlay_feed(request, tournament_id):
             # to know which of the two it is looking at. The play area frame
             # names the room, and had nothing to name it with.
             'venue': tournament.tournament_location or '',
+            # What it is played as, so the studio's explainer plays this
+            # tournament's own format (inbox 476): the catalogue key, and the
+            # format of each stage in order when it runs in stages. Groups
+            # into a playoff is one explainer, and only the stages say so.
+            'format': _format_key(tournament.bracket_type),
+            'stage_formats': [_format_key(s.format) or s.format
+                              for s in tournament.stages.order_by('order', 'id')],
         },
         'teams': teams,
         # Every lineup submitted for this tournament, keyed by the player who
@@ -1063,6 +1140,12 @@ def overlay_feed(request, tournament_id):
         # The battle royale points table, for a tournament with a battle
         # royale stage; `enabled` false and empty otherwise (inbox 396).
         'battle_royale': battle_royale,
+        # Every drawn stage, as the bracket page draws it, with each seat's
+        # source for the placeholder (P1e).
+        'bracket': bracket,
+        # What happened, newest first: results (and whether each still
+        # stands), stages started and finished, places sent, the winner.
+        'happenings': happened,
         # What is on and what follows, from the run of show. Empty here unless
         # the organiser published the sheet; the studio gets it either way.
         'run_of_show': run_of_show,
@@ -1101,7 +1184,8 @@ def overlay_feed(request, tournament_id):
             len(lineups),
             max([str(l.get('updated_at') or '') for l in lineups] or ['']),
             rivalry_stamp,
-            run_stamp) + ('-' + br_stamp if br_stamp else ''),
+            run_stamp) + ('-' + br_stamp if br_stamp else '')
+        + '-%s-%s' % (_bracket_stamp(bracket), happenings.stamp(tournament)),
     }, 'message': ''})
 
 

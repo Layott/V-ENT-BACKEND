@@ -60,9 +60,10 @@ def may_run_production(user, owner):
         if may_run_event(user, owner):
             return True
         return bool(may_override(user, 'manage_events'))
-    if owner.tournament_creator_id == user.user_id:
-        return True
-    return bool(may_override(user, 'manage_tournaments'))
+    # The organiser, an admin overriding, or a helper given production (P7,
+    # the caster). One rule, in access.py.
+    from .access import may
+    return may(user, owner, 'caster')
 
 
 # The refusal each kind raises. Distinct codes because the frontend translates

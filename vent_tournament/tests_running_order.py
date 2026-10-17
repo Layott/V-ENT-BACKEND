@@ -74,6 +74,32 @@ class RunningOrderTests(TestCase):
         # A schedule goes in the group chat and on the poster.
         self.assertEqual(self.client.get(self.url()).status_code, 200)
 
+    def test_rows_carry_the_match_shape(self):
+        # The schedule on somebody else's website (P8) reads this list, so a
+        # row is the one description of a match (match_shape) plus where it
+        # sits in the order: its time, its score and where an empty seat's
+        # player comes from, as on the bracket.
+        when = timezone.now() + timedelta(days=5, hours=2)
+        match = self.matches[0]
+        match.scheduled_at = when
+        match.score_p1, match.score_p2 = 3, 1
+        match.status = 'completed'
+        match.winner = self.regs[0]
+        match.save()
+        body = self.client.get(self.url()).json()['data']
+        row = next(r for r in body['unscheduled'] if r['match_id'] == match.pk)
+        for key in ('round', 'day', 'running_order', 'match_number', 'status',
+                    'scheduled_at', 'score_p1', 'score_p2', 'winner_registration_id',
+                    'stage_id', 'group_number', 'bracket_side', 'slots'):
+            self.assertIn(key, row)
+        self.assertEqual(row['round'], 1)
+        self.assertEqual((row['score_p1'], row['score_p2']), (3, 1))
+        self.assertEqual(row['winner_registration_id'], self.regs[0].pk)
+        self.assertIsNotNone(row['scheduled_at'])
+        self.assertEqual(row['participant_1']['registration_id'], self.regs[0].pk)
+        # Never the room: a public schedule is not where a code is handed out.
+        self.assertNotIn('room_code', row)
+
     # ------------------------------------------------------------- writing
 
     def test_the_organiser_sets_the_order(self):
