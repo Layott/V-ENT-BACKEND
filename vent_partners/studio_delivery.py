@@ -70,9 +70,6 @@ EXCERPT = 500
 #: Finished deliveries are cleared after this long (`studio_run`).
 KEEP = timedelta(days=30)
 
-#: Kinds whose answer means something, read by studio_sessions (P6d).
-ANSWER_READERS = {}
-
 
 def _inline():
     """Send in the caller's thread: under tests, or when settings say so."""
@@ -216,14 +213,15 @@ def _send(delivery, now):
     code = res.status_code
     if 200 <= code < 300:
         _record(delivery, now, status_code=code, excerpt=res.text, delivered=True)
-        reader = ANSWER_READERS.get(delivery.kind)
-        if reader is not None:
+        if delivery.kind != 'event':
+            # A session call's answer moves the session (studio_sessions).
+            from . import studio_sessions
             try:
                 answer = res.json()
             except ValueError:
                 answer = None
             try:
-                reader(delivery, answer)
+                studio_sessions.read_answer(delivery, answer)
             except Exception:
                 logger.warning('studio answer for %s could not be read', delivery.ref,
                                exc_info=True)

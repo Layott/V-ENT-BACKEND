@@ -7628,6 +7628,69 @@
     ],
     "body": {}
    }
+  },
+  {
+   "name": "B cannot read the game integration of A's tournament",
+   "route": "studios/tournament/<str:tournament_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/partners/studios/tournament/walk-cup-finished/",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   }
+  },
+  {
+   "name": "B cannot connect A's tournament to a game",
+   "route": "studios/tournament/<str:tournament_ref>/connect/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/studios/tournament/walk-cup-finished/connect/",
+    "expect": [
+     401,
+     403,
+     404
+    ],
+    "body": {
+     "game": "walk-arena"
+    }
+   }
+  },
+  {
+   "name": "B cannot disconnect A's tournament from its game",
+   "route": "studios/tournament/<str:tournament_ref>/disconnect/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/studios/tournament/walk-cup-finished/disconnect/",
+    "expect": [
+     401,
+     403,
+     404
+    ],
+    "body": {}
+   }
+  },
+  {
+   "name": "B, with a session and no key, cannot read or post A's game session",
+   "route": "studio/sessions/<str:session_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/api/v1/studio/sessions/gs_walkidorcase0001/",
+    "expect": [
+     401,
+     403,
+     404
+    ],
+    "body": {
+     "state": "started"
+    }
+   }
   }
  ]
 }

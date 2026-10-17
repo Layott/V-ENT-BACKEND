@@ -36,6 +36,8 @@ GAME_SLUG = 'walk-arena'
 DELIVERY_REF = 'dl_walkidorcase001'
 LINK_REF = 'ln_walkidorcase'
 CODE_REF = 'lc_walkidorcase'
+SESSION_REF = 'gs_walkidorcase0001'
+TOURNAMENT_SLUG = 'walk-cup-finished'
 
 
 def setup():
@@ -84,6 +86,20 @@ def setup():
         ref=CODE_REF, defaults=dict(game=game, code_hash='0' * 64, external_id='walk-account',
                                     expires_at=timezone.now() + timedelta(days=3650)))
     print('link %s, code %s' % (LINK_REF, CODE_REF))
+
+    # A game session on one of A's walk tournaments, for the session cases.
+    from vent_partners.models import StudioSession, StudioTournamentLink
+    from vent_tournament.models import BracketMatch, Tournament
+    cup = Tournament.objects.filter(slug=TOURNAMENT_SLUG).first()
+    match = BracketMatch.objects.filter(tournament=cup).first() if cup else None
+    if match is None:
+        print('no match on %s yet: the session case has no record behind it' % TOURNAMENT_SLUG)
+        return
+    tie, _ = StudioTournamentLink.objects.get_or_create(
+        tournament=cup, defaults=dict(game=game, enabled_by=owner, active=False))
+    StudioSession.objects.get_or_create(
+        ref=SESSION_REF, defaults=dict(game=game, link=tie, match=match, state='cancelled'))
+    print('session %s on %s' % (SESSION_REF, TOURNAMENT_SLUG))
 
 
 if __name__ == '__main__':

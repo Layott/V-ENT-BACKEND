@@ -637,6 +637,9 @@ class StudioDelivery(models.Model):
     response_excerpt = models.CharField(max_length=500, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
+    # The game session a session call is about (P6d); empty for events.
+    session = models.ForeignKey('StudioSession', on_delete=models.SET_NULL, null=True,
+                                blank=True, related_name='deliveries')
 
     class Meta:
         ordering = ('-created_at', '-id')
@@ -711,3 +714,94 @@ class StudioLinkCode(models.Model):
 
     def __str__(self):
         return f'{self.ref} for {self.game_id}:{self.external_id}'
+
+
+def _session_ref():
+    return 'gs_' + secrets.token_hex(8)
+
+
+class StudioSession(models.Model):
+    """One game of a match, played in a studio's lobby (P6d).
+
+    Design section 14, item 3. A best of three is up to three sessions, one
+    per game; a game that crashes is replayed as the next attempt of the same
+    game number. The studio sees `ref` and the idempotency key, never our ids.
+    """
+
+    STATE_CHOICES = [
+        ('creating', 'Asked for'),
+        ('created', 'Lobby made'),
+        ('starting', 'Starting'),
+        ('started', 'Being played'),
+        ('finished', 'Finished'),
+        ('cancelling', 'Being cancelled'),
+        ('cancelled', 'Cancelled'),
+    ]
+    OUTCOME_CHOICES = [
+        ('', 'None yet'),
+        ('applied', 'Recorded on the match'),
+        ('superseded', 'The match was settled another way'),
+        ('needs_organiser', 'Needs the organiser'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    ref = models.CharField(max_length=24, unique=True, default=_session_ref)
+    game = models.ForeignKey(StudioGame, on_delete=models.CASCADE, related_name='sessions')
+    link = models.ForeignKey(StudioTournamentLink, on_delete=models.CASCADE, related_name='sessions')
+    match = models.ForeignKey('vent_tournament.BracketMatch', on_delete=models.CASCADE,
+                              related_name='studio_sessions')
+    game_number = models.PositiveSmallIntegerField(default=1)
+    attempt = models.PositiveSmallIntegerField(default=1)
+    idempotency_key = models.CharField(max_length=40, unique=True)
+    state = models.CharField(max_length=12, choices=STATE_CHOICES, default='creating')
+    # The studio's own id for its lobby, and how a player gets into it.
+    studio_session_id = models.CharField(max_length=190, blank=True, default='')
+    join = models.JSONField(default=dict, blank=True)
+    result = models.JSONField(null=True, blank=True)
+    scores = models.JSONField(null=True, blank=True)
+    outcome = models.CharField(max_length=20, choices=OUTCOME_CHOICES, blank=True, default='')
+    error_code = models.CharField(max_length=40, blank=True, default='')
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ('match_id', 'game_number', 'attempt')
+
+    def __str__(self):
+        return f'{self.ref} {self.state}'
+
+    def save(self, *args, **kwargs):
+        if not self.idempotency_key:
+            self.idempotency_key = 'vent-%s' % self.ref
+        super().save(*args, **kwargs)
+
+
+class StudioNonce(models.Model):
+    """A request id a studio already used, so the same signed request cannot
+    be played twice inside its five minutes (owner rule R72). In the database
+    rather than the cache, because the cache here is per process."""
+
+    id = models.AutoField(primary_key=True)
+    game = models.ForeignKey(StudioGame, on_delete=models.CASCADE, related_name='nonces')
+    nonce = models.CharField(max_length=64)
+    seen_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['game', 'nonce'], name='studio_nonce_once')]
+
+
+class StudioMonthlyPlayer(models.Model):
+    """A linked player who played a game's sessions in a month. Counted from
+    the first session, so either pricing model can be chosen later (design
+    section 14, item 8, and decision 9)."""
+
+    id = models.AutoField(primary_key=True)
+    game = models.ForeignKey(StudioGame, on_delete=models.CASCADE, related_name='monthly_players')
+    month = models.DateField()
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='studio_months')
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['game', 'month', 'user'],
+                                               name='studio_player_once_a_month')]

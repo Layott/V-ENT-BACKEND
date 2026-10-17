@@ -10,6 +10,7 @@ Every endpoint is rate limited per key by the same limiter as the read API
 (owner rule R59) and answers the site envelope with coded refusals.
 """
 import functools
+import json
 
 from django.utils import timezone
 from rest_framework import status
@@ -117,6 +118,71 @@ def game_deliveries(request, slug):
     if err:
         return err
     return _ok(delivery_page(request, game), 'Deliveries')
+
+
+# ---------------------------------------------------------------------------
+# Game sessions (P6d)
+# ---------------------------------------------------------------------------
+
+SESSION_MESSAGES = {
+    'STATE_UNKNOWN': 'Send a state: creating, created, starting, started, finished or cancelled.',
+    'STATE_NOT_ALLOWED': 'A session cannot move to that state from where it is.',
+    'SESSION_FINISHED': 'This game already finished with another result.',
+    'RESULT_REQUIRED': 'A finished game needs its result.',
+    'STUDIO_RESULT_INVALID': 'The result does not fit the shape V-ENT and your schema expect.',
+    'JOIN_INVALID': 'Join details are an object of at most 2000 characters.',
+    'SESSION_ID_INVALID': 'A session id is text of at most 190 characters.',
+}
+
+
+@api_view(['GET', 'POST'])
+@requires_studio('studio:sessions')
+def session_view(request, session_ref):
+    """GET or POST /api/v1/studio/sessions/<session_ref>/ - a game session.
+
+    A POST is the studio telling us what happened, so on top of the key it must
+    be signed over the raw body with the game's secret, inside five minutes,
+    and carry a request id it has not used before (owner rule R72).
+    """
+    from . import studio_sessions
+    from .models import StudioSession
+
+    session = (StudioSession.objects
+               .select_related('game', 'game__partner', 'link', 'match', 'match__tournament')
+               .filter(ref=str(session_ref)[:24], game__partner=request.partner).first())
+    if session is None:
+        return _fail('No such game session.', 'SESSION_NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    if request.partner_key.environment != session.game.environment:
+        return _fail('A test key reaches sandbox games and a live key reaches live games.',
+                     'STUDIO_ENVIRONMENT_MISMATCH', status.HTTP_403_FORBIDDEN)
+    if request.method == 'GET':
+        return _ok({'session': studio_sessions.session_row(session)}, 'Game session')
+
+    raw = request.body
+    try:
+        studio_signing.verify(session.game.signing_secrets(), 'POST', request.get_full_path(),
+                              request.get_host(), request.headers, raw)
+    except studio_signing.SignatureError as exc:
+        return _fail('The request is not signed the way V-ENT expects.', exc.code,
+                     status.HTTP_401_UNAUTHORIZED)
+    nonce = request.headers.get(studio_signing.HEADER_DELIVERY, '').strip()
+    if not nonce:
+        return _fail('Send a request id in %s.' % studio_signing.HEADER_DELIVERY,
+                     'SIGNATURE_MISSING', status.HTTP_401_UNAUTHORIZED)
+    if not studio_sessions.claim_nonce(session.game, nonce):
+        return _fail('That request id was already used.', 'REPLAYED', status.HTTP_401_UNAUTHORIZED)
+    try:
+        body = json.loads(raw or b'{}')
+    except ValueError:
+        raise inputs.BadInput('body', 'not JSON') from None
+    try:
+        session = studio_sessions.update(session, body)
+    except studio_sessions.SessionRefused as exc:
+        return Response({'status': 'error', 'code': exc.code,
+                         'message': SESSION_MESSAGES.get(exc.code, 'That update was refused.'),
+                         'data': exc.data}, status=exc.http)
+    session.refresh_from_db()
+    return _ok({'session': studio_sessions.session_row(session)}, 'Updated.')
 
 
 # ---------------------------------------------------------------------------
