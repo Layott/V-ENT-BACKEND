@@ -133,6 +133,7 @@ urlpatterns = [
     path('<str:tournament_id>/feeds/', views_feeds.tournament_feeds, name='tournament_feeds'),
     path('<str:tournament_id>/feeds/<int:feed_id>/', views_feeds.delete_feed, name='tournament_feed_delete'),
     path('<str:tournament_id>/feeds/<int:feed_id>/pick/', views_feeds.pick_place, name='tournament_feed_pick'),
+    path('<str:tournament_id>/feeds/<int:feed_id>/pull/', views_feeds.pull_feed, name='tournament_feed_pull'),
     path('<str:tournament_id>/qualifiers/<int:registration_id>/decline/', views_feeds.decline_place, name='tournament_qualifier_decline'),
     path('<str:tournament_id>/qualifiers/<int:registration_id>/recall/', views_feeds.recall_place, name='tournament_qualifier_recall'),
     path('<str:tournament_id>/stages/set/', views_stages.set_stages, name='set_stages'),

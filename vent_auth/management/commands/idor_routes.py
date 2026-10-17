@@ -63,6 +63,11 @@ MODELS = {
     'slot_id': ('vent_event.VendorSlot', 'pk'),
     'hold_id': ('vent_event.TicketHold', 'pk'),
     'tier_id': ('vent_event.TicketTier', 'pk'),
+    # P5: circuits are addressed by their slug; a tier and an adjustment by
+    # number inside their circuit's own path.
+    'circuit_ref': ('vent_circuits.Circuit', 'slug'),
+    'circuit_tier_id': ('vent_circuits.CircuitTier', 'pk'),
+    'circuit_adjustment_id': ('vent_circuits.CircuitAdjustment', 'pk'),
     'poll_id': ('vent_event.EventPoll', 'pk'),
     'invite_id': ('vent_auth.TeamInvite', 'pk'),
     'request_id': ('vent_auth.OrgJoinRequest', 'pk'),

@@ -58,6 +58,8 @@ urlpatterns = [
     path("event/", include('vent_event.urls')),
     # Tournaments and events on the organiser's own website (P8).
     path("sites/", include('vent_sites.urls')),
+    # Circuits: seasons of tournaments ranked as one competition (P5).
+    path("circuits/", include('vent_circuits.urls')),
     path("team/", include('vent_team.urls')),
     # Subscriptions and memberships an organiser sells.
     path("billing/", include('vent_billing.urls')),
