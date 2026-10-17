@@ -76,3 +76,39 @@ class DuplicateTests(TestCase):
         copy = Tournament.objects.get(slug=self.press(self.owner).json()['data']['slug'])
         self.assertLessEqual(len(copy.tournament_title),
                              Tournament._meta.get_field('tournament_title').max_length)
+
+    def test_stage_lines_are_copied(self):
+        # A copy that kept the stages and lost the lines between them would
+        # run groups and a playoff with nothing sending anybody across (P7: a
+        # blueprint's editions must "play out exactly like the Blueprint").
+        from .models import Progression
+        groups = self.t.stages.get()
+        playoff = TournamentStage.objects.create(tournament=self.t, order=1, label='Playoff',
+                                                 format='single_elimination')
+        Progression.objects.create(source=groups, target=playoff, place_from=1, place_to=2,
+                                   side='winners', sent=[5, 6], fired_at=timezone.now(),
+                                   waiting=[{'place': 2, 'index': 0}],
+                                   history=[{'kind': 'declined', 'registration_id': 5}],
+                                   on_decline='organiser', decline_hours=24)
+        copy = Tournament.objects.get(slug=self.press(self.owner).json()['data']['slug'])
+        line = Progression.objects.get(source__tournament=copy)
+        self.assertEqual((line.source.label, line.target.label), ('Groups', 'Playoff'))
+        self.assertEqual(line.target.tournament_id, copy.pk)
+        self.assertEqual((line.place_from, line.place_to, line.side), (1, 2, 'winners'))
+        # Who it sent belongs to the tournament that sent them.
+        self.assertEqual(line.sent, [])
+        self.assertIsNone(line.fired_at)
+        # So do the places it left waiting and what became of them (P2's
+        # columns); how a decline is handled is set up, and is kept.
+        self.assertEqual((line.waiting, line.history), ([], []))
+        self.assertEqual((line.on_decline, line.decline_hours), ('organiser', 24))
+        self.assertEqual(Progression.objects.filter(source__tournament=self.t).count(), 1)
+
+    def test_a_copy_is_not_an_edition(self):
+        from .models import TournamentBlueprint
+        blueprint = TournamentBlueprint.objects.create(owner=self.owner, tournament=self.t, name='Cup')
+        Tournament.objects.filter(pk=self.t.pk).update(blueprint=blueprint, blueprint_edition=3)
+        copy = Tournament.objects.get(slug=self.press(self.owner).json()['data']['slug'])
+        self.assertIsNone(copy.blueprint_id)
+        self.assertIsNone(copy.blueprint_edition)
+        self.assertTrue(blueprint.token.startswith('bp_'))

@@ -343,6 +343,15 @@ def setup():
                 'slot_id': (slot or {}).get('id') or ((slot or {}).get('slot') or {}).get('id'),
                 'referral_id': ref_id, 'day1': day1, 'day2': day2})
     walk_circuits(organiser)
+    # A blueprint walk_organiser owns, so the IDOR cases have a real token to
+    # try as somebody else (P7; security/idor-cases.json).
+    from vent_tournament.models import Tournament, TournamentBlueprint
+    cup = Tournament.objects.filter(slug='walk-cup-fee', tournament_creator=organiser).first()
+    if cup is not None:
+        TournamentBlueprint.objects.get_or_create(
+            token=WALK_BLUEPRINT, defaults={'owner': organiser, 'tournament': cup,
+                                            'name': 'Walk Cup', 'every': 'none'})
+
     say('event ready' if not FAILS else 'setup: %d failure(s)' % len(FAILS))
     return slug
 
@@ -373,6 +382,8 @@ def walk_circuits(organiser):
     if cup is not None and not CircuitAdjustment.objects.filter(circuit=circuit).exists():
         CircuitAdjustment.objects.create(circuit=circuit, user=organiser, points=Decimal('5'),
                                          reason='Walk fixture adjustment', by=organiser)
+#: The walk fixtures' blueprint, named in security/idor-cases.json.
+WALK_BLUEPRINT = 'bp_c0ffee00000000000001'
 
 
 # ----------------------------------------------------------------- coverage

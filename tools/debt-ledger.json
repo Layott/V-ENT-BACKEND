@@ -229,6 +229,16 @@
     "first_seen": "2026-09-12",
     "since": "2026-09-12"
   },
+  "format explainers": {
+    "count": 0,
+    "first_seen": "2026-10-16",
+    "since": "2026-10-16"
+  },
+  "format explainers self-test": {
+    "count": 0,
+    "first_seen": "2026-10-16",
+    "since": "2026-10-16"
+  },
   "frontend url": {
     "count": 0,
     "first_seen": "2026-09-09",

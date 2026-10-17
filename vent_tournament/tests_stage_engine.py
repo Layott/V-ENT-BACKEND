@@ -22,8 +22,12 @@ _block = [0]
 
 
 def field(n, bracket_type='single_elimination'):
+    # Numbered from two million, above every fixed user number in the tests.
+    # The block counter runs for the whole process, so from 50000 the 42nd
+    # field made player92003, a user tests_feeds makes by hand, and the run
+    # failed on a duplicate email wherever 41 fields came first (17 October).
     _block[0] += 1
-    base = 50000 + 1000 * _block[0]
+    base = 2000000 + 1000 * _block[0]
     creator = make_user(base)
     t = make_tournament(creator, bracket_type=bracket_type)
     regs = []
@@ -456,7 +460,7 @@ class ClubSideTests(TestCase):
         from vent_auth.models import Games, TeamMembers, Teams
         from .models import TournamentRegistration
         _block[0] += 1
-        base = 50000 + 1000 * _block[0]
+        base = 2000000 + 1000 * _block[0]
         self.org = make_user(base)
         game = Games.objects.get_or_create(game_title='EA FC Clubs')[0]
         self.t = make_tournament(self.org)

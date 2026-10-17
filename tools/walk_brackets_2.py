@@ -169,7 +169,7 @@ def setup():
 
     for t in made.values():
         TournamentStaff.objects.get_or_create(
-            tournament=t, user=scorer, defaults={'role': 'scorekeeper', 'added_by': org})
+            tournament=t, user=scorer, defaults={'permissions': ['report'], 'added_by': org})
 
     state = {
         'password': WALK_PASSWORD,
