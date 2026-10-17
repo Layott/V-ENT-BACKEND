@@ -16,7 +16,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from vent_auth.actors import actor_from_request, may_override
+from vent_auth.actors import actor_from_request
 from vent_auth.models import Users
 
 from . import metrics as catalogue
@@ -40,12 +40,13 @@ def _tournament(ref):
 
 
 def _organiser(request, tournament):
+    """(user, error). The table and the awards are 'standings' (P7): the
+    organiser, an admin overriding, or a helper given them."""
     user, err = actor_from_request(request)
     if err:
         return None, err
-    if tournament.tournament_creator_id == user.user_id:
-        return user, None
-    if may_override(user, 'cancel_tournament'):
+    from .access import may
+    if may(user, tournament, 'standings'):
         return user, None
     return None, _err('Only the tournament organizer can do this.',
                       'ONLY_TOURNAMENT_ORGANIZER_CAN', status.HTTP_403_FORBIDDEN)

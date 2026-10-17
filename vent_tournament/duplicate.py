@@ -9,13 +9,15 @@ What a copy is: the tournament as it was SET UP, never what happened in it.
 Copied: every column of the tournament (name with "(copy)", game, format,
 dates, sizes, entry, prizes as typed, socials, options, artwork, the
 organisation), the scoring table, the ruleset, the entry requirements, the prize
-table, the stage plan, the lineup and squad rules, and the sponsors.
+table, the stage plan and the lines between its stages, the lineup and squad
+rules, and the sponsors.
 
 Not copied: registrations, matches, results, disputes, payouts, ledger lines,
 invite codes, staff (people agree to run a tournament, they are not enlisted
 into a copy), production assets, a prize payout schedule (a run time belongs to
 one tournament), the event link (a tournament sits in at most one event), and
-any slug: the copy gets its own address from its own name.
+any slug: the copy gets its own address from its own name, and the blueprint
+it came from (a copy of an edition is not the next edition; P7).
 
 The copy is a draft owned by whoever pressed Duplicate, so nothing about it is
 public until they publish it.
@@ -30,6 +32,7 @@ SKIP_COLUMNS = {
     'tournament_id', 'slug', 'interaction_count', 'is_draft', 'status',
     'completed_at', 'cancelled_at', 'cancelled_reason', 'check_in_closed_at',
     'deleted_at', 'deleted_by', 'deleted_reason', 'tournament_creator',
+    'blueprint', 'blueprint_edition',
 }
 
 #: One-to-one settings rows, copied whole.
@@ -43,6 +46,7 @@ MANY = ('entry_requirements', 'prize_distributions')
 RESET = {
     'TournamentStage': {'status', 'advanced', 'completed_at', 'drawn_at',
                         'entrants', 'direct_entrants'},
+    'Progression': {'sent', 'fired_at', 'waiting', 'history'},
     'LineupRules': {'locked_by_hand', 'reopened_by_hand'},
     'TournamentRuleset': {'updated_by'},
 }
@@ -64,6 +68,17 @@ def _copy_row(row, tournament):
     return model(tournament=tournament, **values)
 
 
+def _copy_line(line, source, target):
+    """A new Progression like `line`, between `source` and `target`, unsaved."""
+    reset = RESET['Progression']
+    values = {}
+    for field in type(line)._meta.concrete_fields:
+        if field.primary_key or field.name in ('source', 'target') or field.name in reset:
+            continue
+        values[field.attname] = getattr(line, field.attname)
+    return type(line)(source=source, target=target, **values)
+
+
 def copy_title(title):
     """`title` with " (copy)", within the column's length."""
     suffix = ' (copy)'
@@ -72,14 +87,18 @@ def copy_title(title):
 
 
 @transaction.atomic
-def duplicate(tournament, by):
-    """A new draft set up like `tournament`, owned by `by`."""
+def duplicate(tournament, by, title=None):
+    """A new draft set up like `tournament`, owned by `by`.
+
+    `title` names the copy instead of "<name> (copy)": a blueprint's edition
+    is "Friday Cup #12" from its first save, so its address is made once from
+    that name and no "(copy)" slug is ever retired into the slug history."""
     values = {}
     for field in Tournament._meta.concrete_fields:
         if field.name in SKIP_COLUMNS or field.primary_key:
             continue
         values[field.attname] = getattr(tournament, field.attname)
-    values['tournament_title'] = copy_title(tournament.tournament_title)
+    values['tournament_title'] = title or copy_title(tournament.tournament_title)
     copy = Tournament(**values)
     copy.tournament_creator = by
     copy.is_draft = True
@@ -96,8 +115,17 @@ def duplicate(tournament, by):
         if rows:
             type(rows[0]).objects.bulk_create(rows)
 
+    # The lines between stages (P1b) follow their stages: each one is copied
+    # between the copies of the two stages it joined.
+    copied = {}
     for stage in tournament.stages.all().order_by('order', 'pk'):
-        _copy_row(stage, copy).save()
+        new_stage = _copy_row(stage, copy)
+        new_stage.save()
+        copied[stage.pk] = new_stage
+    from .models import Progression
+    for line in Progression.objects.filter(source__tournament=tournament).order_by('order', 'pk'):
+        if line.source_id in copied and line.target_id in copied:
+            _copy_line(line, copied[line.source_id], copied[line.target_id]).save()
 
     copy.sponsors.set(tournament.sponsors.all())
     return copy

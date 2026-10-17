@@ -23,7 +23,7 @@ from rest_framework.permissions import AllowAny
 from vent_auth.actors import actor_from_request, may_override
 
 from . import br_engine, br_ocr, lookup, stage_engine, stage_settings
-from .access import may_manage, may_record_results
+from .access import may, may_manage, may_record_results, permissions_list, permissions_of
 from .models import BRLobby, BRMap, BROcrJob
 from .views_stages import _err, _ok, _row, _viewer
 from vent_auth import inputs
@@ -64,12 +64,14 @@ def _signed_in(request):
     return user, err
 
 
-def _may(request, tournament, *, manage=False):
+def _may(request, tournament, permission='report'):
+    """(user, error) for somebody holding `permission` here (access.may, P7):
+    'structure' for lobbies, maps and stage settings, 'place' for seats and
+    finishing a stage, 'report' for results and reads."""
     user, err = _signed_in(request)
     if err:
         return None, err
-    allowed = may_manage(user, tournament) if manage else may_record_results(user, tournament)
-    if not allowed:
+    if not may(user, tournament, permission):
         return None, _err('This is not your tournament to run.', 'NOT_YOURS',
                           status.HTTP_403_FORBIDDEN)
     return user, None
@@ -97,12 +99,13 @@ def _payload(tournament, stage, viewer):
     data['stage'] = _row(stage)
     data['can_record'] = may_run
     data['can_manage'] = bool(viewer and may_manage(viewer, tournament))
+    data['permissions'] = permissions_list(permissions_of(viewer, tournament))
     # Whether THIS viewer may save the scoring, answered by the same rule the
     # save applies, so the screen never offers a Save the server refuses
     # (walk, 28 September 2026: the organiser was told only an admin could
     # change them, under a live Save button that then answered 409).
     data['may_change_settings'] = bool(
-        data['can_manage'] and stage.status != 'complete'
+        'structure' in data['permissions'] and stage.status != 'complete'
         and (not br_engine.has_results(stage) or may_override(viewer, 'cancel_tournament')))
     data['is_last_stage'] = stage_engine.next_stage(stage) is None
     data['tournament_finished'] = tournament.completed_at is not None
@@ -155,6 +158,7 @@ def battle_royale(request, tournament_id):
             # exists, so the page can say it before the draw.
             'settings': br_engine.settings_from_ruleset(tournament) if is_br else None,
             'can_manage': bool(viewer and may_manage(viewer, tournament)),
+            'permissions': permissions_list(permissions_of(viewer, tournament)),
         }, 'Battle royale')
     wanted = request.query_params.get('stage')
     chosen = next((s for s in stages if str(s.id) == str(wanted)), None)
@@ -167,6 +171,7 @@ def battle_royale(request, tournament_id):
         'current': _payload(tournament, chosen, viewer),
         'is_battle_royale': True,
         'can_manage': bool(viewer and may_manage(viewer, tournament)),
+        'permissions': permissions_list(permissions_of(viewer, tournament)),
     }, 'Battle royale')
 
 
@@ -177,7 +182,7 @@ def ensure_stage(request, tournament_id):
     tournament, err = _find(tournament_id)
     if err:
         return err
-    user, err = _may(request, tournament, manage=True)
+    user, err = _may(request, tournament, 'structure')
     if err:
         return err
     stage = br_engine.ensure_stage(tournament)
@@ -197,7 +202,7 @@ def set_settings(request, tournament_id, stage_id):
     tournament, err = _find(tournament_id)
     if err:
         return err
-    user, err = _may(request, tournament, manage=True)
+    user, err = _may(request, tournament, 'structure')
     if err:
         return err
     stage, err = _br_stage(tournament, stage_id)
@@ -250,7 +255,7 @@ def move_seat(request, tournament_id, stage_id):
     tournament, err = _find(tournament_id)
     if err:
         return err
-    user, err = _may(request, tournament, manage=True)
+    user, err = _may(request, tournament, 'place')
     if err:
         return err
     stage, err = _br_stage(tournament, stage_id)
@@ -276,7 +281,7 @@ def rename_lobby(request, tournament_id, stage_id, lobby_id):
     tournament, err = _find(tournament_id)
     if err:
         return err
-    user, err = _may(request, tournament, manage=True)
+    user, err = _may(request, tournament, 'structure')
     if err:
         return err
     stage, err = _br_stage(tournament, stage_id)
@@ -295,7 +300,7 @@ def add_match(request, tournament_id, stage_id, lobby_id):
     tournament, err = _find(tournament_id)
     if err:
         return err
-    user, err = _may(request, tournament, manage=True)
+    user, err = _may(request, tournament, 'structure')
     if err:
         return err
     stage, err = _br_stage(tournament, stage_id)
@@ -319,23 +324,23 @@ def match_detail(request, tournament_id, map_id):
     tournament, err = _find(tournament_id)
     if err:
         return err
+    # Who is asking before which match: removing a match changes the lobby
+    # ('structure'), naming its map, time and room is the results desk's
+    # ('report'). A stranger learns nothing about which matches exist (R88).
+    user, err = _may(request, tournament, 'structure' if request.method == 'DELETE' else 'report')
+    if err:
+        return err
     br_map, err = _map(tournament, map_id)
     if err:
         return err
     stage = br_map.lobby.stage
     if request.method == 'DELETE':
-        user, err = _may(request, tournament, manage=True)
-        if err:
-            return err
         try:
             br_engine.remove_map(br_map)
         except br_engine.BRError as exc:
             return _refuse(exc)
         return _ok({'current': _payload(tournament, stage, user)}, 'Removed.')
 
-    user, err = _may(request, tournament)
-    if err:
-        return err
     fields = []
     for key, limit in (('map_name', 60), ('room_code', 64), ('room_password', 64)):
         if key in request.data:
@@ -386,7 +391,7 @@ def finish(request, tournament_id, stage_id):
     tournament, err = _find(tournament_id)
     if err:
         return err
-    user, err = _may(request, tournament, manage=True)
+    user, err = _may(request, tournament, 'place')
     if err:
         return err
     stage, err = _br_stage(tournament, stage_id)
