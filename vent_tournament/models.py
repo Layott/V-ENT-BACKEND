@@ -188,6 +188,14 @@ class Tournament(models.Model):
     # signed off.
     check_in_closed_at = models.DateTimeField(null=True, blank=True)
 
+    # The blueprint that made this tournament, and which edition of it it is
+    # (P7). Null for every tournament somebody made by hand, and for a
+    # tournament duplicated from an edition: a copy is not the next edition.
+    blueprint = models.ForeignKey(
+        'TournamentBlueprint', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='editions')
+    blueprint_edition = models.PositiveIntegerField(null=True, blank=True)
+
     # ------------------------------------------------------- soft delete
     #
     # The same three columns and the same managers as Event, because an
@@ -206,6 +214,12 @@ class Tournament(models.Model):
 
     class Meta:
         base_manager_name = 'all_objects'
+        constraints = [
+            # Two overlapping cron runs cannot both make edition 12: the second
+            # insert fails here even if the lock in blueprints.py were missed.
+            models.UniqueConstraint(fields=['blueprint', 'blueprint_edition'],
+                                    name='one_tournament_per_blueprint_edition'),
+        ]
 
     def __str__(self):
         return self.tournament_title
@@ -2220,6 +2234,74 @@ class TournamentStaff(models.Model):
     def __str__(self):
         return '%s on %s (%s)' % (self.user.username, self.tournament_id,
                                   ', '.join(self.permissions or []))
+
+
+class TournamentBlueprint(models.Model):
+    """A tournament its owner set up once, and when to run it again (P7).
+
+    Design section 16, P7: "blueprints and recurring tournaments". After
+    Challengermode's blueprints, whose tournaments "look, feel and play out
+    exactly like the Blueprint" with the start time set each time (research
+    C5). An organiser running the same cup every week rebuilt it, or since
+    inbox 446 duplicated it, by hand every week.
+
+    It points at a tournament the owner already set up (`tournament`) rather
+    than holding a second copy of every setting: each edition is that
+    tournament as it stands at the moment the edition is made, copied by
+    `duplicate()`, moved to its own dates and numbered. Changing the
+    tournament changes the editions still to come; pointing the blueprint at
+    a newer edition does the same. `blueprints.py` owns the schedule.
+    """
+
+    EVERY = (
+        ('none', 'Only when the owner presses Make one now'),
+        ('day', 'Every day'),
+        ('week', 'Every week'),
+        ('fortnight', 'Every two weeks'),
+        ('month', 'Every month'),
+    )
+
+    # The address, never the primary key: bp_ and 20 hex characters.
+    token = models.CharField(max_length=32, unique=True, editable=False)
+    owner = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='tournament_blueprints')
+    # The tournament each edition copies. SET_NULL so deleting it for good
+    # pauses the blueprint (SOURCE_GONE) rather than deleting it.
+    tournament = models.ForeignKey(Tournament, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='blueprints')
+    name = models.CharField(max_length=120)
+    every = models.CharField(max_length=10, choices=EVERY, default='week')
+    # The start of the first scheduled edition, an instant. Every later start
+    # keeps its wall clock time in `timezone`.
+    first_start = models.DateTimeField(null=True, blank=True)
+    timezone = models.CharField(max_length=64, default='Africa/Lagos')
+    # How many days before its start an edition is made, so people can enter.
+    lead_days = models.PositiveSmallIntegerField(default=7)
+    # Publish each edition as it is made, or leave it a draft to check first.
+    publish = models.BooleanField(default=False)
+    # The number the next edition carries ("Friday Cup #12").
+    next_number = models.PositiveIntegerField(default=1)
+    # Stop after this many editions; null runs until paused.
+    ends_after = models.PositiveIntegerField(null=True, blank=True)
+    made = models.PositiveIntegerField(default=0)
+    # The start of the next scheduled edition; null when nothing is scheduled.
+    next_start = models.DateTimeField(null=True, blank=True)
+    active = models.BooleanField(default=True)
+    # Why it stopped by itself, as a code the screen translates.
+    paused_reason = models.CharField(max_length=32, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            import uuid
+            self.token = 'bp_' + uuid.uuid4().hex[:20]
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return '%s (%s)' % (self.name, self.every)
 
 
 class StudioAsset(models.Model):
