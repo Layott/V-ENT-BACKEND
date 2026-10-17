@@ -7429,6 +7429,44 @@
     "method": "DELETE",
     "path": "/tournament/walk-cup-fee/feeds/1/"
    }
+  },
+  {
+   "name": "B cannot fill a declined place in A's tournament",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/feeds/1/pick/",
+    "body": {
+     "source_registration": 1
+    }
+   }
+  },
+  {
+   "name": "B cannot read a recall preview on A's tournament",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/walk-cup-fee/qualifiers/1/recall/"
+   }
+  },
+  {
+   "name": "B cannot recall a qualifier from A's tournament",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/qualifiers/1/recall/",
+    "body": {
+     "mode": "hand_on"
+    }
+   }
+  },
+  {
+   "name": "B cannot decline somebody else's place",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/qualifiers/1/decline/"
+   }
   }
  ]
 }

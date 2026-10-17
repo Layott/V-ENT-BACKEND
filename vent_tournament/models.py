@@ -478,6 +478,8 @@ class TournamentRegistration(models.Model):
         ('confirmed', 'Confirmed'),
         ('disqualified', 'Disqualified'),
         ('withdrawn', 'Withdrawn'),
+        # A qualifier from another tournament who turned the place down (P2).
+        ('declined', 'Declined'),
     ]
 
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='registrations')
@@ -1410,6 +1412,12 @@ class Progression(models.Model):
     ON_DECLINE = (('next', 'The next placement'), ('organiser', 'The organiser picks'))
     decline_hours = models.PositiveIntegerField(null=True, blank=True, default=48)
     on_decline = models.CharField(max_length=12, choices=ON_DECLINE, default='next')
+    # Places a declined qualifier left for the organiser to fill
+    # ({place, group, index, declined_registration_id}), and what happened to
+    # the places this feed sent ({kind, source_registration_id,
+    # registration_id, at}): declined, recalled, picked.
+    waiting = models.JSONField(default=list, blank=True)
+    history = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ['order', 'id']

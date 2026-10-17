@@ -323,7 +323,9 @@ def fire(line, user, order=None):
 def ready(target):
     """Every line into `target` has fired, so it can be drawn."""
     feeding = incoming(target)
-    return bool(feeding) and all(l.fired_at is not None for l in feeding)
+    # A feed with a declined place waiting for the organiser's pick (P2)
+    # holds the draw: drawing now would leave that seat to nobody.
+    return bool(feeding) and all(l.fired_at is not None and not l.waiting for l in feeding)
 
 
 def sent_union(stage):

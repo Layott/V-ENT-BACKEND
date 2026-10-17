@@ -98,3 +98,105 @@ def delete_feed(request, tournament_id, feed_id):
                     status.HTTP_409_CONFLICT)
     line.delete()
     return _ok({}, 'Feed removed')
+
+
+QUALIFIER_STATUS = {
+    'NOT_YOURS': status.HTTP_403_FORBIDDEN,
+    'FEED_NOT_MANAGER': status.HTTP_403_FORBIDDEN,
+    'DECLINE_CLOSED': status.HTTP_409_CONFLICT,
+    'NOTHING_WAITING': status.HTTP_409_CONFLICT,
+    'ALREADY_QUALIFIED': status.HTTP_409_CONFLICT,
+}
+
+
+def _qualifier(tournament, registration_id):
+    from .models import TournamentRegistration
+    reg = (TournamentRegistration.objects.select_related('qualified_via__source', 'qualified_via__target',
+                                                         'user', 'team')
+           .filter(pk=registration_id, tournament=tournament).first())
+    if reg is None or reg.qualified_via_id is None:
+        return None, _err('No such qualifier in this tournament.', 'NOT_A_QUALIFIER',
+                          status.HTTP_404_NOT_FOUND)
+    return reg, None
+
+
+def _edit_or_feed_err(exc):
+    from . import bracket_edit
+    if isinstance(exc, feeds.FeedError):
+        return _err('That cannot be done to this place.', exc.code,
+                    QUALIFIER_STATUS.get(exc.code, status.HTTP_400_BAD_REQUEST), field=exc.field)
+    return _err('That cannot be done to this bracket now.', exc.code, status.HTTP_409_CONFLICT,
+                field=getattr(exc, 'field', None))
+
+
+@api_view(['POST'])
+@limited('feed-decline', 10)
+def decline_place(request, tournament_id, registration_id):
+    """POST /tournament/<ref>/qualifiers/<id>/decline/ - the qualifier turns it down."""
+    from vent_auth.actors import actor_from_request
+    from . import bracket_edit
+    tournament, err = _find(tournament_id)
+    if err:
+        return err
+    user, err = actor_from_request(request)
+    if err:
+        return err
+    reg, err = _qualifier(tournament, registration_id)
+    if err:
+        return err
+    try:
+        with transaction.atomic():
+            feeds.decline(reg, user)
+    except (feeds.FeedError, bracket_edit.EditError) as exc:
+        return _edit_or_feed_err(exc)
+    return _ok({'registration_id': reg.id, 'status': 'declined'}, 'Declined')
+
+
+@api_view(['POST'])
+@limited('feed-pick', 30)
+def pick_place(request, tournament_id, feed_id):
+    """POST /tournament/<ref>/feeds/<id>/pick/ - the organiser fills a declined place."""
+    from . import bracket_edit
+    tournament, err = _find(tournament_id)
+    if err:
+        return err
+    user, err = _manager(request, tournament)
+    if err:
+        return err
+    line = (Progression.objects.select_related('source__tournament', 'target__tournament')
+            .filter(pk=feed_id, target__tournament=tournament).exclude(source__tournament=tournament).first())
+    if line is None:
+        return _err('No such feed on this tournament.', 'FEED_NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    try:
+        with transaction.atomic():
+            row = feeds.pick(line, inputs.read_int(request.data, 'source_registration', required=True), user)
+    except (feeds.FeedError, bracket_edit.EditError) as exc:
+        return _edit_or_feed_err(exc)
+    return _ok({'registration_id': row['registration_id']}, 'Picked')
+
+
+@api_view(['GET', 'POST'])
+@limited('feed-recall', 30)
+def recall_place(request, tournament_id, registration_id):
+    """GET /tournament/<ref>/qualifiers/<id>/recall/ - what a recall touches.
+    POST {mode: hand_on|undo, replacement?} - take the place back."""
+    from . import bracket_edit
+    tournament, err = _find(tournament_id)
+    if err:
+        return err
+    user, err = _manager(request, tournament)
+    if err:
+        return err
+    reg, err = _qualifier(tournament, registration_id)
+    if err:
+        return err
+    try:
+        if request.method == 'GET':
+            return _ok(feeds.recall_preview(reg), 'Recall preview')
+        with transaction.atomic():
+            done = feeds.recall(
+                reg, user, mode=inputs.read_choice(request.data, 'mode', ('hand_on', 'undo'), default='hand_on'),
+                replacement=inputs.read_int(request.data, 'replacement'))
+    except (feeds.FeedError, bracket_edit.EditError) as exc:
+        return _edit_or_feed_err(exc)
+    return _ok(done, 'Recalled')

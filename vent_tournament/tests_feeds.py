@@ -272,3 +272,193 @@ class UndoTests(TestCase):
         self.assertEqual(made.status, 'withdrawn')
         self.assertEqual(theirs.status, 'confirmed')
         self.assertIsNone(theirs.qualified_via_id)
+
+
+def fired_pair(on_decline='next', decline_hours=48, block_draw=True):
+    """A qualifier of 6 feeding its top two into the finals; when `block_draw`,
+    a second, unfired feed keeps the finals from drawing."""
+    q, q_stage, finals, f_stage, line, creator = qualifier_and_finals(n=6)
+    Progression.objects.filter(pk=line.pk).update(on_decline=on_decline, decline_hours=decline_hours)
+    if block_draw:
+        q2, _c, _r = field(4, 'round_robin')
+        q2.tournament_creator = creator
+        q2.save(update_fields=['tournament_creator'])
+        q2_stage = add_stage(q2, 0, 'round_robin', label='League two')
+        feeds.create(f_stage, q2_stage, creator, place_from=1, place_to=1)
+    draw(q_stage, creator)
+    play_out(q_stage)
+    with transaction.atomic():
+        progressions.pull(Progression.objects.get(pk=line.pk), creator)
+    line.refresh_from_db()
+    return q, q_stage, finals, f_stage, line, creator
+
+
+def qualifier_reg(line, place):
+    return TournamentRegistration.objects.get(qualified_via=line, source_place=place,
+                                              status__in=('confirmed', 'pending'))
+
+
+def ranked(q_stage, place):
+    return TournamentRegistration.objects.get(
+        pk=[r for r in stage_engine.standings(q_stage) if r['rank'] == place][0]['registration_id'])
+
+
+def match_of(stage, reg):
+    return (stage.matches.filter(participant_1=reg).first()
+            or stage.matches.filter(participant_2=reg).first())
+
+
+def win(match, reg):
+    from .tests_stage_engine import play
+    if match.participant_1_id == reg.id:
+        play(match, 2, 0)
+    else:
+        play(match, 0, 2)
+
+
+class DeclineTests(TestCase):
+    def test_a_qualifier_declines_and_the_next_placement_takes_the_place(self):
+        q, q_stage, finals, f_stage, line, creator = fired_pair()
+        second = qualifier_reg(line, 2)
+        with transaction.atomic():
+            feeds.decline(second, second.user)
+        second.refresh_from_db()
+        line.refresh_from_db()
+        self.assertEqual(second.status, 'declined')
+        third = qualifier_reg(line, 3)
+        self.assertEqual(third.user_id, ranked(q_stage, 3).user_id)
+        self.assertEqual([r['registration_id'] for r in line.sent][1], third.id)
+        self.assertNotIn(second.id, [r['registration_id'] for r in line.sent])
+
+    def test_only_the_qualifier_may_decline(self):
+        q, q_stage, finals, f_stage, line, creator = fired_pair()
+        second = qualifier_reg(line, 2)
+        with self.assertRaises(feeds.FeedError) as caught:
+            feeds.decline(second, make_user(92001))
+        self.assertEqual(caught.exception.code, 'NOT_YOURS')
+
+    def test_after_the_window_the_place_is_kept(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        q, q_stage, finals, f_stage, line, creator = fired_pair()
+        second = qualifier_reg(line, 2)
+        TournamentRegistration.objects.filter(pk=second.pk).update(
+            decline_until=timezone.now() - timedelta(minutes=1))
+        second.refresh_from_db()
+        with self.assertRaises(feeds.FeedError) as caught:
+            feeds.decline(second, second.user)
+        self.assertEqual(caught.exception.code, 'DECLINE_CLOSED')
+
+    def test_no_window_means_no_decline(self):
+        q, q_stage, finals, f_stage, line, creator = fired_pair(decline_hours=None)
+        second = qualifier_reg(line, 2)
+        with self.assertRaises(feeds.FeedError) as caught:
+            feeds.decline(second, second.user)
+        self.assertEqual(caught.exception.code, 'DECLINE_CLOSED')
+
+    def test_the_organiser_picks_who_takes_a_declined_place(self):
+        q, q_stage, finals, f_stage, line, creator = fired_pair(on_decline='organiser')
+        second = qualifier_reg(line, 2)
+        with transaction.atomic():
+            feeds.decline(second, second.user)
+        line.refresh_from_db()
+        self.assertEqual(len(line.waiting), 1)
+        self.assertFalse(progressions.ready(f_stage))
+        fifth = ranked(q_stage, 5)
+        with self.assertRaises(feeds.FeedError) as caught:
+            feeds.pick(line, fifth.id, make_user(92002))
+        self.assertEqual(caught.exception.code, 'FEED_NOT_MANAGER')
+        with transaction.atomic():
+            feeds.pick(line, fifth.id, creator)
+        line.refresh_from_db()
+        self.assertEqual(line.waiting, [])
+        picked = TournamentRegistration.objects.get(qualified_via=line, user=fifth.user)
+        self.assertIn(picked.id, [r['registration_id'] for r in line.sent])
+
+    def test_a_pick_must_come_from_the_source_stage(self):
+        q, q_stage, finals, f_stage, line, creator = fired_pair(on_decline='organiser')
+        second = qualifier_reg(line, 2)
+        with transaction.atomic():
+            feeds.decline(second, second.user)
+        stranger_reg = register(finals, make_user(92003))
+        with self.assertRaises(feeds.FeedError) as caught:
+            feeds.pick(Progression.objects.get(pk=line.pk), stranger_reg.id, creator)
+        self.assertEqual(caught.exception.code, 'NOT_IN_THIS_STAGE')
+
+    def test_after_the_draw_the_next_placement_takes_the_seat(self):
+        q, q_stage, finals, f_stage, line, creator = fired_pair(block_draw=False)
+        f_stage.refresh_from_db()
+        self.assertIsNotNone(f_stage.drawn_at)
+        second = qualifier_reg(line, 2)
+        with transaction.atomic():
+            feeds.decline(second, second.user)
+        third = qualifier_reg(line, 3)
+        seated = {p for m in f_stage.matches.all() for p in (m.participant_1_id, m.participant_2_id) if p}
+        self.assertIn(third.id, seated)
+        self.assertNotIn(second.id, seated)
+
+
+class RecallTests(TestCase):
+    def drawn(self):
+        q, q_stage, finals, f_stage, line, creator = fired_pair(block_draw=False)
+        return q, q_stage, finals, f_stage, line, creator, qualifier_reg(line, 1)
+
+    def test_recall_preview_names_the_matches(self):
+        q, q_stage, finals, f_stage, line, creator, first = self.drawn()
+        preview = feeds.recall_preview(first)
+        self.assertEqual(len(preview['drawn']), 1)
+        self.assertEqual(preview['played'], [])
+        self.assertEqual(preview['next']['source_place'], 3)
+
+    def test_recall_hands_the_place_on_and_keeps_results(self):
+        from .models import BracketEdit
+        q, q_stage, finals, f_stage, line, creator, first = self.drawn()
+        m = match_of(f_stage, first)
+        win(m, first)
+        with transaction.atomic():
+            feeds.recall(first, creator, mode='hand_on')
+        first.refresh_from_db()
+        m.refresh_from_db()
+        self.assertEqual(first.status, 'withdrawn')
+        self.assertEqual(m.status, 'completed')
+        third = qualifier_reg(line, 3)
+        final = f_stage.matches.get(round_number=2)
+        self.assertIn(third.id, (final.participant_1_id, final.participant_2_id))
+        self.assertTrue(BracketEdit.objects.filter(tournament=finals, kind='recall').exists())
+
+    def test_recall_can_undo_the_results(self):
+        q, q_stage, finals, f_stage, line, creator, first = self.drawn()
+        m = match_of(f_stage, first)
+        win(m, first)
+        with transaction.atomic():
+            feeds.recall(first, creator, mode='undo')
+        m.refresh_from_db()
+        third = qualifier_reg(line, 3)
+        self.assertEqual(m.status, 'scheduled')
+        self.assertIn(third.id, (m.participant_1_id, m.participant_2_id))
+
+    def test_only_a_manager_recalls(self):
+        q, q_stage, finals, f_stage, line, creator, first = self.drawn()
+        with self.assertRaises(feeds.FeedError) as caught:
+            feeds.recall(first, make_user(92004), mode='hand_on')
+        self.assertEqual(caught.exception.code, 'NOT_YOURS')
+
+
+class QualifierEndpointTests(TestCase):
+    def test_decline_pick_and_recall_doors(self):
+        q, q_stage, finals, f_stage, line, creator = fired_pair(on_decline='organiser')
+        second = qualifier_reg(line, 2)
+        base = '/tournament/%s/' % finals.slug
+        stranger = client_for(make_user(92101))
+        self.assertEqual(stranger.post(base + 'qualifiers/%s/decline/' % second.id).status_code, 403)
+        res = client_for(second.user).post(base + 'qualifiers/%s/decline/' % second.id)
+        self.assertEqual(res.status_code, 200, res.content)
+        fifth = ranked(q_stage, 5)
+        res = client_for(creator).post(base + 'feeds/%s/pick/' % line.id,
+                                       {'source_registration': fifth.id}, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        first = qualifier_reg(line, 1)
+        res = client_for(creator).get(base + 'qualifiers/%s/recall/' % first.id)
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertIn('drawn', res.json()['data'])
+        self.assertEqual(stranger.get(base + 'qualifiers/%s/recall/' % first.id).status_code, 403)
