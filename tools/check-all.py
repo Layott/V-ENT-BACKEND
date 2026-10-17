@@ -805,7 +805,7 @@ CATCHERS = [
     # are worked through.
     ('endpoints with no screen',
      'every endpoint has a screen that can reach it, or a written reason',
-     ROOT, [sys.executable, 'tools/endpoint-callers.py'], False),
+     ROOT, [sys.executable, os.path.join(BACKEND, 'tools', 'endpoint-callers.py')], False),
 
     # The ledger reads a number off each line above, and on 8 September it was
     # reading the wrong one: 311 stylesheets scanned instead of 145 tap targets
