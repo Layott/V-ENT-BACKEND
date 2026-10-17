@@ -2265,7 +2265,7 @@ class TournamentBlueprint(models.Model):
     token = models.CharField(max_length=32, unique=True, editable=False)
     owner = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='tournament_blueprints')
     # The tournament each edition copies. SET_NULL so deleting it for good
-    # pauses the blueprint (SOURCE_GONE) rather than deleting it.
+    # pauses the blueprint (BLUEPRINT_SOURCE_GONE) rather than deleting it.
     tournament = models.ForeignKey(Tournament, on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name='blueprints')
     name = models.CharField(max_length=120)

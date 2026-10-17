@@ -29,6 +29,7 @@ from . import views_layers
 from . import views_runsheet
 from . import views_staff
 from . import views_duplicate
+from . import views_blueprints
 from . import views_registration_draft
 from . import views_assets
 from . import views_export
@@ -55,6 +56,13 @@ from . import views_rules
 # Slug or id, everywhere. A route that takes only one of the two is a route half
 # the product cannot call.
 urlpatterns = [
+    # Blueprints and recurring tournaments (P7). Fixed words first, so
+    # "blueprints" is never read as a tournament reference.
+    path("blueprints/", views_blueprints.blueprint_list, name="tournament_blueprints"),
+    path("blueprints/<str:blueprint_ref>/", views_blueprints.blueprint_detail,
+         name="tournament_blueprint"),
+    path("blueprints/<str:blueprint_ref>/make/", views_blueprints.blueprint_make,
+         name="tournament_blueprint_make"),
     # A registration saved as it goes (inbox 436). The list is first, so its
     # fixed words are never read as a tournament reference.
     path("registration-drafts/mine/", views_registration_draft.my_registration_drafts,

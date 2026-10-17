@@ -58,6 +58,8 @@ MODELS = {
     'link_id': ('vent_event.ShortLink', 'pk'),
     'invitation_id': ('vent_tournament.TournamentInvitation', 'pk'),
     'tie_id': ('vent_tournament.TieFixture', 'pk'),
+    # P7: a blueprint is addressed by its opaque token, never its key.
+    'blueprint_ref': ('vent_tournament.TournamentBlueprint', 'token'),
     'slot_id': ('vent_event.VendorSlot', 'pk'),
     'hold_id': ('vent_event.TicketHold', 'pk'),
     'tier_id': ('vent_event.TicketTier', 'pk'),

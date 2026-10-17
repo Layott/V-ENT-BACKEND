@@ -87,14 +87,18 @@ def copy_title(title):
 
 
 @transaction.atomic
-def duplicate(tournament, by):
-    """A new draft set up like `tournament`, owned by `by`."""
+def duplicate(tournament, by, title=None):
+    """A new draft set up like `tournament`, owned by `by`.
+
+    `title` names the copy instead of "<name> (copy)": a blueprint's edition
+    is "Friday Cup #12" from its first save, so its address is made once from
+    that name and no "(copy)" slug is ever retired into the slug history."""
     values = {}
     for field in Tournament._meta.concrete_fields:
         if field.name in SKIP_COLUMNS or field.primary_key:
             continue
         values[field.attname] = getattr(tournament, field.attname)
-    values['tournament_title'] = copy_title(tournament.tournament_title)
+    values['tournament_title'] = title or copy_title(tournament.tournament_title)
     copy = Tournament(**values)
     copy.tournament_creator = by
     copy.is_draft = True

@@ -7431,6 +7431,64 @@
     ],
     "reason": "the record named first is public, so whether it exists is no secret"
    }
+  },
+  {
+   "name": "B cannot read A's blueprint (P7)",
+   "route": "tournament/blueprints/<str:blueprint_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/blueprints/{id}/"
+   },
+   "id": "bp_c0ffee00000000000001"
+  },
+  {
+   "name": "B cannot change A's blueprint (P7)",
+   "route": "tournament/blueprints/<str:blueprint_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/tournament/blueprints/{id}/",
+    "body": {
+     "name": "Mine now",
+     "publish": true
+    }
+   },
+   "id": "bp_c0ffee00000000000001"
+  },
+  {
+   "name": "B cannot delete A's blueprint (P7)",
+   "route": "tournament/blueprints/<str:blueprint_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/tournament/blueprints/{id}/"
+   },
+   "id": "bp_c0ffee00000000000001"
+  },
+  {
+   "name": "B cannot make an edition of A's blueprint (P7)",
+   "route": "tournament/blueprints/<str:blueprint_ref>/make/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/blueprints/{id}/make/",
+    "body": {}
+   },
+   "id": "bp_c0ffee00000000000001"
+  },
+  {
+   "name": "B cannot make a blueprint of A's tournament (P7)",
+   "route": "tournament/blueprints/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/blueprints/",
+    "body": {
+     "tournament": "walk-cup-fee",
+     "every": "none"
+    }
+   }
   }
  ]
 }
