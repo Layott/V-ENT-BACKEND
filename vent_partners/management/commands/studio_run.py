@@ -48,4 +48,11 @@ class Command(BaseCommand):
             lines.append('sessions %s' % ', '.join('%s %s' % (k, v) for k, v in summary.items()))
 
         lines.append('%d cleared' % studio_delivery.clear_old(now=now))
+        if studio_sessions is not None:
+            lines.append('%d request ids cleared' % studio_sessions.clear_nonces(now=now))
+        from datetime import timedelta
+        from vent_partners.models import StudioLinkCode
+        old_codes, _ = StudioLinkCode.objects.filter(
+            claimed_at__isnull=True, expires_at__lt=now - timedelta(days=1)).delete()
+        lines.append('%d link codes cleared' % old_codes)
         self.stdout.write('; '.join(lines))

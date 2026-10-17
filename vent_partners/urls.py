@@ -41,6 +41,7 @@ api_urlpatterns = [
     path('studio/games/<str:slug>/link-codes/<str:code_ref>/', studio_api.link_code_status),
     path('studio/games/<str:slug>/links/', studio_api.links),
     path('studio/games/<str:slug>/links/<str:link_ref>/unlink/', studio_api.unlink),
+    path('studio/sessions/<str:session_ref>/', studio_api.session_view),
 ]
 
 partner_urlpatterns = [
@@ -61,6 +62,9 @@ partner_urlpatterns = [
     path('studios/link/confirm/', studios.link_confirm),
     path('studios/my-links/', studios.my_links),
     path('studios/my-links/<str:link_ref>/unlink/', studios.my_link_unlink),
+    path('studios/tournament/<str:tournament_ref>/', studios.tournament_studio),
+    path('studios/tournament/<str:tournament_ref>/connect/', studios.tournament_connect),
+    path('studios/tournament/<str:tournament_ref>/disconnect/', studios.tournament_disconnect),
     path('studios/<str:slug>/', studios.game_detail),
     path('studios/<str:slug>/update/', studios.update_game),
     path('studios/<str:slug>/rotate-secret/', studios.rotate_secret),

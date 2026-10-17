@@ -659,6 +659,117 @@ def my_link_unlink(request, link_ref):
 
 
 # ---------------------------------------------------------------------------
+# An organiser connecting a tournament to a game (P6d)
+# ---------------------------------------------------------------------------
+
+SESSION_LIST = 50
+
+
+def _organiser(request, tournament_ref):
+    """(user, tournament, error): only somebody who may run the tournament.
+    Anybody else gets the answer a tournament that does not exist gets."""
+    from vent_tournament import lookup
+    from vent_tournament.access import may_manage
+
+    user, err = _user_from_bearer(request)
+    if err:
+        return None, None, err
+    tournament = lookup.find(tournament_ref)
+    if tournament is None or not may_manage(user, tournament):
+        return user, None, _err('Tournament not found.', 'TOURNAMENT_NOT_FOUND',
+                                status.HTTP_404_NOT_FOUND)
+    return user, tournament, None
+
+
+def _offer_row(game):
+    return {'slug': game.slug, 'name': game.name, 'studio': game.partner.name,
+            'environment': game.environment, 'settings_schema': game.settings_schema or {}}
+
+
+def _tournament_studio(user, tournament):
+    from . import studio_sessions
+    from .models import StudioSession, StudioTournamentLink
+
+    link = (StudioTournamentLink.objects.select_related('game', 'game__partner')
+            .filter(tournament=tournament).first())
+    sessions = (StudioSession.objects.filter(match__tournament=tournament)
+                .select_related('match', 'match__tournament').order_by('-updated_at')[:SESSION_LIST])
+    return {
+        'link': {'game': _offer_row(link.game), 'settings': link.settings or {},
+                 'active': link.active, 'created_at': link.created_at} if link else None,
+        'available': [_offer_row(g) for g in studio_sessions.available_games(user, tournament)],
+        'sessions': [studio_sessions.session_row(s) for s in sessions],
+    }
+
+
+@api_view(['GET'])
+@limited('studio-portal-read', 120)
+def tournament_studio(request, tournament_ref):
+    """GET /partners/studios/tournament/<ref>/ - which game runs this
+    tournament's matches, which may, and the sessions so far."""
+    user, tournament, err = _organiser(request, tournament_ref)
+    if err:
+        return err
+    return _ok(_tournament_studio(user, tournament), 'Game integration')
+
+
+@api_view(['POST'])
+@limited('studio-portal', 30)
+def tournament_connect(request, tournament_ref):
+    """POST /partners/studios/tournament/<ref>/connect/ - run the matches through a game."""
+    from . import studio_sessions
+    from .models import StudioTournamentLink
+
+    user, tournament, err = _organiser(request, tournament_ref)
+    if err:
+        return err
+    slug = inputs.read_text(request.data, 'game', max_length=160, required=True)
+    game = next((g for g in studio_sessions.available_games(user, tournament)
+                 if g.slug == slug), None)
+    if game is None:
+        return _err('That game cannot run this tournament.', 'STUDIO_NOT_AVAILABLE', field='game')
+    chosen = request.data.get('settings') or {}
+    if not isinstance(chosen, dict):
+        raise inputs.BadInput('settings', 'not an object')
+    inputs.bounded_json(chosen, 'settings', max_chars=4000)
+    problems = studio_schema.validate(chosen, game.settings_schema or {})
+    if problems:
+        return _err('Those settings do not fit the game.', 'STUDIO_SETTINGS_INVALID',
+                    field='settings', data={'errors': problems})
+
+    with transaction.atomic():
+        link = StudioTournamentLink.objects.select_for_update().filter(tournament=tournament).first()
+        if link is not None and link.game_id != game.pk:
+            for session in link.sessions.filter(state__in=studio_sessions.OPEN_STATES):
+                studio_sessions.cancel(session, 'disconnected')
+        if link is None:
+            link = StudioTournamentLink(tournament=tournament)
+        link.game, link.settings, link.active, link.enabled_by = game, chosen, True, user
+        link.save()
+    return _ok(_tournament_studio(user, tournament), 'Connected.')
+
+
+@api_view(['POST'])
+@limited('studio-portal', 30)
+def tournament_disconnect(request, tournament_ref):
+    """POST /partners/studios/tournament/<ref>/disconnect/ - stop; open lobbies are cancelled."""
+    from . import studio_sessions
+    from .models import StudioTournamentLink
+
+    user, tournament, err = _organiser(request, tournament_ref)
+    if err:
+        return err
+    link = StudioTournamentLink.objects.filter(tournament=tournament).first()
+    if link is None or not link.active:
+        return _err('This tournament is not connected to a game.', 'STUDIO_NOT_CONNECTED')
+    link.active = False
+    link.save(update_fields=['active', 'updated_at'])
+    for session in link.sessions.select_related('game').filter(state__in=studio_sessions.OPEN_STATES):
+        studio_sessions.cancel(session, 'disconnected')
+    return _ok(_tournament_studio(user, tournament), 'Disconnected.')
+
+
+# ---------------------------------------------------------------------------
 # The review
 # ---------------------------------------------------------------------------
 
