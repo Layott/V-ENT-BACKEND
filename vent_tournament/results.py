@@ -214,7 +214,7 @@ def _still_free_to_change(match, winner):
         # the goals ARE the standings, and a closed stage's table has been
         # read and its qualifiers or final places set from it.
         if closed and (stage_settings.is_table(stage.format)
-                       or stage.format in ('swiss', 'gsl')):
+                       or stage.format in ('swiss', 'gsl', 'bracket_groups')):
             raise ResultError('STAGE_CLOSED')
         return
     later = [pk for pk in (match.winner_to_match_id, match.loser_to_match_id) if pk]

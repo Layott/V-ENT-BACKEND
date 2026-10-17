@@ -219,7 +219,8 @@ class CatalogueEndpointTests(TestCase):
         self.assertEqual(res.status_code, 200)
         # Eleven since 28 September 2026: stepladder, page playoff, winner stays on.
         # Twelve since 12 October 2026: League (inbox 440).
-        self.assertEqual(len(res.data['data']['formats']), 12)
+        # Thirteen since bracket groups (P3 W1, 17 October 2026).
+        self.assertEqual(len(res.data['data']['formats']), 13)
 
     def test_every_entry_the_edit_screen_reads_is_still_there(self):
         res = self.client.get('/tournament/formats/')

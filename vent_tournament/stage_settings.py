@@ -38,6 +38,7 @@ class SettingsError(ValueError):
 # through (toornament's grand final "none", research section 4.3; P3 W1).
 GRAND_FINALS = ('single', 'reset', 'none')
 DRAW_RULES = ('allowed', 'penalties', 'winner_named')
+PAIRINGS = ('circle', 'berger')
 BEST_OF_RANGE = (1, 9)
 
 
@@ -286,6 +287,26 @@ def clean(format_key, raw):
         # sent means "the format's own answer".
         default_legs = 2 if key == 'league' else 1
         out['legs'] = _int(raw.get('legs') or None, 'legs', 1, 2, default_legs)
+        # The order of the fixtures: the rotation V-ENT has always drawn, or
+        # FIDE's published Berger tables (P3 W1, research catalogue 3.1).
+        out['pairing'] = str(raw.get('pairing') or 'circle').strip().lower()
+        if out['pairing'] not in PAIRINGS:
+            raise SettingsError('UNKNOWN_CHOICE', 'pairing')
+    if key == 'bracket_groups':
+        # Each group a knockout of its own (P3 W1). The default is the GSL
+        # shape: double elimination, two through, groups of four.
+        out['bracket'] = str(raw.get('bracket') or 'double').strip().lower()
+        if out['bracket'] not in ('single', 'double'):
+            raise SettingsError('UNKNOWN_CHOICE', 'bracket')
+        # How big a group is when the stage does not say how many groups.
+        out['group_size'] = _int(raw.get('group_size'), 'group_size', 2, 64, 4)
+        sent = raw.get('threshold')
+        out['threshold'] = _threshold(2 if sent in (None, '') else sent)
+        if out['bracket'] == 'double':
+            gf = str(raw.get('grand_final') or 'single').strip().lower()
+            if gf not in GRAND_FINALS:
+                raise SettingsError('UNKNOWN_CHOICE', 'grand_final')
+            out['grand_final'] = 'none' if out['threshold'] else gf
     if key == 'swiss':
         out['rounds'] = _int(raw.get('rounds'), 'rounds', 0, 15, 0)
         out['win_target'] = _int(raw.get('win_target'), 'win_target', 0, 10, 0)

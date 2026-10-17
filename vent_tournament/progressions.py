@@ -247,7 +247,7 @@ def rows_for(line, rows=None):
         rows = qualified + [r for r in rows if r not in qualified]
         return rows[line.place_from - 1:line.place_to]
     groups = stage.groups or 0
-    if key == 'gsl' or groups > 1:
+    if key in ('gsl', 'bracket_groups') or groups > 1:
         by_group = {}
         for r in rows:
             by_group.setdefault(r['group'] or 0, []).append(r)

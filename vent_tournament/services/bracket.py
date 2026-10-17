@@ -186,7 +186,7 @@ class BracketError(Exception):
 #: than drawn as something else. Swiss and GSL used to fall through to single
 #: elimination silently, which is the fault this list exists to prevent.
 DRAWABLE = ('single_elimination', 'double_elimination', 'round_robin', 'league', 'ladder',
-            'aggregate_2v2', 'swiss', 'gsl', 'stepladder', 'page_playoff',
+            'aggregate_2v2', 'swiss', 'gsl', 'bracket_groups', 'stepladder', 'page_playoff',
             'winner_stays_on')
 
 
@@ -292,8 +292,9 @@ def _draw(tournament, stage, btype, ordered, settings, groups, lower=None, early
         return _generate_winner_stays_on(tournament, stage, ordered, settings)
     if btype == 'single_elimination' and (settings or {}).get('every_place'):
         return _generate_every_place(tournament, stage, ordered, settings, early=early)
-    if btype == 'gsl':
-        return _generate_gsl(tournament, stage, ordered, settings)
+    if btype in ('gsl', 'bracket_groups'):
+        return _generate_bracket_groups(tournament, stage, ordered, settings, groups,
+                                        gsl=btype == 'gsl')
     if btype == 'swiss':
         return _generate_swiss_first_round(tournament, stage, ordered, settings)
     if decided_by_table(btype):
@@ -409,7 +410,8 @@ def _threshold(settings, bracket_size):
     return threshold
 
 
-def _generate_single_elimination(tournament, ordered, stage=None, settings=None, early=False):
+def _generate_single_elimination(tournament, ordered, stage=None, settings=None, early=False,
+                                 group=None):
     settings = settings or {}
     n = len(ordered)
     bracket_size = next_power_of_2(n)
@@ -425,7 +427,7 @@ def _generate_single_elimination(tournament, ordered, stage=None, settings=None,
         count = bracket_size // (2 ** r)
         per_round.append([
             _new_match(tournament, stage, settings, r, m + 1, 'winners',
-                       rounds_total=rounds, is_final=(r == rounds))
+                       rounds_total=rounds, is_final=(r == rounds), group=group)
             for m in range(count)
         ])
     rounds = kept
@@ -455,7 +457,7 @@ def _generate_single_elimination(tournament, ordered, stage=None, settings=None,
     if settings.get('third_place') and rounds >= 2 and not threshold:
         semis = per_round[rounds - 2]
         third_place = _new_match(tournament, stage, settings, rounds, 2,
-                                 'winners', rounds_total=rounds)
+                                 'winners', rounds_total=rounds, group=group)
         for m, semi in enumerate(semis[:2]):
             match_slots.link(semi, 'loser', third_place, m + 1)
         matches_created += 1
@@ -540,12 +542,50 @@ def _seat_players(registration, seats):
     return (people + [None] * seats)[:seats]
 
 
-def round_robin_pairings(players, legs=1):
+def _berger(players, legs):
+    """FIDE's Berger tables (C.05 Annex 1, research catalogue 3.1).
+
+    Players are numbered 1 to n in seed order, with a bye as the highest
+    number for an odd field. In round r the last player meets p = (r-1) * n/2
+    mod (n-1) + 1, at home in even rounds; every other pair is p+k against
+    p-k, counted round the other n-1. Six players, round 1: 1-6, 2-5, 3-4;
+    round 2: 6-4, 5-3, 1-2. A double round robin reverses the last two rounds
+    of the first cycle, as FIDE recommends, so nobody has the same side three
+    rounds running, and the second cycle swaps every side.
+    """
+    table = list(players) + ([None] if len(players) % 2 else [])
+    n = len(table)
+    if n < 2:
+        return []
+    wrap = lambda x: (x - 1) % (n - 1) + 1  # noqa: E731
+    rounds = []
+    for r in range(1, n):
+        p = ((r - 1) * (n // 2)) % (n - 1) + 1
+        pairs = [(n, p) if r % 2 == 0 else (p, n)]
+        pairs += [(wrap(p + k), wrap(p - k)) for k in range(1, n // 2)]
+        rounds.append(pairs)
+    if legs > 1 and len(rounds) >= 2:
+        first = rounds[:-2] + [rounds[-1], rounds[-2]]
+        second = [[(b, a) for a, b in pairs] for pairs in rounds]
+        rounds = first + second
+    out = []
+    for r, pairs in enumerate(rounds, start=1):
+        for a, b in pairs:
+            left, right = table[a - 1], table[b - 1]
+            if left is not None and right is not None:
+                out.append((r, left, right))
+    return out
+
+
+def round_robin_pairings(players, legs=1, method='circle'):
     """[(round, a, b)] for everybody against everybody, `legs` times.
 
     Circle method with a None bye for an odd count. The second leg repeats the
     first with home and away swapped, which is what a double round robin is.
+    `method='berger'` follows FIDE's published tables instead (P3 W1).
     """
+    if method == 'berger':
+        return _berger(players, legs)
     circle = list(players) + ([None] if len(players) % 2 else [])
     size = len(circle)
     if size < 2:
@@ -573,7 +613,7 @@ def _generate_round_robin(tournament, ordered, stage=None, settings=None, group=
     settings = settings or {}
     seats = _seats_for(tournament)
     legs = int(settings.get('legs') or 1)
-    pairings = round_robin_pairings(list(ordered), legs)
+    pairings = round_robin_pairings(list(ordered), legs, settings.get('pairing') or 'circle')
     rounds_total = max((r for r, _a, _b in pairings), default=0)
 
     match_no = {}
@@ -658,40 +698,48 @@ def _generate_groups(tournament, stage, ordered, settings, groups):
 
 
 # ---------------------------------------------------------------------------
-# GSL groups: four per group, double elimination inside it
+# Bracket groups, and GSL as their preset
 # ---------------------------------------------------------------------------
 
-def _generate_gsl(tournament, stage, ordered, settings):
-    """Groups of four. Opening matches 1v4 and 2v3; the winners meet for first
-    place; the losers meet and the loser of that is out in fourth; the loser of
-    the winners' match and the winner of the losers' match play a decider for
-    second. Five matches a group, two go through.
+def _generate_bracket_groups(tournament, stage, ordered, settings, groups, gsl=False):
+    """Several small knockouts (P3 W1, toornament's bracket groups, research
+    section 4.5): the field dealt into groups by snake, each group drawn as a
+    single or double elimination of its own with the stage's threshold.
+
+    GSL is the preset: groups of four, double elimination, two through. In a
+    group of four that is the two openers (1 v 4, 2 v 3), the winners match,
+    the losers match and the decider: the same five matches GSL was drawn with
+    by hand before P3, the decider now in the losers bracket with the losers
+    match's winner listed first. A GSL drawn the old way keeps its own
+    standings reader (`stage_engine._gsl_standings`).
+
+    With no group count of its own, the groups come from `group_size`.
     """
+    settings = dict(settings or {})
     n = len(ordered)
-    if n < 8 or n % 4:
-        raise BracketError('gsl_needs_groups_of_four',
-                           'GSL groups need a field that divides into fours, eight or more.')
-    groups = n // 4
+    if gsl:
+        if n < 8 or n % 4:
+            raise BracketError('gsl_needs_groups_of_four',
+                               'GSL groups need a field that divides into fours, eight or more.')
+        groups = n // 4
+        settings.update(bracket='double', threshold=2, grand_final='none')
+    elif not groups or groups < 2:
+        groups = max(1, math.ceil(n / int(settings.get('group_size') or 4)))
+    double = settings.get('bracket', 'double') == 'double'
     buckets = split_into_groups(ordered, groups)
-    created = 0
-    for number, four in enumerate(buckets, start=1):
-        s1, s2, s3, s4 = four
-        mk = lambda r, m: _new_match(tournament, stage, settings, r, m, 'winners',
-                                     rounds_total=3, group=number)
-        open_a, open_b = mk(1, 1), mk(1, 2)
-        winners, losers = mk(2, 1), mk(2, 2)
-        decider = mk(3, 1)
-        open_a.participant_1, open_a.participant_2 = s1, s4
-        open_b.participant_1, open_b.participant_2 = s2, s3
-        for opening, slot in ((open_a, 1), (open_b, 2)):
-            opening.save(update_fields=['participant_1', 'participant_2'])
-            match_slots.link(opening, 'winner', winners, slot)
-            match_slots.link(opening, 'loser', losers, slot)
-        match_slots.link(winners, 'loser', decider, 1)
-        match_slots.link(losers, 'winner', decider, 2)
-        created += 5
-    return {'rounds_count': 3, 'matches_created': created,
-            'structure_summary': [{'group': g + 1, 'matches': 5} for g in range(groups)]}
+    if any(len(b) < (3 if double else 2) for b in buckets):
+        raise BracketError('group_too_small',
+                           'Every group needs at least %s entrants.' % (3 if double else 2))
+    generate_one = _generate_double_elimination if double else _generate_single_elimination
+    created, rounds, summary = 0, 0, []
+    for number, bucket in enumerate(buckets, start=1):
+        part = generate_one(tournament, bucket, stage=stage, settings=settings, group=number)
+        created += part['matches_created']
+        rounds = max(rounds, part['rounds_count'])
+        summary.append({'group': number, 'entrants': len(bucket),
+                        'matches': part['matches_created']})
+    return {'rounds_count': rounds, 'matches_created': created, 'groups': groups,
+            'structure_summary': summary}
 
 
 # ---------------------------------------------------------------------------
@@ -847,7 +895,7 @@ def reorder(name, items):
 
 
 def _generate_double_elimination(tournament, ordered, stage=None, settings=None, lower=None,
-                                 early=False):
+                                 early=False, group=None):
     """Winners + losers bracket + grand final, with or without a reset.
 
     Fully correct and auto-advancing for power-of-2 fields. Non-power-of-2 fields
@@ -873,7 +921,7 @@ def _generate_double_elimination(tournament, ordered, stage=None, settings=None,
 
     def mk(round_number, match_number, side, is_final=False):
         match = _new_match(tournament, stage, settings, round_number, match_number,
-                           side, rounds_total=k + 1, is_final=is_final)
+                           side, rounds_total=k + 1, is_final=is_final, group=group)
         created.append(match)
         return match
 
@@ -1001,7 +1049,9 @@ def _generate_double_elimination(tournament, ordered, stage=None, settings=None,
     for match in seat(wb[0], slots):
         advance.cascade(match)
 
-    finals = 0 if threshold else (2 if reset else 1)
+    # Without a grand final the last lower round still comes after the last
+    # upper round (it takes that round's losers), so it is a round of its own.
+    finals = (1 if lb else 0) if threshold else (2 if reset else 1)
     return {
         'rounds_count': len(wb) + finals,
         'matches_created': len(created),
