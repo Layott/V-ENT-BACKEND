@@ -7733,6 +7733,20 @@
      404
     ]
    }
+  },
+  {
+   "name": "B cannot read A's studio usage",
+   "route": "studios/<str:slug>/usage/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/partners/studios/walk-arena/usage/",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   }
   }
  ]
 }

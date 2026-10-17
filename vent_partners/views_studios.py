@@ -539,6 +539,19 @@ def ping_game(request, slug):
     return _ok({'delivery': delivery_row(delivery)}, 'Test event sent.')
 
 
+@api_view(['GET'])
+@limited('studio-portal-read', 120)
+def game_usage(request, slug):
+    """GET /partners/studios/<slug>/usage/ - linked players and sessions by
+    month, counted from the first session (design section 14, item 8)."""
+    from . import studio_usage
+
+    user, game, err = _own_game(request, slug)
+    if err:
+        return err
+    return _ok({'months': studio_usage.monthly(game, months=12)}, 'Usage')
+
+
 # ---------------------------------------------------------------------------
 # The player's side of linking (P6c)
 # ---------------------------------------------------------------------------
@@ -779,9 +792,16 @@ def _admin(request):
 
 
 def _admin_row(game):
+    from . import studio_usage
+
     row = game_row(game)
     row['partner'] = {'name': game.partner.name, 'slug': game.partner.slug,
                       'owner': game.partner.owner.username if game.partner.owner_id else None}
+    this_month = studio_usage.month_of(timezone.now()).isoformat()
+    current = next((m for m in studio_usage.monthly(game, months=1) if m['month'] == this_month),
+                   {'active_players': 0, 'sessions': 0})
+    row['active_players_this_month'] = current['active_players']
+    row['sessions_this_month'] = current['sessions']
     return row
 
 
