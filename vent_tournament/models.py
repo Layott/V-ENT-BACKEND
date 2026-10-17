@@ -496,6 +496,13 @@ class TournamentRegistration(models.Model):
     # Seed set during bracket generation; final_position set when tournament completes (1 = winner).
     seed = models.PositiveIntegerField(null=True, blank=True)
     final_position = models.PositiveIntegerField(null=True, blank=True)
+
+    # Qualified from another tournament (P2): the feed that sent them, the
+    # place they took there, and until when they may decline.
+    qualified_via = models.ForeignKey('Progression', on_delete=models.SET_NULL, null=True,
+                                      blank=True, related_name='qualifiers')
+    source_place = models.PositiveSmallIntegerField(null=True, blank=True)
+    decline_until = models.DateTimeField(null=True, blank=True)
     # When this entrant confirmed they were actually there. Null after the
     # window closes means a no-show, which is what the forfeit reads.
     checked_in_at = models.DateTimeField(null=True, blank=True)
@@ -1396,6 +1403,13 @@ class Progression(models.Model):
     order = models.PositiveSmallIntegerField(default=0)
     sent = models.JSONField(default=list, blank=True)
     fired_at = models.DateTimeField(null=True, blank=True)
+
+    # A feed between tournaments (P2, design section 7): how long a qualifier
+    # has to decline (null is no window), and who takes a declined place: the
+    # next placement of the source, or whoever the organiser picks.
+    ON_DECLINE = (('next', 'The next placement'), ('organiser', 'The organiser picks'))
+    decline_hours = models.PositiveIntegerField(null=True, blank=True, default=48)
+    on_decline = models.CharField(max_length=12, choices=ON_DECLINE, default='next')
 
     class Meta:
         ordering = ['order', 'id']

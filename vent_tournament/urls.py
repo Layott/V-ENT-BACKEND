@@ -37,6 +37,7 @@ from . import views_reminders
 from . import views_scheduled
 from . import views_requirements
 from . import views_stages
+from . import views_feeds
 from . import views_bracket_edit
 from . import views_match_day
 from . import views_prizes
@@ -121,6 +122,8 @@ urlpatterns = [
     path('<str:tournament_id>/rules/', views_rules.tournament_rules, name='tournament_rules'),
     # Who may enter, what they still owe, and the queue of what a person checks.
     path('<str:tournament_id>/stages/', views_stages.tournament_stages, name='tournament_stages'),
+    path('<str:tournament_id>/feeds/', views_feeds.tournament_feeds, name='tournament_feeds'),
+    path('<str:tournament_id>/feeds/<int:feed_id>/', views_feeds.delete_feed, name='tournament_feed_delete'),
     path('<str:tournament_id>/stages/set/', views_stages.set_stages, name='set_stages'),
     path('<str:tournament_id>/stages/<int:stage_id>/advance/', views_stages.advance_stage, name='advance_stage'),
     path('<str:tournament_id>/stages/<int:stage_id>/advance/preview/', views_stages.advance_preview, name='advance_preview'),

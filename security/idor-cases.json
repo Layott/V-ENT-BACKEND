@@ -7406,6 +7406,29 @@
     "body": {}
    },
    "id": "10"
+  },
+  {
+   "name": "B cannot make a feed into A's tournament",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/feeds/",
+    "body": {
+     "target_stage": 1,
+     "source_tournament": "walk-cup-fee",
+     "source_stage": 1,
+     "place_from": 1,
+     "place_to": 2
+    }
+   }
+  },
+  {
+   "name": "B cannot delete a feed into A's tournament",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/tournament/walk-cup-fee/feeds/1/"
+   }
   }
  ]
 }
