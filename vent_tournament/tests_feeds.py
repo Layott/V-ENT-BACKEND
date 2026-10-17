@@ -484,3 +484,18 @@ class PlaceholderTests(TestCase):
         m = ko.matches.filter(round_number=1).order_by('match_number').first()
         place = match_shape.match_row(m)['slots'][0]['from_place']
         self.assertIsNone(place['tournament'])
+
+
+class NameTests(TestCase):
+    """The feeds panel read "demo_amara" beside a bracket reading "Amara
+    Nwosu" (walk, 17 October 2026): every name is the one every screen shows."""
+
+    def test_feed_rows_and_the_recall_preview_use_display_names(self):
+        q, q_stage, finals, f_stage, line, creator = fired_pair(block_draw=False)
+        first = qualifier_reg(line, 1)
+        first.user.full_name = 'Amara Full Name'
+        first.user.save(update_fields=['full_name'])
+        row = feeds.rows(finals)['incoming'][0]
+        names = {qr['registration_id']: qr['name'] for qr in row['qualifiers']}
+        self.assertEqual(names[first.id], 'Amara Full Name')
+        self.assertEqual(feeds.recall_preview(first)['name'], 'Amara Full Name')

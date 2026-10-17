@@ -24,6 +24,15 @@ class FeedError(ValueError):
 ON_DECLINE = ('next', 'organiser')
 
 
+def _display(reg):
+    """The name every screen shows (`match_shape.names`): a person's full
+    name, a team's or squad's own. `entrant_name` is the username."""
+    if reg is None:
+        return None
+    from .match_shape import names
+    return names(reg)[0]
+
+
 def is_feed(line):
     return line.source.tournament_id != line.target.tournament_id
 
@@ -357,7 +366,7 @@ def _match_row(match, registration):
     other = match.participant_2 if match.participant_1_id == registration.id else match.participant_1
     return {'match_id': match.id, 'round': match.round_number, 'number': match.match_number,
             'side': match.bracket_side, 'status': match.status,
-            'opponent': other.entrant_name if other is not None else None}
+            'opponent': _display(other)}
 
 
 def recall_preview(registration):
@@ -372,7 +381,7 @@ def recall_preview(registration):
     group = (line.sent[index].get('group') if index is not None else None)
     nxt = next_placement(line, group)
     return {
-        'registration_id': registration.id, 'name': registration.entrant_name,
+        'registration_id': registration.id, 'name': _display(registration),
         'source_place': registration.source_place,
         'played': [_match_row(m, registration) for m in matches if m.status in PLAYED],
         'drawn': [_match_row(m, registration) for m in matches if m.status not in PLAYED
@@ -464,7 +473,7 @@ def rows(tournament):
     def side(stage):
         t = stage.tournament
         return {'stage_id': stage.id, 'stage': stage.label, 'format': stage.format,
-                'groups': stage.groups,
+                'groups': stage.groups, 'status': stage.status,
                 'tournament': {'slug': t.slug, 'title': t.tournament_title}}
 
     def row(line):
@@ -476,7 +485,7 @@ def rows(tournament):
                 # Who it sent and where they stand (names and places, the facts
                 # a standings table shows), and declined places waiting for
                 # the organiser's pick (P2b).
-                'qualifiers': [{'registration_id': r.id, 'name': r.entrant_name,
+                'qualifiers': [{'registration_id': r.id, 'name': _display(r),
                                 'source_place': r.source_place, 'status': r.status,
                                 'decline_until': r.decline_until}
                                for r in line.qualifiers.select_related('user', 'team', 'squad')
