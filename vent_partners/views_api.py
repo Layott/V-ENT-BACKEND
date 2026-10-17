@@ -105,6 +105,9 @@ def api_index(request):
             'participants': '/api/v1/tournaments/<id>/participants/',
             'bracket': '/api/v1/tournaments/<id>/bracket/',
             'stats': '/api/v1/tournaments/<id>/stats/',
+            'structure': '/api/v1/tournaments/<slug or id>/structure/',
+            'standings': '/api/v1/tournaments/<slug or id>/standings/',
+            'studio': '/api/v1/studio/',
             'teams': '/api/v1/teams/',
             'team': '/api/v1/teams/<id>/',
             'player': '/api/v1/players/<username>/',
@@ -331,6 +334,64 @@ def tournament_stats(request, tournament_id):
         return Response({'status': 'error', 'code': 'TOURNAMENT_NOT_FOUND', 'message': 'No such tournament.',
                          'data': None}, status=status.HTTP_404_NOT_FOUND)
     return _ok(dict(stats.compute(t), tournament=t.tournament_id), 'Stats')
+
+
+def _public_tournament(ref):
+    """A published, non-private tournament by slug or id, or None."""
+    from vent_tournament import lookup
+
+    found = lookup.find(ref)
+    if found is None:
+        return None
+    return _public_tournaments().filter(pk=found.pk).first()
+
+
+def _not_found_tournament():
+    return Response({'status': 'error', 'code': 'TOURNAMENT_NOT_FOUND', 'message': 'No such tournament.',
+                     'data': None}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@requires_scope('tournaments:structure:read')
+def tournament_structure(request, tournament_ref):
+    """The stages of a tournament in order (design section 14, item 6)."""
+    t = _public_tournament(tournament_ref)
+    if t is None:
+        return _not_found_tournament()
+    stages = []
+    for stage in t.stages.order_by('order', 'id'):
+        matches = stage.matches.all()
+        stages.append({
+            'label': stage.label,
+            'order': stage.order,
+            'format': stage.format,
+            'status': stage.status,
+            'groups': stage.groups,
+            'advances': stage.advances,
+            'starts_at': stage.starts_at,
+            'ends_at': stage.ends_at,
+            'matches_total': matches.count(),
+            'matches_done': matches.filter(status__in=('completed', 'walkover_p1', 'walkover_p2')).count(),
+        })
+    return _ok({'tournament': {'id': t.tournament_id, 'slug': t.slug, 'title': t.tournament_title},
+                'stages': stages}, 'Structure')
+
+
+@api_view(['GET'])
+@requires_scope('tournaments:structure:read')
+def tournament_standings(request, tournament_ref):
+    """Each stage's table, ranked by the one ranking function and never
+    re-sorted here, so a studio's client shows what the site shows."""
+    from vent_tournament import stage_engine
+
+    t = _public_tournament(tournament_ref)
+    if t is None:
+        return _not_found_tournament()
+    return _ok({
+        'tournament': {'id': t.tournament_id, 'slug': t.slug, 'title': t.tournament_title},
+        'stages': [{'label': s.label, 'format': s.format, 'rows': stage_engine.standings(s)}
+                   for s in t.stages.order_by('order', 'id')],
+    }, 'Standings')
 
 
 # ---------------------------------------------------------------------------

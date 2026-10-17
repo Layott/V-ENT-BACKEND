@@ -43,6 +43,9 @@ SCOPES = {
     'players:read': 'Read public player profiles',
     'players:stats:read': 'Read player win and loss records',
     'rankings:read': 'Read platform rankings',
+    # The stages of a tournament and their standings, from the one ranking
+    # function (design section 14, item 6). Public on the site, so self-serve.
+    'tournaments:structure:read': 'Read the stages of a tournament and their standings',
     # Game studios (design section 14). Reviewed for live keys, because they
     # put results into real matches and tie game accounts to real people.
     'studio:accounts': 'Link player accounts in your game to V-ENT accounts',
@@ -73,6 +76,7 @@ SELF_SERVE_SCOPES = [
     'teams:read',
     'players:read',
     'rankings:read',
+    'tournaments:structure:read',
 ]
 
 REVIEWED_SCOPES = [s for s in SCOPES if s not in SELF_SERVE_SCOPES]

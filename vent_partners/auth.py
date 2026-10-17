@@ -64,13 +64,16 @@ def resolve_key(request):
     return key, None
 
 
-def _rate_limited(key):
-    """True when this key has already had its minute's worth.
+def rate_state(key):
+    """(limited, remaining, seconds until the minute resets) for this request.
 
     Counting in the cache rather than the database: a rate limit that writes a
     row per request is its own denial of service.
     """
-    bucket = timezone.now().strftime('%Y%m%d%H%M')
+    now = timezone.now()
+    limit = max(1, key.rate_limit_per_minute)
+    reset = 60 - now.second
+    bucket = now.strftime('%Y%m%d%H%M')
     cache_key = f'partner-rate:{key.key_id}:{bucket}'
     try:
         used = cache.get_or_set(cache_key, 0, timeout=120)
@@ -81,8 +84,24 @@ def _rate_limited(key):
     except Exception:
         # A cache that is unavailable must not close the API.
         logger.warning('partner rate limiting unavailable', exc_info=True)
-        return False
-    return used > max(1, key.rate_limit_per_minute)
+        return False, limit, reset
+    return used > limit, max(0, limit - used), reset
+
+
+def _rate_limited(key):
+    """True when this key has already had its minute's worth."""
+    return rate_state(key)[0]
+
+
+def with_rate_headers(response, key, remaining, reset, limited=False):
+    """Tell a partner where it stands, so it can back off before the 429
+    rather than after (Challengermode sends the same three; synthesis 14)."""
+    response['X-Rate-Limit-Limit'] = str(max(1, key.rate_limit_per_minute))
+    response['X-Rate-Limit-Remaining'] = str(remaining)
+    response['X-Rate-Limit-Reset'] = str(reset)
+    if limited:
+        response['Retry-After'] = str(reset)
+    return response
 
 
 def _touch(key):
@@ -108,16 +127,17 @@ def requires_scope(scope):
                     status.HTTP_403_FORBIDDEN,
                 )
 
-            if _rate_limited(key):
-                return _fail(
+            limited, remaining, reset = rate_state(key)
+            if limited:
+                return with_rate_headers(_fail(
                     f'Rate limit of {key.rate_limit_per_minute} requests a minute reached.',
                     'RATE_LIMITED',
                     status.HTTP_429_TOO_MANY_REQUESTS,
-                )
+                ), key, 0, reset, limited=True)
 
             _touch(key)
             request.partner_key = key
             request.partner = key.partner
-            return view(request, *args, **kwargs)
+            return with_rate_headers(view(request, *args, **kwargs), key, remaining, reset)
         return wrapper
     return decorator
