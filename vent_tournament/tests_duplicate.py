@@ -86,7 +86,10 @@ class DuplicateTests(TestCase):
         playoff = TournamentStage.objects.create(tournament=self.t, order=1, label='Playoff',
                                                  format='single_elimination')
         Progression.objects.create(source=groups, target=playoff, place_from=1, place_to=2,
-                                   side='winners', sent=[5, 6], fired_at=timezone.now())
+                                   side='winners', sent=[5, 6], fired_at=timezone.now(),
+                                   waiting=[{'place': 2, 'index': 0}],
+                                   history=[{'kind': 'declined', 'registration_id': 5}],
+                                   on_decline='organiser', decline_hours=24)
         copy = Tournament.objects.get(slug=self.press(self.owner).json()['data']['slug'])
         line = Progression.objects.get(source__tournament=copy)
         self.assertEqual((line.source.label, line.target.label), ('Groups', 'Playoff'))
@@ -95,6 +98,10 @@ class DuplicateTests(TestCase):
         # Who it sent belongs to the tournament that sent them.
         self.assertEqual(line.sent, [])
         self.assertIsNone(line.fired_at)
+        # So do the places it left waiting and what became of them (P2's
+        # columns); how a decline is handled is set up, and is kept.
+        self.assertEqual((line.waiting, line.history), ([], []))
+        self.assertEqual((line.on_decline, line.decline_hours), ('organiser', 24))
         self.assertEqual(Progression.objects.filter(source__tournament=self.t).count(), 1)
 
     def test_a_copy_is_not_an_edition(self):

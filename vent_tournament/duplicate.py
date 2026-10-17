@@ -46,7 +46,7 @@ MANY = ('entry_requirements', 'prize_distributions')
 RESET = {
     'TournamentStage': {'status', 'advanced', 'completed_at', 'drawn_at',
                         'entrants', 'direct_entrants'},
-    'Progression': {'sent', 'fired_at'},
+    'Progression': {'sent', 'fired_at', 'waiting', 'history'},
     'LineupRules': {'locked_by_hand', 'reopened_by_hand'},
     'TournamentRuleset': {'updated_by'},
 }
