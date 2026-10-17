@@ -59,7 +59,8 @@
       "user=viewer",
       "owner=viewer",
       "wallets.check_pin(",
-      "_get_user_from_token("
+      "_get_user_from_token(",
+      "partner=request.partner"
     ],
     "cases": "security/idor-cases.json"
   },

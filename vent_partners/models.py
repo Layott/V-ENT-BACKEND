@@ -566,3 +566,80 @@ class StudioGame(models.Model):
             return True
         names = {str(n).lower() for n in (self.testers or [])}
         return (user.username or '').lower() in names
+
+
+class StudioTournamentLink(models.Model):
+    """A tournament whose matches run through a studio's game.
+
+    One per tournament: a match has one lobby, in one game. The organiser
+    connects it (P6d); events about the tournament go to the game from then on
+    (P6b), and its matches get game sessions (P6d).
+    """
+
+    id = models.AutoField(primary_key=True)
+    tournament = models.OneToOneField('vent_tournament.Tournament', on_delete=models.CASCADE,
+                                      related_name='studio_link')
+    game = models.ForeignKey(StudioGame, on_delete=models.CASCADE, related_name='tournament_links')
+    # What the organiser chose for the game, checked against its settings schema.
+    settings = models.JSONField(default=dict, blank=True)
+    active = models.BooleanField(default=True)
+    enabled_by = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='studio_links_enabled')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.tournament_id} -> {self.game_id}'
+
+
+def _delivery_ref():
+    return 'dl_' + secrets.token_hex(8)
+
+
+class StudioDelivery(models.Model):
+    """One signed request V-ENT owes a studio, and what became of it.
+
+    Design section 14, item 5: "retries with backoff; a delivery log the studio
+    can read". Events out and the game session calls share this one engine
+    (`studio_delivery`), so a session call is retried, signed and logged
+    exactly as an event is. The row IS the log: a studio reads what we sent,
+    when, how often, and what their server answered.
+    """
+
+    KIND_CHOICES = [
+        ('event', 'Event'),
+        ('create_game_session', 'Create a game session'),
+        ('cancel_game_session', 'Cancel a game session'),
+        ('get_game_session', 'Ask for a game session'),
+    ]
+    STATUS_CHOICES = [
+        ('pending', 'Waiting to be delivered'),
+        ('delivered', 'Delivered'),
+        ('failed', 'Gave up'),
+        ('cancelled', 'Cancelled'),
+    ]
+
+    id = models.AutoField(primary_key=True)
+    # The id the studio sees, also sent as V-Ent-Delivery for their replay cache.
+    ref = models.CharField(max_length=24, unique=True, default=_delivery_ref)
+    game = models.ForeignKey(StudioGame, on_delete=models.CASCADE, related_name='deliveries')
+    kind = models.CharField(max_length=24, choices=KIND_CHOICES, default='event')
+    event = models.CharField(max_length=40, blank=True, default='')
+    url = models.URLField(max_length=300)
+    payload = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default='pending')
+    attempts = models.PositiveSmallIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    last_status_code = models.PositiveSmallIntegerField(null=True, blank=True)
+    # A code, never a sentence or a traceback: TIMEOUT, HTTP_STATUS, GONE...
+    last_error = models.CharField(max_length=40, blank=True, default='')
+    # The start of what the studio's server answered, for their own debugging.
+    response_excerpt = models.CharField(max_length=500, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ('-created_at', '-id')
+
+    def __str__(self):
+        return f'{self.ref} {self.kind} {self.status}'

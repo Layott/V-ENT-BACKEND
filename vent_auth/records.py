@@ -211,6 +211,7 @@ NOT_SENSITIVE = {
     'vent_partners.studiogame.session_webhook_url': 'where a studio takes game session calls',
     'vent_partners.studiogame.previous_secret_expires_at': 'when the secret before a rotation stops',
     'vent_partners.studiogame.secret_hint': 'the last four characters of a signing secret',
+    'vent_partners.studiodelivery.last_status_code': 'the HTTP status a studio answered',
     'vent_cards.squadrules.max_card_rating': 'a rating limit',
     'vent_cards.lineupslot.card': 'which player card is in a slot',
     'vent_billing.subscription.dunning_attempt': 'a count of payment retries',

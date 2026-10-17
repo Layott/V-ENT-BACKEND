@@ -442,6 +442,104 @@ def sandbox_key(request):
 
 
 # ---------------------------------------------------------------------------
+# The delivery log (P6b)
+# ---------------------------------------------------------------------------
+
+DELIVERY_PAGE = 50
+DELIVERY_STATES = ('pending', 'delivered', 'failed', 'cancelled')
+
+
+def delivery_row(delivery):
+    """One delivery as the studio reads it. The body is not repeated here: the
+    studio received it, and the log is for what happened to it."""
+    return {
+        'ref': delivery.ref,
+        'kind': delivery.kind,
+        'event': delivery.event or None,
+        'status': delivery.status,
+        'attempts': delivery.attempts,
+        'last_status_code': delivery.last_status_code,
+        'last_error': delivery.last_error or None,
+        'response_excerpt': delivery.response_excerpt,
+        'created_at': delivery.created_at,
+        'delivered_at': delivery.delivered_at,
+        'next_attempt_at': delivery.next_attempt_at if delivery.status == 'pending' else None,
+    }
+
+
+def delivery_page(request, game):
+    """A page of a game's log, newest first, shared by the portal and the API."""
+    state = inputs.read_choice(request.GET, 'status', DELIVERY_STATES)
+    page = inputs.read_int(request.GET, 'page', minimum=1, maximum=10000, default=1)
+    rows = game.deliveries.all()
+    if state:
+        rows = rows.filter(status=state)
+    total = rows.count()
+    start = (page - 1) * DELIVERY_PAGE
+    return {
+        'deliveries': [delivery_row(d) for d in rows[start:start + DELIVERY_PAGE]],
+        'page': page,
+        'page_size': DELIVERY_PAGE,
+        'total': total,
+        'has_more': start + DELIVERY_PAGE < total,
+    }
+
+
+@api_view(['GET'])
+@limited('studio-portal-read', 120)
+def game_deliveries(request, slug):
+    """GET /partners/studios/<slug>/deliveries/ - what we sent, and what came back."""
+    user, game, err = _own_game(request, slug)
+    if err:
+        return err
+    return _ok(delivery_page(request, game), 'Deliveries')
+
+
+@api_view(['POST'])
+@limited('studio-portal', 20)
+def resend_delivery(request, slug, delivery_ref):
+    """POST /partners/studios/<slug>/deliveries/<ref>/resend/ - send it again now.
+
+    A new delivery with the same body, sent while the studio waits, so the
+    portal can show what their server answered this time.
+    """
+    from . import studio_delivery
+
+    user, game, err = _own_game(request, slug)
+    if err:
+        return err
+    original = game.deliveries.filter(ref=str(delivery_ref)[:24]).first()
+    if original is None:
+        return _err('No such delivery for this game.', 'DELIVERY_NOT_FOUND',
+                    status.HTTP_404_NOT_FOUND)
+    again = studio_delivery.resend(original)
+    studio_delivery.attempt_ref(again.ref)
+    again.refresh_from_db()
+    return _ok({'delivery': delivery_row(again)}, 'Sent again.', status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@limited('studio-portal', 10)
+def ping_game(request, slug):
+    """POST /partners/studios/<slug>/ping/ - a signed test event, sent now.
+
+    How a studio proves its signature check before any real event arrives.
+    """
+    from . import studio_delivery
+
+    user, game, err = _own_game(request, slug)
+    if err:
+        return err
+    delivery = studio_delivery.queue(game, 'event', {'test': True}, event='ping')
+    if delivery is None:
+        return _err('Give the game an events or game session address first.',
+                    'STUDIO_NO_ADDRESS', field='events_webhook_url')
+    studio_delivery.attempt_ref(delivery.ref)
+    delivery.refresh_from_db()
+    return _ok({'delivery': delivery_row(delivery)}, 'Test event sent.')
+
+
+# ---------------------------------------------------------------------------
 # The review
 # ---------------------------------------------------------------------------
 
