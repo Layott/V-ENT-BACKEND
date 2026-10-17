@@ -1806,7 +1806,10 @@ def view_tournament(request, tournament_id):
             # travels with the record, so every screen can name it.
             "stages": [
                 {"label": st.label, "format": st.format,
-                 "format_label": bracket_label(st.format), "status": st.status}
+                 "format_label": bracket_label(st.format), "status": st.status,
+                 # Which shape a custom bracket was drawn from (P3 W2):
+                 # "Compass draw" rather than "Custom bracket".
+                 "preset": (st.settings or {}).get('preset') or None}
                 for st in tournament.stages.all()
             ],
             "start_date_and_time": tournament.start_date_and_time,

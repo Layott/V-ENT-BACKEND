@@ -643,14 +643,22 @@ def custom_places(matches):
     everybody knocked out where nothing was stated, sharing a place by the
     round they went out in, later rounds first, after the last stated place."""
     place = {}
-    stated = 0
+    # How many sides each stated place holds: two bronze matches in one round
+    # put two sides on third and two on fifth, so the first place left after
+    # them is seventh, not sixth (walk, 17 October 2026). A replay restates
+    # its own match's places in a later round, which holds no second side, so
+    # sides are counted round by round and the most any round puts there is
+    # what the place holds.
+    sides = {}
     # The final first, then later rounds before earlier ones: a replayed
     # final (a reset) states places that the first one's statement must not
     # take first.
     for m in sorted(matches, key=lambda x: (not x.is_final, -x.round_number)):
         win_at = m.winner_place or (1 if m.is_final else None)
         lose_at = m.loser_place or (2 if m.is_final else None)
-        stated = max([stated] + [p for p in (win_at, lose_at) if p])
+        for p in (win_at, lose_at):
+            if p:
+                sides[(p, m.round_number)] = sides.get((p, m.round_number), 0) + 1
         if m.status in TERMINAL and m.winner_id and win_at:
             place.setdefault(m.winner_id, win_at)
         if m.status == 'completed' and lose_at and _loser(m):
@@ -660,7 +668,7 @@ def custom_places(matches):
         if (m.status != 'completed' or m.loser_to_match_id or m.loser_place or m.is_final):
             continue
         rounds.setdefault(m.round_number, []).append(m)
-    nxt = stated + 1
+    nxt = max([0] + [p + held - 1 for (p, _rnd), held in sides.items()]) + 1
     for rnd in sorted(rounds, reverse=True):
         out = [lost for lost in (_loser(m) for m in rounds[rnd]) if lost and lost not in place]
         for lost in out:

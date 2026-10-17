@@ -73,6 +73,9 @@ def slot_rows(m):
                 'group': src.group_number, 'number': src.match_number,
                 'is_final': src.is_final, 'winner_place': src.winner_place,
                 'loser_place': src.loser_place,
+                # The part of a custom bracket it is in (P3 W2): "Loser of
+                # West round 2" and "Loser of East round 2" are two seats.
+                'branch': src.branch or '',
             },
             # A seat in a stage drawn early waits for a place (P1d), named
             # with its tournament when the place comes from another one (P2):

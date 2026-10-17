@@ -58,6 +58,14 @@ class RepechageTests(TestCase):
         self.assertEqual((got[1], got[2], got[3], got[4], got[7], got[8]), (1, 2, 3, 3, 5, 5))
         self.assertTrue(stage_engine.stage_finished(stage))
 
+    def test_after_two_shared_places_the_next_place_skips_both(self):
+        """Two bronzes state third and fifth twice: 1, 2, 3, 3, 5, 5, then 7
+        for the first round's losers, never 6 (walk, 17 October 2026)."""
+        stage, _regs = preset_stage(8, 'repechage')
+        play_out(stage)
+        got = ranks(stage)
+        self.assertEqual([got[s] for s in range(1, 9)], [1, 2, 3, 3, 7, 7, 5, 5])
+
     def test_the_repechage_seats_wait_until_the_finalists_are_known(self):
         stage, _regs = preset_stage(16, 'repechage')
         waiting = stage.matches.filter(slots__kind='lost_to').distinct()
@@ -123,3 +131,28 @@ class RepechageGuardTests(TestCase):
         with self.assertRaises(bracket_edit.EditError) as refused:
             bracket_edit.reopen(first, stage.tournament.tournament_creator)
         self.assertEqual(refused.exception.code, 'NEXT_MATCH_ALREADY_PLAYED')
+
+
+class SourceBranchTests(TestCase):
+    def test_a_seat_names_the_part_of_the_bracket_its_match_is_in(self):
+        """Compass: North takes the losers of East's second round and South
+        the losers of West's; both read "Loser of Round 2, match 1" until the
+        seat said which part it came from (walk, 17 October 2026)."""
+        from .match_shape import slot_rows
+        stage, _regs = preset_stage(8, 'compass')
+        north = stage.matches.get(branch='north')
+        south = stage.matches.get(branch='south')
+        self.assertEqual({r['from']['branch'] for r in slot_rows(north)}, {'east'})
+        self.assertEqual({r['from']['branch'] for r in slot_rows(south)}, {'west'})
+
+
+class PresetNamedTests(TestCase):
+    def test_the_public_record_names_the_preset_a_stage_was_drawn_from(self):
+        """"Custom bracket" said nothing about which of six shapes it was; the
+        record carries the preset so the page can name it (walk, 17 October
+        2026)."""
+        from rest_framework.test import APIClient
+        stage, _regs = preset_stage(8, 'compass')
+        body = APIClient().get('/tournament/view-tournament/%s/' % stage.tournament.slug).json()
+        self.assertEqual([(s['format'], s['preset']) for s in body['data']['stages']],
+                         [('custom_bracket', 'compass')])
