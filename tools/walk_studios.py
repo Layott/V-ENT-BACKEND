@@ -34,6 +34,8 @@ from vent_partners.models import Partner, StudioGame  # noqa: E402
 
 GAME_SLUG = 'walk-arena'
 DELIVERY_REF = 'dl_walkidorcase001'
+LINK_REF = 'ln_walkidorcase'
+CODE_REF = 'lc_walkidorcase'
 
 
 def setup():
@@ -70,6 +72,18 @@ def setup():
         defaults=dict(game=game, kind='event', event='ping', url=game.session_webhook_url,
                       payload={'test': True}, status='delivered'))
     print('delivery %s' % DELIVERY_REF)
+
+    # A's own game account link and a code, for the linking cases.
+    from datetime import timedelta
+    from django.utils import timezone
+    from vent_partners.models import StudioAccountLink, StudioLinkCode
+    link, _ = StudioAccountLink.objects.get_or_create(
+        ref=LINK_REF, defaults=dict(game=game, user=owner, external_id='walk-account',
+                                    external_name='Walk Organiser', method='code'))
+    StudioLinkCode.objects.get_or_create(
+        ref=CODE_REF, defaults=dict(game=game, code_hash='0' * 64, external_id='walk-account',
+                                    expires_at=timezone.now() + timedelta(days=3650)))
+    print('link %s, code %s' % (LINK_REF, CODE_REF))
 
 
 if __name__ == '__main__':

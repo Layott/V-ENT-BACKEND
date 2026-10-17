@@ -7553,6 +7553,81 @@
      404
     ]
    }
+  },
+  {
+   "name": "B cannot unlink A's game account",
+   "route": "studios/my-links/<str:link_ref>/unlink/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/studios/my-links/ln_walkidorcase/unlink/",
+    "expect": [
+     401,
+     403,
+     404
+    ],
+    "body": {}
+   }
+  },
+  {
+   "name": "B, with a session and no key, cannot ask for A's studio link code",
+   "route": "studio/games/<str:slug>/link-codes/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/api/v1/studio/games/walk-arena/link-codes/",
+    "expect": [
+     401,
+     403,
+     404
+    ],
+    "body": {
+     "account_id": "walk-account"
+    }
+   }
+  },
+  {
+   "name": "B, with a session and no key, cannot read A's studio link code",
+   "route": "studio/games/<str:slug>/link-codes/<str:code_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/api/v1/studio/games/walk-arena/link-codes/lc_walkidorcase/",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   }
+  },
+  {
+   "name": "B, with a session and no key, cannot look up A's studio links",
+   "route": "studio/games/<str:slug>/links/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/api/v1/studio/games/walk-arena/links/?account_id=walk-account",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   }
+  },
+  {
+   "name": "B, with a session and no key, cannot unlink a player from A's studio game",
+   "route": "studio/games/<str:slug>/links/<str:link_ref>/unlink/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/api/v1/studio/games/walk-arena/links/ln_walkidorcase/unlink/",
+    "expect": [
+     401,
+     403,
+     404
+    ],
+    "body": {}
+   }
   }
  ]
 }
