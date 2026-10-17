@@ -46,7 +46,8 @@ def attach_slots(matches):
     from django.db.models import Prefetch, prefetch_related_objects
     from .models import MatchSlot
     prefetch_related_objects(list(matches), Prefetch(
-        'slots', queryset=MatchSlot.objects.select_related('source_match', 'progression__source')))
+        'slots', queryset=MatchSlot.objects.select_related(
+            'source_match', 'progression__source__tournament')))
 
 
 def slot_rows(m):
@@ -67,10 +68,14 @@ def slot_rows(m):
                 'is_final': src.is_final, 'winner_place': src.winner_place,
                 'loser_place': src.loser_place,
             },
-            # A seat in a stage drawn early waits for a place (P1d).
+            # A seat in a stage drawn early waits for a place (P1d), named
+            # with its tournament when the place comes from another one (P2):
+            # "Lagos Qualifier, League: place 1".
             'from_place': None if s.kind != 'place' or s.progression is None else {
                 'stage': s.progression.source.label, 'group': s.source_group,
                 'place': s.source_place,
+                'tournament': (s.progression.source.tournament.tournament_title
+                               if s.progression.source.tournament_id != m.tournament_id else None),
             },
         })
     return rows
