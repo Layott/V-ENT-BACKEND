@@ -26,6 +26,7 @@ from vent_tournament.models import Tournament
 
 POST = 'vent_partners.studio_delivery.http.post'
 PUBLIC = 'vent_partners.studio_delivery.studio_urls.resolves_public'
+RESOLVES = 'vent_partners.studio_delivery.studio_urls.resolves'
 
 
 def answer(status=200, text='ok', payload=None):
@@ -159,11 +160,25 @@ class DeliveryTests(TestCase):
 
     def test_send_time_dns_rebinding_is_refused(self):
         delivery = studio_delivery.queue(self.game, 'event', {}, event='ping')
-        with mock.patch(PUBLIC, return_value=False), mock.patch(POST) as post:
+        with mock.patch(PUBLIC, return_value=False), mock.patch(RESOLVES, return_value=True), \
+                mock.patch(POST) as post:
             self.send_now(delivery)
         post.assert_not_called()
         delivery.refresh_from_db()
         self.assertEqual(delivery.last_error, 'URL_PRIVATE_HOST')
+        self.assertEqual(delivery.status, 'pending')
+
+    def test_a_name_that_does_not_resolve_is_unreachable_not_private(self):
+        # A studio whose address has no DNS yet was told it "points at a
+        # private network" and went looking for the wrong fault (walk, 17
+        # October 2026). Nothing is sent either way.
+        delivery = studio_delivery.queue(self.game, 'event', {}, event='ping')
+        with mock.patch(PUBLIC, return_value=False), mock.patch(RESOLVES, return_value=False), \
+                mock.patch(POST) as post:
+            self.send_now(delivery)
+        post.assert_not_called()
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.last_error, 'UNREACHABLE')
         self.assertEqual(delivery.status, 'pending')
 
     def test_an_unreadable_secret_sends_nothing(self):

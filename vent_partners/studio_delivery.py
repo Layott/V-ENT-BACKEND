@@ -197,7 +197,9 @@ def _send(delivery, now):
     if not secrets:
         return _record(delivery, now, error='STUDIO_SECRET_UNREADABLE')
     if not studio_urls.resolves_public(delivery.url):
-        return _record(delivery, now, error='URL_PRIVATE_HOST')
+        # Nothing is sent either way; the error says which fault it is.
+        error = 'URL_PRIVATE_HOST' if studio_urls.resolves(delivery.url) else 'UNREACHABLE'
+        return _record(delivery, now, error=error)
 
     body = body_of(delivery)
     headers = studio_signing.outbound_headers(secrets, 'POST', delivery.url, body,

@@ -52,6 +52,20 @@ def webhook_url_problem(url):
     return None
 
 
+def resolves(url):
+    """True when the host has at least one address right now, public or not.
+
+    Tells "points at a private network" apart from "the name does not
+    resolve", so a studio is told the fault it actually has.
+    """
+    parts = urlsplit(str(url or ''))
+    try:
+        return bool(socket.getaddrinfo(parts.hostname or '', parts.port or 443,
+                                       proto=socket.IPPROTO_TCP))
+    except (socket.gaierror, UnicodeError, OSError):
+        return False
+
+
 def resolves_public(url):
     """True when every address the host resolves to right now is public."""
     from django.conf import settings
