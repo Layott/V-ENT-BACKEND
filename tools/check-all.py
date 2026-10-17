@@ -724,6 +724,15 @@ CATCHERS = [
     ('one link writer self-test',
      'the one link writer catcher still catches a pointer written by hand',
      BACKEND, [sys.executable, 'tools/check-one-link-writer.py', '--self-test'], True),
+    # A screen showing the username where every other screen shows the full
+    # name: twice on 17 October 2026 (the happenings ticker, the feeds panel).
+    # Debt: the ledger holds the count of entrant_name reads, a new one blocks.
+    ('display names',
+     'names shown to people come from match_shape.names, not the username',
+     BACKEND, [sys.executable, 'tools/check-display-names.py'], False),
+    ('display names self-test',
+     'the display names catcher still counts a read and ignores comments and strings',
+     BACKEND, [sys.executable, 'tools/check-display-names.py', '--self-test'], True),
     # Two blocks in an email with no space between them (CEO, 29 September
     # 2026, the sign-in alert's button touching its paragraph; inbox 355).
     ('email spacing',

@@ -20,6 +20,7 @@ from .models import (
     Tournament, TournamentRegistration, BracketMatch, TournamentDispute, MatchScore,
 )
 from . import results
+from . import match_shape
 from .services import bracket as bracket_service
 from .services import prizes as prize_service
 from .services import wallet as wallet_service
@@ -88,7 +89,7 @@ def _participant_brief(reg):
     if reg is None:
         return None
     return {'registration_id': reg.id, 'type': reg.entrant_kind,
-            'id': reg.entrant_id, 'name': reg.entrant_name or None}
+            'id': reg.entrant_id, 'name': match_shape.names(reg)[0]}
 
 
 def _notify_dispute_raised(tournament):

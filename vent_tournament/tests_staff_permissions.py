@@ -42,7 +42,7 @@ class ModelTests(TestCase):
         # Every row written before 17 October 2026 was a scorekeeper, and a
         # scorekeeper could enter results and nothing else.
         row = TournamentStaff.objects.create(tournament=self.t, user=self.helper, permissions=[])
-        migration = importlib.import_module('vent_tournament.migrations.0071_staff_permissions')
+        migration = importlib.import_module('vent_tournament.migrations.0072_staff_permissions')
         migration.scorekeepers_report(django_apps, None)
         row.refresh_from_db()
         self.assertEqual(row.permissions, ['report'])
