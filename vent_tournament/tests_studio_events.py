@@ -138,6 +138,18 @@ class EventStudioTests(TestCase):
 
     # ----------------------------------------------------------------- feed
 
+    def test_the_studio_feed_carries_everything_the_event_feed_does(self):
+        # It forwarded a hand-picked list and dropped `asset` and `fonts`
+        # (walk, 17 October 2026): every key of the public feed reaches the
+        # studio, which only adds or overrides its own.
+        self.start()
+        token = BroadcastSession.objects.get().token
+        public = self.client.get('/event/%s/overlay-feed/' % self.ref).json()['data']
+        studio = self.client.get('/studio/%s/feed/' % token).json()['data']
+        self.assertEqual(sorted(set(public) - set(studio)), [])
+        self.assertEqual(studio['fonts'], public['fonts'])
+        self.assertEqual(studio['asset'], public['asset'])
+
     def test_the_feed_carries_the_programme_the_doors_and_the_sponsors(self):
         s = self.start().json()['data']['session']
         self.element(s['id'], 'now_next', {'active': True})

@@ -9,41 +9,120 @@ The last sentence was already true: standings, the studio feed and the
 overlays all read the recorded matches and fixtures, nothing else. What was
 missing was the middle one: only the organiser could enter a result, so a
 five-nation league with three pitches needed the organiser at every one of
-them. A scorekeeper is somebody the organiser names, by username, who may
-record results for that tournament and nothing else.
+them. A scorekeeper was somebody the organiser named who could record results
+for that tournament and nothing else.
 
-The roles, from most to least:
+P7 (design section 16: "granular roles (structure, report, place entrants,
+standings, caster)") splits the helper's job into five permissions, after
+Toornament's permission attributes and Challengermode's caster role (research
+section 2.13). A helper (`TournamentStaff`) holds any of them:
 
-| role        | may                                                        |
-|-------------|------------------------------------------------------------|
-| organiser   | everything                                                 |
-| admin       | everything the override permission allows, audited         |
-| scorekeeper | record a result (a knockout score, a league fixture)       |
-| nobody      | read the public page                                       |
+| permission | runs                                                                 |
+|------------|----------------------------------------------------------------------|
+| structure  | what the tournament is made of: stages, formats, match rules, battle  |
+|            | royale lobbies and stage settings                                    |
+| place      | who goes where: drawing a stage, undoing it, closing a stage and      |
+|            | sending its places on, swapping and replacing entrants, a battle      |
+|            | royale seat, finishing a battle royale stage, generating the bracket |
+| report     | results: scores, fixtures, match times and rooms, battle royale      |
+|            | results and reads, taking a result back off a match                  |
+| standings  | the table and the awards: league scoring, adjustments, stat settings, |
+|            | MVP metrics, match stats, the award                                  |
+| caster     | production: the studio, overlays, studio assets, the run of show     |
 
-Every view that records a result asks `may_record_results`. Every screen asks
+The organiser and an admin overriding (`manage_tournaments`) hold all five, and
+only they may do what is not on that list: the tournament's settings, its
+entries, its money, its staff, deleting it. `may_manage` is that question.
+
+Every door asks `may(user, tournament, '<permission>')`. Every screen asks
 `/tournament/<ref>/access/` what the viewer may do and renders that, so the
-interface has one code path for organisers, scorekeepers and strangers alike.
+interface has one code path for organisers, helpers and strangers alike.
 """
 from vent_auth.actors import may_override
 
+#: The five permissions a helper can hold, in the order every list is written.
+PERMISSIONS = ('structure', 'place', 'report', 'standings', 'caster')
+
+#: Asked of `may` for the organiser's own work.
+MANAGE = 'manage'
+
+
+class PermissionsError(ValueError):
+    """A list of permissions that cannot be stored. `code` is translated by the screen."""
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
+def clean_permissions(raw):
+    """`raw` as a stored list, in PERMISSIONS order, or PermissionsError.
+
+    PERMISSIONS_REQUIRED for nothing at all: a helper who runs nothing is
+    somebody to remove, not a row to keep. UNKNOWN_PERMISSION for anything that
+    is not one of the five names.
+    """
+    if raw is None or (isinstance(raw, (list, tuple)) and len(raw) == 0):
+        raise PermissionsError('PERMISSIONS_REQUIRED')
+    if not isinstance(raw, (list, tuple)):
+        raise PermissionsError('UNKNOWN_PERMISSION')
+    for name in raw:
+        if not isinstance(name, str) or name not in PERMISSIONS:
+            raise PermissionsError('UNKNOWN_PERMISSION')
+    asked = set(raw)
+    return [name for name in PERMISSIONS if name in asked]
+
+
+def permissions_list(held):
+    """A held set as the list every payload carries, in PERMISSIONS order."""
+    return [name for name in PERMISSIONS if name in held]
+
+
+def _staff_row(user, tournament):
+    from .models import TournamentStaff
+    return TournamentStaff.objects.filter(tournament=tournament, user=user).first()
+
 
 def role_of(user, tournament):
-    """'organiser', 'admin', 'scorekeeper' or None, for this viewer."""
+    """'organiser', 'admin', 'staff' or None, for this viewer."""
     if user is None or tournament is None:
         return None
     if tournament.tournament_creator_id == user.user_id:
         return 'organiser'
     if may_override(user, 'manage_tournaments'):
         return 'admin'
-    from .models import TournamentStaff
-    if TournamentStaff.objects.filter(tournament=tournament, user=user).exists():
-        return 'scorekeeper'
+    if _staff_row(user, tournament) is not None:
+        return 'staff'
     # An admin who may correct a score but not run the tournament is, for the
-    # results desk, a scorekeeper.
+    # results desk, a helper holding `report`.
     if may_override(user, 'override_match_score'):
-        return 'scorekeeper'
+        return 'staff'
     return None
+
+
+def permissions_of(user, tournament):
+    """The permissions this viewer holds here, as a frozenset."""
+    if user is None or tournament is None:
+        return frozenset()
+    if tournament.tournament_creator_id == user.user_id or may_override(user, 'manage_tournaments'):
+        return frozenset(PERMISSIONS)
+    held = set()
+    row = _staff_row(user, tournament)
+    if row is not None:
+        # Read through the allowlist: a name that is not one of the five grants
+        # nothing, whatever wrote it.
+        held.update(name for name in (row.permissions or []) if name in PERMISSIONS)
+    if may_override(user, 'override_match_score'):
+        held.add('report')
+    return frozenset(held)
+
+
+def may(user, tournament, permission):
+    """The one question a door asks. `permission` is one of PERMISSIONS, or
+    MANAGE for the organiser's own work."""
+    if permission == MANAGE:
+        return may_manage(user, tournament)
+    return permission in permissions_of(user, tournament)
 
 
 def may_manage(user, tournament):
@@ -52,7 +131,7 @@ def may_manage(user, tournament):
 
 def may_record_results(user, tournament):
     """The one question a result-recording view asks."""
-    return role_of(user, tournament) in ('organiser', 'admin', 'scorekeeper')
+    return may(user, tournament, 'report')
 
 
 def plays_in(user, tournament):
@@ -77,10 +156,13 @@ def plays_in(user, tournament):
 def access_payload(user, tournament):
     """What the interface renders from. 200 for everybody; false for a stranger."""
     role = role_of(user, tournament)
+    held = permissions_of(user, tournament)
     return {
         'role': role,
         'can_manage': role in ('organiser', 'admin'),
-        'can_record_results': role in ('organiser', 'admin', 'scorekeeper'),
+        'can_record_results': 'report' in held,
         # A player opens the console for their lineup and nothing else.
         'is_entrant': plays_in(user, tournament),
+        # Which parts of the console are this viewer's, in PERMISSIONS order.
+        'permissions': permissions_list(held),
     }
