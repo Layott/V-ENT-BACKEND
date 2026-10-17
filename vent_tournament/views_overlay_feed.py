@@ -1045,7 +1045,10 @@ def overlay_feed(request, tournament_id):
     def _side(registration):
         if registration is None:
             return ''
-        return registration.entrant_name or ''
+        # The name the bracket and the tree on stream show (a person's full
+        # name), never the username (17 October 2026).
+        from .match_shape import names
+        return names(registration)[0] or ''
 
     def _slot(m, side):
         return next((row for row in match_shape.slot_rows(m) if row['slot'] == side), None)
