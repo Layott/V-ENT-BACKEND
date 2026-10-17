@@ -63,7 +63,7 @@ def _threshold(raw):
 # whatever a group or a Swiss stage feeds (P3 W1). Played to one winner, a
 # knockout decides the tournament and feeds nothing.
 QUALIFIER_FEEDS = ('single_elimination', 'double_elimination', 'round_robin', 'league',
-                   'swiss', 'stepladder', 'page_playoff', 'gsl')
+                   'swiss', 'stepladder', 'page_playoff', 'gsl', 'bracket_groups')
 
 
 def feeds_into(format_key, settings=None):

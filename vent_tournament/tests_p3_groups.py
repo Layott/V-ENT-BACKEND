@@ -157,6 +157,9 @@ class BracketGroupShapeTests(TestCase):
 
 
 class BracketGroupPlanTests(TestCase):
+    def test_a_threshold_knockout_feeds_bracket_groups(self):
+        self.assertIn('bracket_groups', stage_settings.feeds_into('single_elimination', {'threshold': 8}))
+
     def test_a_group_sends_at_most_its_qualifiers(self):
         with self.assertRaises(stages.StageError) as caught:
             stages.plan([
