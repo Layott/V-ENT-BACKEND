@@ -117,18 +117,20 @@ class ResultsAccessTests(TestCase):
     def test_access_answers_everybody_and_says_the_truth(self):
         self.assertEqual(self.access(self.league).json()['data'],
                          {'role': None, 'can_manage': False, 'can_record_results': False,
-                          'is_entrant': False})
+                          'is_entrant': False, 'permissions': []})
         self.assertEqual(self.access(self.league, self.stranger_auth).json()['data'],
                          {'role': None, 'can_manage': False, 'can_record_results': False,
-                          'is_entrant': False})
+                          'is_entrant': False, 'permissions': []})
         self.assertEqual(self.access(self.league, self.auth).json()['data'],
                          {'role': 'organiser', 'can_manage': True, 'can_record_results': True,
                           # The organiser owns both teams here, so they play in it.
-                          'is_entrant': True})
+                          'is_entrant': True,
+                          'permissions': ['structure', 'place', 'report', 'standings', 'caster']})
         self.add_keeper(self.league)
+        # Named with no permissions said, as every screen before P7 did: results.
         self.assertEqual(self.access(self.league, self.keeper_auth).json()['data'],
-                         {'role': 'scorekeeper', 'can_manage': False, 'can_record_results': True,
-                          'is_entrant': False})
+                         {'role': 'staff', 'can_manage': False, 'can_record_results': True,
+                          'is_entrant': False, 'permissions': ['report']})
 
     # -------------------------------------------------------------- staff
 
@@ -138,7 +140,7 @@ class ResultsAccessTests(TestCase):
         self.assertTrue(res.json()['data']['added'])
         self.assertEqual([r['username'] for r in res.json()['data']['staff']], ['ra_keeper'])
         self.assertTrue(TournamentStaff.objects.filter(
-            tournament=self.league, user=self.keeper, role='scorekeeper').exists())
+            tournament=self.league, user=self.keeper, permissions=['report']).exists())
 
     def test_a_scorekeeper_is_named_per_tournament(self):
         self.add_keeper(self.league)

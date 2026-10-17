@@ -561,6 +561,18 @@ def save_plan(tournament, raw_stages, user, participants=None, raw_lines=None):
         if any(i not in own for i in stage['direct_entrants']):
             raise EditError('NOT_AN_ENTRANT', 'direct_entrants', stage_index=index)
 
+    # A stage another tournament feeds, or that feeds another (P2): removing
+    # it would delete the feed without anybody deciding to. Asked before
+    # anything is written.
+    from django.db.models import Q
+    from .models import Progression
+    keeping = {int(r['id']) for r in merged if str(r.get('id') or '').isdigit()}
+    leaving = [s.id for s in existing if s.id not in keeping]
+    if leaving and Progression.objects.filter(
+            Q(source_id__in=leaving) & ~Q(target__tournament=tournament)
+            | Q(target_id__in=leaving) & ~Q(source__tournament=tournament)).exists():
+        raise EditError('STAGE_HAS_FEED', 'stages')
+
     kept = set()
     for order, (raw, row) in enumerate(zip(merged, cleaned)):
         stage = by_id.get(int(raw.get('id') or 0)) if str(raw.get('id') or '').isdigit() else None
@@ -598,7 +610,8 @@ def _save_lines(tournament, lines):
     saved = list(tournament.stages.all().order_by('order'))
     wanted = [(saved[l['source']].id, saved[l['target']].id, l['group'], l['place_from'],
                l['place_to'], l['side']) for l in lines]
-    existing = list(Progression.objects.filter(source__tournament=tournament))
+    existing = list(Progression.objects.filter(source__tournament=tournament,
+                                               target__tournament=tournament))
     fired = {(l.source_id, l.target_id, l.group, l.place_from, l.place_to, l.side): l
              for l in existing if l.fired_at is not None}
     if any(shape not in wanted for shape in fired):

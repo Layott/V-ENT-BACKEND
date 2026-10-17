@@ -7408,6 +7408,306 @@
    "id": "10"
   },
   {
+   "name": "B cannot read the sites and views of A's tournament",
+   "route": "<str:kind>/<str:ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/sites/tournament/walk-cup-fee/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "91"
+  },
+  {
+   "name": "B cannot choose where A's tournament may be framed",
+   "route": "<str:kind>/<str:ref>/locks/",
+   "attempt": {
+    "as": "b",
+    "method": "PUT",
+    "path": "/sites/tournament/walk-cup-fee/locks/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "hosts": []
+    }
+   },
+   "id": "92"
+  },
+  {
+   "name": "B cannot read the sites and views of A's event",
+   "route": "<str:kind>/<str:ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/sites/event/walk-con-5e6c/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "93"
+  },
+  {
+   "name": "B cannot choose where A's event may be framed",
+   "route": "<str:kind>/<str:ref>/locks/",
+   "attempt": {
+    "as": "b",
+    "method": "PUT",
+    "path": "/sites/event/walk-con-5e6c/locks/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "hosts": []
+    }
+   },
+   "id": "94"
+  },
+  {
+   "name": "B cannot check a site that is not B's",
+   "route": "mine/<str:host>/check/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/sites/mine/walk-organiser-site.org/check/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {}
+   },
+   "id": "95",
+   "expectNote": "A site is always looked up as owner=viewer, so somebody else's host answers 404, the same as one nobody added (R88)."
+  },
+  {
+   "name": "B cannot remove a site that is not B's",
+   "route": "mine/<str:host>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/sites/mine/walk-organiser-site.org/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "96",
+   "expectNote": "A site is always looked up as owner=viewer, so somebody else's host answers 404, the same as one nobody added (R88)."
+  },
+  {
+   "name": "GET sites/frame/<str:kind>/<str:ref>/ as B",
+   "route": "frame/<str:kind>/<str:ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/sites/frame/tournament/walk-cup-fee/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "97",
+   "r88": {
+    "publicRead": "who may frame a tournament is the list every embed answer already carries in its Content-Security-Policy header, so it is public by design (P8, approved sites)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament named is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot make a feed into A's tournament",
+   "route": "tournament/<str:tournament_id>/feeds/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/feeds/",
+    "body": {
+     "target_stage": 1,
+     "source_tournament": "walk-cup-fee",
+     "source_stage": 1,
+     "place_from": 1,
+     "place_to": 2
+    }
+   },
+   "r88": {
+    "publicRead": "a tournament's feeds are its public path (where its places come from and go), drawn on the public bracket tab (P2)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament named is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot delete a feed into A's tournament",
+   "route": "tournament/<str:tournament_id>/feeds/<int:feed_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/tournament/walk-cup-fee/feeds/1/"
+   },
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament named is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot fill a declined place in A's tournament",
+   "route": "tournament/<str:tournament_id>/feeds/<int:feed_id>/pick/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/feeds/1/pick/",
+    "body": {
+     "source_registration": 1
+    }
+   },
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament named is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot read a recall preview on A's tournament",
+   "route": "tournament/<str:tournament_id>/qualifiers/<int:registration_id>/recall/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/walk-cup-fee/qualifiers/1/recall/"
+   },
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament named is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot recall a qualifier from A's tournament",
+   "route": "tournament/<str:tournament_id>/qualifiers/<int:registration_id>/recall/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/qualifiers/1/recall/",
+    "body": {
+     "mode": "hand_on"
+    }
+   },
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament named is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot decline somebody else's place",
+   "route": "tournament/<str:tournament_id>/qualifiers/<int:registration_id>/decline/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/qualifiers/1/decline/"
+   },
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament named is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot change what A's tournament helper runs (P7)",
+   "route": "tournament/<str:tournament_id>/staff/<int:user_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/tournament/walk-cup-fee/staff/{id}/",
+    "body": {
+     "permissions": [
+      "structure",
+      "place",
+      "report",
+      "standings",
+      "caster"
+     ]
+    }
+   },
+   "id": "54",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot read A's blueprint (P7)",
+   "route": "tournament/blueprints/<str:blueprint_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/blueprints/{id}/"
+   },
+   "id": "bp_c0ffee00000000000001"
+  },
+  {
+   "name": "B cannot change A's blueprint (P7)",
+   "route": "tournament/blueprints/<str:blueprint_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/tournament/blueprints/{id}/",
+    "body": {
+     "name": "Mine now",
+     "publish": true
+    }
+   },
+   "id": "bp_c0ffee00000000000001"
+  },
+  {
+   "name": "B cannot delete A's blueprint (P7)",
+   "route": "tournament/blueprints/<str:blueprint_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/tournament/blueprints/{id}/"
+   },
+   "id": "bp_c0ffee00000000000001"
+  },
+  {
+   "name": "B cannot make an edition of A's blueprint (P7)",
+   "route": "tournament/blueprints/<str:blueprint_ref>/make/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/blueprints/{id}/make/",
+    "body": {}
+   },
+   "id": "bp_c0ffee00000000000001"
+  },
+  {
+   "name": "B cannot make a blueprint of A's tournament (P7)",
+   "route": "tournament/blueprints/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/blueprints/",
+    "body": {
+     "tournament": "walk-cup-fee",
+     "every": "none"
+    }
+   }
+  },
+  {
    "name": "B cannot read A's studio game",
    "route": "studios/<str:slug>/",
    "attempt": {
