@@ -146,7 +146,10 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'corsheaders',
     'vent_event',
-    'vent_team'
+    'vent_team',
+    # Tournaments and events on the organiser's own website (P8): proven
+    # sites, embeds locked to them, views counted per site.
+    'vent_sites',
 ]
 
 MIDDLEWARE = [

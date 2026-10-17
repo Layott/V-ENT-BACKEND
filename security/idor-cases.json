@@ -7391,6 +7391,119 @@
     }
    },
    "id": "90"
+  },
+  {
+   "name": "B cannot read the sites and views of A's tournament",
+   "route": "<str:kind>/<str:ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/sites/tournament/walk-cup-fee/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "91"
+  },
+  {
+   "name": "B cannot choose where A's tournament may be framed",
+   "route": "<str:kind>/<str:ref>/locks/",
+   "attempt": {
+    "as": "b",
+    "method": "PUT",
+    "path": "/sites/tournament/walk-cup-fee/locks/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "hosts": []
+    }
+   },
+   "id": "92"
+  },
+  {
+   "name": "B cannot read the sites and views of A's event",
+   "route": "<str:kind>/<str:ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/sites/event/walk-con-5e6c/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "93"
+  },
+  {
+   "name": "B cannot choose where A's event may be framed",
+   "route": "<str:kind>/<str:ref>/locks/",
+   "attempt": {
+    "as": "b",
+    "method": "PUT",
+    "path": "/sites/event/walk-con-5e6c/locks/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "hosts": []
+    }
+   },
+   "id": "94"
+  },
+  {
+   "name": "B cannot check a site that is not B's",
+   "route": "mine/<str:host>/check/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/sites/mine/walk-organiser-site.org/check/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {}
+   },
+   "id": "95",
+   "expectNote": "A site is always looked up as owner=viewer, so somebody else's host answers 404, the same as one nobody added (R88)."
+  },
+  {
+   "name": "B cannot remove a site that is not B's",
+   "route": "mine/<str:host>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/sites/mine/walk-organiser-site.org/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "96",
+   "expectNote": "A site is always looked up as owner=viewer, so somebody else's host answers 404, the same as one nobody added (R88)."
+  },
+  {
+   "name": "GET sites/frame/<str:kind>/<str:ref>/ as B",
+   "route": "frame/<str:kind>/<str:ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/sites/frame/tournament/walk-cup-fee/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "97",
+   "r88": {
+    "publicRead": "who may frame a tournament is the list every embed answer already carries in its Content-Security-Policy header, so it is public by design (P8, approved sites)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament named is public, so whether it exists is no secret"
+   }
   }
  ]
 }
