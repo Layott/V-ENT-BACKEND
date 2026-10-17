@@ -129,3 +129,86 @@ class AccessTests(TestCase):
         TournamentStaff.objects.create(tournament=self.t, user=self.helper, permissions=['report'])
         self.assertTrue(access.may_record_results(self.helper, self.t))
         self.assertFalse(access.may_manage(self.helper, self.t))
+
+
+class StaffApiTests(TestCase):
+    def setUp(self):
+        self.organiser = make_user(7121)
+        self.helper = make_user(7122)
+        self.other = make_user(7123)
+        self.t = make_tournament(self.organiser)
+        self.base = '/tournament/%s/staff/' % self.t.slug
+
+    def name(self, body, who=None):
+        return client_for(who or self.organiser).post(self.base, body, format='json')
+
+    def patch(self, user, body, who=None):
+        return client_for(who or self.organiser).patch(
+            '%s%s/' % (self.base, user.user_id), body, format='json')
+
+    def test_named_with_permissions(self):
+        res = self.name({'username': self.helper.username, 'permissions': ['caster', 'place']})
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        row = res.json()['data']['staff'][0]
+        self.assertEqual(row['username'], self.helper.username)
+        self.assertEqual(row['permissions'], ['place', 'caster'])
+        self.assertEqual(TournamentStaff.objects.get(tournament=self.t, user=self.helper).permissions,
+                         ['place', 'caster'])
+
+    def test_absent_permissions_means_report(self):
+        # What every screen before P7 sent: a username and nothing else.
+        res = self.name({'username': self.helper.username})
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.assertEqual(res.json()['data']['staff'][0]['permissions'], ['report'])
+
+    def test_unknown_permission_is_refused(self):
+        res = self.name({'username': self.helper.username, 'permissions': ['report', 'owner']})
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()['code'], 'UNKNOWN_PERMISSION')
+        self.assertFalse(TournamentStaff.objects.filter(tournament=self.t).exists())
+
+    def test_an_empty_list_is_refused(self):
+        res = self.name({'username': self.helper.username, 'permissions': []})
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()['code'], 'PERMISSIONS_REQUIRED')
+        self.name({'username': self.helper.username})
+        res = self.patch(self.helper, {'permissions': []})
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()['code'], 'PERMISSIONS_REQUIRED')
+        self.assertEqual(TournamentStaff.objects.get(tournament=self.t, user=self.helper).permissions,
+                         ['report'])
+
+    def test_patch_changes_what_they_hold(self):
+        self.name({'username': self.helper.username})
+        res = self.patch(self.helper, {'permissions': ['standings', 'structure']})
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.assertEqual(res.json()['data']['staff'][0]['permissions'], ['structure', 'standings'])
+        self.assertEqual(access.permissions_of(self.helper, self.t),
+                         frozenset({'structure', 'standings'}))
+
+    def test_patch_for_somebody_not_staff_is_404(self):
+        res = self.patch(self.other, {'permissions': ['report']})
+        self.assertEqual(res.status_code, 404)
+        self.assertEqual(res.json()['code'], 'STAFF_NOT_FOUND')
+
+    def test_a_helper_cannot_patch_anybody(self):
+        TournamentStaff.objects.create(tournament=self.t, user=self.helper,
+                                       permissions=list(access.PERMISSIONS))
+        TournamentStaff.objects.create(tournament=self.t, user=self.other, permissions=['report'])
+        res = self.patch(self.other, {'permissions': access.PERMISSIONS}, who=self.helper)
+        self.assertEqual(res.status_code, 403)
+        res = self.client.patch('%s%s/' % (self.base, self.other.user_id),
+                                {'permissions': ['report']}, content_type='application/json')
+        self.assertEqual(res.status_code, 401)
+        self.assertEqual(TournamentStaff.objects.get(tournament=self.t, user=self.other).permissions,
+                         ['report'])
+
+    def test_invite_by_email_carries_permissions(self):
+        res = self.name({'username': 'caster@example.com', 'permissions': ['caster']})
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.assertTrue(res.json()['data']['awaiting_signup'])
+        self.assertEqual(res.json()['data']['invite']['permissions'], ['caster'])
+        invite = RoleInvite.objects.get(tournament=self.t)
+        self.assertEqual((invite.role, invite.scopes), ('staff', ['caster']))
+        listing = client_for(self.organiser).get(self.base).json()['data']
+        self.assertEqual(listing['invites'][0]['permissions'], ['caster'])
