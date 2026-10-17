@@ -1341,6 +1341,55 @@ class TournamentStage(models.Model):
         return '%s: %s' % (self.tournament_id, self.label)
 
 
+class Progression(models.Model):
+    """A line from places of one stage to another stage (P1b).
+
+    CEO, 16 October 2026: "i aprove the design". Section 6 of the bracket
+    structure design: "places 1 to 2 of each group go to the upper bracket,
+    place 3 goes to the lower bracket". A stage used to know only the next one
+    by `order` and how many `advances`, so a tournament was a straight chain.
+    Lines make it a graph: split, merge, a split league with its points, a
+    qualifier entering the lower bracket. `progressions.py` owns them.
+
+    `sent` is who this line actually sent, recorded when it fired, the same way
+    `TournamentStage.advanced` records it for the stage, so a standing that is
+    recomputed later cannot silently change who already went through.
+    """
+
+    SIDES = (
+        ('any', 'Wherever the format puts them'),
+        ('winners', 'The upper bracket'),
+        ('losers', 'The lower bracket'),
+    )
+    # When the line sends its people (design 477, the CEO: "organizer decides
+    # how they want it").
+    FIRES = (
+        ('after_preview', 'When the organiser confirms the preview'),
+        ('on_close', 'As soon as the stage ends'),
+        ('manual', 'When the organiser presses send'),
+    )
+
+    source = models.ForeignKey(TournamentStage, on_delete=models.CASCADE, related_name='outgoing')
+    target = models.ForeignKey(TournamentStage, on_delete=models.CASCADE, related_name='incoming')
+    # Null is every group (or the whole field when the stage has none).
+    group = models.PositiveSmallIntegerField(null=True, blank=True)
+    place_from = models.PositiveSmallIntegerField(default=1)
+    place_to = models.PositiveSmallIntegerField()
+    side = models.CharField(max_length=8, choices=SIDES, default='any')
+    carry_points = models.BooleanField(default=False)
+    fire = models.CharField(max_length=14, choices=FIRES, default='after_preview')
+    order = models.PositiveSmallIntegerField(default=0)
+    sent = models.JSONField(default=list, blank=True)
+    fired_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return '%s places %s-%s -> %s' % (self.source_id, self.place_from, self.place_to,
+                                          self.target_id)
+
+
 class TournamentInvite(models.Model):
     """A code that lets somebody register for a tournament they could not otherwise.
 

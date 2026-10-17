@@ -50,6 +50,11 @@ def link_reset(first, second):
         _put(second, slot, 'reset', first)
 
 
+def mark_bye(match, slot):
+    """A seat that stays empty by design: nobody is sent there."""
+    _put(match, slot, 'bye')
+
+
 def seat(match, slot, registration, seed=None):
     """An entrant placed in this seat at the draw."""
     if seed is None and registration is not None:

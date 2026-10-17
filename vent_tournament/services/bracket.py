@@ -249,12 +249,16 @@ def generate(tournament, generated_by, seed_strategy='random', manual_order=None
     return summary
 
 
-def draw_into(tournament, stage, btype, ordered, settings, groups=0):
+def draw_into(tournament, stage, btype, ordered, settings, groups=0, lower=None):
     """Draw `ordered` (best seed first) as `btype`, into `stage` or none.
 
     The single entry every generator is reached through, for a whole
-    tournament and for one stage of one.
+    tournament and for one stage of one. `lower` are entrants a progression
+    line sends into a double elimination's lower bracket (P1b).
     """
+    lower = list(lower or [])
+    if lower and btype != 'double_elimination':
+        ordered, lower = list(ordered) + lower, []
     if btype not in DRAWABLE:
         raise BracketError('format_has_no_bracket',
                            'This format is scored as a table, not drawn as a bracket.')
@@ -268,16 +272,16 @@ def draw_into(tournament, stage, btype, ordered, settings, groups=0):
         raise BracketError('not_enough_entrants',
                            'This format needs at least %s.' % definition.min_participants)
     with advance.suspend_advance():
-        summary = _draw(tournament, stage, btype, ordered, settings, groups)
+        summary = _draw(tournament, stage, btype, ordered, settings, groups, lower)
     # The seats the generator filled (entrants, byes) get their slot rows here,
     # after any bye has moved somebody on; the links wrote their own.
     scope = (stage.matches.all() if stage is not None
              else tournament.bracket_matches.filter(stage__isnull=True))
-    match_slots.complete(scope, {r.id: i for i, r in enumerate(ordered, start=1)})
+    match_slots.complete(scope, {r.id: i for i, r in enumerate(list(ordered) + lower, start=1)})
     return summary
 
 
-def _draw(tournament, stage, btype, ordered, settings, groups):
+def _draw(tournament, stage, btype, ordered, settings, groups, lower=None):
     """The generator for `btype`, run inside `draw_into`."""
     if btype == 'stepladder':
         return _generate_stepladder(tournament, stage, ordered, settings)
@@ -298,7 +302,7 @@ def _draw(tournament, stage, btype, ordered, settings, groups):
                                      settings=settings)
     if btype == 'double_elimination':
         return _generate_double_elimination(tournament, ordered, stage=stage,
-                                            settings=settings)
+                                            settings=settings, lower=lower)
     return _generate_single_elimination(tournament, ordered, stage=stage,
                                         settings=settings)
 
@@ -778,13 +782,20 @@ def reorder(name, items):
     return items
 
 
-def _generate_double_elimination(tournament, ordered, stage=None, settings=None):
+def _generate_double_elimination(tournament, ordered, stage=None, settings=None, lower=None):
     """Winners + losers bracket + grand final, with or without a reset.
 
     Fully correct and auto-advancing for power-of-2 fields. Non-power-of-2 fields
     are padded with byes which the walkover collapse resolves.
+
+    `lower` are entrants who start in the lower bracket (a group's third place,
+    a qualifier: P1b, design section 6, "qualifiers join a double elimination
+    in the lower bracket"). They get a lower round of their own in front: each
+    upper round one loser meets one of them, best lower entrant first, a bye
+    where there are fewer of them, and the lower bracket carries on from there.
     """
     settings = settings or {}
+    lower = list(lower or [])
     n = len(ordered)
     bracket_size = next_power_of_2(n)
     k = int(math.log2(bracket_size))
@@ -811,9 +822,19 @@ def _generate_double_elimination(tournament, ordered, stage=None, settings=None)
     # --- Losers bracket ----------------------------------------------------
     # LB has 2*(k-1) rounds. Minor rounds (odd index) pair LB survivors; major
     # rounds (even index) pair LB survivors against the incoming WB-round losers.
+    entry = []
+    if lower:
+        if k < 2:
+            raise BracketError('lower_needs_four_upper',
+                               'A lower bracket entry needs at least four in the upper bracket.')
+        if len(lower) > len(wb[0]):
+            raise BracketError('lower_too_many',
+                               'More come in on the lower side than there are upper round one losers.')
+        entry = [mk(1, m + 1, 'losers') for m in range(len(wb[0]))]
+
     lb = []
     if k >= 2:
-        lb_round = 1
+        lb_round = 2 if entry else 1
         count = bracket_size // 4
         lb.append([mk(lb_round, m + 1, 'losers') for m in range(max(count, 1))])
         wb_feeder_round = 2
@@ -842,9 +863,25 @@ def _generate_double_elimination(tournament, ordered, stage=None, settings=None)
 
     if lb:
         orders = drop_order(bracket_size)
-        for m, match in enumerate(reorder(orders[1], wb[0])):
-            tgt = lb[0][m // 2]
-            match_slots.link(match, 'loser', tgt, 1 if m % 2 == 0 else 2)
+        if entry:
+            # Upper round one losers into the entry round's first seats; the
+            # entry round's winners on into the lower bracket as round one's
+            # losers would have gone.
+            for m, match in enumerate(reorder(orders[1], wb[0])):
+                match_slots.link(match, 'loser', entry[m], 1)
+            for m, match in enumerate(entry):
+                match_slots.link(match, 'winner', lb[0][m // 2], 1 if m % 2 == 0 else 2)
+            padded = lower + [None] * (len(entry) - len(lower))
+            for match, reg in zip(entry, padded):
+                if reg is not None:
+                    match.participant_2 = reg
+                    match.save(update_fields=['participant_2'])
+                else:
+                    match_slots.mark_bye(match, 2)
+        else:
+            for m, match in enumerate(reorder(orders[1], wb[0])):
+                tgt = lb[0][m // 2]
+                match_slots.link(match, 'loser', tgt, 1 if m % 2 == 0 else 2)
         major_rounds = [lb[i] for i in range(1, len(lb), 2)]
         for idx, wb_round in enumerate(wb[1:], start=0):
             if idx >= len(major_rounds):
