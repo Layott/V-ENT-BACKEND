@@ -383,6 +383,7 @@ def _table_standings(stage):
         # (P1b, a line that carries points).
         for pid, row in rows.items():
             row['points'] += carried.get(pid, 0)
+        _opponent_numbers(rows, group_matches, rules)
         out.extend(_rank_table(list(rows.values()), group_matches, pts, rules['tiebreakers']))
     return out
 
@@ -397,6 +398,78 @@ def _carried_points(stage):
                 out[int(row['registration_id'])] = out.get(int(row['registration_id']), 0) \
                     + (row.get('carry') or 0)
     return out
+
+
+def _opponent_numbers(rows, matches, rules, byes=()):
+    """The tie-break numbers read off who played whom (P3 W1, design section
+    9; research catalogue 4.3 and 4.5), written on each row:
+
+    - buchholz: the opponents' wins, points, or wins minus losses (Valve's
+      Difficulty Score), as the stage's rules say; buchholz_cut1 without the
+      weakest opponent, buchholz_median1 without the weakest and the strongest;
+    - sonneborn_berger: the points of the opponents beaten, plus half those of
+      the opponents drawn with;
+    - progressive: the running points after every round, added up;
+    - koya: the points taken from opponents on at least half the points they
+      could have had;
+    - opponents_win_pct: each opponent's wins over matches played, never
+      below the floor (25 by default, the card game rule), byes not counted,
+      averaged, as a percentage; opp_opp_win_pct: the opponents' own figure,
+      averaged.
+
+    `rows` maps registration id to row (points and record already counted);
+    `matches` are the played matches between them; `byes` the bye matches.
+    """
+    win, draw_pts, _loss = rules['points_win'], rules['points_draw'], rules['points_loss']
+    meetings = {rid: [] for rid in rows}
+    played = {rid: 0 for rid in rows}
+    won = {rid: 0 for rid in rows}
+    by_round = {}
+    for m in matches:
+        a, b = m.participant_1_id, m.participant_2_id
+        if a not in rows or b not in rows:
+            continue
+        for me, them in ((a, b), (b, a)):
+            result = 0.5 if m.winner_id is None else (1 if m.winner_id == me else 0)
+            meetings[me].append((them, result))
+            played[me] += 1
+            won[me] += 1 if result == 1 else 0
+            gained = draw_pts if result == 0.5 else (win if result == 1 else rules['points_loss'])
+            by_round.setdefault(m.round_number, {}).setdefault(me, 0)
+            by_round[m.round_number][me] += gained
+    for m in byes:
+        by_round.setdefault(m.round_number, {}).setdefault(m.winner_id, 0)
+        by_round[m.round_number][m.winner_id] += rules.get('points_bye', win)
+
+    form = rules.get('buchholz') or 'wins'
+    strength = {rid: (r['points'] if form == 'points'
+                      else r['wins'] - r['losses'] if form == 'wins_minus_losses'
+                      else r['wins']) for rid, r in rows.items()}
+    floor = (rules.get('owp_floor') if rules.get('owp_floor') is not None else 25) / 100.0
+    pct = {rid: max(floor, min(1.0, won[rid] / played[rid])) if played[rid] else floor
+           for rid in rows}
+    owp = {}
+    for rid, row in rows.items():
+        values = sorted(strength[o] for o, _r in meetings[rid])
+        row['buchholz'] = sum(values)
+        row['buchholz_cut1'] = sum(values[1:])
+        row['buchholz_median1'] = sum(values[1:-1])
+        sb = sum(rows[o]['points'] * r for o, r in meetings[rid])
+        row['sonneborn_berger'] = int(sb) if sb == int(sb) else sb
+        row['koya'] = sum((win if r == 1 else draw_pts if r == 0.5 else rules['points_loss'])
+                          for o, r in meetings[rid]
+                          if rows[o]['points'] * 2 >= played[o] * win)
+        running = total = 0
+        for rnd in sorted(by_round):
+            running += by_round[rnd].get(rid, 0)
+            total += running
+        row['progressive'] = total
+        opps = [o for o, _r in meetings[rid]]
+        owp[rid] = sum(pct[o] for o in opps) / len(opps) if opps else 0
+        row['opponents_win_pct'] = round(owp[rid] * 100, 2)
+    for rid, row in rows.items():
+        opps = [o for o, _r in meetings[rid]]
+        row['opp_opp_win_pct'] = round(sum(owp[o] for o in opps) / len(opps) * 100, 2) if opps else 0
 
 
 def _swiss_standings(stage):
@@ -422,9 +495,9 @@ def _swiss_standings(stage):
             opponents[b].append(a)
         _tally(rows, m, pts)
         played.append(m)
-    strength = 'points' if rules['buchholz'] == 'points' else 'wins'
+    byes = [m for m in stage.matches.all() if m.status == 'bye' and m.winner_id in rows]
+    _opponent_numbers(rows, played, rules, byes)
     for i, row in rows.items():
-        row['buchholz'] = sum(rows[o][strength] for o in opponents[i] if o in rows)
         row['goal_difference'] = row['goals_for'] - row['goals_against']
         target, limit = settings.get('win_target') or 0, settings.get('loss_limit') or 0
         if target and row['wins'] >= target:
@@ -1004,13 +1077,14 @@ def next_swiss_round(stage):
             had_bye.add(m.winner_id)
         elif m.participant_1_id and m.participant_2_id:
             played.add(frozenset((m.participant_1_id, m.participant_2_id)))
-    pairs, bye = bracket.pair_swiss(players, record, played, had_bye)
+    pairs, bye = bracket.pair_swiss(players, record, played, had_bye,
+                                    method=(stage.settings or {}).get('pairing') or 'monrad')
     round_number = max((m.round_number for m in stage.matches.all()), default=0) + 1
     total = bracket.swiss_rounds_for(len(stage.entrants or []), stage.settings)
     from .services import advance as adv
     with adv.suspend_advance():
         created = bracket._swiss_round(stage.tournament, stage, stage.settings, round_number,
-                                       pairs, bye, total)
+                                       pairs, bye, total, record=record)
     # Each new round's seats say who was paired into them, with their seed.
     from . import match_slots
     match_slots.complete(stage.matches.filter(round_number=round_number),

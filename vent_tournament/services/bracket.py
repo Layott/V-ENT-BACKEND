@@ -754,7 +754,39 @@ def swiss_rounds_for(n, settings):
     return max(1, math.ceil(math.log2(max(2, n))))
 
 
-def pair_swiss(players, record, played, had_bye):
+SWISS_PAIRINGS = ('monrad', 'dutch', 'valve')
+
+
+def _swiss_candidates(first, rest, record, method):
+    """Who `first` (the best remaining) would rather meet, best choice first.
+
+    monrad (what V-ENT has always drawn): the closest record, then table
+    order, so a score group pairs 1 v 2, 3 v 4. dutch (FIDE C.04.3): in its
+    score group the top player meets the player half way down, top half
+    against bottom half (1 v 5, 2 v 6 in a group of eight), then the rest of
+    the bottom half, then the top half; an odd player floats down. valve
+    (Counter-Strike Major rulebook): in its record group the highest meets the
+    lowest available. Research catalogue 4.2 and 4.4.
+    """
+    def closeness(p):
+        return (abs(record[p.id][0] - record[first.id][0])
+                + abs(record[p.id][1] - record[first.id][1]))
+    if method == 'dutch':
+        group = [first] + [p for p in rest if record[p.id][0] == record[first.id][0]]
+        half = max(len(group) // 2, 1)       # never `first` itself
+        own = group[half:] + list(reversed(group[1:half]))
+        others = sorted((p for p in rest if p not in group),
+                        key=lambda p: (abs(record[p.id][0] - record[first.id][0]), rest.index(p)))
+        return own + others
+    if method == 'valve':
+        group = [p for p in rest if record[p.id] == record[first.id]]
+        others = sorted((p for p in rest if p not in group),
+                        key=lambda p: (closeness(p), -rest.index(p)))
+        return list(reversed(group)) + others
+    return sorted(rest, key=lambda p: (closeness(p), rest.index(p)))
+
+
+def pair_swiss(players, record, played, had_bye, method='monrad'):
     """Pair one Swiss round.
 
     `players` in standing order (best first); `record[id]` = (wins, losses);
@@ -762,8 +794,12 @@ def pair_swiss(players, record, played, had_bye):
     had a bye. Returns (pairs, bye_player_or_None).
 
     Pairs within the same record where possible, never a rematch if any other
-    pairing exists, found by backtracking from the top of the table. The bye,
-    for an odd field, goes to the lowest-ranked entrant who has not had one.
+    pairing exists, found by backtracking from the top of the table, each
+    entrant trying opponents in the order its `method` prefers (P3 W1,
+    `_swiss_candidates`). The bye, for an odd field, goes to the lowest-ranked
+    entrant who has not had one. The Valve rulebook's priority table for six
+    team record groups is not encoded beyond its first row (1 v 6, 2 v 5,
+    3 v 4), which is the highest against the lowest this draws.
     """
     pool = list(players)
     bye = None
@@ -781,14 +817,7 @@ def pair_swiss(players, record, played, had_bye):
             return []
         first = remaining[0]
         rest = remaining[1:]
-        # Closest record first, then table order: that is what "paired
-        # against somebody on the same record" means when records run out.
-        candidates = sorted(
-            rest,
-            key=lambda p: (abs(record[p.id][0] - record[first.id][0])
-                           + abs(record[p.id][1] - record[first.id][1]),
-                           rest.index(p)))
-        for other in candidates:
+        for other in _swiss_candidates(first, rest, record, method):
             if frozenset((first.id, other.id)) in played:
                 continue
             tail = solve([p for p in rest if p is not other])
@@ -804,12 +833,28 @@ def pair_swiss(players, record, played, had_bye):
     return pairs, bye
 
 
-def _swiss_round(tournament, stage, settings, round_number, pairs, bye, rounds_total):
+def _decisive(settings, record, *ids):
+    """Whether a Swiss match can send one of its sides through or out: one
+    of them is a win from the target or a loss from the limit (Valve: "All
+    elimination and advancement matches are to be best of three")."""
+    target, limit = int(settings.get('win_target') or 0), int(settings.get('loss_limit') or 0)
+    for rid in ids:
+        wins, losses = (record or {}).get(rid, (0, 0))
+        if (target and wins == target - 1) or (limit and losses == limit - 1):
+            return True
+    return False
+
+
+def _swiss_round(tournament, stage, settings, round_number, pairs, bye, rounds_total, record=None):
     created = 0
+    decisive_best_of = int((settings or {}).get('decisive_best_of') or 0)
     for m, (a, b) in enumerate(pairs, start=1):
-        _new_match(tournament, stage, settings, round_number, m, 'winners',
-                   rounds_total=rounds_total, table=True,
-                   participant_1=a, participant_2=b, status='scheduled')
+        match = _new_match(tournament, stage, settings, round_number, m, 'winners',
+                           rounds_total=rounds_total, table=True,
+                           participant_1=a, participant_2=b, status='scheduled')
+        if decisive_best_of and _decisive(settings, record, a.id, b.id):
+            match.best_of = decisive_best_of
+            match.save(update_fields=['best_of'])
         created += 1
     if bye is not None:
         match = _new_match(tournament, stage, settings, round_number, len(pairs) + 1,
