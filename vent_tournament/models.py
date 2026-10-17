@@ -886,6 +886,12 @@ class BracketMatch(models.Model):
     # Why a match ended without being played: 'no_show' when the check-in
     # timer ran out, 'withdrawn' when a side left. Blank for a played match.
     forfeit_reason = models.CharField(max_length=16, blank=True, default='')
+    # Which of this match's rules were set after the draw, and at what level:
+    # {"best_of": "match"} for this match alone, {"legs": "round"} for its whole
+    # round. The values stay in the fields above; this says where they came
+    # from, so the screen can say "set for this round" (P1c, design section
+    # 10). Empty means everything is the stage's or the tournament's own.
+    settings = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ['round_number', 'match_number']
@@ -942,6 +948,9 @@ class MatchSlot(models.Model):
         # its seats come from the first grand final, and it is played only if
         # the lower bracket's champion wins that one.
         ('reset', 'The grand final played again if needed'),
+        # A place in a stage that feeds this one, for a stage drawn before
+        # that stage finished (P1d): "Groups, group A, place 1".
+        ('place', 'A place in an earlier stage'),
         ('open', 'Not decided by the bracket'),
     )
 
@@ -952,6 +961,12 @@ class MatchSlot(models.Model):
                                      blank=True, related_name='+')
     # The seed drawn into this seat, for an entrant placed at the draw.
     seed = models.PositiveSmallIntegerField(null=True, blank=True)
+    # For a `place` seat: the link it waits on, and which group and place of
+    # that link's stage fills it.
+    progression = models.ForeignKey('Progression', on_delete=models.SET_NULL, null=True,
+                                    blank=True, related_name='waiting_slots')
+    source_group = models.PositiveSmallIntegerField(null=True, blank=True)
+    source_place = models.PositiveSmallIntegerField(null=True, blank=True)
 
     class Meta:
         unique_together = ('match', 'slot')
@@ -1339,6 +1354,89 @@ class TournamentStage(models.Model):
 
     def __str__(self):
         return '%s: %s' % (self.tournament_id, self.label)
+
+
+class Progression(models.Model):
+    """A line from places of one stage to another stage (P1b).
+
+    CEO, 16 October 2026: "i aprove the design". Section 6 of the bracket
+    structure design: "places 1 to 2 of each group go to the upper bracket,
+    place 3 goes to the lower bracket". A stage used to know only the next one
+    by `order` and how many `advances`, so a tournament was a straight chain.
+    Lines make it a graph: split, merge, a split league with its points, a
+    qualifier entering the lower bracket. `progressions.py` owns them.
+
+    `sent` is who this line actually sent, recorded when it fired, the same way
+    `TournamentStage.advanced` records it for the stage, so a standing that is
+    recomputed later cannot silently change who already went through.
+    """
+
+    SIDES = (
+        ('any', 'Wherever the format puts them'),
+        ('winners', 'The upper bracket'),
+        ('losers', 'The lower bracket'),
+    )
+    # When the line sends its people (design 477, the CEO: "organizer decides
+    # how they want it").
+    FIRES = (
+        ('after_preview', 'When the organiser confirms the preview'),
+        ('on_close', 'As soon as the stage ends'),
+        ('manual', 'When the organiser presses send'),
+    )
+
+    source = models.ForeignKey(TournamentStage, on_delete=models.CASCADE, related_name='outgoing')
+    target = models.ForeignKey(TournamentStage, on_delete=models.CASCADE, related_name='incoming')
+    # Null is every group (or the whole field when the stage has none).
+    group = models.PositiveSmallIntegerField(null=True, blank=True)
+    place_from = models.PositiveSmallIntegerField(default=1)
+    place_to = models.PositiveSmallIntegerField()
+    side = models.CharField(max_length=8, choices=SIDES, default='any')
+    carry_points = models.BooleanField(default=False)
+    fire = models.CharField(max_length=14, choices=FIRES, default='after_preview')
+    order = models.PositiveSmallIntegerField(default=0)
+    sent = models.JSONField(default=list, blank=True)
+    fired_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return '%s places %s-%s -> %s' % (self.source_id, self.place_from, self.place_to,
+                                          self.target_id)
+
+
+class Happening(models.Model):
+    """One thing that happened in a tournament (P1e, design section 14b).
+
+    The one list overlays read now and game studios receive as signed webhooks
+    in P6. Written only by `happenings.py`, from the door each fact already
+    passes through; never rewritten. `data` holds facts (names, scores, a
+    stage's label), never a sentence and never who recorded a result.
+    """
+
+    KINDS = (
+        ('result_confirmed', 'Result confirmed'),
+        ('stage_started', 'Stage started'),
+        ('stage_closed', 'Stage closed'),
+        ('line_sent', 'Places sent on'),
+        ('tournament_won', 'Tournament won'),
+    )
+
+    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='happenings')
+    kind = models.CharField(max_length=30, choices=KINDS)
+    stage = models.ForeignKey(TournamentStage, on_delete=models.SET_NULL, null=True, blank=True,
+                              related_name='happenings')
+    match = models.ForeignKey(BracketMatch, on_delete=models.SET_NULL, null=True, blank=True,
+                              related_name='happenings')
+    data = models.JSONField(default=dict, blank=True)
+    at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-id']
+        indexes = [models.Index(fields=['tournament', 'id'], name='happening_tournament_id')]
+
+    def __str__(self):
+        return '%s %s' % (self.tournament_id, self.kind)
 
 
 class TournamentInvite(models.Model):
