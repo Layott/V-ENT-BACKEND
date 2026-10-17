@@ -7406,6 +7406,31 @@
     "body": {}
    },
    "id": "10"
+  },
+  {
+   "name": "B cannot change what A's tournament helper runs (P7)",
+   "route": "tournament/<str:tournament_id>/staff/<int:user_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/tournament/walk-cup-fee/staff/{id}/",
+    "body": {
+     "permissions": [
+      "structure",
+      "place",
+      "report",
+      "standings",
+      "caster"
+     ]
+    }
+   },
+   "id": "54",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
   }
  ]
 }
