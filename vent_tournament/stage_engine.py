@@ -250,6 +250,8 @@ def draw(stage, user, seed_strategy='registration', manual_order=None, early=Fal
     stage.status = 'running'
     stage.settings = settings
     stage.save(update_fields=['entrants', 'drawn_at', 'status', 'settings'])
+    from . import happenings
+    happenings.started(stage)
 
     for match in stage.matches.filter(participant_1__isnull=False,
                                       participant_2__isnull=False,
@@ -734,6 +736,9 @@ def after_fire(stage, user, fired, draw_next=True):
         stage.completed_at = timezone.now()
         fields += ['status', 'completed_at']
     stage.save(update_fields=fields)
+    if 'status' in fields:
+        from . import happenings
+        happenings.closed(stage)
 
     draws, waiting, targets = {}, [], []
     for line in (fired or out):
@@ -781,6 +786,9 @@ def _fill_early(target, lines):
         target.status = 'running'
         fields.append('status')
     target.save(update_fields=fields)
+    if 'status' in fields:
+        from . import happenings
+        happenings.started(target)
     tournament = target.tournament
     if tournament.status != 'live':
         tournament.status = 'live'
@@ -844,6 +852,9 @@ def finish_last_stage(stage, user):
     tournament.status = 'completed'
     tournament.completed_at = now
     tournament.save(update_fields=['status', 'completed_at'])
+    from . import happenings
+    happenings.closed(stage)
+    happenings.won(tournament)
     return tournament
 
 

@@ -1405,6 +1405,40 @@ class Progression(models.Model):
                                           self.target_id)
 
 
+class Happening(models.Model):
+    """One thing that happened in a tournament (P1e, design section 14b).
+
+    The one list overlays read now and game studios receive as signed webhooks
+    in P6. Written only by `happenings.py`, from the door each fact already
+    passes through; never rewritten. `data` holds facts (names, scores, a
+    stage's label), never a sentence and never who recorded a result.
+    """
+
+    KINDS = (
+        ('result_confirmed', 'Result confirmed'),
+        ('stage_started', 'Stage started'),
+        ('stage_closed', 'Stage closed'),
+        ('line_sent', 'Places sent on'),
+        ('tournament_won', 'Tournament won'),
+    )
+
+    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='happenings')
+    kind = models.CharField(max_length=30, choices=KINDS)
+    stage = models.ForeignKey(TournamentStage, on_delete=models.SET_NULL, null=True, blank=True,
+                              related_name='happenings')
+    match = models.ForeignKey(BracketMatch, on_delete=models.SET_NULL, null=True, blank=True,
+                              related_name='happenings')
+    data = models.JSONField(default=dict, blank=True)
+    at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-id']
+        indexes = [models.Index(fields=['tournament', 'id'], name='happening_tournament_id')]
+
+    def __str__(self):
+        return '%s %s' % (self.tournament_id, self.kind)
+
+
 class TournamentInvite(models.Model):
     """A code that lets somebody register for a tournament they could not otherwise.
 

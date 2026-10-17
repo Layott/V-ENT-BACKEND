@@ -302,6 +302,8 @@ def fire(line, user, order=None):
     line.sent = [_sent_row(r, line.carry_points) for r in rows]
     line.fired_at = timezone.now()
     line.save(update_fields=['sent', 'fired_at'])
+    from . import happenings
+    happenings.sent(line)
     return line.sent
 
 
