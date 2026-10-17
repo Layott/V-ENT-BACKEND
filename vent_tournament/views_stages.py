@@ -19,7 +19,7 @@ from rest_framework.response import Response
 from vent_auth.actors import actor_from_request
 
 from . import formats, match_shape, ranking, stage_engine, stage_settings, stages
-from .access import may_manage
+from .access import MANAGE, may, may_manage, permissions_list, permissions_of
 from .models import TournamentRegistration
 
 from . import lookup
@@ -161,11 +161,13 @@ def _stage(tournament, stage_id):
     return stage, None
 
 
-def _manager(request, tournament):
+def _manager(request, tournament, permission=MANAGE):
+    """(user, error) for somebody who holds `permission` here (access.may):
+    'structure' to change the plan, 'place' to draw and send people on."""
     user, err = actor_from_request(request)
     if err:
         return None, err
-    if not may_manage(user, tournament):
+    if not may(user, tournament, permission):
         return None, _err('This is not your tournament to run.', 'NOT_YOURS',
                           status.HTTP_403_FORBIDDEN)
     return user, None
@@ -219,6 +221,9 @@ def tournament_stages(request, tournament_id):
                     'knockout': stage_settings.clean('single_elimination', preset['knockout'])}
                    if preset else None),
         'can_manage': bool(viewer and may_manage(viewer, tournament)),
+        # What this viewer may do to the plan (P7): 'structure' changes it,
+        # 'place' draws stages and sends people on.
+        'permissions': permissions_list(permissions_of(viewer, tournament)),
         # Whether any stage has been drawn. The plan still saves after that;
         # drawn stages keep what was played (bracket_edit.save_plan).
         'locked': any(s.drawn_at for s in rows),
@@ -238,7 +243,7 @@ def set_stages(request, tournament_id):
     tournament, err = _find(tournament_id)
     if err:
         return err
-    user, err = _manager(request, tournament)
+    user, err = _manager(request, tournament, 'structure')
     if err:
         return err
 
@@ -286,7 +291,7 @@ def draw_stage(request, tournament_id, stage_id):
     tournament, err = _find(tournament_id)
     if err:
         return err
-    user, err = _manager(request, tournament)
+    user, err = _manager(request, tournament, 'place')
     if err:
         return err
     stage, err = _stage(tournament, stage_id)
@@ -337,7 +342,7 @@ def advance_preview(request, tournament_id, stage_id):
     tournament, err = _find(tournament_id)
     if err:
         return err
-    user, err = _manager(request, tournament)
+    user, err = _manager(request, tournament, 'place')
     if err:
         return err
     stage, err = _stage(tournament, stage_id)
@@ -383,7 +388,7 @@ def pull_line(request, tournament_id, stage_id, line_id):
     tournament, err = _find(tournament_id)
     if err:
         return err
-    user, err = _manager(request, tournament)
+    user, err = _manager(request, tournament, 'place')
     if err:
         return err
     stage, err = _stage(tournament, stage_id)
@@ -419,7 +424,7 @@ def advance_stage(request, tournament_id, stage_id):
     tournament, err = _find(tournament_id)
     if err:
         return err
-    user, err = _manager(request, tournament)
+    user, err = _manager(request, tournament, 'place')
     if err:
         return err
     stage, err = _stage(tournament, stage_id)

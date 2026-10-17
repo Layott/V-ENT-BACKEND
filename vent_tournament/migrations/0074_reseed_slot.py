@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('vent_tournament', '0071_feeds'),
+        ('vent_tournament', '0073_blueprints'),
     ]
 
     operations = [

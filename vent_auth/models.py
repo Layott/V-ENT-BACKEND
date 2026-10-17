@@ -971,7 +971,12 @@ class RoleInvite(models.Model):
     KIND_EVENT = 'event'
     KIND_TOURNAMENT = 'tournament'
     KINDS = [(KIND_EVENT, 'Event'), (KIND_TOURNAMENT, 'Tournament')]
-    ROLES = [('manager', 'Manager'), ('door', 'Door staff'), ('scorekeeper', 'Scorekeeper')]
+    # 'staff' is a helper on a tournament, with `scopes` naming what they run
+    # (vent_tournament.access.PERMISSIONS, P7). 'scorekeeper' is how a
+    # tournament invitation was written before 17 October 2026 and grants
+    # results only.
+    ROLES = [('manager', 'Manager'), ('door', 'Door staff'), ('scorekeeper', 'Scorekeeper'),
+             ('staff', 'Tournament staff')]
 
     STATUS_PENDING = 'pending'
     STATUS_ACCEPTED = 'accepted'
@@ -985,6 +990,8 @@ class RoleInvite(models.Model):
     tournament = models.ForeignKey('vent_tournament.Tournament', on_delete=models.CASCADE,
                                    null=True, blank=True, related_name='role_invites')
     role = models.CharField(max_length=12, choices=ROLES)
+    # For a tournament: the permissions the helper will hold once they accept.
+    scopes = models.JSONField(default=list, blank=True)
     email = models.EmailField(db_index=True)
     # NULL until somebody with this email has an account.
     user = models.ForeignKey(Users, on_delete=models.CASCADE, null=True, blank=True,
