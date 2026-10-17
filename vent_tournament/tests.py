@@ -672,3 +672,25 @@ class MissingGameTests(TestCase):
         }, format='multipart')
         self.assertEqual(res.status_code, 400, res.content)
         self.assertEqual(res.json()['code'], 'GAME_NOT_FOUND')
+
+
+class DraftsWithoutAGameTests(TestCase):
+    """A draft saved before its game was chosen (or a copy of one, P7b) made
+    the whole drafts list answer 500: the serializer read
+    tournament_game.game_title with no game (walk, 17 October 2026)."""
+
+    def test_a_draft_with_no_game_is_listed_and_the_list_answers(self):
+        org = make_user(0)
+        draft = make_tournament(org, status='draft')
+        draft.is_draft = True
+        draft.save(update_fields=['is_draft'])
+        self.assertIsNone(draft.tournament_game)
+
+        res = client_for(org).get('/tournament/view-user-drafted-tournaments/')
+
+        self.assertEqual(res.status_code, 200, res.content)
+        rows = res.json()['data']
+        rows = rows if isinstance(rows, list) else rows.get('tournaments', rows.get('drafts', []))
+        mine = [r for r in rows if r.get('tournament_id') == draft.tournament_id or r.get('id') == draft.tournament_id]
+        self.assertEqual(len(mine), 1)
+        self.assertIsNone(mine[0]['tournament_game'])
