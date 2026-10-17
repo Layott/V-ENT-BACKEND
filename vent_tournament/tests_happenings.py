@@ -211,7 +211,7 @@ class FeedTests(TestCase):
             self.assertIsNone(m['participant_2'])
             self.assertEqual([s['kind'] for s in m['slots']], ['place', 'place'])
         self.assertEqual(first_round[0]['slots'][0]['from_place'],
-                         {'stage': 'Groups', 'group': 1, 'place': 1})
+                         {'stage': 'Groups', 'group': 1, 'place': 1, 'tournament': None})
 
     def test_live_rows_name_waiting_seats(self):
         t, creator, _regs = field(4)

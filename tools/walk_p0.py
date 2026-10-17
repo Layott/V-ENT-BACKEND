@@ -73,7 +73,7 @@ def play(match, s1, s2):
 def scoring_walk(organiser, co_manager, game):
     t = tournament('P0 Scoring Walk', game, organiser, 4, 'p0s', 'round_robin')
     TournamentStaff.objects.get_or_create(
-        tournament=t, user=co_manager, defaults={'role': 'scorekeeper', 'added_by': organiser})
+        tournament=t, user=co_manager, defaults={'permissions': ['report'], 'added_by': organiser})
     group = t.stages.filter(order=0).first()
     if group is None:
         group = TournamentStage.objects.create(

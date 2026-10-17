@@ -188,6 +188,14 @@ class Tournament(models.Model):
     # signed off.
     check_in_closed_at = models.DateTimeField(null=True, blank=True)
 
+    # The blueprint that made this tournament, and which edition of it it is
+    # (P7). Null for every tournament somebody made by hand, and for a
+    # tournament duplicated from an edition: a copy is not the next edition.
+    blueprint = models.ForeignKey(
+        'TournamentBlueprint', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='editions')
+    blueprint_edition = models.PositiveIntegerField(null=True, blank=True)
+
     # ------------------------------------------------------- soft delete
     #
     # The same three columns and the same managers as Event, because an
@@ -206,6 +214,12 @@ class Tournament(models.Model):
 
     class Meta:
         base_manager_name = 'all_objects'
+        constraints = [
+            # Two overlapping cron runs cannot both make edition 12: the second
+            # insert fails here even if the lock in blueprints.py were missed.
+            models.UniqueConstraint(fields=['blueprint', 'blueprint_edition'],
+                                    name='one_tournament_per_blueprint_edition'),
+        ]
 
     def __str__(self):
         return self.tournament_title
@@ -478,6 +492,8 @@ class TournamentRegistration(models.Model):
         ('confirmed', 'Confirmed'),
         ('disqualified', 'Disqualified'),
         ('withdrawn', 'Withdrawn'),
+        # A qualifier from another tournament who turned the place down (P2).
+        ('declined', 'Declined'),
     ]
 
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='registrations')
@@ -496,6 +512,13 @@ class TournamentRegistration(models.Model):
     # Seed set during bracket generation; final_position set when tournament completes (1 = winner).
     seed = models.PositiveIntegerField(null=True, blank=True)
     final_position = models.PositiveIntegerField(null=True, blank=True)
+
+    # Qualified from another tournament (P2): the feed that sent them, the
+    # place they took there, and until when they may decline.
+    qualified_via = models.ForeignKey('Progression', on_delete=models.SET_NULL, null=True,
+                                      blank=True, related_name='qualifiers')
+    source_place = models.PositiveSmallIntegerField(null=True, blank=True)
+    decline_until = models.DateTimeField(null=True, blank=True)
     # When this entrant confirmed they were actually there. Null after the
     # window closes means a no-show, which is what the forfeit reads.
     checked_in_at = models.DateTimeField(null=True, blank=True)
@@ -1397,6 +1420,19 @@ class Progression(models.Model):
     sent = models.JSONField(default=list, blank=True)
     fired_at = models.DateTimeField(null=True, blank=True)
 
+    # A feed between tournaments (P2, design section 7): how long a qualifier
+    # has to decline (null is no window), and who takes a declined place: the
+    # next placement of the source, or whoever the organiser picks.
+    ON_DECLINE = (('next', 'The next placement'), ('organiser', 'The organiser picks'))
+    decline_hours = models.PositiveIntegerField(null=True, blank=True, default=48)
+    on_decline = models.CharField(max_length=12, choices=ON_DECLINE, default='next')
+    # Places a declined qualifier left for the organiser to fill
+    # ({place, group, index, declined_registration_id}), and what happened to
+    # the places this feed sent ({kind, source_registration_id,
+    # registration_id, at}): declined, recalled, picked.
+    waiting = models.JSONField(default=list, blank=True)
+    history = models.JSONField(default=list, blank=True)
+
     class Meta:
         ordering = ['order', 'id']
 
@@ -2183,29 +2219,31 @@ class BroadcastElement(models.Model):
 # ---------------------------------------------------------------------------
 
 class TournamentStaff(models.Model):
-    """Somebody the organiser has let record results for one tournament.
+    """Somebody the organiser has let help run one tournament, and with what.
 
     CEO, 3 September 2026: "only those given the access to, should be able to"
-    input results. A scorekeeper is named by username by the organiser, may
-    record a knockout score or a league fixture on this tournament, and may do
-    nothing else: not edit the tournament, not run the studio, not add another
-    scorekeeper. Removing the row revokes it at once. Mirrors EventManager's
-    door staff, which is the same idea for a ticket desk.
+    input results. That made the first helper, a scorekeeper. P7 (design
+    section 16, "granular roles (structure, report, place entrants, standings,
+    caster)") splits the work further: `permissions` lists which parts of the
+    tournament this person runs, from `access.PERMISSIONS`, and every door asks
+    `access.may` for the one it needs. A helper never edits the tournament's
+    settings, its money or its staff; that stays with the organiser. Removing
+    the row revokes everything at once. Mirrors EventManager's door staff,
+    which is the same idea for a ticket desk.
 
     A row per tournament rather than a platform role, because the person who
     keeps score at one league is a stranger to every other.
     """
-
-    ROLE_CHOICES = [
-        ('scorekeeper', 'Scorekeeper'),
-    ]
 
     id = models.AutoField(primary_key=True)
     tournament = models.ForeignKey(
         Tournament, on_delete=models.CASCADE, related_name='staff')
     user = models.ForeignKey(
         Users, on_delete=models.CASCADE, related_name='tournament_staff_roles')
-    role = models.CharField(max_length=16, choices=ROLE_CHOICES, default='scorekeeper')
+    # Names from access.PERMISSIONS, in that order; written through
+    # access.clean_permissions, so a name nobody knows is never stored. Every
+    # row written before 17 October 2026 was a scorekeeper and became ['report'].
+    permissions = models.JSONField(default=list, blank=True)
     added_by = models.ForeignKey(
         Users, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='tournament_staff_added')
@@ -2216,7 +2254,76 @@ class TournamentStaff(models.Model):
         ordering = ['user__username']
 
     def __str__(self):
-        return '%s on %s (%s)' % (self.user.username, self.tournament_id, self.role)
+        return '%s on %s (%s)' % (self.user.username, self.tournament_id,
+                                  ', '.join(self.permissions or []))
+
+
+class TournamentBlueprint(models.Model):
+    """A tournament its owner set up once, and when to run it again (P7).
+
+    Design section 16, P7: "blueprints and recurring tournaments". After
+    Challengermode's blueprints, whose tournaments "look, feel and play out
+    exactly like the Blueprint" with the start time set each time (research
+    C5). An organiser running the same cup every week rebuilt it, or since
+    inbox 446 duplicated it, by hand every week.
+
+    It points at a tournament the owner already set up (`tournament`) rather
+    than holding a second copy of every setting: each edition is that
+    tournament as it stands at the moment the edition is made, copied by
+    `duplicate()`, moved to its own dates and numbered. Changing the
+    tournament changes the editions still to come; pointing the blueprint at
+    a newer edition does the same. `blueprints.py` owns the schedule.
+    """
+
+    EVERY = (
+        ('none', 'Only when the owner presses Make one now'),
+        ('day', 'Every day'),
+        ('week', 'Every week'),
+        ('fortnight', 'Every two weeks'),
+        ('month', 'Every month'),
+    )
+
+    # The address, never the primary key: bp_ and 20 hex characters.
+    token = models.CharField(max_length=32, unique=True, editable=False)
+    owner = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='tournament_blueprints')
+    # The tournament each edition copies. SET_NULL so deleting it for good
+    # pauses the blueprint (BLUEPRINT_SOURCE_GONE) rather than deleting it.
+    tournament = models.ForeignKey(Tournament, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='blueprints')
+    name = models.CharField(max_length=120)
+    every = models.CharField(max_length=10, choices=EVERY, default='week')
+    # The start of the first scheduled edition, an instant. Every later start
+    # keeps its wall clock time in `timezone`.
+    first_start = models.DateTimeField(null=True, blank=True)
+    timezone = models.CharField(max_length=64, default='Africa/Lagos')
+    # How many days before its start an edition is made, so people can enter.
+    lead_days = models.PositiveSmallIntegerField(default=7)
+    # Publish each edition as it is made, or leave it a draft to check first.
+    publish = models.BooleanField(default=False)
+    # The number the next edition carries ("Friday Cup #12").
+    next_number = models.PositiveIntegerField(default=1)
+    # Stop after this many editions; null runs until paused.
+    ends_after = models.PositiveIntegerField(null=True, blank=True)
+    made = models.PositiveIntegerField(default=0)
+    # The start of the next scheduled edition; null when nothing is scheduled.
+    next_start = models.DateTimeField(null=True, blank=True)
+    active = models.BooleanField(default=True)
+    # Why it stopped by itself, as a code the screen translates.
+    paused_reason = models.CharField(max_length=32, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            import uuid
+            self.token = 'bp_' + uuid.uuid4().hex[:20]
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return '%s (%s)' % (self.name, self.every)
 
 
 class StudioAsset(models.Model):

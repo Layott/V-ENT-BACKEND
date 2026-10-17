@@ -20,6 +20,7 @@ from .models import (
     Tournament, TournamentRegistration, BracketMatch, TournamentDispute, MatchScore,
 )
 from . import results
+from . import match_shape
 from .services import bracket as bracket_service
 from .services import prizes as prize_service
 from .services import wallet as wallet_service
@@ -88,7 +89,7 @@ def _participant_brief(reg):
     if reg is None:
         return None
     return {'registration_id': reg.id, 'type': reg.entrant_kind,
-            'id': reg.entrant_id, 'name': reg.entrant_name or None}
+            'id': reg.entrant_id, 'name': match_shape.names(reg)[0]}
 
 
 def _notify_dispute_raised(tournament):
@@ -154,7 +155,10 @@ def generate_bracket(request, tournament_id):
     if tournament is None:
         return _err('Tournament not found', 'NOT_FOUND', http.HTTP_404_NOT_FOUND)
 
-    if tournament.tournament_creator_id != user.user_id:
+    # Placing the entrants into a bracket is 'place' (P7): the organiser, an
+    # admin, or a helper given it.
+    from .access import may
+    if not may(user, tournament, 'place'):
         return _err('Only the tournament organizer can generate the bracket', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
     if tournament.is_draft:
         return _err('Publish the tournament before generating a bracket', 'STATE_CONFLICT', http.HTTP_409_CONFLICT)
@@ -497,7 +501,7 @@ def match_detail(request, match_id):
         ),
         id=match_id,
     )
-    from .access import may_manage, may_record_results
+    from .access import may_manage, may_record_results, permissions_list, permissions_of
     is_staff = may_record_results(user, match.tournament)
     if match.side_of(user) is None and not is_staff:
         return _err('You cannot view this match', 'FORBIDDEN', http.HTTP_403_FORBIDDEN)
@@ -560,6 +564,9 @@ def match_detail(request, match_id):
         # (inbox 452) belong to whoever runs the tournament, not to a
         # scorekeeper: the same question the bracket-edit doors ask.
         'can_manage': bool(may_manage(user, match.tournament)),
+        # What this viewer may do to the match (P7): 'report' takes a result
+        # back, 'structure' changes how it is played.
+        'permissions': permissions_list(permissions_of(user, match.tournament)),
         # The format this match is played in (its stage's, or the
         # tournament's), so the room can call it what the bracket calls it:
         # "Rung 1", "Final", "For places 5 and 6", not "Round 4, match 1".
