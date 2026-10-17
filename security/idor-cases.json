@@ -7391,6 +7391,110 @@
     }
    },
    "id": "90"
+  },
+  {
+   "name": "B cannot read A's studio game",
+   "route": "studios/<str:slug>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/partners/studios/walk-arena/",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   }
+  },
+  {
+   "name": "B cannot change A's studio game",
+   "route": "studios/<str:slug>/update/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/studios/walk-arena/update/",
+    "expect": [
+     401,
+     403,
+     404
+    ],
+    "body": {
+     "scoring_expression": "team.score"
+    }
+   }
+  },
+  {
+   "name": "B cannot rotate A's studio signing secret",
+   "route": "studios/<str:slug>/rotate-secret/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/studios/walk-arena/rotate-secret/",
+    "expect": [
+     401,
+     403,
+     404
+    ],
+    "body": {}
+   }
+  },
+  {
+   "name": "B cannot send A's studio game for review",
+   "route": "studios/<str:slug>/request-live/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/studios/walk-arena/request-live/",
+    "expect": [
+     401,
+     403,
+     404
+    ],
+    "body": {}
+   }
+  },
+  {
+   "name": "B cannot score with A's studio game",
+   "route": "studios/<str:slug>/try-scoring/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/studios/walk-arena/try-scoring/",
+    "expect": [
+     401,
+     403,
+     404
+    ],
+    "body": {
+     "result": {
+      "lineups": [
+       {
+        "side": 1
+       },
+       {
+        "side": 2
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "B, not an admin, cannot review A's studio game",
+   "route": "admin/studios/<str:slug>/review/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/admin/studios/walk-arena/review/",
+    "expect": [
+     401,
+     403,
+     404
+    ],
+    "body": {
+     "decision": "approved"
+    }
+   }
   }
  ]
 }
