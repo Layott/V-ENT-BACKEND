@@ -389,6 +389,27 @@ class ApiTests(TestCase):
         self.assertEqual((row['active'], row['paused_reason']), (True, ''))
         self.assertEqual(when_of(row['next_start']), self.first)
 
+    def test_resuming_never_schedules_a_slot_already_made(self):
+        # Walk fault, 17 Oct (session A, Nigeria Finals): Make the next one now
+        # made #1 for 24 Oct and moved the schedule to 31 Oct; Pause then
+        # Resume put it back on 24 Oct, so the cron would make a second #1.
+        token = self.token()
+        as_owner = client_for(self.owner)
+        made = as_owner.post(self.at(token, 'make/'), {}, format='json')
+        self.assertEqual(made.status_code, 201, made.content[:300])
+        week_two = self.first + timedelta(days=7)
+        as_owner.patch(self.at(token), {'active': False}, format='json')
+        row = as_owner.patch(self.at(token), {'active': True}, format='json').json()['data']['blueprint']
+        self.assertEqual(when_of(row['next_start']), week_two)
+        # An edit that keeps the cadence keeps the floor too.
+        row = as_owner.patch(self.at(token), {'lead_days': 3}, format='json').json()['data']['blueprint']
+        self.assertEqual(when_of(row['next_start']), week_two)
+        # A one-off on a date of its own takes no slot from the schedule.
+        as_owner.post(self.at(token, 'make/'), {'starts_at': (self.first + timedelta(days=3)).isoformat()},
+                      format='json')
+        row = as_owner.patch(self.at(token), {'lead_days': 4}, format='json').json()['data']['blueprint']
+        self.assertEqual(when_of(row['next_start']), week_two)
+
     def test_resume_with_the_source_gone_is_refused(self):
         token = self.token()
         TournamentBlueprint.objects.filter(token=token).update(

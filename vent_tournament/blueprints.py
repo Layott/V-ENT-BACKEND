@@ -111,15 +111,41 @@ def finished(bp):
     return bp.ends_after is not None and bp.made >= bp.ends_after
 
 
+def is_slot(bp, moment):
+    """Whether `moment` is one of the blueprint's scheduled starts."""
+    first = start_of(bp, 0)
+    if first is None or moment is None or moment < first:
+        return False
+    return next_after(bp, moment - timedelta(microseconds=1)) == moment
+
+
+def latest_made_slot(bp):
+    """The latest scheduled start an edition of this blueprint already holds,
+    or None. A one-off on a date of its own holds no slot."""
+    from .models import Tournament
+    latest = None
+    for start in Tournament.objects.filter(blueprint=bp).values_list('start_date_and_time', flat=True):
+        if is_slot(bp, start) and (latest is None or start > latest):
+            latest = start
+    return latest
+
+
 def reschedule(bp, now=None):
     """Set `next_start` from the schedule as it stands, and save it.
 
     Called when a blueprint is made, edited or resumed. Nothing is scheduled
     for a blueprint run by hand, one that has made every edition it was asked
     for, or one with no first start.
+
+    The next start is after now AND after every slot an edition already holds:
+    Make one now takes the next slot early, and a resume or an edit that read
+    the schedule from now alone put it back on that slot, so the cron would
+    make the same edition twice (walk, 17 October 2026).
     """
     now = now or timezone.now()
-    bp.next_start = None if finished(bp) else next_after(bp, now)
+    taken = latest_made_slot(bp)
+    floor = max(now, taken) if taken is not None else now
+    bp.next_start = None if finished(bp) else next_after(bp, floor)
     bp.save(update_fields=['next_start', 'updated_at'])
     return bp
 
