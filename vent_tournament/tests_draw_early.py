@@ -60,7 +60,7 @@ class PlaceSeatTests(TestCase):
         m = ko.matches.filter(round_number=1).order_by('match_number').first()
         slot = match_shape.match_row(m)['slots'][0]
         self.assertEqual(slot['kind'], 'place')
-        self.assertEqual(slot['from_place'], {'stage': 'Groups', 'group': 1, 'place': 1})
+        self.assertEqual(slot['from_place'], {'stage': 'Groups', 'group': 1, 'place': 1, 'tournament': None})
 
 
 def advance(stage, user, **kw):

@@ -6,7 +6,7 @@ scorekeeper could enter results and nothing else, so every existing row becomes
 `permissions = ['report']` and keeps exactly what it had. The column that held
 the one role goes: `access.permissions_of` reads the list and nothing else.
 
-Renumber after P2's 0071_feeds merges first.
+Numbered after P2's 0071_feeds, which merged first.
 """
 from django.db import migrations, models
 
@@ -26,7 +26,7 @@ def nothing(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('vent_tournament', '0070_happening'),
+        ('vent_tournament', '0071_feeds'),
     ]
 
     operations = [
