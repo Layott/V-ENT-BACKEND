@@ -342,8 +342,37 @@ def setup():
                 'tiers': {name: t.id for name, t in tiers.items()},
                 'slot_id': (slot or {}).get('id') or ((slot or {}).get('slot') or {}).get('id'),
                 'referral_id': ref_id, 'day1': day1, 'day2': day2})
+    walk_circuits(organiser)
     say('event ready' if not FAILS else 'setup: %d failure(s)' % len(FAILS))
     return slug
+
+
+#: The walk fixtures' circuits (P5), named in security/idor-cases.json: a
+#: published one with a tier and an adjustment, and a draft nobody else sees.
+WALK_CIRCUIT = 'walk-circuit'
+WALK_CIRCUIT_DRAFT = 'walk-circuit-draft'
+
+
+def walk_circuits(organiser):
+    from decimal import Decimal
+    from vent_circuits import tables
+    from vent_circuits.models import Circuit, CircuitAdjustment, CircuitTier
+    from vent_tournament.models import Tournament
+    for slug, published in ((WALK_CIRCUIT, True), (WALK_CIRCUIT_DRAFT, False)):
+        circuit = Circuit.objects.filter(slug=slug).first()
+        if circuit is None:
+            circuit = Circuit(name=slug.replace('-', ' ').title(), owner=organiser, is_published=published,
+                              default_table=tables.parse('1: 100, 2: 60, default 5'))
+            circuit.save()
+            Circuit.objects.filter(pk=circuit.pk).update(slug=slug)
+            circuit.refresh_from_db()
+        CircuitTier.objects.get_or_create(circuit=circuit, name='Major',
+                                          defaults={'table': tables.parse('1: 300, 2: 200, default 10')})
+    circuit = Circuit.objects.get(slug=WALK_CIRCUIT)
+    cup = Tournament.objects.filter(slug='walk-cup-finished', tournament_creator=organiser).first()
+    if cup is not None and not CircuitAdjustment.objects.filter(circuit=circuit).exists():
+        CircuitAdjustment.objects.create(circuit=circuit, user=organiser, points=Decimal('5'),
+                                         reason='Walk fixture adjustment', by=organiser)
 
 
 # ----------------------------------------------------------------- coverage

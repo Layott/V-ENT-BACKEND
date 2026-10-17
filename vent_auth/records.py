@@ -109,6 +109,7 @@ NOT_MONEY = {
     'vent_marketplace.listing': 'the price a seller asks',
     'vent_marketplace.wishlist': 'the most somebody would pay',
     'vent_tournament.tournament': 'the advertised prize pool and entry fee',
+    'vent_circuits.circuitadjustment': 'circuit ranking points given or taken by hand, never coins',
     'vent_tournament.tournamentprizedistribution': 'how the prize pool is split, before anything is paid',
     'vent_tournament.tournamentregistration': 'an entry; the fee itself is on the statement',
     'vent_tournament.runsheetitem': 'minutes in a running order',
