@@ -7550,6 +7550,113 @@
      "every": "none"
     }
    }
+  },
+  {
+   "name": "B cannot make a feed into A's tournament (P2)",
+   "route": "tournament/<str:tournament_id>/feeds/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/{id}/feeds/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "target_stage": 1,
+     "source_tournament": "walk-cup-finished",
+     "place_from": 1,
+     "place_to": 2
+    }
+   },
+   "id": "walk-cup-fee"
+  },
+  {
+   "name": "B cannot remove a feed from A's tournament (P2)",
+   "route": "tournament/<str:tournament_id>/feeds/<int:feed_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/tournament/walk-cup-fee/feeds/{id}/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "feeds and the qualifiers they sent are public on the tournament page, so whether one exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot fill a declined place in A's tournament (P2)",
+   "route": "tournament/<str:tournament_id>/feeds/<int:feed_id>/pick/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/feeds/{id}/pick/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "source_registration": 1
+    }
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "feeds and the qualifiers they sent are public on the tournament page, so whether one exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot decline a place somebody else qualified for (P2)",
+   "route": "tournament/<str:tournament_id>/qualifiers/<int:registration_id>/decline/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/qualifiers/{id}/decline/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {}
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "feeds and the qualifiers they sent are public on the tournament page, so whether one exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot take back a place in A's tournament (P2)",
+   "route": "tournament/<str:tournament_id>/qualifiers/<int:registration_id>/recall/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/qualifiers/{id}/recall/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "mode": "undo"
+    }
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "feeds and the qualifiers they sent are public on the tournament page, so whether one exists is no secret"
+   }
   }
  ]
 }
