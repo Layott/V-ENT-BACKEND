@@ -13,6 +13,7 @@ from . import views_api as api
 from . import views_manage as manage
 from . import views_sso as sso
 from . import views_studios as studios
+from . import views_studio_api as studio_api
 
 api_urlpatterns = [
     path('', api.api_index),
@@ -32,6 +33,10 @@ api_urlpatterns = [
 
     path('players/<str:username>/', api.player_detail),
     path('rankings/', api.rankings),
+
+    # Game studios, by key (design section 14)
+    path('studio/', studio_api.studio_index),
+    path('studio/games/<str:slug>/deliveries/', studio_api.game_deliveries),
 ]
 
 partner_urlpatterns = [
@@ -53,6 +58,9 @@ partner_urlpatterns = [
     path('studios/<str:slug>/rotate-secret/', studios.rotate_secret),
     path('studios/<str:slug>/request-live/', studios.request_live),
     path('studios/<str:slug>/try-scoring/', studios.try_scoring),
+    path('studios/<str:slug>/deliveries/', studios.game_deliveries),
+    path('studios/<str:slug>/deliveries/<str:delivery_ref>/resend/', studios.resend_delivery),
+    path('studios/<str:slug>/ping/', studios.ping_game),
     path('admin/studios/', studios.admin_studios),
     path('admin/studios/<str:slug>/review/', studios.admin_review_game),
 

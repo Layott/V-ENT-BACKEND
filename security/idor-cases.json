@@ -7495,6 +7495,64 @@
      "decision": "approved"
     }
    }
+  },
+  {
+   "name": "B cannot read A's studio delivery log",
+   "route": "studios/<str:slug>/deliveries/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/partners/studios/walk-arena/deliveries/",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   }
+  },
+  {
+   "name": "B cannot resend A's studio delivery",
+   "route": "studios/<str:slug>/deliveries/<str:delivery_ref>/resend/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/studios/walk-arena/deliveries/dl_walkidorcase001/resend/",
+    "expect": [
+     401,
+     403,
+     404
+    ],
+    "body": {}
+   }
+  },
+  {
+   "name": "B cannot ping A's studio game",
+   "route": "studios/<str:slug>/ping/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/partners/studios/walk-arena/ping/",
+    "expect": [
+     401,
+     403,
+     404
+    ],
+    "body": {}
+   }
+  },
+  {
+   "name": "B, with a session and no key, cannot read A's studio log through the API",
+   "route": "studio/games/<str:slug>/deliveries/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/api/v1/studio/games/walk-arena/deliveries/",
+    "expect": [
+     401,
+     403,
+     404
+    ]
+   }
   }
  ]
 }

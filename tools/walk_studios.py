@@ -33,6 +33,7 @@ from vent_auth.models import Games, Users  # noqa: E402
 from vent_partners.models import Partner, StudioGame  # noqa: E402
 
 GAME_SLUG = 'walk-arena'
+DELIVERY_REF = 'dl_walkidorcase001'
 
 
 def setup():
@@ -61,6 +62,14 @@ def setup():
         print('made %s, signing secret %s' % (game.slug, secret))
     else:
         print('found %s' % game.slug)
+
+    # A delivery with a known ref, for the resend case.
+    from vent_partners.models import StudioDelivery
+    StudioDelivery.objects.get_or_create(
+        ref=DELIVERY_REF,
+        defaults=dict(game=game, kind='event', event='ping', url=game.session_webhook_url,
+                      payload={'test': True}, status='delivered'))
+    print('delivery %s' % DELIVERY_REF)
 
 
 if __name__ == '__main__':
