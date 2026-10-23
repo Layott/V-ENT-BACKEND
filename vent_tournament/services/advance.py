@@ -208,10 +208,13 @@ def _route(match):
             _grand_final_reset(match, tgt)
             return
 
-    # Winner advances.
-    if match.winner_id and match.winner_to_match_id:
+    # Winner advances. A dead match (a bye with nobody in it) sends nobody, and
+    # the match it feeds still has to be told so: a compass draw of 12 left its
+    # 13th place match waiting for ever on two dead feeders (23 October 2026).
+    if match.winner_to_match_id:
         tgt = BracketMatch.objects.select_for_update().get(pk=match.winner_to_match_id)
-        _place(tgt, match.winner_to_slot, match.winner)
+        if match.winner_id:
+            _place(tgt, match.winner_to_slot, match.winner)
         _check_walkover(tgt)
 
     # Loser drops (double elimination only - single/round-robin leave these null).
