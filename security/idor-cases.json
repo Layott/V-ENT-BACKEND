@@ -7559,6 +7559,22 @@
    }
   },
   {
+   "name": "B cannot send a circuit ranking's places into A's tournament",
+   "route": "tournament/<str:tournament_id>/feeds/<int:feed_id>/pull/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/feeds/1/pull/",
+    "body": {}
+   },
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament named is public, so whether it exists is no secret"
+   }
+  },
+  {
    "name": "B cannot fill a declined place in A's tournament",
    "route": "tournament/<str:tournament_id>/feeds/<int:feed_id>/pick/",
    "attempt": {
@@ -7705,6 +7721,370 @@
      "tournament": "walk-cup-fee",
      "every": "none"
     }
+   }
+  },
+  {
+   "name": "B cannot read A's draft circuit (P5)",
+   "route": "circuits/<str:circuit_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/circuits/{id}/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "walk-circuit-draft"
+  },
+  {
+   "name": "B cannot change A's circuit (P5)",
+   "route": "circuits/<str:circuit_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/circuits/{id}/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "name": "Mine now",
+     "is_published": false
+    }
+   },
+   "id": "walk-circuit"
+  },
+  {
+   "name": "B cannot delete A's circuit (P5)",
+   "route": "circuits/<str:circuit_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/circuits/{id}/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "walk-circuit"
+  },
+  {
+   "name": "B cannot add a tier to A's circuit (P5)",
+   "route": "circuits/<str:circuit_ref>/tiers/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/circuits/{id}/tiers/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "name": "Mine",
+     "table": "1: 1000"
+    }
+   },
+   "id": "walk-circuit"
+  },
+  {
+   "name": "B cannot change a tier of A's circuit (P5)",
+   "route": "circuits/<str:circuit_ref>/tiers/<int:circuit_tier_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/circuits/walk-circuit/tiers/{id}/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "table": "1: 1000"
+    }
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "a published circuit's tiers and adjustments are on its public page, so whether one exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot remove a tier of A's circuit (P5)",
+   "route": "circuits/<str:circuit_ref>/tiers/<int:circuit_tier_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/circuits/walk-circuit/tiers/{id}/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "a published circuit's tiers and adjustments are on its public page, so whether one exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot count a tournament in A's circuit (P5)",
+   "route": "circuits/<str:circuit_ref>/tournaments/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/circuits/{id}/tournaments/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "tournament": "walk-cup-fee"
+    }
+   },
+   "id": "walk-circuit"
+  },
+  {
+   "name": "B cannot move a tournament in A's circuit (P5)",
+   "route": "circuits/<str:circuit_ref>/tournaments/<str:tournament_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/circuits/walk-circuit/tournaments/{id}/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "tier": null
+    }
+   },
+   "id": "walk-cup-fee"
+  },
+  {
+   "name": "B cannot stop A's circuit counting a tournament (P5)",
+   "route": "circuits/<str:circuit_ref>/tournaments/<str:tournament_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/circuits/walk-circuit/tournaments/{id}/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "walk-cup-fee"
+  },
+  {
+   "name": "B cannot give points in A's circuit (P5)",
+   "route": "circuits/<str:circuit_ref>/adjustments/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/circuits/{id}/adjustments/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "entrant": "walk_buyer_ada",
+     "points": 1000,
+     "reason": "Mine"
+    }
+   },
+   "id": "walk-circuit"
+  },
+  {
+   "name": "B cannot take back an adjustment in A's circuit (P5)",
+   "route": "circuits/<str:circuit_ref>/adjustments/<int:circuit_adjustment_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/circuits/walk-circuit/adjustments/{id}/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "a published circuit's tiers and adjustments are on its public page, so whether one exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot read A's draft league (P5d)",
+   "route": "circuits/leagues/<str:league_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/circuits/leagues/{id}/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "walk-league-draft"
+  },
+  {
+   "name": "B cannot change A's league (P5d)",
+   "route": "circuits/leagues/<str:league_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/circuits/leagues/{id}/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "name": "Mine now",
+     "up": 9
+    }
+   },
+   "id": "walk-league"
+  },
+  {
+   "name": "B cannot delete A's league (P5d)",
+   "route": "circuits/leagues/<str:league_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/circuits/leagues/{id}/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "walk-league"
+  },
+  {
+   "name": "B cannot add a division to A's league (P5d)",
+   "route": "circuits/leagues/<str:league_ref>/divisions/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/circuits/leagues/{id}/divisions/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "circuit": "walk-circuit"
+    }
+   },
+   "id": "walk-league"
+  },
+  {
+   "name": "B cannot reorder A's league (P5d)",
+   "route": "circuits/leagues/<str:league_ref>/divisions/",
+   "attempt": {
+    "as": "b",
+    "method": "PATCH",
+    "path": "/circuits/leagues/{id}/divisions/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "order": [
+      "walk-division"
+     ]
+    }
+   },
+   "id": "walk-league"
+  },
+  {
+   "name": "B cannot take a division out of A's league (P5d)",
+   "route": "circuits/leagues/<str:league_ref>/divisions/<str:circuit_ref>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/circuits/leagues/walk-league/divisions/{id}/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "walk-division",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "a published league's divisions and their members are on its public page, so whether one exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot see what ending A's season does (P5d)",
+   "route": "circuits/leagues/<str:league_ref>/next-season/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/circuits/leagues/{id}/next-season/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "walk-league"
+  },
+  {
+   "name": "B cannot end A's season (P5d)",
+   "route": "circuits/leagues/<str:league_ref>/next-season/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/circuits/leagues/{id}/next-season/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "season": "Mine"
+    }
+   },
+   "id": "walk-league"
+  },
+  {
+   "name": "B cannot put somebody in A's division (P5d)",
+   "route": "circuits/<str:circuit_ref>/members/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/circuits/{id}/members/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "entrant": "walk_buyer_ada"
+    }
+   },
+   "id": "walk-division"
+  },
+  {
+   "name": "B cannot take somebody out of A's division (P5d)",
+   "route": "circuits/<str:circuit_ref>/members/<int:circuit_member_id>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/circuits/walk-division/members/{id}/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "a published league's divisions and their members are on its public page, so whether one exists is no secret"
    }
   }
  ]
