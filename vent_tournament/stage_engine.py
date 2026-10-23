@@ -56,7 +56,8 @@ def previous_stage(stage):
     """The stage of this tournament that feeds this one. A feed from another
     tournament (P2) is not a previous stage."""
     from . import progressions
-    feeding = [l for l in progressions.incoming(stage) if l.source.tournament_id == stage.tournament_id]
+    feeding = [l for l in progressions.incoming(stage)
+               if l.source_id and l.source.tournament_id == stage.tournament_id]
     return feeding[0].source if feeding else None
 
 
@@ -149,7 +150,7 @@ def early_tokens(stage):
     from . import progressions
     upper, lower = [], []
     for line in progressions.incoming(stage):
-        groups = line.source.groups or 0
+        groups = line.source_groups
         wanted = ([line.group] if line.group is not None
                   else list(range(1, groups + 1)) if groups > 1 else [None])
         out = lower if line.side == 'losers' else upper
@@ -637,6 +638,66 @@ def _knockout_standings(stage):
     return rows
 
 
+def custom_places(matches):
+    """Places of a custom bracket (P3 W2): what its matches state first (the
+    final's winner first and loser second when it states nothing), then
+    everybody knocked out where nothing was stated, sharing a place by the
+    round they went out in, later rounds first, after the last stated place."""
+    place = {}
+    # How many sides each stated place holds: two bronze matches in one round
+    # put two sides on third and two on fifth, so the first place left after
+    # them is seventh, not sixth (walk, 17 October 2026). A replay restates
+    # its own match's places in a later round, which holds no second side, so
+    # sides are counted round by round and the most any round puts there is
+    # what the place holds.
+    sides = {}
+    # The final first, then later rounds before earlier ones: a replayed
+    # final (a reset) states places that the first one's statement must not
+    # take first.
+    for m in sorted(matches, key=lambda x: (not x.is_final, -x.round_number)):
+        win_at = m.winner_place or (1 if m.is_final else None)
+        lose_at = m.loser_place or (2 if m.is_final else None)
+        for p in (win_at, lose_at):
+            if p:
+                sides[(p, m.round_number)] = sides.get((p, m.round_number), 0) + 1
+        if m.status in TERMINAL and m.winner_id and win_at:
+            place.setdefault(m.winner_id, win_at)
+        if m.status == 'completed' and lose_at and _loser(m):
+            place.setdefault(_loser(m), lose_at)
+    rounds = {}
+    for m in matches:
+        if (m.status != 'completed' or m.loser_to_match_id or m.loser_place or m.is_final):
+            continue
+        rounds.setdefault(m.round_number, []).append(m)
+    nxt = max([0] + [p + held - 1 for (p, _rnd), held in sides.items()]) + 1
+    for rnd in sorted(rounds, reverse=True):
+        out = [lost for lost in (_loser(m) for m in rounds[rnd]) if lost and lost not in place]
+        for lost in out:
+            place[lost] = nxt
+        nxt += len(out)
+    return place
+
+
+def _custom_standings(stage):
+    from .models import TournamentRegistration
+
+    matches = list(stage.matches.all())
+    regs = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or []).select_related('user', 'team', 'squad')}
+    place = custom_places(matches)
+    rows = []
+    for rid, reg in regs.items():
+        row = _blank(reg)
+        row['rank'] = place.get(rid)
+        row['status'] = 'placed' if rid in place else 'playing'
+        rows.append(row)
+    by_id = {r['registration_id']: r for r in rows}
+    for m in matches:
+        if m.status == 'completed' and m.participant_1_id in regs and m.participant_2_id in regs:
+            _tally(by_id, m, (1, 0, 0))
+    rows.sort(key=lambda r: (r['rank'] is None, r['rank'] or 0, r['seed'] or 10 ** 6))
+    return rows
+
+
 def seeds_of(tournament, stage):
     """Registration ids best seed first, as the draw froze them."""
     if stage is not None:
@@ -809,6 +870,8 @@ def standings(stage):
         return _bracket_groups_standings(stage)
     if key in ('single_elimination', 'double_elimination', 'stepladder', 'page_playoff'):
         return _knockout_standings(stage)
+    if key == 'custom_bracket':
+        return _custom_standings(stage)
     return _table_standings(stage)
 
 
@@ -907,9 +970,21 @@ def after_fire(stage, user, fired, draw_next=True):
     if 'status' in fields:
         from . import happenings
         happenings.closed(stage)
+    result = fill_targets(user, fired, draw_next, reach=fired or out)
+    result['advanced'] = stage.advanced
+    return result
 
+
+def fill_targets(user, fired, draw_next=True, reach=None):
+    """Every stage `fired` lines fill, drawn once all of its lines have
+    arrived (or its early seats filled). The half of after_fire that is about
+    the targets; a circuit ranking's line (P5c) has no source stage to close.
+    `reach` names the targets when it is not the lines that sent: a stage
+    closing with a line that waits for a press names its target and fills
+    none of its seats."""
+    from . import progressions
     draws, waiting, targets = {}, [], []
-    for line in (fired or out):
+    for line in (fired if reach is None else reach):
         if line.target_id not in [t.id for t in targets]:
             targets.append(line.target)
     for target in targets:
@@ -927,7 +1002,6 @@ def after_fire(stage, user, fired, draw_next=True):
             draws[target.id] = draw(target, user)
     first = targets[0] if targets else None
     return {
-        'advanced': stage.advanced,
         'next_stage_id': first.id if first else None,
         'draw': draws.get(first.id) if first else None,
         'draws': draws,
@@ -1109,6 +1183,10 @@ def on_match_resolved(match):
         # A reseeded knockout seats the next round once this one is decided.
         from . import match_slots
         match_slots.sync_reseeded(stage)
+    elif stage.format == 'custom_bracket' and stage.matches.filter(slots__kind='lost_to').exists():
+        # A repechage seats its rounds once the finalists are known (P3 W2b).
+        from . import match_slots
+        match_slots.sync_lost_to(stage)
     # A line set to go as soon as the stage ends goes now (P1b, design 477).
     _close_by_itself(stage)
 

@@ -186,12 +186,25 @@ def _arm(match):
             stage_engine.schedule(match)
 
 
+def _is_replay(match, target):
+    """Whether `target` is `match` played again if needed (a reset), not just
+    the next match. The slots say so (kind 'reset', P1a); a bracket drawn
+    before slots existed has none, and there a grand final feeding a grand
+    final was always the reset. A custom bracket (P3 W2b) can have a grand
+    final side match whose winner simply goes on, as triple elimination's
+    ladder does into its grand final."""
+    slots = list(target.slots.all())
+    if not slots:
+        return True
+    return any(s.kind == 'reset' and s.source_match_id == match.id for s in slots)
+
+
 def _route(match):
     from ..models import BracketMatch
 
     if (match.bracket_side == 'grand_final' and match.winner_to_match_id):
         tgt = BracketMatch.objects.select_for_update().get(pk=match.winner_to_match_id)
-        if tgt.bracket_side == 'grand_final':
+        if tgt.bracket_side == 'grand_final' and _is_replay(match, tgt):
             _grand_final_reset(match, tgt)
             return
 

@@ -342,6 +342,7 @@ def setup():
                 'tiers': {name: t.id for name, t in tiers.items()},
                 'slot_id': (slot or {}).get('id') or ((slot or {}).get('slot') or {}).get('id'),
                 'referral_id': ref_id, 'day1': day1, 'day2': day2})
+    walk_circuits(organiser)
     # A blueprint walk_organiser owns, so the IDOR cases have a real token to
     # try as somebody else (P7; security/idor-cases.json).
     from vent_tournament.models import Tournament, TournamentBlueprint
@@ -355,6 +356,61 @@ def setup():
     return slug
 
 
+#: The walk fixtures' circuits (P5), named in security/idor-cases.json: a
+#: published one with a tier and an adjustment, and a draft nobody else sees.
+WALK_CIRCUIT = 'walk-circuit'
+WALK_CIRCUIT_DRAFT = 'walk-circuit-draft'
+
+
+def walk_circuits(organiser):
+    from decimal import Decimal
+    from vent_circuits import tables
+    from vent_circuits.models import Circuit, CircuitAdjustment, CircuitTier
+    from vent_tournament.models import Tournament
+    for slug, published in ((WALK_CIRCUIT, True), (WALK_CIRCUIT_DRAFT, False)):
+        circuit = Circuit.objects.filter(slug=slug).first()
+        if circuit is None:
+            circuit = Circuit(name=slug.replace('-', ' ').title(), owner=organiser, is_published=published,
+                              default_table=tables.parse('1: 100, 2: 60, default 5'))
+            circuit.save()
+            Circuit.objects.filter(pk=circuit.pk).update(slug=slug)
+            circuit.refresh_from_db()
+        CircuitTier.objects.get_or_create(circuit=circuit, name='Major',
+                                          defaults={'table': tables.parse('1: 300, 2: 200, default 10')})
+    circuit = Circuit.objects.get(slug=WALK_CIRCUIT)
+    cup = Tournament.objects.filter(slug='walk-cup-finished', tournament_creator=organiser).first()
+    if cup is not None and not CircuitAdjustment.objects.filter(circuit=circuit).exists():
+        CircuitAdjustment.objects.create(circuit=circuit, user=organiser, points=Decimal('5'),
+                                         reason='Walk fixture adjustment', by=organiser)
+    walk_leagues(organiser)
+
+
+#: The walk fixtures' leagues (P5d): a published one whose one division has a
+#: member, and a draft nobody else sees.
+WALK_LEAGUE = 'walk-league'
+WALK_LEAGUE_DRAFT = 'walk-league-draft'
+WALK_DIVISION = 'walk-division'
+
+
+def walk_leagues(organiser):
+    from vent_circuits import leagues, tables
+    from vent_circuits.models import Circuit, CircuitLeague
+    for slug, published in ((WALK_LEAGUE, True), (WALK_LEAGUE_DRAFT, False)):
+        if not CircuitLeague.objects.filter(slug=slug).exists():
+            league = CircuitLeague(name=slug.replace('-', ' ').title(), owner=organiser, is_published=published)
+            league.save()
+            CircuitLeague.objects.filter(pk=league.pk).update(slug=slug)
+    league = CircuitLeague.objects.get(slug=WALK_LEAGUE)
+    division = Circuit.objects.filter(slug=WALK_DIVISION).first()
+    if division is None:
+        division = Circuit(name='Walk Division', owner=organiser, is_published=True,
+                           default_table=tables.parse('1: 100, 2: 60, default 5'))
+        division.save()
+        leagues.add_division(league, division)
+        Circuit.objects.filter(pk=division.pk).update(slug=WALK_DIVISION)
+        division.refresh_from_db()
+    if not division.members.exists():
+        leagues.add_member(division, ('user', organiser.user_id))
 #: The walk fixtures' blueprint, named in security/idor-cases.json.
 WALK_BLUEPRINT = 'bp_c0ffee00000000000001'
 

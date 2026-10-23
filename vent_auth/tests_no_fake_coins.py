@@ -9,7 +9,7 @@ from io import StringIO
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 
-from .models import Transaction, UserWallet, Users
+from .models import Games, Transaction, UserWallet, Users
 from .tests_topup_ceiling import make_user
 
 
@@ -72,6 +72,10 @@ class SeederWritesNoCoinsOutsideDevelopmentTests(TestCase):
 
     @override_settings(DEBUG=False)
     def test_seed_on_a_production_box_leaves_every_wallet_empty(self):
+        # The seeder makes nothing without games. This passed only when an
+        # earlier test in the same process had left games behind.
+        for title in ('Free Fire', 'EA FC 24', 'Call of Duty: Mobile', 'PUBG Mobile'):
+            Games.objects.create(game_title=title)
         call_command('seed_demo', stdout=StringIO())
         demo = UserWallet.objects.filter(user__username__startswith='demo_')
         self.assertTrue(demo.exists())

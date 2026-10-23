@@ -74,6 +74,12 @@ def closed(stage):
 
 
 def sent(line):
+    if line.is_circuit_line:
+        # A circuit ranking sent places in (P5c): it happened in the target.
+        record('line_sent', line.target.tournament_id, stage=line.target,
+               circuit=line.source_circuit.name, target=line.target.label,
+               count=len(line.sent or []), place_from=line.place_from, place_to=line.place_to)
+        return
     record('line_sent', line.source.tournament_id, stage=line.source,
            target=line.target.label, count=len(line.sent or []),
            place_from=line.place_from, place_to=line.place_to, group=line.group,

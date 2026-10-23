@@ -874,6 +874,10 @@ class BracketMatch(models.Model):
         related_name='matches')
     # Which group inside the stage, 1 upward. Null outside a group stage.
     group_number = models.PositiveSmallIntegerField(null=True, blank=True)
+    # Which part of a custom bracket the match is in ("east", "consolation"),
+    # so the bracket draws one section per branch (P3 W2). Blank everywhere
+    # else, which is every bracket the generators draw.
+    branch = models.CharField(max_length=20, blank=True, default='')
 
     # How the match is played, fixed when it is drawn so a rule changed later
     # cannot rewrite a match already in progress. `best_of` counts games; 2 is
@@ -978,6 +982,9 @@ class MatchSlot(models.Model):
         # is decided, by the survivor at this rank of seed (`source_place`),
         # the best remaining against the worst remaining.
         ('reseed', 'A place among those still in'),
+        # A repechage seat (P3 W2b): whoever lost to the finalist in seat
+        # `source_group` of `source_match`, in round `source_place`.
+        ('lost_to', 'Lost to a finalist'),
         ('open', 'Not decided by the bracket'),
     )
 
@@ -1411,7 +1418,13 @@ class Progression(models.Model):
         ('manual', 'When the organiser presses send'),
     )
 
-    source = models.ForeignKey(TournamentStage, on_delete=models.CASCADE, related_name='outgoing')
+    # Where the places come from: a stage, or a circuit's ranking (P5c, design
+    # section 13: "top 8 of the season ranking go to the finals"). Exactly one
+    # is set; every reader of a line's source asks `is_circuit_line` first.
+    source = models.ForeignKey(TournamentStage, on_delete=models.CASCADE, related_name='outgoing',
+                               null=True, blank=True)
+    source_circuit = models.ForeignKey('vent_circuits.Circuit', on_delete=models.CASCADE,
+                                       related_name='lines', null=True, blank=True)
     target = models.ForeignKey(TournamentStage, on_delete=models.CASCADE, related_name='incoming')
     # Null is every group (or the whole field when the stage has none).
     group = models.PositiveSmallIntegerField(null=True, blank=True)
@@ -1439,10 +1452,23 @@ class Progression(models.Model):
 
     class Meta:
         ordering = ['order', 'id']
+        constraints = [models.CheckConstraint(
+            check=(models.Q(source__isnull=False, source_circuit__isnull=True)
+                   | models.Q(source__isnull=True, source_circuit__isnull=False)),
+            name='progression_one_source')]
 
     def __str__(self):
-        return '%s places %s-%s -> %s' % (self.source_id, self.place_from, self.place_to,
-                                          self.target_id)
+        return '%s places %s-%s -> %s' % (self.source_id or 'circuit %s' % self.source_circuit_id,
+                                          self.place_from, self.place_to, self.target_id)
+
+    @property
+    def is_circuit_line(self):
+        return self.source_circuit_id is not None
+
+    @property
+    def source_groups(self):
+        """The source stage's groups; a circuit ranking is one table."""
+        return (self.source.groups or 0) if self.source_id else 0
 
 
 class Happening(models.Model):

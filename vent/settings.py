@@ -150,6 +150,8 @@ INSTALLED_APPS = [
     # Tournaments and events on the organiser's own website (P8): proven
     # sites, embeds locked to them, views counted per site.
     'vent_sites',
+    # Circuits (P5): seasons of tournaments ranked as one competition.
+    'vent_circuits',
 ]
 
 MIDDLEWARE = [

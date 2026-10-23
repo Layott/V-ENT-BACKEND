@@ -53,7 +53,7 @@ def drawn_as(key):
         return None
     if definition.advancement == 'table':
         return 'round_robin'
-    if definition.key in ('double_elimination', 'swiss', 'gsl', 'bracket_groups'):
+    if definition.key in ('double_elimination', 'swiss', 'gsl', 'bracket_groups', 'custom_bracket'):
         return definition.key
     return 'single_elimination'
 
@@ -209,6 +209,32 @@ def _bracket_groups_shape(n, seats, groups, settings):
     return shape
 
 
+def _custom_shape(n, settings):
+    """A custom bracket's numbers, from the schema it will be drawn from (P3
+    W2): the organiser's, or its preset's for this many entrants."""
+    from . import bracket_schema
+    try:
+        schema = bracket_schema.schema_for(settings, n)
+        seeds = bracket_schema.check(schema)
+    except (bracket_schema.SchemaError, ValueError):
+        return {'kind': 'custom', 'slots': None, 'byes': None, 'rounds': None, 'matches': None,
+                'games': None, 'games_on_the_floor': None, 'threshold_problem': 'schema_invalid'}
+    matches = schema['matches']
+    shape = {
+        'kind': 'custom',
+        'slots': seeds,
+        'byes': max(seeds - n, 0),
+        'rounds': max(m['round'] for m in matches),
+        'matches': len(matches),
+        'games': max(len(matches) - max(seeds - n, 0), 0),
+        'branches': sorted({m.get('branch') or '' for m in matches} - {''}),
+    }
+    shape['games_on_the_floor'] = shape['games']
+    if n > seeds:
+        shape['threshold_problem'] = 'schema_too_small'
+    return shape
+
+
 def _groups_shape(n, seats, groups):
     """A round robin split into groups, dealt the way `split_into_groups` deals."""
     sizes = [0] * groups
@@ -291,6 +317,8 @@ def _shape_for(definition, drawn, n, seats, settings=None, groups=0):
         return _gsl_shape(n, seats)
     if drawn == 'bracket_groups':
         return _bracket_groups_shape(n, seats, groups, settings)
+    if drawn == 'custom_bracket':
+        return _custom_shape(n, settings)
     shape = _knockout_shape(n, seats)
     if threshold:
         return _threshold_shape(shape, n, threshold)

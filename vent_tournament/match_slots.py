@@ -133,6 +133,86 @@ def sync_reseeded(stage):
     return changed
 
 
+def wait_lost_to(match, slot, final, side, round_number):
+    """A repechage seat (P3 W2b): whoever lost to the finalist in seat
+    `side` of `final` in round `round_number`, known once that finalist is."""
+    _put(match, slot, 'lost_to', final, source_group=side, source_place=round_number)
+
+
+def sync_lost_to(stage):
+    """Seat every repechage seat whose finalist is known; return how many
+    seats changed.
+
+    A finalist's opponent in round r is the loser of the match the finalist
+    won in that round on the side of the draw the final belongs to. A
+    finalist with a bye in that round sent nobody: the seat stays empty and,
+    once both seats of the match are decided, it is a walkover. A match
+    already played is never rewritten.
+    """
+    from django.utils import timezone
+    from .models import BracketMatch, MatchSlot
+    from .services import advance
+    changed, settled = 0, []
+    slots = list(MatchSlot.objects.filter(match__stage=stage, kind='lost_to')
+                 .select_related('match', 'source_match'))
+    by_match = {}
+    for slot in slots:
+        by_match.setdefault(slot.match_id, []).append(slot)
+    for match_id, seats in by_match.items():
+        match = BracketMatch.objects.get(pk=match_id)
+        if match.status in PLAYED:
+            continue
+        decided = {}
+        for slot in seats:
+            final = BracketMatch.objects.get(pk=slot.source_match_id)
+            finalist = getattr(final, 'participant_%d_id' % slot.source_group)
+            want = None
+            if finalist:
+                won = BracketMatch.objects.filter(
+                    stage=stage, round_number=slot.source_place, winner_id=finalist,
+                    bracket_side=final.bracket_side, branch=final.branch).first()
+                if won is not None and won.status == 'completed':
+                    want = won.participant_2_id if won.winner_id == won.participant_1_id \
+                        else won.participant_1_id
+                decided[slot.slot] = True
+            field = 'participant_%d_id' % slot.slot
+            if getattr(match, field) != want:
+                BracketMatch.objects.filter(pk=match.pk).update(**{field: want})
+                setattr(match, field, want)
+                changed += 1
+        everything_known = len(decided) == len(seats) and len(seats) == 2
+        present = [p for p in (match.participant_1_id, match.participant_2_id) if p]
+        if everything_known and len(present) < 2 and match.status != 'bye':
+            BracketMatch.objects.filter(pk=match.pk).update(
+                status='bye', winner_id=present[0] if present else None,
+                completed_at=timezone.now() if present else None)
+            settled.append(match.pk)
+        elif len(present) == 2 and match.status == 'scheduled':
+            from . import stage_engine
+            match.refresh_from_db()
+            stage_engine.arm_check_in(match)
+    for pk in settled:
+        advance.cascade(BracketMatch.objects.get(pk=pk))
+    return changed
+
+
+def repechage_built_on(match):
+    """Whether a repechage match already played was seated from `match`: a
+    main draw match before the final, in a stage whose repechage has started.
+    Its result is then fixed, as a played next match fixes it elsewhere."""
+    from .models import MatchSlot
+    if not match.stage_id:
+        return False
+    for slot in (MatchSlot.objects.filter(match__stage_id=match.stage_id, kind='lost_to',
+                                          match__status__in=PLAYED)
+                 .select_related('source_match')):
+        final = slot.source_match
+        if (match.bracket_side == final.bracket_side and match.branch == final.branch
+                and match.round_number < final.round_number):
+            return True
+    return False
+
+
 def mark_bye(match, slot):
     """A seat that stays empty by design: nobody is sent there."""
     _put(match, slot, 'bye')
@@ -265,7 +345,7 @@ def fill(stage, line):
     other side is known.
     """
     from .models import BracketMatch, MatchSlot
-    grouped = (line.source.groups or 0) > 1
+    grouped = line.source_groups > 1
     counters, by_seat = {}, {}
     for row in (line.sent or []):
         group = row.get('group') if grouped or line.group is not None else None

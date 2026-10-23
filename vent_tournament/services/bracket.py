@@ -186,8 +186,8 @@ class BracketError(Exception):
 #: than drawn as something else. Swiss and GSL used to fall through to single
 #: elimination silently, which is the fault this list exists to prevent.
 DRAWABLE = ('single_elimination', 'double_elimination', 'round_robin', 'league', 'ladder',
-            'aggregate_2v2', 'swiss', 'gsl', 'bracket_groups', 'stepladder', 'page_playoff',
-            'winner_stays_on')
+            'aggregate_2v2', 'swiss', 'gsl', 'bracket_groups', 'custom_bracket', 'stepladder',
+            'page_playoff', 'winner_stays_on')
 
 
 def generate(tournament, generated_by, seed_strategy='random', manual_order=None):
@@ -292,6 +292,9 @@ def _draw(tournament, stage, btype, ordered, settings, groups, lower=None, early
         return _generate_winner_stays_on(tournament, stage, ordered, settings)
     if btype == 'single_elimination' and (settings or {}).get('every_place'):
         return _generate_every_place(tournament, stage, ordered, settings, early=early)
+    if btype == 'custom_bracket':
+        from .. import bracket_schema
+        return bracket_schema.compile_into(tournament, stage, ordered, settings)
     if btype in ('gsl', 'bracket_groups'):
         return _generate_bracket_groups(tournament, stage, ordered, settings, groups,
                                         gsl=btype == 'gsl')
