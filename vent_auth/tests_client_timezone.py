@@ -5,6 +5,9 @@ as 10:30 UTC and shown back as 11:30 (18 September 2026). With the browser
 naming its zone on the request, every naive datetime lands where the person
 meant it.
 """
+from datetime import datetime, timezone as dt_timezone
+from zoneinfo import ZoneInfo
+
 from django.test import TestCase
 from django.utils import timezone
 
@@ -44,8 +47,14 @@ class ClientTimezoneTests(TestCase):
         res = self.create(HTTP_X_CLIENT_TIMEZONE='America/New_York')
         self.assertEqual(res.status_code, 201, res.content)
         stored = Event.objects.get().start_date
-        # 10:00 in New York (UTC-4 in September) is 14:00 UTC.
-        self.assertEqual((stored.hour, stored.minute), (14, 0))
+        # 10:00 in New York is 14:00 UTC in summer time and 15:00 after the
+        # clocks go back on the first Sunday of November. The day is ten days
+        # out, so the answer is worked out for that day rather than written in.
+        day = (timezone.now() + timezone.timedelta(days=10)).date()
+        meant = datetime(day.year, day.month, day.day, 10, tzinfo=ZoneInfo('America/New_York'))
+        utc = meant.astimezone(dt_timezone.utc)
+        self.assertGreater(utc.hour, 10)
+        self.assertEqual((stored.hour, stored.minute), (utc.hour, 0))
 
     def test_no_header_is_utc_as_before(self):
         res = self.create()
