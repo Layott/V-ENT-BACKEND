@@ -16,7 +16,7 @@ from vent_auth.throttle import limited
 
 from . import feeds, lookup, progressions
 from .models import Progression
-from .views_stages import _err, _find, _manager, _ok
+from .views_stages import _engine_err, _err, _find, _manager, _ok
 
 FEED_STATUS = {
     'FEED_NOT_MANAGER': status.HTTP_403_FORBIDDEN,
@@ -54,6 +54,8 @@ def _create(request, tournament):
     if target_stage is None:
         return _err('No such stage on this tournament.', 'STAGE_NOT_FOUND', status.HTTP_404_NOT_FOUND,
                     field='target_stage')
+    if 'source_circuit' in body:
+        return _create_from_circuit(request, tournament, target_stage, user)
     source = lookup.find(inputs.read_text(body, 'source_tournament', max_length=160, required=True))
     if source is None:
         return _err('No such tournament.', 'TOURNAMENT_NOT_FOUND', status.HTTP_404_NOT_FOUND,
@@ -78,6 +80,57 @@ def _create(request, tournament):
         return _feed_err(exc)
     row = next(r for r in feeds.rows(tournament)['incoming'] if r['id'] == line.id)
     return _ok({'feed': row}, 'Feed made', status.HTTP_201_CREATED)
+
+
+def _create_from_circuit(request, tournament, target_stage, user):
+    """The top places of a circuit's ranking into this stage (P5c)."""
+    from vent_circuits.models import Circuit
+    body = request.data
+    circuit = Circuit.objects.filter(
+        slug=inputs.read_text(body, 'source_circuit', max_length=160, required=True)).first()
+    if circuit is None:
+        return _err('No such circuit.', 'CIRCUIT_NOT_FOUND', status.HTTP_404_NOT_FOUND,
+                    field='source_circuit')
+    try:
+        with transaction.atomic():
+            line = feeds.create_from_circuit(
+                target_stage, circuit, user,
+                place_from=inputs.read_int(body, 'place_from', required=True, minimum=1, maximum=512),
+                place_to=inputs.read_int(body, 'place_to', required=True, minimum=1, maximum=512),
+                side=inputs.read_choice(body, 'side', progressions.SIDES, default='any'),
+                fire=inputs.read_choice(body, 'fire', progressions.FIRES, default='manual'),
+                decline_hours=inputs.read_int(body, 'decline_hours', default=48, minimum=1, maximum=720),
+                on_decline=inputs.read_choice(body, 'on_decline', feeds.ON_DECLINE, default='next'))
+    except feeds.FeedError as exc:
+        return _feed_err(exc)
+    row = next(r for r in feeds.rows(tournament)['incoming'] if r['id'] == line.id)
+    return _ok({'feed': row}, 'Feed made', status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@limited('feeds', 30)
+def pull_feed(request, tournament_id, feed_id):
+    """POST /tournament/<ref>/feeds/<id>/pull/ - send a circuit ranking's
+    places into this tournament now (P5c). A ranking never closes by itself,
+    so its line waits for the organiser of the tournament it fills."""
+    from . import stage_engine
+    tournament, err = _find(tournament_id)
+    if err:
+        return err
+    user, err = _manager(request, tournament)
+    if err:
+        return err
+    line = (Progression.objects.select_related('source_circuit', 'target__tournament')
+            .filter(pk=feed_id, target__tournament=tournament, source_circuit__isnull=False).first())
+    if line is None:
+        return _err('No such feed on this tournament.', 'FEED_NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    try:
+        with transaction.atomic():
+            result = progressions.pull(line, user)
+    except stage_engine.StageEngineError as exc:
+        return _engine_err(exc)
+    row = next(r for r in feeds.rows(tournament)['incoming'] if r['id'] == line.id)
+    return _ok({'feed': row, 'draws': list(result['draws']), 'waiting': result['waiting']}, 'Sent.')
 
 
 @api_view(['DELETE'])

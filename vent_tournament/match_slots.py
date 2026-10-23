@@ -345,7 +345,7 @@ def fill(stage, line):
     other side is known.
     """
     from .models import BracketMatch, MatchSlot
-    grouped = (line.source.groups or 0) > 1
+    grouped = line.source_groups > 1
     counters, by_seat = {}, {}
     for row in (line.sent or []):
         group = row.get('group') if grouped or line.group is not None else None

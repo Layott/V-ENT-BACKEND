@@ -34,6 +34,10 @@ def _display(reg):
 
 
 def is_feed(line):
+    """A line from outside its target's tournament: another tournament's
+    stage, or a circuit's ranking (P5c)."""
+    if line.is_circuit_line:
+        return True
     return line.source.tournament_id != line.target.tournament_id
 
 
@@ -73,6 +77,21 @@ def _places(source_stage, place_from, place_to, group):
     return (place_to - place_from + 1) * each
 
 
+def _line_places(line):
+    """How many places a line will send: a ranking is one table."""
+    if line.is_circuit_line:
+        return line.place_to - line.place_from + 1
+    return _places(line.source, line.place_from, line.place_to, line.group)
+
+
+def _reserved(target):
+    """Places the target's feeds have not sent yet."""
+    from .models import Progression
+    return sum(_line_places(l) for l in Progression.objects.filter(
+        target__tournament=target, fired_at__isnull=True).exclude(source__tournament=target)
+        .select_related('source'))
+
+
 def check(target_stage, source_stage, user, place_from, place_to, group=None):
     """Refuse a feed that may not exist, with the code the screen translates."""
     from .access import may_manage
@@ -96,10 +115,7 @@ def check(target_stage, source_stage, user, place_from, place_to, group=None):
     capacity = target.max_number_of_teams or target.player_size or 0
     if capacity:
         taken = target.registrations.filter(status__in=('pending', 'confirmed')).count()
-        reserved = sum(_places(l.source, l.place_from, l.place_to, l.group)
-                       for l in Progression.objects.filter(target__tournament=target, fired_at__isnull=True)
-                       .exclude(source__tournament=target).select_related('source'))
-        if taken + reserved + _places(source_stage, place_from, place_to, group) > capacity:
+        if taken + _reserved(target) + _places(source_stage, place_from, place_to, group) > capacity:
             raise FeedError('FEED_TARGET_FULL', 'place_to')
     if _reaches(target.pk, source.pk):
         raise FeedError('FEED_CYCLE', 'source_tournament')
@@ -125,6 +141,97 @@ def create(target_stage, source_stage, user, place_from, place_to, group=None, s
         decline_hours=decline_hours, on_decline=on_decline)
 
 
+# ---------------------------------------------------------------------------
+# A circuit's ranking as the source (P5c, design section 13)
+# ---------------------------------------------------------------------------
+#
+# "A circuit ranking can be the source of a progression: top 8 of the season
+# ranking go to the finals, places 9-16 go to the last chance qualifier." The
+# same Progression row, with `source_circuit` in place of a source stage. A
+# ranking has no registrations, so its rows name entrants (`user:<id>`,
+# `team:<id>`) and qualifying registers them directly. It is pulled when the
+# organiser says (fire 'manual'): a ranking never closes by itself. A declined
+# place goes to the next in the ranking (on_decline 'next'); picking by hand
+# needs a field of registrations to pick from, which a ranking is not.
+
+def check_circuit(target_stage, circuit, user, place_from, place_to):
+    """Refuse a circuit line that may not exist, with the feed codes."""
+    from vent_circuits import access as circuit_access
+    from .access import may_manage
+    target = target_stage.tournament
+    if not (circuit_access.may_manage(user, circuit) and may_manage(user, target)):
+        raise FeedError('FEED_NOT_MANAGER', 'source_circuit')
+    if circuit.game_id and circuit.game_id != target.tournament_game_id:
+        raise FeedError('FEED_GAME_MISMATCH', 'source_circuit')
+    kind = _entry_kind(target)
+    if kind != 'any' and kind != ('team' if circuit.entrant == 'team' else 'player'):
+        raise FeedError('FEED_ENTRY_TYPE_MISMATCH', 'source_circuit')
+    if place_from < 1 or place_to < place_from:
+        raise FeedError('FEED_PLACES', 'place_to')
+    capacity = target.max_number_of_teams or target.player_size or 0
+    if capacity:
+        taken = target.registrations.filter(status__in=('pending', 'confirmed')).count()
+        if taken + _reserved(target) + (place_to - place_from + 1) > capacity:
+            raise FeedError('FEED_TARGET_FULL', 'place_to')
+
+
+def create_from_circuit(target_stage, circuit, user, place_from, place_to, side='any',
+                        fire='manual', decline_hours=48, on_decline='next'):
+    from . import progressions
+    from .models import Progression
+    check_circuit(target_stage, circuit, user, place_from, place_to)
+    if side not in progressions.SIDES or (side != 'any' and target_stage.format != 'double_elimination'):
+        raise FeedError('FEED_SIDE', 'side')
+    if fire != 'manual':
+        raise FeedError('FEED_FIRE', 'fire')
+    if on_decline != 'next':
+        raise FeedError('FEED_ON_DECLINE', 'on_decline')
+    if decline_hours is not None and not (1 <= int(decline_hours) <= 720):
+        raise FeedError('FEED_DECLINE_HOURS', 'decline_hours')
+    last = target_stage.incoming.order_by('-order').values_list('order', flat=True).first()
+    return Progression.objects.create(
+        source_circuit=circuit, target=target_stage, place_from=place_from, place_to=place_to,
+        side=side, fire=fire, order=(last or 0) + 1, decline_hours=decline_hours, on_decline=on_decline)
+
+
+def _ranking_rows(circuit):
+    """The circuit's ranking as feed rows, by position (unique), best first."""
+    from vent_circuits import standings
+    out = []
+    for r in standings.table(circuit):
+        e = r['entrant']
+        out.append({'registration_id': None, 'source_entrant': '%s:%s' % (e['type'], e['id']),
+                    'name': e.get('name'), 'handle': e.get('handle'), 'group': None,
+                    'rank': r['position'], 'points': float(r['points'])})
+    return out
+
+
+def circuit_rows(line):
+    """The places `line` takes from its circuit's ranking."""
+    return [r for r in _ranking_rows(line.source_circuit)
+            if line.place_from <= r['rank'] <= line.place_to]
+
+
+def _entrant(key):
+    """(user, team) for an entrant key from a ranking row."""
+    from vent_auth.models import Teams, Users
+    kind, _, ident = str(key or '').partition(':')
+    if kind == 'team':
+        return None, Teams.objects.filter(team_id=int(ident)).first()
+    return Users.objects.filter(user_id=int(ident)).first(), None
+
+
+def _existing_entrant(target, user, team):
+    rows = target.registrations.exclude(status__in=('withdrawn', 'disqualified', 'declined'))
+    if team is not None:
+        return rows.filter(team=team, squad__isnull=True).first()
+    return rows.filter(user=user, team__isnull=True, squad__isnull=True).first()
+
+
+def _source_name(line):
+    return line.source_circuit.name if line.is_circuit_line else line.source.tournament.tournament_title
+
+
 def _existing(target, source_reg):
     """The same entrant already in the target, matched the way every screen
     names a side (`entrant_kind` and `entrant_id`), so a team, a squad and a
@@ -138,18 +245,20 @@ def _existing(target, source_reg):
 
 def _tell(registration, line, place, until):
     from vent_auth.views_notifications import create_notification
-    target, source = line.target.tournament, line.source.tournament
+    target = line.target.tournament
     recipient = registration.team.team_owner if registration.team_id else registration.user
     if recipient is None:
         return
-    body = 'From %s, place %s.' % (source.tournament_title, place)
+    body = 'From %s, place %s.' % (_source_name(line), place)
     if until is not None:
         body += ' If you cannot play, decline before %s UTC.' % until.strftime('%d %b %Y %H:%M')
     create_notification(
         recipient, 'tournament', 'You qualified for %s' % target.tournament_title, body,
         link='/tournaments/%s' % (target.slug or target.tournament_id),
         metadata={'tournament_id': target.tournament_id, 'qualified_via': line.id,
-                  'source_tournament_id': source.tournament_id, 'source_place': place})
+                  'source_tournament_id': None if line.is_circuit_line else line.source.tournament_id,
+                  'source_circuit': line.source_circuit.slug if line.is_circuit_line else None,
+                  'source_place': place})
 
 
 def qualify(line, rows):
@@ -163,9 +272,25 @@ def qualify(line, rows):
     until = (timezone.now() + timedelta(hours=line.decline_hours)) if line.decline_hours else None
     out = []
     for row in rows:
+        place = row.get('rank')
+        if row.get('source_entrant'):
+            # From a circuit ranking (P5c): the entrant itself, no registration.
+            user, team = _entrant(row['source_entrant'])
+            reg = _existing_entrant(target, user, team)
+            reused = reg is not None
+            if reg is None:
+                reg = TournamentRegistration.objects.create(
+                    tournament=target, user=None if team is not None else user, team=team,
+                    status='confirmed', entry_fee_paid=True, qualified_via=line,
+                    source_place=place, decline_until=until)
+            else:
+                reg.qualified_via, reg.source_place, reg.decline_until = line, place, until
+                reg.save(update_fields=['qualified_via', 'source_place', 'decline_until'])
+            _tell(reg, line, place, until)
+            out.append(dict(row, registration_id=reg.id, reused=reused))
+            continue
         source_reg = TournamentRegistration.objects.select_related('user', 'team').get(
             pk=row['registration_id'])
-        place = row.get('rank')
         reg = _existing(target, source_reg)
         reused = reg is not None
         if reg is None:
@@ -222,7 +347,14 @@ def _index(line, registration_id):
 
 def _taken(line):
     """Source registrations this stage's feeds already sent, or that turned a
-    place down or were recalled: none of them is offered a place again."""
+    place down or were recalled: none of them is offered a place again. For a
+    circuit's lines, the entrants (`user:<id>`) its lines sent or lost."""
+    if line.is_circuit_line:
+        keys = set()
+        for other in line.source_circuit.lines.all():
+            keys.update(row['source_entrant'] for row in (other.sent or []) if row.get('source_entrant'))
+            keys.update(c['source_entrant'] for c in (other.history or []) if c.get('source_entrant'))
+        return keys
     ids = set()
     for other in line.source.outgoing.all():
         for row in (other.sent or []):
@@ -237,6 +369,11 @@ def next_placement(line, group=None):
     """The next placement of the source after the places this feed takes,
     from the same group when the feed takes places group by group."""
     from . import stage_engine
+    if line.is_circuit_line:
+        taken = _taken(line)
+        rows = [r for r in _ranking_rows(line.source_circuit)
+                if r['rank'] > line.place_to and r['source_entrant'] not in taken]
+        return rows[0] if rows else None
     grouped = (line.source.groups or 0) > 1 and line.group is None
     taken = _taken(line)
     rows = [r for r in stage_engine.standings(line.source)
@@ -288,9 +425,11 @@ def _hand_on(line, index, leaving, actor, mode):
 
 
 def _record(line, kind, row, registration):
-    line.history = list(line.history or []) + [{
-        'kind': kind, 'source_registration_id': row.get('source_registration_id'),
-        'registration_id': registration.id, 'at': _now().isoformat()}]
+    change = {'kind': kind, 'source_registration_id': row.get('source_registration_id'),
+              'registration_id': registration.id, 'at': _now().isoformat()}
+    if row.get('source_entrant'):
+        change['source_entrant'] = row['source_entrant']
+    line.history = list(line.history or []) + [change]
 
 
 def decline(registration, user):
@@ -324,6 +463,9 @@ def pick(line, source_registration_id, user):
     stage who has not had a place yet."""
     from . import stage_engine
     from .access import may_manage
+    if line.is_circuit_line:
+        # A declined place from a ranking goes to the next in it; nothing waits.
+        raise FeedError('NOTHING_WAITING')
     if not (may_manage(user, line.target.tournament) and may_manage(user, line.source.tournament)):
         raise FeedError('FEED_NOT_MANAGER')
     if not line.waiting:
@@ -413,6 +555,9 @@ def recall(registration, user, mode='hand_on', replacement=None):
             bracket_edit.reopen(BracketMatch.objects.select_for_update().get(pk=match.pk), user)
     index = _index(line, registration.id)
     row = line.sent[index] if index is not None else {}
+    if replacement is not None and line.is_circuit_line:
+        # A ranking hands a place on to its next entrant, never by number.
+        raise FeedError('NOT_IN_THIS_STAGE', 'replacement')
     if replacement is not None:
         chosen = next((r for r in stage_engine.standings(line.source)
                        if int(r['registration_id']) == int(replacement)), None)
@@ -476,8 +621,16 @@ def rows(tournament):
                 'groups': stage.groups, 'status': stage.status,
                 'tournament': {'slug': t.slug, 'title': t.tournament_title}}
 
+    def circuit_side(circuit):
+        # A circuit's ranking as a source (P5c): the same shape, with the
+        # circuit named and no stage or tournament of its own.
+        return {'stage_id': None, 'stage': None, 'format': 'circuit', 'groups': 0,
+                'status': 'ranking', 'tournament': None,
+                'circuit': {'slug': circuit.slug, 'name': circuit.name}}
+
     def row(line):
-        return {'id': line.id, 'source': side(line.source), 'target': side(line.target),
+        source = circuit_side(line.source_circuit) if line.is_circuit_line else side(line.source)
+        return {'id': line.id, 'source': source, 'target': side(line.target),
                 'group': line.group, 'place_from': line.place_from, 'place_to': line.place_to,
                 'side': line.side, 'fire': line.fire, 'decline_hours': line.decline_hours,
                 'on_decline': line.on_decline, 'fired_at': line.fired_at,
@@ -493,7 +646,7 @@ def rows(tournament):
                 'waiting': [{'place': w.get('place'), 'group': w.get('group')}
                             for w in (line.waiting or [])]}
 
-    base = Progression.objects.select_related('source__tournament', 'target__tournament')
+    base = Progression.objects.select_related('source__tournament', 'target__tournament', 'source_circuit')
     incoming = base.filter(target__tournament=tournament).exclude(source__tournament=tournament)
     outgoing = base.filter(source__tournament=tournament).exclude(target__tournament=tournament)
     return {'incoming': [row(l) for l in incoming.order_by('order', 'id')],

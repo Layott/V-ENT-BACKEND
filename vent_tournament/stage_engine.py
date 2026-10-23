@@ -56,7 +56,8 @@ def previous_stage(stage):
     """The stage of this tournament that feeds this one. A feed from another
     tournament (P2) is not a previous stage."""
     from . import progressions
-    feeding = [l for l in progressions.incoming(stage) if l.source.tournament_id == stage.tournament_id]
+    feeding = [l for l in progressions.incoming(stage)
+               if l.source_id and l.source.tournament_id == stage.tournament_id]
     return feeding[0].source if feeding else None
 
 
@@ -149,7 +150,7 @@ def early_tokens(stage):
     from . import progressions
     upper, lower = [], []
     for line in progressions.incoming(stage):
-        groups = line.source.groups or 0
+        groups = line.source_groups
         wanted = ([line.group] if line.group is not None
                   else list(range(1, groups + 1)) if groups > 1 else [None])
         out = lower if line.side == 'losers' else upper
@@ -969,9 +970,21 @@ def after_fire(stage, user, fired, draw_next=True):
     if 'status' in fields:
         from . import happenings
         happenings.closed(stage)
+    result = fill_targets(user, fired, draw_next, reach=fired or out)
+    result['advanced'] = stage.advanced
+    return result
 
+
+def fill_targets(user, fired, draw_next=True, reach=None):
+    """Every stage `fired` lines fill, drawn once all of its lines have
+    arrived (or its early seats filled). The half of after_fire that is about
+    the targets; a circuit ranking's line (P5c) has no source stage to close.
+    `reach` names the targets when it is not the lines that sent: a stage
+    closing with a line that waits for a press names its target and fills
+    none of its seats."""
+    from . import progressions
     draws, waiting, targets = {}, [], []
-    for line in (fired or out):
+    for line in (fired if reach is None else reach):
         if line.target_id not in [t.id for t in targets]:
             targets.append(line.target)
     for target in targets:
@@ -989,7 +1002,6 @@ def after_fire(stage, user, fired, draw_next=True):
             draws[target.id] = draw(target, user)
     first = targets[0] if targets else None
     return {
-        'advanced': stage.advanced,
         'next_stage_id': first.id if first else None,
         'draw': draws.get(first.id) if first else None,
         'draws': draws,
