@@ -7559,22 +7559,6 @@
    }
   },
   {
-   "name": "B cannot send a circuit ranking's places into A's tournament",
-   "route": "tournament/<str:tournament_id>/feeds/<int:feed_id>/pull/",
-   "attempt": {
-    "as": "b",
-    "method": "POST",
-    "path": "/tournament/walk-cup-fee/feeds/1/pull/",
-    "body": {}
-   },
-   "r88": {
-    "skip": [
-     "existence"
-    ],
-    "reason": "the tournament named is public, so whether it exists is no secret"
-   }
-  },
-  {
    "name": "B cannot fill a declined place in A's tournament",
    "route": "tournament/<str:tournament_id>/feeds/<int:feed_id>/pick/",
    "attempt": {
@@ -7721,6 +7705,42 @@
      "tournament": "walk-cup-fee",
      "every": "none"
     }
+   }
+  },
+  {
+   "name": "GET tournament/<str:tournament_id>/stages/preset/ as B",
+   "route": "tournament/<str:tournament_id>/stages/preset/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/stages/preset/?kind=ffa_bracket&entrants=24&lobby_size=12&through=4",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a ready-made plan written by a function from the numbers in the query; it stores nothing and reads only the tournament's game, which is public (P3 W1d)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "name": "B cannot send a circuit ranking's places into A's tournament",
+   "route": "tournament/<str:tournament_id>/feeds/<int:feed_id>/pull/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/feeds/1/pull/",
+    "body": {}
+   },
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the tournament named is public, so whether it exists is no secret"
    }
   },
   {
