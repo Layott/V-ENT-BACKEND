@@ -23,6 +23,7 @@ the wizard sends that the server does not know becomes a silent fallback.
     python tools/check-format-catalogue.py --self-test
 """
 
+import ast
 import os
 import re
 import sys
@@ -110,6 +111,65 @@ def frontend_lists(source=None):
     return keys, aliases
 
 
+def backend_names(source=None):
+    """Each format's `label` and `summary` as formats.py writes them.
+
+    Read with `ast`, not a regex: a summary is several string literals joined
+    by implicit concatenation, which a line-by-line pattern reads as the first
+    fragment only.
+    """
+    if source is None:
+        path = os.path.join(BACKEND, 'vent_tournament', 'formats.py')
+        with open(path, encoding='utf-8') as handle:
+            source = handle.read()
+    labels, summaries = {}, {}
+    for node in ast.walk(ast.parse(source)):
+        if not (isinstance(node, ast.Call) and getattr(node.func, 'id', None) == 'Format'):
+            continue
+        args = {kw.arg: kw.value for kw in node.keywords}
+        if 'key' not in args:
+            continue
+        key = args['key'].value
+        labels[key] = args['label'].value
+        summaries[key] = args['summary'].value
+    return labels, summaries
+
+
+def frontend_names(source=None):
+    """`SERVER_NAME` and `SUMMARY` from `formatLabel.js`, as {key: text}."""
+    if source is None:
+        with open(FORMAT_LABEL, encoding='utf-8') as handle:
+            source = handle.read()
+    out = {}
+    for name in ('SERVER_NAME', 'SUMMARY'):
+        block = re.search(r'const %s = \{\n(.*?)\n\};' % name, source, re.S)
+        entries = {}
+        if block:
+            for key, text in re.findall(r"^\s*([a-z0-9_]+): '((?:[^'\\]|\\.)*)',$",
+                                        block.group(1), re.M):
+                entries[key] = text.replace("\\'", "'").replace('\\\\', '\\')
+        out[name] = entries
+    return out['SERVER_NAME'], out['SUMMARY']
+
+
+def display_findings(back_labels, back_summaries, front_labels, front_summaries):
+    """`SERVER_NAME` and `SUMMARY` must say what formats.py says, word for word."""
+    out = []
+    for field, back, front in (('label', back_labels, front_labels),
+                               ('summary', back_summaries, front_summaries)):
+        for key in sorted(set(front) - set(back)):
+            out.append('formatLabel.js has a %s for %r and formats.py does not define it'
+                       % (field, key))
+        for key in sorted(set(back) - set(front)):
+            out.append('formats.py defines a %s for %r and formatLabel.js does not carry it'
+                       % (field, key))
+        for key in sorted(set(back) & set(front)):
+            if back[key] != front[key]:
+                out.append('the %s for %r differs: formats.py says %r, formatLabel.js says %r'
+                           % (field, key, back[key], front[key]))
+    return out
+
+
 def findings(back, front, aliases, back_table=None, front_table=None):
     out = []
     if back_table is not None and front_table is not None:
@@ -191,6 +251,38 @@ _FORMATS_FIXTURE = """
 """
 
 
+_FORMATS_NAMES_FIXTURE = """
+SWISS = Format(
+    key='swiss',
+    label='Swiss',
+    summary=(
+        'Paired against somebody. '
+        'Nobody is knocked out early.'
+    ),
+)
+"""
+
+_JS_NAMES_GOOD = """
+const SERVER_NAME = {
+  swiss: 'Swiss',
+};
+
+const SUMMARY = {
+  swiss: 'Paired against somebody. Nobody is knocked out early.',
+};
+"""
+
+_JS_NAMES_DRIFT = """
+const SERVER_NAME = {
+  swiss: 'Swiss system',
+};
+
+const SUMMARY = {
+  swiss: 'Paired against somebody. Nobody is knocked out early.',
+};
+"""
+
+
 def self_test():
     back = {'single_elimination', 'round_robin'}
     cases = [
@@ -229,6 +321,20 @@ def self_test():
         else:
             print('ok: %s -> %d' % (what, got))
 
+    back_labels, back_summaries = backend_names(_FORMATS_NAMES_FIXTURE)
+    names_cases = [
+        ('the label and summary read the same', _JS_NAMES_GOOD, 0),
+        ('a label that drifted from formats.py', _JS_NAMES_DRIFT, 1),
+    ]
+    for what, source, expected in names_cases:
+        front_labels, front_summaries = frontend_names(source)
+        got = len(display_findings(back_labels, back_summaries, front_labels, front_summaries))
+        if got != expected:
+            print('SELF-TEST %s: expected %d, got %d' % (what, expected, got))
+            bad += 1
+        else:
+            print('ok: %s -> %d' % (what, got))
+
     if bad:
         return 1
     print('self-test: catches drift in both directions, a dead alias, and a '
@@ -251,8 +357,11 @@ def main():
               % (len(back), len(front)))
         return 1
 
+    back_labels, back_summaries = backend_names()
+    front_labels, front_summaries = frontend_names()
     problems = findings(back, front, aliases,
                         backend_table_keys(), frontend_table_keys(aliases=aliases))
+    problems += display_findings(back_labels, back_summaries, front_labels, front_summaries)
     if problems:
         print('%d disagreement(s) between the two format catalogues:\n'
               % len(problems))
