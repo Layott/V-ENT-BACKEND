@@ -30,8 +30,11 @@ from vent_auth import inputs
 logger = logging.getLogger(__name__)
 
 
-def _ok(data, message='OK', http_status=status.HTTP_200_OK):
-    return Response({'status': 'success', 'data': data, 'message': message}, status=http_status)
+def _ok(data, message='OK', http_status=status.HTTP_200_OK, code=None):
+    body = {'status': 'success', 'data': data, 'message': message}
+    if code:
+        body['code'] = code
+    return Response(body, status=http_status)
 
 
 def _err(message, code='ERROR', http_status=status.HTTP_400_BAD_REQUEST, data=None):
@@ -200,7 +203,7 @@ def apply_partner(request):
 
     return _ok(_partner_row(partner, include_private=True),
                'Application received. An admin reviews it before anything is granted.',
-               status.HTTP_201_CREATED)
+               status.HTTP_201_CREATED, code='PARTNER_APPLICATION_RECEIVED')
 
 
 #: The fields a partner edits on their own record, each with its column's length.
@@ -296,7 +299,7 @@ def create_key(request, partner_id):
             'secret': plaintext,
         },
         'Copy this key now. It is not shown again.',
-        status.HTTP_201_CREATED,
+        status.HTTP_201_CREATED, code='PARTNER_KEY_ISSUED',
     )
 
 
@@ -310,7 +313,7 @@ def revoke_key(request, partner_id, key_id):
         return _err('No such live key.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
     key.revoked_at = timezone.now()
     key.save(update_fields=['revoked_at'])
-    return _ok({'key_id': key.key_id}, 'Key revoked. It stops working immediately.')
+    return _ok({'key_id': key.key_id}, 'Key revoked. It stops working immediately.', code='PARTNER_KEY_REVOKED')
 
 
 @api_view(['POST'])
@@ -353,7 +356,7 @@ def update_partner(request, partner_id):
 
     if changed:
         partner.save()
-    return _ok(_partner_row(partner, include_private=True), 'Saved.')
+    return _ok(_partner_row(partner, include_private=True), 'Saved.', code='PARTNER_SAVED')
 
 
 # ---------------------------------------------------------------------------
