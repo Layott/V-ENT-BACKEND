@@ -513,6 +513,13 @@ CATCHERS = [
      'no quiet refresh wipes a refusal off the screen',
      FRONTEND, ['node', 'scripts/check-quiet-refresh.mjs'], True),
 
+    ('games shape',
+     'every reader of the game list reads .games from the answer',
+     FRONTEND, ['node', 'scripts/check-games-shape.mjs'], True),
+    ('games shape self-test',
+     'the games shape catcher still catches the data.data fault',
+     FRONTEND, ['node', 'scripts/check-games-shape.mjs', '--self-test'], True),
+
     ('stale coming soon',
      'no coming-soon copy in front of something that is built',
      FRONTEND, ['node', 'scripts/check-stale-comingsoon.mjs'], True),
