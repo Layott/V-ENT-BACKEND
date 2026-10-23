@@ -23,6 +23,10 @@ sentence: the screen says it in the reader's language. And never who recorded
 a result, because the list is public.
 """
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 KINDS = ('result_confirmed', 'stage_started', 'stage_closed', 'line_sent', 'tournament_won')
 
 
@@ -32,8 +36,17 @@ def record(kind, tournament_id, *, stage=None, match_id=None, **data):
         raise ValueError(kind)
     if stage is not None:
         data.setdefault('stage', stage.label)
-    return Happening.objects.create(
+    row = Happening.objects.create(
         tournament_id=tournament_id, kind=kind, stage=stage, match_id=match_id, data=data)
+    # The same fact goes out to the game studios running this tournament (P6):
+    # queued in this transaction, sent after it commits, and never allowed to
+    # cost anybody the fact being recorded.
+    try:
+        from vent_partners import studio_events
+        studio_events.publish(kind, tournament_id, data, match_id=match_id)
+    except Exception:
+        logger.warning('studio publish for %s failed', kind, exc_info=True)
+    return row
 
 
 def _name(reg):

@@ -12,6 +12,8 @@ from django.urls import path
 from . import views_api as api
 from . import views_manage as manage
 from . import views_sso as sso
+from . import views_studios as studios
+from . import views_studio_api as studio_api
 
 api_urlpatterns = [
     path('', api.api_index),
@@ -25,12 +27,24 @@ api_urlpatterns = [
     path('tournaments/<int:tournament_id>/participants/', api.tournament_participants),
     path('tournaments/<int:tournament_id>/bracket/', api.tournament_bracket),
     path('tournaments/<int:tournament_id>/stats/', api.tournament_stats),
+    path('tournaments/<str:tournament_ref>/structure/', api.tournament_structure),
+    path('tournaments/<str:tournament_ref>/standings/', api.tournament_standings),
 
     path('teams/', api.teams_list),
     path('teams/<int:team_id>/', api.team_detail),
 
     path('players/<str:username>/', api.player_detail),
     path('rankings/', api.rankings),
+
+    # Game studios, by key (design section 14)
+    path('studio/', studio_api.studio_index),
+    path('studio/games/<str:slug>/deliveries/', studio_api.game_deliveries),
+    path('studio/games/<str:slug>/link-codes/', studio_api.create_link_code),
+    path('studio/games/<str:slug>/link-codes/<str:code_ref>/', studio_api.link_code_status),
+    path('studio/games/<str:slug>/links/', studio_api.links),
+    path('studio/games/<str:slug>/links/<str:link_ref>/unlink/', studio_api.unlink),
+    path('studio/sessions/<str:session_ref>/', studio_api.session_view),
+    path('studio/games/<str:slug>/accounts/<str:account_id>/next-match/', studio_api.next_match),
 ]
 
 partner_urlpatterns = [
@@ -41,6 +55,30 @@ partner_urlpatterns = [
     path('<int:partner_id>/update/', manage.update_partner),
     path('<int:partner_id>/keys/', manage.create_key),
     path('<int:partner_id>/keys/<int:key_id>/revoke/', manage.revoke_key),
+
+    # Game studios (design section 14). The fixed words come before the slug,
+    # and a game cannot take one of them as its address (STUDIO_RESERVED_SLUGS).
+    path('studios/', studios.studios_home),
+    path('studios/register/', studios.register_game),
+    path('studios/sandbox-key/', studios.sandbox_key),
+    path('studios/link/preview/', studios.link_preview),
+    path('studios/link/confirm/', studios.link_confirm),
+    path('studios/my-links/', studios.my_links),
+    path('studios/my-links/<str:link_ref>/unlink/', studios.my_link_unlink),
+    path('studios/tournament/<str:tournament_ref>/', studios.tournament_studio),
+    path('studios/tournament/<str:tournament_ref>/connect/', studios.tournament_connect),
+    path('studios/tournament/<str:tournament_ref>/disconnect/', studios.tournament_disconnect),
+    path('studios/<str:slug>/', studios.game_detail),
+    path('studios/<str:slug>/update/', studios.update_game),
+    path('studios/<str:slug>/rotate-secret/', studios.rotate_secret),
+    path('studios/<str:slug>/request-live/', studios.request_live),
+    path('studios/<str:slug>/try-scoring/', studios.try_scoring),
+    path('studios/<str:slug>/deliveries/', studios.game_deliveries),
+    path('studios/<str:slug>/deliveries/<str:delivery_ref>/resend/', studios.resend_delivery),
+    path('studios/<str:slug>/ping/', studios.ping_game),
+    path('studios/<str:slug>/usage/', studios.game_usage),
+    path('admin/studios/', studios.admin_studios),
+    path('admin/studios/<str:slug>/review/', studios.admin_review_game),
 
     # Admin review
     path('admin/list/', manage.admin_list),
