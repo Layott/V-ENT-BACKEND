@@ -29,6 +29,7 @@ from .views_stages import _err, _find, _manager, _ok, _row, _stage
 
 STATUS = {
     'TOURNAMENT_FINISHED': status.HTTP_409_CONFLICT,
+    'PRIZES_PAID': status.HTTP_409_CONFLICT,
     'STAGE_ORDER_LOCKED': status.HTTP_409_CONFLICT,
     'DRAWN_STAGE_REMOVED': status.HTTP_409_CONFLICT,
     'STAGE_DRAWN_FIELD': status.HTTP_409_CONFLICT,

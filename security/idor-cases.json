@@ -8442,6 +8442,26 @@
     ],
     "reason": "a published league's divisions and their members are on its public page, so whether one exists is no secret"
    }
+  },
+  {
+   "name": "GET tournament/<str:tournament_id>/stages/preset/ as B",
+   "route": "tournament/<str:tournament_id>/stages/preset/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/stages/preset/?kind=ffa_bracket&entrants=24&lobby_size=12&through=4",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a ready-made plan written by a function from the numbers in the query; it stores nothing and reads only the tournament's game, which is public (P3 W1d)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
   }
  ]
 }

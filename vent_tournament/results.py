@@ -204,10 +204,15 @@ def _still_free_to_change(match, winner):
     """
     if match.status not in ('completed', 'walkover_p1', 'walkover_p2'):
         return
-    from . import stage_settings
+    from . import bracket_edit, stage_settings
     from .models import BracketMatch
+    # After the tournament has ended a result can still change (inbox 521),
+    # unless prizes have been paid on the old places.
+    bracket_edit.results_editable(match.tournament, error=ResultError)
     stage = match.stage if match.stage_id else None
-    closed = stage is not None and stage.status == 'complete'
+    # A closed stage that sent nobody on (the last stage of a finished
+    # tournament) can still change: its final places follow (`apply`).
+    closed = stage is not None and stage.status == 'complete' and bracket_edit.sent_on(stage)
     new_winner_id = winner.id if winner is not None else None
     if (match.winner_id or None) == new_winner_id:
         # A corrected score, same outcome. Harmless in a knockout; in a table
@@ -223,6 +228,11 @@ def _still_free_to_change(match, winner):
     if (stage is not None and stage.format == 'swiss'
             and stage.matches.filter(round_number__gt=match.round_number).exists()):
         raise ResultError('NEXT_ROUND_ALREADY_DRAWN')
+    if stage is not None and stage.format == 'custom_bracket':
+        from . import match_slots
+        if match_slots.repechage_built_on(match):
+            # A repechage seat was filled from this result and played (P3 W2b).
+            raise ResultError('NEXT_MATCH_ALREADY_PLAYED')
     if (stage is not None and (stage.settings or {}).get('reseed')
             and stage.matches.filter(round_number=match.round_number + 1, slots__kind='reseed',
                                      status__in=PLAYED_STATUSES).exists()):
@@ -260,9 +270,28 @@ def apply(match, decision, *, recorded_by=None, forfeit_reason=''):
     # closed a stage must come before "finished" in the list (walk, 17 Oct).
     from . import happenings
     happenings.result(match)
+    was_finished = match.tournament.completed_at is not None
     match.save(update_fields=fields)
     _settle_open_disputes(match, recorded_by, now)
+    if was_finished:
+        _refresh_final_places(match.tournament)
     return match
+
+
+def _refresh_final_places(tournament):
+    """A result changed after the tournament ended (inbox 521): the final
+    places follow it. They were written when it finished and nothing wrote
+    them again, so a corrected final left the old champion in first place,
+    which is the place the prize goes by."""
+    tournament.refresh_from_db(fields=['completed_at', 'status'])
+    if tournament.completed_at is None:
+        return
+    if tournament.stages.exists():
+        from . import stage_engine
+        stage_engine.assign_final_positions(tournament)
+    else:
+        from .services.advance import assign_final_positions
+        assign_final_positions(tournament)
 
 
 def _settle_open_disputes(match, recorded_by, now):
