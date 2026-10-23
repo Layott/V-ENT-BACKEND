@@ -56,6 +56,53 @@ def not_finished(tournament):
         raise EditError('TOURNAMENT_FINISHED')
 
 
+def finished(tournament):
+    return tournament.status == 'completed' or tournament.completed_at is not None
+
+
+def results_editable(tournament, error=EditError):
+    """Results stay editable after the tournament has ended (inbox 521).
+
+    CEO, 17 October 2026: "even after a tournament has ended, organizers,
+    should still be able to edit or change results". Two things still close
+    them: a cancelled tournament, and prizes already paid, because money has
+    moved on the old places and changing them now would leave it with the
+    wrong people. `error` is the class the caller raises (EditError here,
+    ResultError at the result door).
+    """
+    if tournament.status == 'cancelled':
+        raise error('TOURNAMENT_FINISHED')
+    if finished(tournament):
+        from .models import PrizePayout
+        if PrizePayout.objects.filter(tournament=tournament).exists():
+            raise error('PRIZES_PAID')
+
+
+def sent_on(stage):
+    """Whether a closed stage has sent anybody on: into the next stage, or
+    into another tournament (a qualifier's feeds go when its last stage
+    closes). Its results are then built on and stay as they are."""
+    return bool(stage.advanced) or stage.outgoing.filter(fired_at__isnull=False).exists()
+
+
+def reopen_finished(tournament, stage):
+    """A result came off a tournament that had ended: it is live again, the
+    stage that held the result is running, and the final places come off
+    until the last result is entered again, which finishes it the usual way.
+    True when the tournament itself was reopened."""
+    if stage is not None and stage.status == 'complete':
+        stage.status = 'running'
+        stage.completed_at = None
+        stage.save(update_fields=['status', 'completed_at'])
+    if not finished(tournament):
+        return False
+    tournament.status = 'live'
+    tournament.completed_at = None
+    tournament.save(update_fields=['status', 'completed_at'])
+    tournament.registrations.update(final_position=None)
+    return True
+
+
 def scope(tournament, stage):
     """The matches an edit works on: a stage's own, or a one-format bracket's."""
     if stage is not None:
@@ -373,16 +420,18 @@ def reopen(match, user):
     order `results.py` asks for when a result is corrected.
     """
     tournament = match.tournament
-    not_finished(tournament)
+    results_editable(tournament)
     if match.status not in ('completed', 'walkover_p1', 'walkover_p2', 'pending_opponent_confirm',
                             'disputed', 'in_progress'):
         raise EditError('NOTHING_TO_REOPEN')
     stage = match.stage
-    if stage is not None and stage.status == 'complete':
+    if stage is not None and stage.status == 'complete' and sent_on(stage):
         raise EditError('STAGE_CLOSED')
     if stage is not None and stage.format == 'swiss' and stage.matches.filter(
             round_number__gt=match.round_number).exists():
         raise EditError('NEXT_ROUND_ALREADY_DRAWN')
+    if stage is not None and stage.format == 'custom_bracket' and match_slots.repechage_built_on(match):
+        raise EditError('NEXT_MATCH_ALREADY_PLAYED')
     reseeded = stage is not None and bool((stage.settings or {}).get('reseed'))
     if reseeded and stage.matches.filter(round_number=match.round_number + 1,
                                          slots__kind='reseed',
@@ -417,7 +466,9 @@ def reopen(match, user):
     if reseeded:
         # Its round is undecided again, so the pairing made from it comes out.
         match_slots.sync_reseeded(stage)
-    _log(tournament, user, 'reopen', stage, match=match.id)
+    reopened = reopen_finished(tournament, stage)
+    _log(tournament, user, 'reopen', stage, match=match.id,
+         tournament_reopened=True if reopened else None)
     match.refresh_from_db()
     return match
 

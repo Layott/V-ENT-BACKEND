@@ -509,6 +509,10 @@ CATCHERS = [
      'nothing polls the API with no backoff',
      FRONTEND, ['node', 'scripts/check-pollers.mjs'], True),
 
+    ('quiet refresh',
+     'no quiet refresh wipes a refusal off the screen',
+     FRONTEND, ['node', 'scripts/check-quiet-refresh.mjs'], True),
+
     ('stale coming soon',
      'no coming-soon copy in front of something that is built',
      FRONTEND, ['node', 'scripts/check-stale-comingsoon.mjs'], True),
