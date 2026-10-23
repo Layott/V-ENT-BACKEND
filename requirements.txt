@@ -1,12 +1,12 @@
 Django==5.2.17
-djangorestframework==3.18.1
+djangorestframework==3.18.3
 django-cors-headers==4.9.0
 django-allauth==65.19.5
 dj-rest-auth==7.2.0
 django-filter==26.1
 PyMySQL==1.1.1
 python-dotenv==1.2.3
-Pillow==12.3.0
+Pillow==13.0.0
 gunicorn==25.1.0
 requests==2.34.2
 # TXT lookups for proving an organiser's website (vent_sites/verify.py, P8).

@@ -25,6 +25,10 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.join(REPO, 'vent_tournament')
+# Circuits rank too (P5, 17 October 2026): a circuit's ranking goes through
+# ranking.order like every table, and a sorter written there would be the
+# eighth this catcher exists to stop, in an app it was not reading.
+ROOTS = (ROOT, os.path.join(REPO, 'vent_circuits'))
 ALLOWED = {'ranking.py'}
 
 
@@ -109,18 +113,19 @@ def offenders(source, name='<source>'):
 
 def scan():
     hits = []
-    for folder, _dirs, files in os.walk(ROOT):
-        if 'migrations' in folder or '__pycache__' in folder:
-            continue
-        for fname in files:
-            if not fname.endswith('.py') or fname in ALLOWED or fname.startswith('tests'):
+    for root in ROOTS:
+        for folder, _dirs, files in os.walk(root):
+            if 'migrations' in folder or '__pycache__' in folder:
                 continue
-            if fname == 'test_settings.py':
-                continue
-            path = os.path.join(folder, fname)
-            with open(path, encoding='utf-8') as fh:
-                for line in offenders(fh.read(), path):
-                    hits.append('%s:%d' % (os.path.relpath(path, REPO).replace(os.sep, '/'), line))
+            for fname in files:
+                if not fname.endswith('.py') or fname in ALLOWED or fname.startswith('tests'):
+                    continue
+                if fname == 'test_settings.py':
+                    continue
+                path = os.path.join(folder, fname)
+                with open(path, encoding='utf-8') as fh:
+                    for line in offenders(fh.read(), path):
+                        hits.append('%s:%d' % (os.path.relpath(path, REPO).replace(os.sep, '/'), line))
     return hits
 
 
