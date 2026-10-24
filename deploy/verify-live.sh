@@ -147,6 +147,17 @@ if [ -x "$BACKEND/venv/bin/python" ]; then
     echo "$RESULTS_OUT"
 fi
 
+# Every service starts at boot. On 23 October 2026 the box rebooted for a new
+# kernel and vent-api, the one unit never enabled, stayed down about eleven
+# hours while the pages it feeds came back (inbox 535). is-active says a unit
+# runs now; is-enabled says it comes back after the next reboot.
+if command -v systemctl >/dev/null 2>&1; then
+    for UNIT in vent-api "${PORTS[@]/#/vent-web@}"; do
+        systemctl is-enabled --quiet "$UNIT"             || fail "$UNIT is not enabled at boot, so a reboot leaves it down. Fix: sudo systemctl enable $UNIT"
+    done
+    echo "units: enabled at boot"
+fi
+
 echo "the live site is serving this build"
 
 # What a search engine reads (inbox 461, 16 October 2026): robots.txt, the
