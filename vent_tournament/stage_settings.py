@@ -228,6 +228,10 @@ def clean_battle_royale(raw):
         # Match point: once a squad is at or over this total, the first match
         # it wins takes the stage. 0 is off.
         'match_point': _int(raw.get('match_point'), 'match_point', 0, 10000, 0),
+        # Points (placement and kills) or time: the lowest total time across
+        # the matches wins, and a squad that did not finish one ranks below
+        # every squad that finished them all (P3 W3b).
+        'score_by': str(raw.get('score_by') or 'points').strip().lower(),
         'advance_by': str(raw.get('advance_by') or 'overall').strip().lower(),
         # A head start for the next stage by finishing place (AFC's Point
         # Rush): {"1": 10, "2": 6}. Read per lobby or overall, as advance_by.
@@ -236,6 +240,8 @@ def clean_battle_royale(raw):
                                  0, 120, 0),
         'room_settings': str(raw.get('room_settings') or '').strip()[:400],
     }
+    if out['score_by'] not in ('points', 'time'):
+        raise SettingsError('UNKNOWN_CHOICE', 'score_by')
     if out['mvp_scope'] not in BR_MVP_SCOPES:
         raise SettingsError('UNKNOWN_CHOICE', 'mvp_scope')
     if out['advance_by'] not in BR_ADVANCE_BY:
@@ -363,6 +369,11 @@ def clean(format_key, raw):
         out['rounds'] = _int(raw.get('rounds'), 'rounds', 0, 15, 0)
         out['win_target'] = _int(raw.get('win_target'), 'win_target', 0, 10, 0)
         out['loss_limit'] = _int(raw.get('loss_limit'), 'loss_limit', 0, 10, 0)
+        # McMahon (P3 W3d, research 4.6): the field split by seed into this
+        # many bands, the top band starting on 0, the next on -1 and so on,
+        # and every round paired on starting score plus wins, so games are
+        # even from round one. 0 is an ordinary Swiss.
+        out['mcmahon_bands'] = _int(raw.get('mcmahon_bands'), 'mcmahon_bands', 0, 10, 0)
         # How rounds after the first are paired (P3 W1): monrad is what V-ENT
         # has always drawn, dutch is FIDE's, valve the Counter-Strike Major's.
         out['pairing'] = str(raw.get('pairing') or 'monrad').strip().lower()

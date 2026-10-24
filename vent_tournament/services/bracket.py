@@ -146,6 +146,60 @@ def _seed_by_record(regs):
     return sorted(regs, key=key)
 
 
+#: Where a side with no finished match starts (FIDE's floor is far lower; 1500
+#: is the conventional middle, and only the order matters for seeding).
+RATING_START = 1500
+
+
+def _rating_side(reg):
+    """Whose rating a registration carries: its team's, or its player's. A
+    squad is put together for one tournament, so it has no history to rate."""
+    if reg.team_id:
+        return ('team', reg.team_id)
+    if reg.user_id:
+        return ('user', reg.user_id)
+    return None
+
+
+def _seed_by_rating(regs):
+    """Best first by Elo (P3 W3d, research catalogue 5.2): every finished
+    match on V-ENT in this game, oldest first, each side moving by its own
+    FIDE K (`ratings.fide_k`). A side with no matches starts on RATING_START,
+    and sides on the same rating keep the order they came in."""
+    from .. import ratings
+    from ..models import BracketMatch
+
+    regs = list(regs)
+    if not regs:
+        return regs
+    rating, games = {}, {}
+    matches = (BracketMatch.objects
+               .filter(tournament__tournament_game_id=regs[0].tournament.tournament_game_id,
+                       status='completed', participant_1__isnull=False,
+                       participant_2__isnull=False)
+               .select_related('participant_1', 'participant_2')
+               .order_by('completed_at', 'id'))
+    for m in matches.iterator():
+        a, b = _rating_side(m.participant_1), _rating_side(m.participant_2)
+        if a is None or b is None or a == b:
+            continue
+        if m.winner_id is None:
+            score = 0.5
+        elif m.winner_id == m.participant_1_id:
+            score = 1.0
+        elif m.winner_id == m.participant_2_id:
+            score = 0.0
+        else:
+            continue
+        ra, rb = rating.get(a, RATING_START), rating.get(b, RATING_START)
+        expected = ratings.elo_expected(ra, rb)
+        rating[a] = ra + ratings.fide_k(ra, games.get(a, 0)) * (score - expected)
+        rating[b] = rb + ratings.fide_k(rb, games.get(b, 0)) * ((1 - score) - (1 - expected))
+        games[a] = games.get(a, 0) + 1
+        games[b] = games.get(b, 0) + 1
+    return sorted(regs, key=lambda r: -rating.get(_rating_side(r), RATING_START))
+
+
 def seed_registrations(regs, strategy, manual_order=None):
     """Return registrations ordered best-seed-first per the chosen strategy."""
     strategy = strategy or 'random'
@@ -163,6 +217,8 @@ def seed_registrations(regs, strategy, manual_order=None):
         return ordered
     if strategy == 'ranked':
         return _seed_by_record(regs)
+    if strategy == 'rating':
+        return _seed_by_rating(regs)
     # random (default)
     shuffled = list(regs)
     random.shuffle(shuffled)
@@ -231,7 +287,7 @@ def generate(tournament, generated_by, seed_strategy='random', manual_order=None
     gen = BracketGeneration.objects.create(
         tournament=tournament,
         generated_by=generated_by,
-        seed_strategy=seed_strategy if seed_strategy in ('random', 'ranked', 'manual_order', 'registration') else 'random',
+        seed_strategy=seed_strategy if seed_strategy in ('random', 'ranked', 'rating', 'manual_order', 'registration') else 'random',
         seed_payload={'registration_ids': [r.id for r in ordered]},
         match_count=summary['matches_created'],
         rounds_count=summary['rounds_count'],
@@ -858,6 +914,18 @@ def _swiss_candidates(first, rest, record, method):
     return sorted(rest, key=lambda p: (closeness(p), rest.index(p)))
 
 
+def mcmahon_starts(ids, bands):
+    """{id: starting score} for a McMahon Swiss: `ids` in seed order split
+    into `bands` as even as they go, the top band on 0, the next on -1.
+    Empty when `bands` is 0 or 1, which is an ordinary Swiss."""
+    ids = list(ids)
+    bands = int(bands or 0)
+    if bands < 2 or not ids:
+        return {}
+    bands = min(bands, len(ids))
+    return {rid: -(i * bands // len(ids)) for i, rid in enumerate(ids)}
+
+
 def pair_swiss(players, record, played, had_bye, method='monrad'):
     """Pair one Swiss round.
 
@@ -944,6 +1012,15 @@ def _generate_swiss_first_round(tournament, stage, ordered, settings):
     if n < 4:
         raise BracketError('not_enough_participants', 'Swiss needs at least four.')
     players = list(ordered)
+    starts = mcmahon_starts([p.id for p in players], (settings or {}).get('mcmahon_bands'))
+    if starts:
+        # McMahon: round one pairs inside each band, like any later round.
+        pairs, bye = pair_swiss(players, {rid: (s, 0) for rid, s in starts.items()},
+                                set(), set(), method=(settings or {}).get('pairing') or 'monrad')
+        rounds_total = swiss_rounds_for(n, settings)
+        created = _swiss_round(tournament, stage, settings, 1, pairs, bye, rounds_total)
+        return {'rounds_count': rounds_total, 'matches_created': created,
+                'structure_summary': [{'round_number': 1, 'match_count': created}]}
     bye = None
     if n % 2:
         bye = players.pop()        # the lowest seed sits out round one
