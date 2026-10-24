@@ -295,6 +295,11 @@ def clean(format_key, raw):
     extra field should not lose the organiser's whole plan over it.
     """
     raw = raw if isinstance(raw, dict) else {}
+    if str(format_key or '') == 'undecided':
+        # A stage whose format is chosen later holds how it will be chosen
+        # (P4c), not match settings.
+        from . import format_later
+        return format_later.clean_rule(raw)
     fmt = formats.get(format_key)
     key = fmt.key if fmt else str(format_key or '')
     table = is_table(key)

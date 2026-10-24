@@ -142,6 +142,9 @@ urlpatterns = [
     path('<str:tournament_id>/stages/<int:stage_id>/advance/', views_stages.advance_stage, name='advance_stage'),
     path('<str:tournament_id>/stages/<int:stage_id>/advance/preview/', views_stages.advance_preview, name='advance_preview'),
     path('<str:tournament_id>/stages/<int:stage_id>/draw/', views_stages.draw_stage, name='draw_stage'),
+    path('<str:tournament_id>/stages/<int:stage_id>/format/', views_stages.stage_format, name='stage_format'),
+    path('<str:tournament_id>/stages/<int:stage_id>/format/vote/', views_stages.vote_format, name='stage_format_vote'),
+    path('<str:tournament_id>/stages/<int:stage_id>/format/settle/', views_stages.settle_format, name='stage_format_settle'),
     path('<str:tournament_id>/stages/<int:stage_id>/challenge/', views_stages.ladder_challenge, name='ladder_challenge'),
     path('<str:tournament_id>/stages/<int:stage_id>/lines/<int:line_id>/pull/', views_stages.pull_line, name='stage_line_pull'),
     # Editing a started tournament and the brackets inside it (inbox 450, 452).
