@@ -73,6 +73,9 @@ DELIBERATE = {
     'admin/': 'Django admin',
     # Called by Flutterwave's servers, never by a screen (29 September 2026).
     'flutterwave/webhook/': 'called by Flutterwave when a payment moves, signed with FLW_SECRET_HASH',
+    # Asked by the box before it requests a certificate for an organiser's
+    # own address (P8c, deploy/custom-domains.sh), never by a screen.
+    'sites/tls-ask/': 'asked by deploy/custom-domains.sh on the box before each certificate',
     # The screen does call it, but through a URL the API hands over in the
     # KYC payload (`kyc_document_url` builds it), so no fetch string in the
     # frontend names the path. An <img src> of an absolute URL from the server

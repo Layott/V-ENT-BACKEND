@@ -7521,6 +7521,110 @@
    }
   },
   {
+   "name": "B cannot list the custom addresses of A's tournament",
+   "route": "<str:kind>/<str:ref>/domains/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/sites/tournament/walk-cup-fee/domains/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "p8c-1"
+  },
+  {
+   "name": "B cannot add a custom address to A's tournament",
+   "route": "<str:kind>/<str:ref>/domains/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/sites/tournament/walk-cup-fee/domains/",
+    "expect": [
+     402,
+     403,
+     404
+    ],
+    "body": {
+     "hostname": "b-takeover.example.org"
+    }
+   },
+   "id": "p8c-2",
+   "expectNote": "A custom address is always looked up on the record the viewer manages, so another record's answers 403 before anything is read (P8c)."
+  },
+  {
+   "name": "B cannot check a custom address of A's tournament",
+   "route": "<str:kind>/<str:ref>/domains/<str:hostname>/check/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/sites/tournament/walk-cup-fee/domains/walk-organiser-site.org/check/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {}
+   },
+   "id": "p8c-3",
+   "expectNote": "A custom address is always looked up on the record the viewer manages, so another record's answers 403 before anything is read (P8c)."
+  },
+  {
+   "name": "B cannot remove a custom address of A's tournament",
+   "route": "<str:kind>/<str:ref>/domains/<str:hostname>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/sites/tournament/walk-cup-fee/domains/walk-organiser-site.org/",
+    "expect": [
+     403,
+     404
+    ]
+   },
+   "id": "p8c-4",
+   "expectNote": "A custom address is always looked up on the record the viewer manages, so another record's answers 403 before anything is read (P8c)."
+  },
+  {
+   "name": "GET sites/tls-ask/ as B",
+   "route": "tls-ask/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/sites/tls-ask/?domain=walk-organiser-site.org",
+    "expect": [
+     404
+    ]
+   },
+   "id": "p8c-5",
+   "r88": {
+    "publicRead": "the certificate tool asks this with no session; it answers only whether a name is an active custom address",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the answer is yes or no for a public DNS name, never a record"
+   }
+  },
+  {
+   "name": "GET sites/host/ as B",
+   "route": "host/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/sites/host/?host=walk-organiser-site.org",
+    "expect": [
+     404
+    ]
+   },
+   "id": "p8c-6",
+   "r88": {
+    "publicRead": "the frontend middleware asks this with no session; it returns the slug of a public record served on an active address",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record is public by being served on its own address"
+   }
+  },
+  {
    "name": "B cannot make a feed into A's tournament",
    "route": "tournament/<str:tournament_id>/feeds/",
    "attempt": {

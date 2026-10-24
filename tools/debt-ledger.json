@@ -564,6 +564,16 @@
     "first_seen": "2026-10-16",
     "since": "2026-10-16"
   },
+  "served h1": {
+    "count": 0,
+    "first_seen": "2026-10-24",
+    "since": "2026-10-24"
+  },
+  "served h1 self-test": {
+    "count": 0,
+    "first_seen": "2026-10-24",
+    "since": "2026-10-24"
+  },
   "server codes": {
     "count": 0,
     "first_seen": "2026-10-10",

@@ -64,6 +64,20 @@ def txt_records(name):
     return [b''.join(record.strings).decode('utf-8', 'replace') for record in answer]
 
 
+def cname_records(name):
+    """The CNAME targets at `name` (lowercase, no trailing dot), or [] when there is none."""
+    import dns.exception
+    import dns.resolver
+
+    try:
+        answer = dns.resolver.resolve(name, 'CNAME', lifetime=TIMEOUT)
+    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+        return []
+    except dns.exception.DNSException as exc:
+        raise Unreachable() from exc
+    return [str(record.target).rstrip('.').lower() for record in answer]
+
+
 def addresses(host):
     """Every address `host` resolves to."""
     try:

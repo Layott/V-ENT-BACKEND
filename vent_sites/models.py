@@ -78,6 +78,42 @@ class EmbedLock(models.Model):
         ]
 
 
+class CustomDomain(models.Model):
+    """A record served on the organiser's own address (P8c, level 3).
+
+    `hostname` is a name under a site the organiser proved by DNS (a meta tag
+    proves a page, not the right to point a name at V-ENT). It is active once
+    its CNAME answers with the V-ENT target; the certificate tool asks
+    /sites/tls-ask/ before issuing for it, and the frontend middleware asks
+    /sites/host/ to find the record behind it.
+    """
+    STATES = (('pending', 'Pending'), ('active', 'Active'), ('failed', 'Failed'))
+
+    site = models.ForeignKey(Site, on_delete=models.CASCADE, related_name='domains')
+    tournament = models.ForeignKey('vent_tournament.Tournament', on_delete=models.CASCADE,
+                                   null=True, blank=True, related_name='custom_domains')
+    event = models.ForeignKey('vent_event.Event', on_delete=models.CASCADE,
+                              null=True, blank=True, related_name='custom_domains')
+    #: Lowercase, IDNA encoded (hosts.normalize); one record per name, anywhere.
+    hostname = models.CharField(max_length=253, unique=True)
+    state = models.CharField(max_length=8, choices=STATES, default='pending')
+    checked_at = models.DateTimeField(null=True, blank=True)
+    #: Why the last check failed, as the code the screen translates.
+    last_code = models.CharField(max_length=40, blank=True, default='')
+    created_by = models.ForeignKey('vent_auth.Users', on_delete=models.SET_NULL,
+                                   null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['hostname']
+        constraints = [
+            models.CheckConstraint(check=_one_target(), name='vent_sites_domain_one_target'),
+        ]
+
+    def __str__(self):
+        return '%s (%s)' % (self.hostname, self.state)
+
+
 class EmbedView(models.Model):
     tournament = models.ForeignKey('vent_tournament.Tournament', on_delete=models.CASCADE,
                                    null=True, blank=True, related_name='embed_views')
