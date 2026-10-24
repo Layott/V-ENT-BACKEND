@@ -17,6 +17,7 @@ from vent_auth.decorators import resolve_admin
 
 from .models import BracketMatch, LeagueRules, TieFixture, Tournament
 from .services import league
+from .services.bracket import _seats_for as bracket_seats
 from vent_auth import inputs
 
 
@@ -134,6 +135,11 @@ def tie_detail(request, tie_id):
         'aggregate': {'participant_1': running_1, 'participant_2': running_2},
         'settled': {'participant_1': tie.score_p1, 'participant_2': tie.score_p2},
         'winner_registration_id': tie.winner_id,
+        # How the tie is decided (P3 W3c): 'goals', 'sub_wins' or 'crew', the
+        # players a side has, and whether the last game is the team's own.
+        'tie_rule': league.tie_rule(tie),
+        'seats': bracket_seats(tie.tournament),
+        'team_game': bool(tie.stage_id and (tie.stage.settings or {}).get('team_game')),
         'fixtures': [
             {
                 'slot': f.slot,

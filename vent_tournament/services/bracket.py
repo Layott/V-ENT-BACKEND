@@ -243,7 +243,7 @@ class BracketError(Exception):
 #: elimination silently, which is the fault this list exists to prevent.
 DRAWABLE = ('single_elimination', 'double_elimination', 'round_robin', 'league', 'ladder',
             'aggregate_2v2', 'swiss', 'gsl', 'bracket_groups', 'custom_bracket', 'stepladder',
-            'page_playoff', 'winner_stays_on', 'league_phase')
+            'page_playoff', 'winner_stays_on', 'league_phase', 'challenge_ladder')
 
 
 def generate(tournament, generated_by, seed_strategy='random', manual_order=None):
@@ -346,6 +346,10 @@ def _draw(tournament, stage, btype, ordered, settings, groups, lower=None, early
         return _generate_page_playoff(tournament, stage, ordered, settings)
     if btype == 'winner_stays_on':
         return _generate_winner_stays_on(tournament, stage, ordered, settings)
+    if btype == 'challenge_ladder':
+        # Nothing to draw: the places are the seed order, and every match
+        # is made by a challenge (ladder.py).
+        return {'rounds_count': 0, 'matches_created': 0, 'structure_summary': []}
     if btype == 'single_elimination' and (settings or {}).get('every_place'):
         return _generate_every_place(tournament, stage, ordered, settings, early=early)
     if btype == 'custom_bracket':
@@ -767,12 +771,23 @@ def _generate_round_robin(tournament, ordered, stage=None, settings=None, group=
         if seats > 1:
             left = _seat_players(a, seats)
             right = _seat_players(b, seats)
-            for slot in range(1, seats + 1):
-                TieFixture.objects.create(
-                    tie=fixture, slot=slot,
-                    player_1=left[slot - 1], player_2=right[slot - 1],
-                    status='scheduled',
-                )
+            rule = (settings or {}).get('tie_rule') or 'goals'
+            if rule == 'crew':
+                # A crew battle is as many games as it takes: at most every
+                # player but one on each side is knocked out. Who plays each
+                # game is whoever is still standing, so no seat is fixed.
+                for slot in range(1, 2 * seats):
+                    TieFixture.objects.create(tie=fixture, slot=slot, status='scheduled')
+            else:
+                for slot in range(1, seats + 1):
+                    TieFixture.objects.create(
+                        tie=fixture, slot=slot,
+                        player_1=left[slot - 1], player_2=right[slot - 1],
+                        status='scheduled',
+                    )
+                if (settings or {}).get('team_game'):
+                    # The game the whole side plays together, after the seats.
+                    TieFixture.objects.create(tie=fixture, slot=seats + 1, status='scheduled')
         matches_created += 1
 
     return {

@@ -314,6 +314,10 @@ def _shape_for(definition, drawn, n, seats, settings=None, groups=0):
         return _points_shape(n, seats)
     if definition.key == 'league_phase':
         return _league_phase_shape(n, seats, settings)
+    if definition.key == 'challenge_ladder':
+        # Nothing is drawn up front: each challenge is one match.
+        return {'kind': 'ladder', 'slots': n, 'byes': 0, 'rounds': 0, 'matches': 0,
+                'games': 0, 'games_on_the_floor': 0, 'sits_out_each_round': 0, 'legs': 1}
     if drawn == 'round_robin':
         # A League is home and away unless told once (inbox 440).
         legs = int(settings.get('legs') or (2 if definition.key == 'league' else 1))

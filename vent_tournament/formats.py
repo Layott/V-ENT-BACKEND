@@ -393,6 +393,28 @@ FORMATS = {
             'can come round again. Placed by wins, then the longest streak.'
         ),
     ),
+    # P3 W3d (research catalogue 5.1): a ladder of places, every match made
+    # by a challenge, the challenger taking the place on a win.
+    'challenge_ladder': Format(
+        key='challenge_ladder',
+        label='Challenge ladder',
+        summary=(
+            'Everybody holds a place. Challenge somebody a few places above, '
+            'win, and you swap places. Runs until the stage ends.'
+        ),
+        min_participants=3,
+        advancement='ladder',
+        scoring='match_win',
+        tiebreakers=(),
+        can_feed_into=('single_elimination', 'double_elimination', 'stepladder',
+                       'page_playoff'),
+        stage_only=True,
+        notes=(
+            'Drawn in seed order with no matches; each challenge is one match. '
+            'A pyramid is the same ladder in levels: challenge your own level '
+            'or the one above.'
+        ),
+    ),
     'aggregate_2v2': Format(
         key='aggregate_2v2',
         label='Aggregate tie',

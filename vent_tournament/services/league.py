@@ -30,13 +30,32 @@ from ..models import BracketMatch, LeagueRules, TieFixture
 # One tie
 # ---------------------------------------------------------------------------
 
+def tie_rule(tie):
+    """How this tie is decided: 'goals', 'sub_wins' or 'crew' (P3 W3c). The
+    stage's setting; a tie with no stage is the aggregate it always was."""
+    from ..stage_settings import TIE_RULES
+
+    stage = tie.stage if tie.stage_id else None
+    rule = ((stage.settings or {}).get('tie_rule') if stage else None) or 'goals'
+    return rule if rule in TIE_RULES else 'goals'
+
+
+def _games_won(fixtures):
+    one = sum(1 for f in fixtures if f.goals_1 > f.goals_2)
+    two = sum(1 for f in fixtures if f.goals_2 > f.goals_1)
+    return one, two
+
+
 def aggregate(tie):
-    """(goals for participant 1, goals for participant 2) across the tie.
+    """(participant 1, participant 2) across the tie: goals on the aggregate
+    rule, games won on the other two.
 
     Only completed fixtures count. A tie half played has a running aggregate,
     which is what a live table should show, but `settle` will not close it.
     """
-    totals = TieFixture.objects.filter(tie=tie, status='completed')
+    totals = list(TieFixture.objects.filter(tie=tie, status='completed'))
+    if tie_rule(tie) != 'goals':
+        return _games_won(totals)
     one = sum(f.goals_1 for f in totals)
     two = sum(f.goals_2 for f in totals)
     return one, two
@@ -50,6 +69,8 @@ def settle(tie):
     and that is their business rather than this function's.
     """
     fixtures = list(TieFixture.objects.filter(tie=tie))
+    if tie_rule(tie) == 'crew':
+        return _settle_crew(tie, fixtures)
     if not fixtures or any(f.status != 'completed' for f in fixtures):
         return None
 
@@ -64,6 +85,49 @@ def settle(tie):
     else:
         tie.winner = None
 
+    tie.status = 'completed'
+    tie.save(update_fields=['score_p1', 'score_p2', 'winner', 'status'])
+    return tie.winner
+
+
+def _settle_crew(tie, fixtures):
+    """A crew battle: the loser of each game is out, and the first crew to
+    knock out every opponent wins (start.gg's crew battle, research 7.1).
+
+    Decided as soon as one crew has won as many games as the other has
+    players, so the games left over are dropped. A corrected score that
+    undoes the decision reopens the tie and puts those games back.
+    """
+    from .bracket import _seats_for
+
+    crew = _seats_for(tie.tournament)
+    one = two = 0
+    decided_at = None
+    for f in sorted(fixtures, key=lambda f: f.slot):
+        if f.status != 'completed':
+            break
+        if f.goals_1 > f.goals_2:
+            one += 1
+        elif f.goals_2 > f.goals_1:
+            two += 1
+        if one >= crew or two >= crew:
+            decided_at = f.slot
+            break
+
+    if decided_at is None:
+        have = {f.slot for f in fixtures}
+        for slot in range(1, 2 * crew):
+            if slot not in have:
+                TieFixture.objects.create(tie=tie, slot=slot, status='scheduled')
+        if tie.status == 'completed':
+            tie.winner = None
+            tie.status = 'in_progress'
+            tie.save(update_fields=['winner', 'status'])
+        return None
+
+    TieFixture.objects.filter(tie=tie, slot__gt=decided_at, status='scheduled').delete()
+    tie.score_p1, tie.score_p2 = one, two
+    tie.winner = tie.participant_1 if one > two else tie.participant_2
     tie.status = 'completed'
     tie.save(update_fields=['score_p1', 'score_p2', 'winner', 'status'])
     return tie.winner

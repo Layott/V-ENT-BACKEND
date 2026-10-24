@@ -8462,6 +8462,25 @@
     ],
     "reason": "the record named first is public, so whether it exists is no secret"
    }
+  },
+  {
+   "name": "POST tournament/<str:tournament_id>/stages/<int:stage_id>/challenge/ as B",
+   "route": "tournament/<str:tournament_id>/stages/<int:stage_id>/challenge/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/stages/{id}/challenge/",
+    "body": {
+     "target_registration_id": 1
+    }
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
   }
  ]
 }
