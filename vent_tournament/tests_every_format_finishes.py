@@ -22,6 +22,8 @@ from .tests_stage_engine import add_stage, draw, field, play_out
 #   battle_royale  lobbies scored on placement points and kills, not head to head
 #   aggregate_2v2  per-player fixtures decided on total goals across a tie
 #   ladder         a points table played over weeks, with no bracket to finish
+#   challenge_ladder  every match made by a challenge, open until the stage ends
+#                  (tests_p3_challenge_ladder)
 # Sizes with byes are in on purpose (6 and 12 in a knockout, odd counts where
 # the format takes them): a bye with nobody in it is a dead match, and a dead
 # match that never told the match it feeds is how a compass draw of 12 stalled.

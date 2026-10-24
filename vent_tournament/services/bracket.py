@@ -187,7 +187,7 @@ class BracketError(Exception):
 #: elimination silently, which is the fault this list exists to prevent.
 DRAWABLE = ('single_elimination', 'double_elimination', 'round_robin', 'league', 'ladder',
             'aggregate_2v2', 'swiss', 'gsl', 'bracket_groups', 'custom_bracket', 'stepladder',
-            'page_playoff', 'winner_stays_on', 'league_phase')
+            'page_playoff', 'winner_stays_on', 'league_phase', 'challenge_ladder')
 
 
 def generate(tournament, generated_by, seed_strategy='random', manual_order=None):
@@ -290,6 +290,10 @@ def _draw(tournament, stage, btype, ordered, settings, groups, lower=None, early
         return _generate_page_playoff(tournament, stage, ordered, settings)
     if btype == 'winner_stays_on':
         return _generate_winner_stays_on(tournament, stage, ordered, settings)
+    if btype == 'challenge_ladder':
+        # Nothing to draw: the places are the seed order, and every match
+        # is made by a challenge (ladder.py).
+        return {'rounds_count': 0, 'matches_created': 0, 'structure_summary': []}
     if btype == 'single_elimination' and (settings or {}).get('every_place'):
         return _generate_every_place(tournament, stage, ordered, settings, early=early)
     if btype == 'custom_bracket':

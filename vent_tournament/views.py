@@ -21,7 +21,7 @@ from rest_framework.permissions import AllowAny
 from django.db import transaction as db_transaction
 from .money import CURRENCIES, from_coins, rates, to_coins
 from . import options as tournament_options
-from . import match_shape
+from . import ladder, match_shape
 from . import tournament_input as tin
 from django.contrib.contenttypes.models import ContentType
 from vent_auth import org_link
@@ -2915,6 +2915,9 @@ def get_tournament_brackets(request, tournament_id):
                 'rounds': match_shape.rounds_of(matches, private_for=private_for),
                 'standings': (stage_engine.standings(chosen) if chosen
                               else stage_engine.tournament_standings(tournament)),
+                # A challenge ladder (P3 W3d): who the viewer may challenge.
+                'ladder': (ladder.view(chosen, viewer)
+                           if chosen and chosen.format == 'challenge_ladder' else None),
                 # What the viewer may do here, so the page draws one set of
                 # controls for everybody: the entries they play for (their
                 # own matches open the match room), and whether they record

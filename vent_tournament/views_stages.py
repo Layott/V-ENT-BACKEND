@@ -482,3 +482,50 @@ def advance_stage(request, tournament_id, stage_id):
         'lines': result['lines'],
         'waiting': result['waiting'],
     }, 'Advanced.')
+
+
+@api_view(['POST'])
+def ladder_challenge(request, tournament_id, stage_id):
+    """POST /tournament/<ref>/stages/<sid>/challenge/ - challenge the entrant
+    `target_registration_id` on a challenge ladder (P3 W3d).
+
+    The challenger is the entry the signed-in person acts for in this stage.
+    Somebody running the tournament may make a challenge for any entrant by
+    sending `challenger_registration_id` as well.
+    """
+    from . import ladder
+
+    tournament, err = _find(tournament_id)
+    if err:
+        return err
+    user, err = actor_from_request(request)
+    if err:
+        return err
+    stage, err = _stage(tournament, stage_id)
+    if err:
+        return err
+    target_id = inputs.read_int(request.data, 'target_registration_id')
+    if not target_id:
+        return _err('Say who you are challenging.', 'VALIDATION_FAILED', field='target_registration_id')
+    entries = {r.id: r for r in TournamentRegistration.objects.filter(id__in=stage.entrants or [])}
+    sent = inputs.read_int(request.data, 'challenger_registration_id')
+    if sent and may(user, tournament, 'place'):
+        challenger = entries.get(sent)
+    else:
+        challenger = next((r for r in entries.values() if r.acting_user == user), None)
+    if challenger is None:
+        return _err('You hold no place on this ladder.', 'NOT_IN_THIS_LADDER',
+                    status.HTTP_403_FORBIDDEN)
+    target = entries.get(target_id)
+    if target is None:
+        return _err('That entrant holds no place on this ladder.', 'NOT_IN_THIS_LADDER',
+                    status.HTTP_404_NOT_FOUND, field='target_registration_id')
+    try:
+        with transaction.atomic():
+            match = ladder.challenge(stage, challenger, target)
+    except ladder.LadderError as exc:
+        return _err('That challenge cannot be made now.', exc.code, status.HTTP_409_CONFLICT,
+                    field=exc.field)
+    return _ok({'match_id': match.id, 'round_number': match.round_number,
+                'standings': ladder.standings(stage)},
+               'Challenge made.', status.HTTP_201_CREATED)

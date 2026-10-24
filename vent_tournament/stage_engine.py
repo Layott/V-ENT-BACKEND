@@ -862,6 +862,9 @@ def standings(stage):
         return br_engine.standings(stage)
     if key == 'winner_stays_on':
         return _streak_standings(stage)
+    if key == 'challenge_ladder':
+        from . import ladder
+        return ladder.standings(stage)
     if key == 'swiss':
         return _swiss_standings(stage)
     if key == 'gsl' and not stage.matches.filter(bracket_side='losers').exists():
@@ -882,6 +885,9 @@ def stage_finished(stage):
     if stage.format == 'battle_royale':
         from . import br_engine
         return br_engine.finished(stage)
+    if stage.format == 'challenge_ladder':
+        from . import ladder
+        return ladder.finished(stage)
     if stage.matches.exclude(status__in=TERMINAL).exists():
         return False
     if stage.format == 'swiss':
@@ -1177,6 +1183,9 @@ def on_match_resolved(match):
         return
     if stage.format == 'swiss':
         next_swiss_round(stage)
+    elif stage.format == 'challenge_ladder':
+        from . import ladder
+        ladder.on_resolved(match)
     elif stage.format == 'winner_stays_on':
         _next_challenge(stage.tournament, stage)
     elif (stage.settings or {}).get('reseed'):
