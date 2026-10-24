@@ -914,6 +914,18 @@ def _swiss_candidates(first, rest, record, method):
     return sorted(rest, key=lambda p: (closeness(p), rest.index(p)))
 
 
+def mcmahon_starts(ids, bands):
+    """{id: starting score} for a McMahon Swiss: `ids` in seed order split
+    into `bands` as even as they go, the top band on 0, the next on -1.
+    Empty when `bands` is 0 or 1, which is an ordinary Swiss."""
+    ids = list(ids)
+    bands = int(bands or 0)
+    if bands < 2 or not ids:
+        return {}
+    bands = min(bands, len(ids))
+    return {rid: -(i * bands // len(ids)) for i, rid in enumerate(ids)}
+
+
 def pair_swiss(players, record, played, had_bye, method='monrad'):
     """Pair one Swiss round.
 
@@ -1000,6 +1012,15 @@ def _generate_swiss_first_round(tournament, stage, ordered, settings):
     if n < 4:
         raise BracketError('not_enough_participants', 'Swiss needs at least four.')
     players = list(ordered)
+    starts = mcmahon_starts([p.id for p in players], (settings or {}).get('mcmahon_bands'))
+    if starts:
+        # McMahon: round one pairs inside each band, like any later round.
+        pairs, bye = pair_swiss(players, {rid: (s, 0) for rid, s in starts.items()},
+                                set(), set(), method=(settings or {}).get('pairing') or 'monrad')
+        rounds_total = swiss_rounds_for(n, settings)
+        created = _swiss_round(tournament, stage, settings, 1, pairs, bye, rounds_total)
+        return {'rounds_count': rounds_total, 'matches_created': created,
+                'structure_summary': [{'round_number': 1, 'match_count': created}]}
     bye = None
     if n % 2:
         bye = players.pop()        # the lowest seed sits out round one
