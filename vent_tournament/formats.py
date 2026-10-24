@@ -200,6 +200,26 @@ FORMATS = {
             'half that.'
         ),
     ),
+    'league_phase': Format(
+        key='league_phase',
+        label='League phase',
+        summary=(
+            'Everybody is dealt into pots by seed and plays a few opponents from '
+            'every pot, about half at home. One table ranks the whole field.'
+        ),
+        min_participants=8,
+        advancement='table',
+        scoring='points_3_1_0',
+        tiebreakers=('goal_difference', 'goals_for', 'wins'),
+        can_feed_into=('single_elimination', 'double_elimination', 'stepladder',
+                       'page_playoff'),
+        stage_only=True,
+        notes=(
+            'The field must divide into the pots: 36 in 4 pots of 9, two '
+            'opponents from each, is 8 matches each and 144 in all. Nobody meets '
+            'anybody twice.'
+        ),
+    ),
     'swiss': Format(
         key='swiss',
         label='Swiss',

@@ -31,6 +31,8 @@ BRACKET_FORMATS = (
     ('round_robin', (4, 5, 8), 0),
     ('league', (4, 5, 8), 0),
     ('swiss', (4, 5, 8), 0),
+    # P3 W3a: four pots of four, two opponents from each.
+    ('league_phase', (16,), 0),
     ('gsl', (8, 16), 0),
     # Groups of four, so 8 is two groups and 16 is four.
     ('bracket_groups', (8, 16), 'groups_of_four'),

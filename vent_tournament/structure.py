@@ -255,6 +255,25 @@ def _groups_shape(n, seats, groups):
     }
 
 
+def _league_phase_shape(n, seats, settings):
+    """A league phase (P3 W3a): everybody plays pots x per_pot others once,
+    so the field plays n x that / 2 matches; one more round than each plays,
+    because the rounds are filled greedily."""
+    each = int(settings.get('pots') or 4) * int(settings.get('per_pot') or 2)
+    fixtures = n * each // 2
+    return {
+        'kind': 'table',
+        'slots': n,
+        'byes': 0,
+        'rounds': each + 1,
+        'matches': fixtures,
+        'games': fixtures,
+        'games_on_the_floor': fixtures * seats,
+        'sits_out_each_round': 0,
+        'legs': 1,
+    }
+
+
 def _table_shape(n, seats):
     fixtures = n * (n - 1) // 2
     return {
@@ -293,6 +312,8 @@ def _shape_for(definition, drawn, n, seats, settings=None, groups=0):
     settings = settings or {}
     if definition.plays_all_at_once:
         return _points_shape(n, seats)
+    if definition.key == 'league_phase':
+        return _league_phase_shape(n, seats, settings)
     if drawn == 'round_robin':
         # A League is home and away unless told once (inbox 440).
         legs = int(settings.get('legs') or (2 if definition.key == 'league' else 1))

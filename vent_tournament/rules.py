@@ -56,6 +56,13 @@ PRESETS = {
         'tiebreakers': ['goal_difference', 'goals_for', 'head_to_head', 'wins'],
         'double_round': True,
     },
+    # P3 W3a: one table for the whole field, played once, broken on goal
+    # difference as the league is.
+    'league_phase': {
+        'points': {'win': 3, 'draw': 1, 'loss': 0},
+        'tiebreakers': ['goal_difference', 'goals_for', 'wins'],
+        'double_round': False,
+    },
     'swiss': {
         'points': {'win': 1, 'draw': 0, 'loss': 0},
         'tiebreakers': ['buchholz', 'head_to_head', 'rounds_difference'],
