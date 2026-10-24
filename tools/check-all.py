@@ -519,6 +519,12 @@ CATCHERS = [
     ('games shape self-test',
      'the games shape catcher still catches the data.data fault',
      FRONTEND, ['node', 'scripts/check-games-shape.mjs', '--self-test'], True),
+    ('served h1',
+     'a public record page serves its h1 and words, not an empty fallback (517)',
+     FRONTEND, ['node', 'scripts/check-served-h1.mjs'], True),
+    ('served h1 self-test',
+     'the served h1 catcher still catches the empty fallback',
+     FRONTEND, ['node', 'scripts/check-served-h1.mjs', '--self-test'], True),
 
     ('stale coming soon',
      'no coming-soon copy in front of something that is built',
