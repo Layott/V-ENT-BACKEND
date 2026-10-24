@@ -11,6 +11,8 @@ Labels are left to the screen, which names each stage in the organiser's
 language from `kind` and `round`: a sentence built here could not be
 translated.
 """
+import math
+
 from . import br_engine, stage_settings
 
 
@@ -133,7 +135,45 @@ def split_league(entrants, legs, top, game_title=None):
     return {'stages': out_stages, 'lines': lines, 'rounds': rounds}
 
 
-PRESETS = {'ffa_bracket': ffa_bracket, 'split_league': split_league}
+def swiss_top_cut(entrants, rounds, cut, game_title=None):
+    """A Swiss with a top cut: everybody plays a fixed number of Swiss rounds,
+    then the top `cut` places play a single elimination bracket. Card games
+    (Magic, Pokemon, Yu-Gi-Oh) run it this way.
+
+    The Swiss has no early exit: a player is not sent out after a set number
+    of losses, and nobody is sent through before the last round, so every
+    entrant plays `rounds` rounds. `rounds` defaults to the fewest rounds that
+    can separate the field down to one winner. `cut` is 4, 8, 16 or 32 and
+    must be smaller than the field. Returns {stages, lines, rounds} in the
+    shape `split_league` returns them. `game_title` is taken so every preset
+    is called the same way; a Swiss has no game settings.
+    """
+    entrants = _whole(entrants, 'entrants', 8, 5000)
+    cut = _whole(cut, 'cut', 4, 32, 8)
+    if cut not in (4, 8, 16, 32) or cut >= entrants:
+        raise PresetError('OUT_OF_RANGE', 'cut')
+    rounds = _whole(rounds, 'rounds', 3, 15, math.ceil(math.log2(entrants)))
+    # The Swiss sends the top `cut` up and nobody else, the bracket plays them.
+    out_stages = [
+        {'format': 'swiss', 'kind': 'round', 'round': 1, 'advances': cut,
+         'groups': 0, 'settings': {'rounds': rounds},
+         # Card games break a tie on opponents' match win percentage, then
+         # their opponents' (research catalogue 4.5).
+         'rules': {'tiebreakers': ['opponents_win_pct', 'opp_opp_win_pct']}},
+        {'format': 'single_elimination', 'kind': 'top', 'round': 2, 'advances': 0,
+         'groups': 0, 'settings': {}},
+    ]
+    lines = [
+        {'source': 0, 'target': 1, 'group': None, 'place_from': 1, 'place_to': cut,
+         'side': 'any', 'carry_points': False, 'fire': 'after_preview', 'order': 0},
+    ]
+    rounds_out = [{'entrants': entrants}, {'entrants': cut}]
+    return {'stages': out_stages, 'lines': lines, 'rounds': rounds_out}
+
+
+PRESETS = {'ffa_bracket': ffa_bracket, 'split_league': split_league,
+           'swiss_top_cut': swiss_top_cut}
 # The query parameters each preset reads, in the order its function takes them.
 PARAMS = {'ffa_bracket': ('entrants', 'lobby_size', 'through', 'maps', 'final_maps'),
-          'split_league': ('entrants', 'legs', 'top')}
+          'split_league': ('entrants', 'legs', 'top'),
+          'swiss_top_cut': ('entrants', 'rounds', 'cut')}
