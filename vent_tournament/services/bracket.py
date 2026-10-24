@@ -711,12 +711,23 @@ def _generate_round_robin(tournament, ordered, stage=None, settings=None, group=
         if seats > 1:
             left = _seat_players(a, seats)
             right = _seat_players(b, seats)
-            for slot in range(1, seats + 1):
-                TieFixture.objects.create(
-                    tie=fixture, slot=slot,
-                    player_1=left[slot - 1], player_2=right[slot - 1],
-                    status='scheduled',
-                )
+            rule = (settings or {}).get('tie_rule') or 'goals'
+            if rule == 'crew':
+                # A crew battle is as many games as it takes: at most every
+                # player but one on each side is knocked out. Who plays each
+                # game is whoever is still standing, so no seat is fixed.
+                for slot in range(1, 2 * seats):
+                    TieFixture.objects.create(tie=fixture, slot=slot, status='scheduled')
+            else:
+                for slot in range(1, seats + 1):
+                    TieFixture.objects.create(
+                        tie=fixture, slot=slot,
+                        player_1=left[slot - 1], player_2=right[slot - 1],
+                        status='scheduled',
+                    )
+                if (settings or {}).get('team_game'):
+                    # The game the whole side plays together, after the seats.
+                    TieFixture.objects.create(tie=fixture, slot=seats + 1, status='scheduled')
         matches_created += 1
 
     return {

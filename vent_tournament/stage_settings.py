@@ -41,6 +41,11 @@ class SettingsError(ValueError):
 GRAND_FINALS = ('single', 'reset', 'none')
 DRAW_RULES = ('allowed', 'penalties', 'winner_named')
 PAIRINGS = ('circle', 'berger')
+# How a team tie of player games is decided (P3 W3c): total goals across the
+# games (the EA FC 2v2 league), most games won (Dominant Duo), or a crew
+# battle, where the loser of each game is out and the first crew to knock
+# out every opponent wins.
+TIE_RULES = ('goals', 'sub_wins', 'crew')
 SWISS_PAIRINGS = ('monrad', 'dutch', 'valve')
 BEST_OF_RANGE = (1, 9)
 
@@ -338,6 +343,13 @@ def clean(format_key, raw):
         out['pairing'] = str(raw.get('pairing') or 'circle').strip().lower()
         if out['pairing'] not in PAIRINGS:
             raise SettingsError('UNKNOWN_CHOICE', 'pairing')
+    if key == 'aggregate_2v2':
+        out['tie_rule'] = str(raw.get('tie_rule') or 'goals').strip().lower()
+        if out['tie_rule'] not in TIE_RULES:
+            raise SettingsError('UNKNOWN_CHOICE', 'tie_rule')
+        # One more game the whole team plays together, the doubles match of
+        # Dominant Duo. Not part of a crew battle, which is player by player.
+        out['team_game'] = _bool(raw.get('team_game'), False) and out['tie_rule'] != 'crew'
     if key == 'league_phase':
         # The pots the field is dealt into by seed, and how many opponents
         # everybody meets from each (P3 W3a). Played once, never home and away.
