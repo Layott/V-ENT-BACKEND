@@ -43,7 +43,8 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from . import attendance
@@ -132,6 +133,14 @@ def ticket_lookup(request, code):
     user, auth_error = _authenticate(request)
     if auth_error:
         return auth_error
+
+    from . import ticket_seal
+    try:
+        code = ticket_seal.read(code)
+    except ticket_seal.SealError:
+        # A sealed code whose seal is not V-ENT's: forged or altered (525).
+        return _error('This code was not issued by V-ENT.', 'TICKET_TAMPERED',
+                      status.HTTP_400_BAD_REQUEST)
 
     ticket = (Ticket.objects
               .select_related('event', 'tier', 'user', 'checked_in_by')
@@ -287,6 +296,14 @@ def undo_check_in(request, code):
     user, auth_error = _authenticate(request)
     if auth_error:
         return auth_error
+
+    from . import ticket_seal
+    try:
+        code = ticket_seal.read(code)
+    except ticket_seal.SealError:
+        # A sealed code whose seal is not V-ENT's: forged or altered (525).
+        return _error('This code was not issued by V-ENT.', 'TICKET_TAMPERED',
+                      status.HTTP_400_BAD_REQUEST)
 
     ticket = (Ticket.objects
               .select_related('event', 'tier', 'user', 'checked_in_by')
@@ -489,3 +506,14 @@ def door_lookups(request, event_id):
         },
         'Door lookups.',
     )
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def seal_key(request):
+    """GET /event/door/seal-key/ - the public key a door phone keeps to check a
+    ticket's seal with no signal (525). Public: it can only verify. `key` is
+    null when sealing is off on this server."""
+    from . import ticket_seal
+    return Response({'status': 'success', 'message': 'Seal key',
+                     'data': {'key': ticket_seal.public_jwk(), 'prefix': ticket_seal.PREFIX}})

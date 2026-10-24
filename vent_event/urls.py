@@ -123,6 +123,7 @@ urlpatterns = [
     path("my-tickets/", my_tickets, name="my_tickets"),
     path("my-events/", my_events, name="my_events"),
     path("ticket/<str:code>/check-in/", check_in_ticket, name="check_in_ticket"),
+    path("door/seal-key/", views_door.seal_key, name="door_seal_key"),
     # Admitting yourself, where the organiser allows it. No Bearer token
     # required: a guest has no account, and the code plus the address it was
     # sent to is what stands in for a steward.

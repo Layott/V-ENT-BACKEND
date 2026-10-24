@@ -19,7 +19,7 @@ from rest_framework import status
 
 from vent_auth import wallets
 from vent_auth.models import Users, UserWallet, Transaction
-from . import checkout
+from . import checkout, ticket_seal
 from .models import Event, TicketTier, Ticket
 from vent_auth.text import count as _count
 from vent_auth import coins
@@ -210,6 +210,8 @@ def serialize_ticket(ticket):
     return {
         'id': ticket.id,
         'code': ticket.code,
+        # What the QR carries: the code and V-ENT's seal over it (525).
+        'qr': ticket_seal.seal(ticket.code),
         'status': ticket.status,
         'checked_in_gate': ticket.checked_in_gate,
         'price_vc': ticket.price_vc,
@@ -813,6 +815,13 @@ def check_in_ticket(request, code):
     user, auth_error = _authenticate(request)
     if auth_error:
         return auth_error
+
+    try:
+        code = ticket_seal.read(code)
+    except ticket_seal.SealError:
+        # A sealed code whose seal is not V-ENT's: forged or altered (525).
+        return _error('This code was not issued by V-ENT.', 'TICKET_TAMPERED',
+                      status.HTTP_400_BAD_REQUEST)
 
     ticket = Ticket.objects.select_related('event', 'tier', 'user').filter(code=code.upper()).first()
     if ticket is None:
