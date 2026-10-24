@@ -1652,6 +1652,58 @@
   },
   {
    "generated": true,
+   "name": "GET tournament/<str:tournament_id>/stages/<int:stage_id>/format/ as B",
+   "route": "tournament/<str:tournament_id>/stages/<int:stage_id>/format/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/walk-cup-fee/stages/{id}/format/"
+   },
+   "id": "1",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/stages/<int:stage_id>/format/vote/ as B",
+   "route": "tournament/<str:tournament_id>/stages/<int:stage_id>/format/vote/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/stages/{id}/format/vote/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST tournament/<str:tournament_id>/stages/<int:stage_id>/format/settle/ as B",
+   "route": "tournament/<str:tournament_id>/stages/<int:stage_id>/format/settle/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-fee/stages/{id}/format/settle/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
    "name": "GET tournament/<str:tournament_id>/br/ as B",
    "route": "tournament/<str:tournament_id>/br/",
    "attempt": {

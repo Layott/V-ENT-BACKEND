@@ -775,6 +775,16 @@ def save_plan(tournament, raw_stages, user, participants=None, raw_lines=None):
     cleaned = _checked_plan(merged, participants=participants if not drawn else None,
                             lines=raw_lines is not None)
 
+    # A stage left to be decided (P4c): everything it could become must fit the
+    # size limits the tournament already states.
+    from . import format_later
+    for index, row in enumerate(cleaned):
+        if row['format'] == format_later.UNDECIDED:
+            try:
+                format_later.check_fit(tournament, row['settings'])
+            except format_later.FormatLaterError as exc:
+                raise EditError(exc.code, 'settings.%s' % exc.field, stage_index=index, **exc.detail)
+
     # The lines between the stages (P1b). None is the old planner, which only
     # ever meant the chain its order and advances describe.
     from . import progressions

@@ -1185,6 +1185,7 @@ class BracketEdit(models.Model):
         ('reopen_group', 'Group reopened'),
         ('drop_round', 'Swiss round deleted'),
         ('regen_round', 'Swiss round paired again'),
+        ('decided', 'Format settled'),
     )
 
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE,
@@ -1364,6 +1365,10 @@ class TournamentStage(models.Model):
     # Entrants who skip earlier stages and start here: an invited side, last
     # year's champion. Registration ids.
     direct_entrants = models.JSONField(default=list, blank=True)
+    # How a stage saved with its format undecided was settled (P4c): by vote,
+    # bands or the organiser, with the counts that decided it. Empty until then.
+    # While undecided, `settings` holds the rule itself (format_later.py).
+    format_decision = models.JSONField(default=dict, blank=True)
     # Who actually entered this stage and in what seed order, frozen when it
     # was drawn, so the draw can be explained after the fact.
     entrants = models.JSONField(default=list, blank=True)
@@ -1392,6 +1397,29 @@ class TournamentStage(models.Model):
 
     def __str__(self):
         return '%s: %s' % (self.tournament_id, self.label)
+
+
+class TournamentFormatVote(models.Model):
+    """One entrant's vote on the format of a stage saved undecided (P4c).
+
+    One row per voter, because a vote that can be changed until registration
+    closes needs to be found again and replaced, and a counter could not say who
+    had already voted. The voter is the registration, not the person: a club
+    votes once, through whoever acts for it.
+    """
+
+    stage = models.ForeignKey(TournamentStage, on_delete=models.CASCADE,
+                              related_name='format_votes')
+    registration = models.ForeignKey('TournamentRegistration', on_delete=models.CASCADE,
+                                     related_name='format_votes')
+    choice = models.CharField(max_length=40)
+    voted_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('stage', 'registration')
+
+    def __str__(self):
+        return '%s voted %s' % (self.registration_id, self.choice)
 
 
 class Progression(models.Model):

@@ -25,7 +25,7 @@ organiser presses it when the last match is in. Nothing here watches for a stage
 to complete and moves on by itself, because a bracket that reseeds while a
 dispute is open is far worse than one that waits.
 """
-from . import formats, ranking, stage_settings
+from . import format_later, formats, ranking, stage_settings
 
 
 class StageError(ValueError):
@@ -72,11 +72,15 @@ def clean(raw):
         raise StageError('A stage is a set of named settings.', code='STAGE_NOT_AN_OBJECT')
 
     key = str(raw.get('format') or '').strip()
-    fmt = formats.get(key)
-    if fmt is None:
+    # A stage may be saved with its format still to be decided (P4c). That is
+    # a state of the stage, not a format, so there is no catalogue entry.
+    undecided = key.lower() == format_later.UNDECIDED
+    fmt = None if undecided else formats.get(key)
+    if fmt is None and not undecided:
         raise StageError('There is no format called %r.' % key, 'format', code='STAGE_FORMAT_UNKNOWN')
+    fmt_key = format_later.UNDECIDED if undecided else fmt.key
 
-    label = str(raw.get('label') or fmt.label).strip()[:60]
+    label = str(raw.get('label') or (fmt.label if fmt else format_later.DEFAULT_LABEL)).strip()[:60]
 
     advances = raw.get('advances')
     if advances in ('', None):
@@ -111,7 +115,7 @@ def clean(raw):
     # module that owns the shape; its codes travel up as the message so the
     # screen can translate them.
     try:
-        settings = stage_settings.clean(fmt.key, raw.get('settings'))
+        settings = stage_settings.clean(fmt_key, raw.get('settings'))
     except stage_settings.SettingsError as exc:
         # With its code, so the screen translates it, and with where in a
         # written schema it is ({'match': 'C'}, {'line': 3}) for it to say.
@@ -120,7 +124,7 @@ def clean(raw):
 
     # The stage's own scoring, checked by the module that ranks with it.
     try:
-        rules = ranking.clean_rules(fmt.key, raw.get('rules'))
+        rules = None if undecided else ranking.clean_rules(fmt.key, raw.get('rules'))
     except ranking.RulesError as exc:
         raise StageError('That scoring cannot be saved.', 'rules.%s' % exc.field, code=exc.code)
 
@@ -137,7 +141,7 @@ def clean(raw):
         raise StageError('NOT_A_NUMBER', 'direct_entrants')
 
     return {
-        'format': fmt.key,
+        'format': fmt_key,
         'label': label,
         'advances': advances,
         'groups': groups,
@@ -154,6 +158,33 @@ def clean(raw):
         'placement': placement,
         'direct_entrants': direct,
     }
+
+
+def _could_become(stage):
+    """The formats an undecided stage may end as, or the one it is."""
+    if stage['format'] != format_later.UNDECIDED:
+        return [stage['format']]
+    rule = stage['settings']
+    return list(rule.get('options') or []) + [b['format'] for b in rule.get('bands') or []]
+
+
+def _undecided_neighbours(stage, nxt, index):
+    """Every format `stage` could become must be able to feed every format `nxt`
+    could become."""
+    followers = _could_become(nxt)
+    for key in _could_become(stage):
+        fmt = formats.get(key)
+        feeds = stage_settings.feeds_into(key, stage['settings'] if stage['format'] == key
+                                          else stage_settings.clean(key, {}))
+        if not feeds:
+            raise StageError(
+                '%s decides a tournament on its own, so nothing can follow it.' % fmt.label,
+                'format', index, code='FORMAT_FEEDS_NOTHING', stage=stage['label'])
+        for follower in followers:
+            if follower not in feeds:
+                raise StageError(
+                    '%s cannot feed into %s.' % (fmt.label, formats.get(follower).label),
+                    'format', index + 1, code='FORMAT_CANNOT_FOLLOW', previous=stage['label'])
 
 
 def plan(raw_stages, *, participants=None, lines=False):
@@ -181,7 +212,7 @@ def plan(raw_stages, *, participants=None, lines=False):
             raise
 
     for index, stage in enumerate(cleaned if not lines else []):
-        fmt = formats.get(stage['format'])
+        fmt = formats.get(stage['format'])      # None while the format is undecided
         last = index == len(cleaned) - 1
 
         if last:
@@ -200,10 +231,10 @@ def plan(raw_stages, *, participants=None, lines=False):
                 'Say how many come out of "%s" and into the next stage.'
                 % stage['label'], 'advances', index, code='ADVANCES_REQUIRED',
                 stage=stage['label'])
-        if fmt.key == 'gsl' and stage['advances'] != 2:
+        if fmt is not None and fmt.key == 'gsl' and stage['advances'] != 2:
             # Two leave every GSL group; the format fixes it.
             raise StageError('GSL_SENDS_TWO_PER_GROUP', 'advances', index)
-        if fmt.key == 'bracket_groups' and stage['advances'] > max(
+        if fmt is not None and fmt.key == 'bracket_groups' and stage['advances'] > max(
                 stage_settings.threshold_of(stage['settings']), 1):
             # A group's places below the ones that go through are shared, so
             # it can send at most the number its bracket stops at (P3 W1).
@@ -211,19 +242,24 @@ def plan(raw_stages, *, participants=None, lines=False):
                              code='BRACKET_GROUPS_SEND_QUALIFIERS')
 
         nxt = cleaned[index + 1]
-        feeds = stage_settings.feeds_into(fmt.key, stage['settings'])
-        if feeds and nxt['format'] not in feeds:
-            allowed = ', '.join(formats.get(k).label for k in feeds if formats.get(k))
-            raise StageError(
-                '%s cannot feed into %s. It can feed into: %s.'
-                % (fmt.label, formats.get(nxt['format']).label, allowed),
-                'format', index + 1, code='FORMAT_CANNOT_FOLLOW',
-                previous=stage['label'])
-        if not feeds:
-            raise StageError(
-                '%s decides a tournament on its own, so nothing can follow it.'
-                % fmt.label, 'format', index, code='FORMAT_FEEDS_NOTHING',
-                stage=stage['label'])
+        if fmt is None or nxt['format'] == format_later.UNDECIDED:
+            # A stage whose format is still to be decided is held to every
+            # format it could become (P4c), so no choice can break the plan.
+            _undecided_neighbours(stage, nxt, index)
+        else:
+            feeds = stage_settings.feeds_into(fmt.key, stage['settings'])
+            if feeds and nxt['format'] not in feeds:
+                allowed = ', '.join(formats.get(k).label for k in feeds if formats.get(k))
+                raise StageError(
+                    '%s cannot feed into %s. It can feed into: %s.'
+                    % (fmt.label, formats.get(nxt['format']).label, allowed),
+                    'format', index + 1, code='FORMAT_CANNOT_FOLLOW',
+                    previous=stage['label'])
+            if not feeds:
+                raise StageError(
+                    '%s decides a tournament on its own, so nothing can follow it.'
+                    % fmt.label, 'format', index, code='FORMAT_FEEDS_NOTHING',
+                    stage=stage['label'])
 
         # A stage cannot send more people on than it will hold, and the stage
         # after it cannot run on fewer than its own minimum.
@@ -233,7 +269,7 @@ def plan(raw_stages, *, participants=None, lines=False):
         per = stage['advances']
         reaching = per * (stage['groups'] if stage['groups'] > 1 else 1) \
             + len(nxt.get('direct_entrants') or [])
-        if reaching < nxt_fmt.min_participants:
+        if nxt_fmt is not None and reaching < nxt_fmt.min_participants:
             raise StageError(
                 '%s needs at least %s, and only %s come out of "%s".'
                 % (nxt_fmt.label, nxt_fmt.min_participants,
@@ -242,7 +278,7 @@ def plan(raw_stages, *, participants=None, lines=False):
                 min=nxt_fmt.min_participants, reaching=reaching, stage=stage['label'])
 
     first = formats.get(cleaned[0]['format'])
-    if participants is not None and participants < first.min_participants:
+    if first is not None and participants is not None and participants < first.min_participants:
         raise StageError(
             '%s needs at least %s entrants and there are %s.'
             % (first.label, first.min_participants, participants),
@@ -277,11 +313,15 @@ def advancing(rows, advances, *, groups=0):
     return out
 
 
+class _Announced:
+    label = format_later.DEFAULT_LABEL
+
+
 def summary(cleaned):
     """A plain sentence per stage, for the wizard and for the guides."""
     lines = []
     for index, stage in enumerate(cleaned):
-        fmt = formats.get(stage['format'])
+        fmt = formats.get(stage['format']) or _Announced
         last = index == len(cleaned) - 1
         where = ('%s groups' % stage['groups']) if stage['groups'] > 1 else 'one field'
         if last:

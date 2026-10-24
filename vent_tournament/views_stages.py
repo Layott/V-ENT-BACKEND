@@ -18,7 +18,7 @@ from rest_framework.response import Response
 
 from vent_auth.actors import actor_from_request
 
-from . import bracket_presets, formats, match_shape, ranking, stage_engine, stage_settings, stages
+from . import bracket_presets, format_later, formats, match_shape, ranking, stage_engine, stage_settings, stages
 from .access import MANAGE, may, may_manage, permissions_list, permissions_of
 from .models import TournamentRegistration
 
@@ -45,6 +45,7 @@ ENGINE_STATUS = {
     'DISPUTES_OPEN': status.HTTP_409_CONFLICT,
     'LAST_STAGE': status.HTTP_400_BAD_REQUEST,
     'NOT_ENOUGH_ENTRANTS': status.HTTP_422_UNPROCESSABLE_ENTITY,
+    'STAGE_FORMAT_UNDECIDED': status.HTTP_409_CONFLICT,
 }
 
 
@@ -63,8 +64,10 @@ def _viewer(request):
     return user
 
 
-def _row(stage):
+def _row(stage, viewer=None, manager=False):
     fmt = formats.get(stage.format)
+    undecided = format_later.is_undecided(stage)
+    decision = format_later.view(stage, viewer=viewer, manager=manager)
     starts_at, ends_at, own_when = stage.effective_when()
     place_type, location, virtual_link, own_where = stage.effective_where()
     return {
@@ -72,7 +75,13 @@ def _row(stage):
         'order': stage.order,
         'label': stage.label,
         'format': stage.format,
-        'format_label': fmt.label if fmt else stage.format,
+        'format_label': (fmt.label if fmt else
+                         format_later.DEFAULT_LABEL if undecided else stage.format),
+        # Chosen later (P4c): how it will be, or was, settled. None for a stage
+        # that was always one format.
+        'undecided': undecided,
+        'decide_by': (decision or {}).get('decide_by'),
+        'format_decision': decision,
         'advances': stage.advances,
         'groups': stage.groups,
         'rules': stage.rules,
@@ -181,6 +190,9 @@ def tournament_stages(request, tournament_id):
     if err:
         return err
 
+    # Registration closing settles a stage whose format was left to the vote or
+    # the bands (P4c); nothing runs on a timer, so the first read after does it.
+    format_later.sweep(tournament)
     rows = list(tournament.stages.all())
     cleaned = [
         {'format': s.format, 'label': s.label, 'advances': s.advances,
@@ -197,8 +209,9 @@ def tournament_stages(request, tournament_id):
     game = getattr(tournament.tournament_game, 'game_title', '') if tournament.tournament_game_id else ''
     preset_key, preset = stage_settings.preset_for(game)
     viewer = _viewer(request)
+    can_manage = bool(viewer and may_manage(viewer, tournament))
     return _ok({
-        'stages': [_row(s) for s in rows],
+        'stages': [_row(s, viewer, can_manage) for s in rows],
         'progressions': _lines(tournament, rows),
         # An empty list is the normal case and means the tournament runs as one
         # format from start to finish, which is what almost all of them do.
@@ -223,7 +236,7 @@ def tournament_stages(request, tournament_id):
                     'group': stage_settings.clean('round_robin', preset['group']),
                     'knockout': stage_settings.clean('single_elimination', preset['knockout'])}
                    if preset else None),
-        'can_manage': bool(viewer and may_manage(viewer, tournament)),
+        'can_manage': can_manage,
         # What this viewer may do to the plan (P7): 'structure' changes it,
         # 'place' draws stages and sends people on.
         'permissions': permissions_list(permissions_of(viewer, tournament)),
@@ -330,6 +343,11 @@ def draw_stage(request, tournament_id, stage_id):
         return _err('Publish the tournament before drawing it.', 'STATE_CONFLICT',
                     status.HTTP_409_CONFLICT)
 
+    # A band or a vote that came due at the close is applied before the draw
+    # asks what format this is (P4c).
+    format_later.sweep(tournament)
+    stage.refresh_from_db()
+
     from . import options as tournament_options
 
     # The first stage takes the same check-in guard the one-format draw has:
@@ -362,6 +380,93 @@ def draw_stage(request, tournament_id, stage_id):
     stage.refresh_from_db()
     return _ok({'stage': _row(stage), 'draw': summary}, 'Stage drawn.',
                status.HTTP_201_CREATED)
+
+
+FORMAT_LATER_STATUS = {
+    'STAGE_NOT_UNDECIDED': status.HTTP_409_CONFLICT,
+    'NOT_A_VOTE': status.HTTP_409_CONFLICT,
+    'VOTE_CLOSED': status.HTTP_409_CONFLICT,
+    'VOTE_STILL_OPEN': status.HTTP_409_CONFLICT,
+    'NO_BAND_APPLIES': status.HTTP_409_CONFLICT,
+    'NOT_AN_ENTRANT': status.HTTP_403_FORBIDDEN,
+}
+
+
+def _later_err(exc):
+    return _err('That cannot be done to this stage.', exc.code,
+                FORMAT_LATER_STATUS.get(exc.code, status.HTTP_400_BAD_REQUEST),
+                field=exc.field, detail=exc.detail or None)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def stage_format(request, tournament_id, stage_id):
+    """GET /tournament/<ref>/stages/<sid>/format/ - how this stage's format is
+    being decided (P4c): the offered formats, the running vote to entrants and
+    the organiser, the band that would apply now, or the result. Public."""
+    tournament, err = _find(tournament_id)
+    if err:
+        return err
+    format_later.sweep(tournament)
+    stage, err = _stage(tournament, stage_id)
+    if err:
+        return err
+    viewer = _viewer(request)
+    manager = bool(viewer and may_manage(viewer, tournament))
+    return _ok(format_later.view(stage, viewer=viewer, manager=manager) or {'undecided': False},
+               'Format')
+
+
+@api_view(['POST'])
+def vote_format(request, tournament_id, stage_id):
+    """POST /tournament/<ref>/stages/<sid>/format/vote/ {format} - an entrant's
+    vote, once, changeable until registration closes."""
+    tournament, err = _find(tournament_id)
+    if err:
+        return err
+    user, err = actor_from_request(request)
+    if err:
+        return err
+    stage, err = _stage(tournament, stage_id)
+    if err:
+        return err
+    try:
+        with transaction.atomic():
+            choice = format_later.cast_vote(stage, user, inputs.read_text(
+                request.data, 'format', max_length=40))
+    except format_later.FormatLaterError as exc:
+        return _later_err(exc)
+    return _ok(dict(format_later.view(stage, viewer=user), choice=choice), 'Vote counted.')
+
+
+@api_view(['POST'])
+def settle_format(request, tournament_id, stage_id):
+    """POST /tournament/<ref>/stages/<sid>/format/settle/ {format} - the
+    organiser settles an undecided stage: after a tie or an empty vote, for
+    'organiser' stages, or to accept the band that was proposed (no format)."""
+    tournament, err = _find(tournament_id)
+    if err:
+        return err
+    user, err = _manager(request, tournament, 'structure')
+    if err:
+        return err
+    stage, err = _stage(tournament, stage_id)
+    if err:
+        return err
+    from . import bracket_edit
+    try:
+        with transaction.atomic():
+            stage = tournament.stages.select_for_update().get(pk=stage.pk)
+            format_later.sweep(tournament)
+            stage.refresh_from_db()
+            decision = format_later.organiser_pick(
+                stage, inputs.read_text(request.data, 'format', max_length=40))
+            bracket_edit._log(tournament, user, 'decided', stage, format=decision['format'],
+                              by=decision['by'])
+    except format_later.FormatLaterError as exc:
+        return _later_err(exc)
+    stage.refresh_from_db()
+    return _ok({'stage': _row(stage, user, True), 'format_decision': decision}, 'Format settled.')
 
 
 @api_view(['GET'])

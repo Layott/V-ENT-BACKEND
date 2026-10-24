@@ -204,6 +204,9 @@ def draw(stage, user, seed_strategy='registration', manual_order=None, early=Fal
 
     `early` draws a knockout before the stages that feed it have sent their
     people, with every seat waiting for its place (P1d)."""
+    if stage.format == 'undecided':
+        # Chosen later (P4c): the vote, the bands or the organiser settle it first.
+        raise StageEngineError('STAGE_FORMAT_UNDECIDED', 'format')
     if early and stage.drawn_at is None and not stage.matches.exists():
         from . import progressions
         if any(line.fired_at is None for line in progressions.incoming(stage)):
