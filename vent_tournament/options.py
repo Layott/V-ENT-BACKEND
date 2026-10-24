@@ -16,6 +16,7 @@ SEEDING_METHODS = {
     'registration': 'In the order people registered',
     'random': 'Drawn at random',
     'ranked': 'By platform ranking, strongest first',
+    'rating': 'By rating (Elo), from every match played on V-ENT in this game',
     'manual_order': 'Set by the organiser before the bracket is generated',
 }
 

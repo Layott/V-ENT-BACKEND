@@ -276,7 +276,7 @@ def draw(stage, user, seed_strategy='registration', manual_order=None, early=Fal
 
     BracketGeneration.objects.create(
         tournament=tournament, generated_by=user,
-        seed_strategy=seed_strategy if seed_strategy in ('random', 'ranked', 'manual_order', 'registration') else 'random',
+        seed_strategy=seed_strategy if seed_strategy in ('random', 'ranked', 'rating', 'manual_order', 'registration') else 'random',
         seed_payload={'registration_ids': stage.entrants, 'stage_id': stage.id},
         match_count=summary['matches_created'], rounds_count=summary['rounds_count'],
         notes='stage=%s format=%s' % (stage.order, key),
@@ -497,6 +497,12 @@ def _swiss_standings(stage):
         _tally(rows, m, pts)
         played.append(m)
     byes = [m for m in stage.matches.all() if m.status == 'bye' and m.winner_id in rows]
+    # McMahon: each entrant's starting score counts as wins already had.
+    from .services.bracket import mcmahon_starts
+    starts = mcmahon_starts(stage.entrants or [], settings.get('mcmahon_bands'))
+    for rid, row in rows.items():
+        row['mcmahon_start'] = starts.get(rid, 0)
+        row['points'] += starts.get(rid, 0) * rules['points_win']
     _opponent_numbers(rows, played, rules, byes)
     for i, row in rows.items():
         row['goal_difference'] = row['goals_for'] - row['goals_against']
@@ -1149,7 +1155,10 @@ def next_swiss_round(stage):
     regs = {r.id: r for r in TournamentRegistration.objects.filter(
         id__in=[r['registration_id'] for r in active])}
     players = [regs[r['registration_id']] for r in active if r['registration_id'] in regs]
-    record = {r['registration_id']: (r['wins'], r['losses']) for r in rows}
+    # McMahon pairs on starting score plus wins; an ordinary Swiss on the record.
+    record = ({r['registration_id']: (r['wins'] + r['mcmahon_start'], 0) for r in rows}
+              if (stage.settings or {}).get('mcmahon_bands') else
+              {r['registration_id']: (r['wins'], r['losses']) for r in rows})
     played = set()
     had_bye = set()
     for m in stage.matches.all():
