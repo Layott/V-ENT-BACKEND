@@ -3061,6 +3061,9 @@ class BRResult(models.Model):
     bonus = models.FloatField(default=0)
     penalty = models.FloatField(default=0)
     adjustment_note = models.CharField(max_length=200, blank=True, default='')
+    # How long the squad took, for a stage scored by time (P3 W3b, a speedrun
+    # or a race): empty when it did not finish or the stage scores points.
+    duration_ms = models.PositiveIntegerField(null=True, blank=True)
 
     placement_points = models.FloatField(default=0)
     kill_points = models.FloatField(default=0)

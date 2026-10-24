@@ -336,6 +336,10 @@ def clean_rows(br_map, rows):
     seen = set()
     placements = set()
     cleaned = {}
+    # Scored by time, a placement may be left out and follows from the
+    # times: fastest first, then whoever played and did not finish.
+    by_time = settings_of(br_map.lobby.stage).get('score_by') == 'time'
+    unplaced = []
     for index, raw in enumerate(rows):
         if not isinstance(raw, dict):
             raise BRError('NOT_A_ROW', 'rows', index=index)
@@ -352,11 +356,14 @@ def clean_rows(br_map, rows):
         placement = None
         if played:
             placement = _whole(raw.get('placement'), 'placement', 1, len(seats))
-            if not placement:
+            if not placement and by_time:
+                unplaced.append(rid)
+            elif not placement:
                 raise BRError('PLACEMENT_REQUIRED', 'placement', index=index)
-            if placement in placements:
+            if placement and placement in placements:
                 raise BRError('PLACEMENT_TWICE', 'placement', index=index)
-            placements.add(placement)
+            if placement:
+                placements.add(placement)
 
         members = {u.user_id: u for u in seats[rid].registration.people}
         players = []
@@ -407,15 +414,47 @@ def clean_rows(br_map, rows):
             'penalty': _points(raw.get('penalty'), 'penalty'),
             'adjustment_note': str(raw.get('adjustment_note') or '').strip()[:200],
             'players': players,
+            'duration_ms': (_duration_ms(raw.get('duration_ms') if raw.get('duration_ms') not in (None, '')
+                                         else raw.get('time'), index) if played else None),
         }
+    free = [n for n in range(1, len(seats) + 1) if n not in placements]
+    unplaced.sort(key=lambda r: (cleaned[r]['duration_ms'] is None, cleaned[r]['duration_ms'] or 0))
+    for rid, number in zip(unplaced, free):
+        cleaned[rid]['placement'] = number
+        placements.add(number)
     for rid in seats:
         cleaned.setdefault(rid, {'played': False, 'placement': None, 'kills': 0,
                                  'assists': 0, 'damage': 0, 'bonus': 0.0,
                                  'penalty': 0.0, 'adjustment_note': '',
-                                 'players': []})
+                                 'players': [], 'duration_ms': None})
     if not placements:
         raise BRError('NOBODY_PLAYED', 'rows')
     return cleaned
+
+
+def _duration_ms(raw, index):
+    """A time typed as m:ss, h:mm:ss or m:ss.mmm, or milliseconds as a number;
+    None when nothing was typed (the squad did not finish)."""
+    if raw in (None, ''):
+        return None
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        value = int(raw)
+    else:
+        text = str(raw).strip()
+        try:
+            parts = [float(p) for p in text.split(':')]
+        except ValueError:
+            raise BRError('NOT_A_TIME', 'time', index=index)
+        if not 1 <= len(parts) <= 3 or any(p < 0 for p in parts) \
+                or any(p >= 60 for p in parts[1:]):
+            raise BRError('NOT_A_TIME', 'time', index=index)
+        seconds = 0.0
+        for p in parts:
+            seconds = seconds * 60 + p
+        value = int(round(seconds * 1000))
+    if value < 0 or value > 24 * 3600 * 1000:
+        raise BRError('NOT_A_TIME', 'time', index=index)
+    return value
 
 
 def enter_results(br_map, rows, user, via='manual'):
@@ -436,7 +475,8 @@ def enter_results(br_map, rows, user, via='manual'):
                               kills=row['kills'], assists=row['assists'],
                               damage=row['damage'], bonus=row['bonus'],
                               penalty=row['penalty'],
-                              adjustment_note=row['adjustment_note'])
+                              adjustment_note=row['adjustment_note'],
+                              duration_ms=row['duration_ms'])
             score_result(result, settings)
             result.save()
             for p in row['players']:
@@ -585,19 +625,26 @@ def _tiebreak_value(row, key):
     }.get(key, 0)
 
 
-def _rank(rows, tiebreakers):
+def _rank(rows, tiebreakers, by_time=False):
     """A squad on match point that wins a map is champion and goes first;
     then points and the organiser's tiebreakers, then seed. Through
-    `ranking.order`, the one ranking for every table (P0, 16 October 2026)."""
+    `ranking.order`, the one ranking for every table (P0, 16 October 2026).
+    Scored by time, every match finished comes first and then the lowest
+    total time, ahead of points (P3 W3b)."""
 
     def value(row, key):
         if key == 'champion':
             return 1 if row['champion'] else 0
+        if key == 'finished':
+            return -row['unfinished']
+        if key == 'time':
+            return -row['time_ms']
         if key in ('points', 'seed'):
             return None
         return -_tiebreak_value(row, key)       # smaller sorts first there
 
-    ranked = ranking.order(rows, list(tiebreakers) + ['seed'], value=value, lead=('champion',))
+    lead = ('finished', 'time') if by_time else ('champion',)
+    ranked = ranking.order(rows, list(tiebreakers) + ['seed'], value=value, lead=lead)
     for i, row in enumerate(ranked):
         if row['decided_by'] == 'champion':
             # Match point is the reason only when this squad would otherwise
@@ -640,6 +687,7 @@ def standings(stage):
             'goals_for': 0, 'goals_against': 0, 'goal_difference': 0,
             'buchholz': 0, 'rank': None, 'lobby_rank': None,
             'status': 'playing', 'decided_by': None,
+            'time_ms': 0, 'timed_maps': 0,
         }
 
     threshold = int(settings.get('match_point') or 0)
@@ -663,6 +711,9 @@ def standings(stage):
                     if threshold and lobby_no not in champions \
                             and running.get(result.registration_id, 0) >= threshold:
                         champions[lobby_no] = result.registration_id
+            if result.played and result.duration_ms is not None:
+                row['time_ms'] += result.duration_ms
+                row['timed_maps'] += 1
             row['kills'] += result.kills
             row['assists'] += result.assists
             row['damage'] += result.damage
@@ -689,14 +740,28 @@ def standings(stage):
             row['status'] = 'champion'
         del row['placements']
 
+    # Scored by time: a match is finished only with a time on it, and one
+    # not played or not finished ranks the squad below every squad that
+    # finished more of the lobby's matches. Match point does not apply.
+    by_time = settings.get('score_by') == 'time'
+    lobby_maps = {}
+    for br_map in maps:
+        lobby_maps[br_map.lobby.number] = lobby_maps.get(br_map.lobby.number, 0) + 1
+    for row in rows.values():
+        row['score_by'] = 'time' if by_time else 'points'
+        row['unfinished'] = max(0, lobby_maps.get(row['lobby'], 0) - row['timed_maps'])
+        if by_time and row['champion']:
+            row['champion'] = False
+            row['status'] = 'playing'
+
     tiebreakers = settings.get('tiebreakers') or stage_settings.BR_DEFAULT_TIEBREAKERS
     by_lobby = {}
     for row in rows.values():
         by_lobby.setdefault(row['lobby'], []).append(row)
     for lobby_rows in by_lobby.values():
-        for i, row in enumerate(_rank(lobby_rows, tiebreakers)):
+        for i, row in enumerate(_rank(lobby_rows, tiebreakers, by_time)):
             row['lobby_rank'] = i + 1
-    ranked = _rank(list(rows.values()), tiebreakers)
+    ranked = _rank(list(rows.values()), tiebreakers, by_time)
     for i, row in enumerate(ranked):
         row['rank'] = i + 1
     return ranked
@@ -794,6 +859,7 @@ def summary(stage, viewer=None, may_run=False):
                     'kills': r.kills, 'assists': r.assists, 'damage': r.damage,
                     'bonus': r.bonus, 'penalty': r.penalty,
                     'adjustment_note': r.adjustment_note,
+                    'duration_ms': r.duration_ms,
                     'placement_points': r.placement_points,
                     'kill_points': r.kill_points, 'total': r.total,
                     'players': [{'user_id': p.user_id,
