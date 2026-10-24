@@ -1532,6 +1532,15 @@ def _is_creator(request, tournament):
         login_session_token=token, user_id=tournament.tournament_creator_id
     ).exists()
 
+def _may_read_draft(request, tournament):
+    """Who may read a tournament that is still a draft: its creator, and an
+    admin who may edit it. Everybody else is told it does not exist. One rule
+    for every read: the participants and bracket answers kept a flat
+    `is_draft` check of their own and refused the creator too, so the console's
+    bracket tools read "could not be loaded" on every draft (live walk,
+    24 October 2026)."""
+    return _is_creator(request, tournament) or _may_override(_actor_from_request(request)[0])
+
 
 @api_view(["GET"])
 def get_all_tournaments(request):
@@ -1671,11 +1680,7 @@ def view_tournament(request, tournament_id):
         # it is published.
         # An admin who may edit a tournament has to be able to read it first,
         # or the console's Edit control opens a blank form over a real draft.
-        may_read_draft = (
-            _is_creator(request, tournament)
-            or _may_override(_actor_from_request(request)[0])
-        )
-        if tournament.is_draft and not may_read_draft:
+        if tournament.is_draft and not _may_read_draft(request, tournament):
             return Response({ 'code': 'NOT_FOUND','status': 'error', 'message': 'Not found'},
                             status=status.HTTP_404_NOT_FOUND)
 
@@ -2009,7 +2014,7 @@ def get_tournament_participants(request, tournament_id):
     """GET /tournament/get-tournament-participants/{id}/ - registered participants tab."""
     try:
         tournament = lookup.find(tournament_id)
-        if tournament is None or tournament.is_draft:
+        if tournament is None or (tournament.is_draft and not _may_read_draft(request, tournament)):
             raise Http404('No such tournament.')
 
         registrations = (
@@ -2859,7 +2864,7 @@ def get_tournament_brackets(request, tournament_id):
     """Return the bracket structure for a tournament, grouped by round."""
     try:
         tournament = lookup.find(tournament_id)
-        if tournament is None or tournament.is_draft:
+        if tournament is None or (tournament.is_draft and not _may_read_draft(request, tournament)):
             raise Http404('No such tournament.')
 
         # One description of a match for every screen (match_shape.py). The
