@@ -1597,6 +1597,44 @@
   },
   {
    "generated": true,
+   "name": "GET tournament/<str:tournament_id>/actions-list/ as B",
+   "route": "tournament/<str:tournament_id>/actions-list/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/actions-list/"
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET tournament/<str:tournament_id>/next-actions/ as B",
+   "route": "tournament/<str:tournament_id>/next-actions/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/tournament/{id}/next-actions/",
+    "expect": [
+     200
+    ]
+   },
+   "id": "walk-cup-fee",
+   "r88": {
+    "publicRead": "a visitor with no session reads this page by design (public by default, CEO 26 Aug)",
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
    "name": "POST tournament/<str:tournament_id>/stages/<int:stage_id>/draw/ as B",
    "route": "tournament/<str:tournament_id>/stages/<int:stage_id>/draw/",
    "attempt": {

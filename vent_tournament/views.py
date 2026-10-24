@@ -22,6 +22,7 @@ from django.db import transaction as db_transaction
 from .money import CURRENCIES, from_coins, rates, to_coins
 from . import options as tournament_options
 from . import ladder, match_shape
+from . import next_actions
 from . import tournament_input as tin
 from django.contrib.contenttypes.models import ContentType
 from vent_auth import org_link
@@ -396,6 +397,15 @@ def join_tournament(request):
         if tournament.status in ('live', 'completed', 'cancelled', 'registration_closed'):
             return Response({'status': 'error', 'code': 'STATE_CONFLICT',
                              'message': 'Registration is closed for this tournament'},
+                            status=status.HTTP_409_CONFLICT)
+
+        # The close date was on every screen and enforced by nothing: "closes
+        # Friday" took entries on Saturday. next_actions reads the same rule,
+        # so the button and this door cannot disagree.
+        if next_actions.registration_closed(tournament) == 'REGISTRATION_CLOSED':
+            return Response({'status': 'error', 'code': 'REGISTRATION_CLOSED',
+                             'message': 'Registration has closed for this tournament',
+                             'data': {'closes_at': tournament.registration_closes_at}},
                             status=status.HTTP_409_CONFLICT)
 
         # A cap that nothing enforces is a number on a page. Count what is

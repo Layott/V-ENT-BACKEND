@@ -38,6 +38,7 @@ from . import views_reminders
 from . import views_scheduled
 from . import views_requirements
 from . import views_stages
+from . import views_next
 from . import views_feeds
 from . import views_bracket_edit
 from . import views_match_day
@@ -346,6 +347,10 @@ urlpatterns = [
     path("<str:tournament_id>/overlays/<int:overlay_id>/layers/<int:layer_id>/",
          views_layers.tournament_overlay_layer_detail,
          name="tournament_overlay_layer_detail"),
+    path("<str:tournament_id>/next-actions/", views_next.next_actions_for_viewer,
+         name="tournament_next_actions"),
+    path("<str:tournament_id>/actions-list/", views_next.tournament_actions_list,
+         name="tournament_actions_list"),
     path("tie/<int:tie_id>/", tie_detail, name="tie_detail"),
     path("tie/<int:tie_id>/record/", record_fixture, name="record_tie_fixture"),
     path("<str:tournament_id>/league-rules/", set_league_rules, name="set_league_rules"),
