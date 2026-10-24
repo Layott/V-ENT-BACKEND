@@ -1181,6 +1181,10 @@ class BracketEdit(models.Model):
         ('replace', 'Entrant replaced'),
         ('reopen', 'Result reopened'),
         ('rules', 'Match rules changed'),
+        ('auto_confirm', 'Report confirmed automatically'),
+        ('reopen_group', 'Group reopened'),
+        ('drop_round', 'Swiss round deleted'),
+        ('regen_round', 'Swiss round paired again'),
     )
 
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE,

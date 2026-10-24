@@ -381,25 +381,12 @@ def confirm_match_score(request, match_id):
     # not. This used to refuse every level score, so a group-stage football
     # draw, the most ordinary result there is, could never be confirmed.
     try:
-        decision = results.decide(
-            match, submission.score_p1, submission.score_p2,
-            penalties_p1=submission.penalties_p1,
-            penalties_p2=submission.penalties_p2, games=submission.games)
+        locked, decision = results.confirm_report(match, submission, confirmed_by=user)
     except results.ResultError as exc:
         status_for = (http.HTTP_409_CONFLICT if exc.code == 'PARTICIPANTS_NOT_SET'
                       else http.HTTP_422_UNPROCESSABLE_ENTITY)
         return _err('That result cannot stand for this match.', exc.code, status_for)
     winner = decision.winner
-
-    with transaction.atomic():
-        locked = BracketMatch.objects.select_for_update().get(pk=match.pk)
-        # Saving to 'completed' fires the post_save signal -> auto-advance cascade.
-        results.apply(locked, decision)
-
-        submission.confirmed = True
-        submission.confirmed_by = user
-        submission.confirmed_at = timezone.now()
-        submission.save(update_fields=['confirmed', 'confirmed_by', 'confirmed_at'])
 
     advanced_to = None
     if locked.winner_to_match_id:
@@ -528,7 +515,7 @@ def match_detail(request, match_id):
     from . import match_shape, stage_engine, stage_settings
     from . import options as tournament_options
     from .services.bracket import normalize_bracket_type
-    if stage_engine.settle_no_show(match):
+    if stage_engine.settle_no_show(match) or stage_engine.settle_auto_confirm(match):
         match.refresh_from_db()
     body = match_shape.match_row(match, private=True)
     settings = stage_settings.of_match(match)

@@ -79,6 +79,10 @@ DEFAULTS = {
     # cut every window to half an hour without anybody choosing that. The
     # CEO chose 24 hours as the default on 27 September 2026, with a control.
     'dispute_window_minutes': 1440,
+    # A score one side reported and nobody contested is confirmed after this
+    # many minutes, as if the other side had agreed (P4b). 0 is off: the
+    # opponent confirms, or the organiser records it.
+    'auto_confirm_minutes': 0,
     'rules_acknowledgement': True,
 }
 
@@ -87,6 +91,9 @@ BOOLEANS = {
     'forfeit_without_check_in', 'refund_no_shows', 'third_place_match', 'every_place', 'group_stage',
     'require_screenshot', 'rules_acknowledgement',
 }
+
+#: Integers whose 0 means "off", so 0 is kept and not clamped up to the floor.
+OFF_AT_ZERO = {'auto_confirm_minutes'}
 
 INTEGERS = {
     'min_age': (0, 99),
@@ -98,6 +105,7 @@ INTEGERS = {
     'best_of_final': (1, 9),
     'match_interval_minutes': (5, 600),
     'dispute_window_minutes': (30, 2880),
+    'auto_confirm_minutes': (5, 1440),
     'streak_target': (0, 20),
     'legs': (0, 2),
 }
@@ -122,7 +130,8 @@ def clean(raw):
         elif key in INTEGERS:
             low, high = INTEGERS[key]
             try:
-                out[key] = max(low, min(high, int(value)))
+                number = int(value)
+                out[key] = 0 if (key in OFF_AT_ZERO and number <= 0) else max(low, min(high, number))
             except (TypeError, ValueError):
                 pass
         elif key == 'seeding_method':

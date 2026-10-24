@@ -119,6 +119,31 @@ def played_count(tournament, stage):
     return count
 
 
+def _brief(match):
+    return {'id': match.id, 'round_number': match.round_number,
+            'match_number': match.match_number, 'group_number': match.group_number,
+            'bracket_side': match.bracket_side, 'status': match.status,
+            'participant_1': match.participant_1_id, 'participant_2': match.participant_2_id}
+
+
+def _preview(matches=(), cleared=0, entrants=(), **extra):
+    """What a change would undo, answered instead of the change (P4b): the
+    matches it would remove or empty, the played results it would clear and
+    the entrants it would move. Nothing is written."""
+    matches = list(matches)
+    return {'preview': True, 'matches_undone': [_brief(m) for m in matches],
+            'matches_removed': len(matches), 'results_cleared': cleared,
+            'entrants_moved': list(entrants), **extra}
+
+
+def _ids(rows):
+    return [r['registration_id'] if isinstance(r, dict) else r for r in rows or []]
+
+
+def _is_drawn(stage):
+    return stage.drawn_at is not None or stage.matches.exists() or stage.br_lobbies.exists()
+
+
 # ---------------------------------------------------------------------------
 # A bracket drawn as one format becomes stage 1
 # ---------------------------------------------------------------------------
@@ -175,9 +200,11 @@ def _next_drawn(stage):
     return False
 
 
-def undraw(stage, user, discard_results=False):
+def undraw(stage, user, discard_results=False, preview=False):
     """Take a stage back to undrawn: its matches go, its plan stays, and it can
-    be changed and drawn again. Returns what was removed."""
+    be changed and drawn again. Returns what was removed. With `preview` it
+    answers what would be undone and changes nothing (P4b): the guards that
+    cannot be waived still refuse, results to throw away are reported."""
     tournament = stage.tournament
     not_finished(tournament)
     if stage.drawn_at is None and not stage.matches.exists() and not stage.br_lobbies.exists():
@@ -189,8 +216,11 @@ def undraw(stage, user, discard_results=False):
     if disputes:
         raise EditError('DISPUTES_OPEN', count=disputes)
     played = played_count(tournament, stage)
-    if played and not discard_results:
+    if played and not discard_results and not preview:
         raise EditError('STAGE_HAS_RESULTS', played=played)
+    if preview:
+        return _preview(stage.matches.all(), played, stage.entrants or [],
+                        needs_discard_results=bool(played))
 
     removed = stage.matches.count()
     stage.matches.all().delete()
@@ -214,7 +244,7 @@ def undraw(stage, user, discard_results=False):
     return {'matches_removed': removed, 'results_discarded': played}
 
 
-def unadvance(stage, user):
+def unadvance(stage, user, preview=False):
     """Open a closed stage again, so its results can be corrected and who goes
     through decided afresh. Only while the next stage is still undrawn."""
     tournament = stage.tournament
@@ -223,6 +253,8 @@ def unadvance(stage, user):
         raise EditError('STAGE_NOT_CLOSED')
     if _next_drawn(stage):
         raise EditError('NEXT_STAGE_DRAWN')
+    if preview:
+        return _preview(entrants=_ids(stage.advanced))
     stage.status = 'running'
     stage.advanced = []
     stage.completed_at = None
@@ -239,7 +271,7 @@ def unadvance(stage, user):
 
 def reformat(stage, user, *, fmt_key, settings=None, groups=None, advances=None,
              seed_strategy='registration', manual_order=None, discard_results=False,
-             draw=True):
+             draw=True, preview=False):
     """Give a stage a different format (and its rules), and draw it again.
 
     The plan as a whole must still hold with the new format in it: what feeds
@@ -248,29 +280,18 @@ def reformat(stage, user, *, fmt_key, settings=None, groups=None, advances=None,
     """
     tournament = stage.tournament
     not_finished(tournament)
-    was_drawn = stage.drawn_at is not None or stage.matches.exists() or stage.br_lobbies.exists()
+    was_drawn = _is_drawn(stage)
+    if preview:
+        report = (undraw(stage, user, discard_results=discard_results, preview=True)
+                  if was_drawn else _preview(needs_discard_results=False))
+        mine = _planned(stage, fmt_key, settings, groups, advances)
+        report.update(format_from=stage.format, format_to=mine['format'], will_redraw=bool(draw))
+        return report
     if was_drawn:
         undraw(stage, user, discard_results=discard_results)
         stage.refresh_from_db()
 
-    proposed = []
-    for other in tournament.stages.all().order_by('order'):
-        row = {'format': other.format, 'label': other.label, 'advances': other.advances,
-               'groups': other.groups, 'settings': other.settings, 'placement': other.placement,
-               'direct_entrants': other.direct_entrants or []}
-        if other.pk == stage.pk:
-            row['format'] = fmt_key
-            row['settings'] = settings if settings is not None else {}
-            if groups is not None:
-                row['groups'] = groups
-            if advances is not None:
-                row['advances'] = advances
-            if fmt_key != stage.format and row['label'] == _format_label(stage.format):
-                row['label'] = ''    # the new format's own name, rather than the old one's
-        proposed.append(row)
-    cleaned = _checked_plan(proposed)
-    ids = list(tournament.stages.order_by('order').values_list('pk', flat=True))
-    mine = cleaned[ids.index(stage.pk)]
+    mine = _planned(stage, fmt_key, settings, groups, advances)
     old = stage.format
     stage.format = mine['format']
     stage.settings = mine['settings']
@@ -296,6 +317,30 @@ def reformat(stage, user, *, fmt_key, settings=None, groups=None, advances=None,
 # ---------------------------------------------------------------------------
 # Inside a drawn bracket: moving people
 # ---------------------------------------------------------------------------
+
+def _planned(stage, fmt_key, settings, groups, advances):
+    """The stage's row in the plan once it has this format: the plan as a whole
+    must still hold, checked the way the plan editor checks it."""
+    tournament = stage.tournament
+    proposed = []
+    for other in tournament.stages.all().order_by('order'):
+        row = {'format': other.format, 'label': other.label, 'advances': other.advances,
+               'groups': other.groups, 'settings': other.settings, 'placement': other.placement,
+               'direct_entrants': other.direct_entrants or []}
+        if other.pk == stage.pk:
+            row['format'] = fmt_key
+            row['settings'] = settings if settings is not None else {}
+            if groups is not None:
+                row['groups'] = groups
+            if advances is not None:
+                row['advances'] = advances
+            if fmt_key != stage.format and row['label'] == _format_label(stage.format):
+                row['label'] = ''    # the new format's own name, rather than the old one's
+        proposed.append(row)
+    cleaned = _checked_plan(proposed)
+    ids = list(tournament.stages.order_by('order').values_list('pk', flat=True))
+    return cleaned[ids.index(stage.pk)]
+
 
 def _stage_for(tournament, stage_id):
     if stage_id in (None, '', 0):
@@ -412,7 +457,7 @@ def replace(tournament, user, out_id, in_id, stage_id=None):
 # Inside a drawn bracket: one match
 # ---------------------------------------------------------------------------
 
-def reopen(match, user):
+def reopen(match, user, preview=False):
     """Take a result back off a match, so it can be played or entered again.
 
     The winner it sent on comes back out of the next match, which must not
@@ -450,6 +495,10 @@ def reopen(match, user):
         if not _movable(target):
             raise EditError('NEXT_MATCH_ALREADY_PLAYED', next_match=target.id)
         targets.append((target, slot))
+
+    if preview:
+        return _preview([match] + [t for t, _slot in targets], 1,
+                        [match.winner_id] if match.winner_id else [])
 
     for target, slot in targets:
         field = 'participant_%d_id' % (slot or 1)
@@ -531,6 +580,135 @@ def set_rules(match, user, *, best_of=None, legs=None, draw_allowed=None, whole_
     _log(tournament, user, 'rules', match.stage, match=match.id, whole_round=whole_round or None,
          **update)
     return {'matches_changed': changed}
+
+
+# ---------------------------------------------------------------------------
+# Repairs: one group, the last Swiss round (P4b)
+# ---------------------------------------------------------------------------
+
+def reopen_group(stage, group, user, discard_results=False, preview=False):
+    """Take back what one finished group sent on, so its results can be
+    corrected and its places decided afresh.
+
+    The lines that cover the group (its own, or the stage's whole) are un-sent,
+    the stage runs again, and a stage in this tournament those lines filled is
+    undrawn the way `undraw` does it, so a played result there is thrown away
+    only when the organiser says so. Whatever else the stage sent through other
+    lines stays sent.
+    """
+    from . import feeds, progressions
+    tournament = stage.tournament
+    not_finished(tournament)
+    if stage.drawn_at is None:
+        raise EditError('STAGE_NOT_DRAWN')
+    in_group = stage.matches.filter(group_number=group)
+    if not in_group.exists():
+        raise EditError('GROUP_NOT_FOUND', 'group')
+    if in_group.exclude(status__in=stage_engine.TERMINAL).exists():
+        raise EditError('GROUP_NOT_FINISHED', 'group')
+    lines = [l for l in progressions.outgoing(stage)
+             if l.fired_at is not None and l.group in (None, group)]
+    if not lines:
+        raise EditError('NOTHING_TO_REOPEN', 'group')
+
+    targets = []
+    for line in lines:
+        target = line.target
+        if target.tournament_id == tournament.tournament_id and _is_drawn(target) \
+                and target.id not in [t.id for t in targets]:
+            targets.append(target)
+    if preview:
+        matches, cleared = [], 0
+        for target in targets:
+            part = undraw(target, user, discard_results=True, preview=True)
+            matches += list(target.matches.all())
+            cleared += part['results_cleared']
+        sent = []
+        for line in lines:
+            sent += [i for i in _ids(line.sent) if i not in sent]
+        return _preview(matches, cleared, sent, needs_discard_results=bool(cleared))
+
+    for target in targets:
+        undraw(target, user, discard_results=discard_results)
+    for line in lines:
+        if feeds.is_feed(line):
+            feeds.unqualify(line)
+        line.sent = []
+        line.fired_at = None
+        line.save(update_fields=['sent', 'fired_at'])
+    stage.advanced = progressions.sent_union(stage)
+    stage.status = 'running'
+    stage.completed_at = None
+    stage.save(update_fields=['advanced', 'status', 'completed_at'])
+    _log(tournament, user, 'reopen_group', stage, group=group, lines=len(lines),
+         stages_undrawn=len(targets) or None)
+    return {'group': group, 'lines_reopened': len(lines), 'stages_undrawn': len(targets)}
+
+
+def _last_unplayed_round(stage, round_number):
+    """The Swiss round a repair works on: the last one, with no result in it.
+    Returns its matches."""
+    if stage.format != 'swiss':
+        raise EditError('FORMAT_NOT_SUPPORTED', 'format')
+    not_finished(stage.tournament)
+    if stage.status == 'complete':
+        raise EditError('STAGE_CLOSED')
+    rounds = sorted(set(stage.matches.values_list('round_number', flat=True)))
+    if round_number not in rounds:
+        raise EditError('ROUND_NOT_FOUND', 'round')
+    if round_number != rounds[-1]:
+        raise EditError('NOT_THE_LAST_ROUND', 'round')
+    matches = stage.matches.filter(round_number=round_number)
+    # A bye is the pairing's, not a result: nobody played it.
+    if matches.exclude(status__in=('scheduled', 'bye')).exists():
+        raise EditError('ROUND_HAS_RESULTS', 'round')
+    return matches
+
+
+def delete_round(stage, round_number, user, preview=False):
+    """Delete the last Swiss round when none of its matches has a result. The
+    round before it is complete again; the next round is paired when it is."""
+    matches = _last_unplayed_round(stage, round_number)
+    if round_number == min(stage.matches.values_list('round_number', flat=True)):
+        # The first round is the draw: undo that instead.
+        raise EditError('FIRST_ROUND', 'round')
+    rows = list(matches)
+    people = []
+    for m in rows:
+        people += [i for i in (m.participant_1_id, m.participant_2_id, m.winner_id)
+                   if i and i not in people]
+    if preview:
+        return _preview(rows, 0, people)
+    matches.delete()
+    _log(stage.tournament, user, 'drop_round', stage, round=round_number, matches=len(rows))
+    return {'round': round_number, 'matches_removed': len(rows)}
+
+
+def regenerate_round(stage, round_number, user, preview=False):
+    """Pair the last Swiss round again without an entrant who withdrew, while
+    none of its matches has a result."""
+    matches = _last_unplayed_round(stage, round_number)
+    if round_number == min(stage.matches.values_list('round_number', flat=True)):
+        raise EditError('FIRST_ROUND', 'round')
+    rows = list(matches)
+    people = []
+    for m in rows:
+        people += [i for i in (m.participant_1_id, m.participant_2_id, m.winner_id)
+                   if i and i not in people]
+    gone = list(TournamentRegistration.objects.filter(id__in=people, status='withdrawn')
+                .values_list('id', flat=True))
+    if not gone:
+        raise EditError('NOTHING_TO_REGENERATE', 'round')
+    if preview:
+        return _preview(rows, 0, [i for i in people if i not in gone], withdrawn=gone)
+    matches.delete()
+    made = stage_engine.next_swiss_round(stage, skip_withdrawn=True)
+    if made is None:
+        raise EditError('NOTHING_TO_REGENERATE', 'round')
+    _log(stage.tournament, user, 'regen_round', stage, round=round_number,
+         withdrawn=gone, matches=made['matches_created'])
+    return {'round': round_number, 'matches_removed': len(rows),
+            'matches_created': made['matches_created'], 'withdrawn': gone}
 
 
 # ---------------------------------------------------------------------------

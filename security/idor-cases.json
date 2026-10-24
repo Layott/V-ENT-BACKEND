@@ -7331,6 +7331,53 @@
    "id": "5"
   },
   {
+   "name": "B cannot reopen a group of a stage in A's tournament",
+   "route": "<str:tournament_id>/stages/<int:stage_id>/groups/<int:group>/reopen/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-finished/stages/{id}/groups/1/reopen/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {
+     "discard_results": true
+    }
+   },
+   "id": "5"
+  },
+  {
+   "name": "B cannot delete a Swiss round of a stage in A's tournament",
+   "route": "<str:tournament_id>/stages/<int:stage_id>/rounds/<int:round_number>/delete/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-finished/stages/{id}/rounds/1/delete/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {}
+   },
+   "id": "5"
+  },
+  {
+   "name": "B cannot pair a Swiss round again in A's tournament",
+   "route": "<str:tournament_id>/stages/<int:stage_id>/rounds/<int:round_number>/regenerate/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/walk-cup-finished/stages/{id}/rounds/1/regenerate/",
+    "expect": [
+     403,
+     404
+    ],
+    "body": {}
+   },
+   "id": "5"
+  },
+  {
    "name": "B cannot swap two entrants in A's bracket",
    "route": "<str:tournament_id>/bracket/swap/",
    "attempt": {

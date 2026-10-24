@@ -35,4 +35,6 @@ class Command(BaseCommand):
                     m.pk, 'would forfeit' if one_side else 'left for the organiser'))
             return
         settled = stage_engine.sweep_no_shows(now=now)
-        self.stdout.write('%s settled at %s' % (settled, now.isoformat()))
+        confirmed = stage_engine.sweep_auto_confirms(now=now)
+        self.stdout.write('%s settled, %s reports confirmed at %s' % (
+            settled, confirmed, now.isoformat()))
