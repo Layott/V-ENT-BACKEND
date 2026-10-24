@@ -348,7 +348,10 @@ def send_ticket_purchased(ticket):
     ]
     # A guest has no account, so the email IS their ticket. It carries the
     # scannable code rather than pointing at a page they cannot reach.
-    qr = ticket_qr_png(ticket.code)
+    # The QR carries V-ENT's seal over the code, as the holder's page does
+    # (inbox 525); the code under it stays readable to type at the door.
+    from vent_event import ticket_seal
+    qr = ticket_qr_png(ticket_seal.seal(ticket.code))
     return _send(
         ticket.attendee_email or ticket.user.email,
         f'Your ticket for {event.name}',
