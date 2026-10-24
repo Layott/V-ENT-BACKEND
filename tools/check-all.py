@@ -1092,8 +1092,23 @@ def run(cwd, command):
     return done.returncode, _summary_line(output)
 
 
+def _deferred():
+    """The catchers the CEO put after the English pages (24 October 2026,
+    inbox 538): read from translations-deferred.json beside this file. No
+    file, nothing deferred; that is how the translation pass switches them
+    back on."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'translations-deferred.json')
+    try:
+        with open(path, encoding='utf-8') as fh:
+            return set(json.load(fh).get('catchers') or [])
+    except (OSError, ValueError):
+        return set()
+
+
 def main():
     only_blocking = '--blocking' in sys.argv
+    deferred_names = _deferred()
+    deferred = []
 
     failed_blocking = []
     debt = []
@@ -1123,6 +1138,11 @@ def main():
             # that there are no faults, and it is exact where reading the
             # first integer off "650 route(s) checked, 0 fetch(es)" is a guess.
             tracked.append((name, last, 0))
+        elif name in deferred_names:
+            # Owed, not broken: counted and shown, never blocking, and kept
+            # out of the ledger so a new English key is not a regression.
+            state = 'deferred'
+            deferred.append((name, last))
         elif blocking:
             state = 'BREACH'
             failed_blocking.append((name, rule, last))
@@ -1159,6 +1179,13 @@ def main():
                         - datetime.date.fromisoformat(since)).days
                 age = ' (unchanged for %d day%s)' % (days, '' if days == 1 else 's')
             print('  %-18s %s%s' % (name, last[:60], age))
+        print('')
+
+    if deferred:
+        print('Translations deferred (English first, CEO 24 October 2026). Owed for the')
+        print('translation pass, not blocking; delete tools/translations-deferred.json to run it:')
+        for name, last in deferred:
+            print('  %-18s %s' % (name, last[:60]))
         print('')
 
     dropped = [row for row in fell if row is not None]

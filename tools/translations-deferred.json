@@ -1,0 +1,6 @@
+{
+  "$comment": "English first (CEO, 24 October 2026, inbox 538). While this file exists, the catchers named below report how many French and Portuguese strings are owed instead of blocking a commit, and their counts stay out of the debt ledger so a new English key does not read as a regression. Text still goes through tt('key', 'English'), and the catchers that keep it findable (language blocks, literal text, metadata language) still block. Delete this file to run the translation pass: every count below then blocks again until it is zero.",
+  "since": "2026-10-24",
+  "asked": "The main thing is english for now, you know what, can we run all pages english only first s now< so we can move fast and then come back later for transaltions? when building or editing and all of that. we can thrn run translations later when all of the english pages have been built is at least functional",
+  "catchers": ["translation keys", "dictionary parity", "server codes", "tx text"]
+}
