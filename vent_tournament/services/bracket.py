@@ -187,7 +187,7 @@ class BracketError(Exception):
 #: elimination silently, which is the fault this list exists to prevent.
 DRAWABLE = ('single_elimination', 'double_elimination', 'round_robin', 'league', 'ladder',
             'aggregate_2v2', 'swiss', 'gsl', 'bracket_groups', 'custom_bracket', 'stepladder',
-            'page_playoff', 'winner_stays_on')
+            'page_playoff', 'winner_stays_on', 'league_phase')
 
 
 def generate(tournament, generated_by, seed_strategy='random', manual_order=None):
@@ -300,6 +300,12 @@ def _draw(tournament, stage, btype, ordered, settings, groups, lower=None, early
                                         gsl=btype == 'gsl')
     if btype == 'swiss':
         return _generate_swiss_first_round(tournament, stage, ordered, settings)
+    if btype == 'league_phase':
+        settings = settings or {}
+        pairings = league_phase_pairings(list(ordered), int(settings.get('pots') or 4),
+                                         int(settings.get('per_pot') or 2))
+        return _generate_round_robin(tournament, ordered, stage=stage, settings=settings,
+                                     pairings=pairings)
     if decided_by_table(btype):
         if groups and groups > 1:
             return _generate_groups(tournament, stage, ordered, settings, groups)
@@ -610,13 +616,76 @@ def round_robin_pairings(players, legs=1, method='circle'):
     return out
 
 
-def _generate_round_robin(tournament, ordered, stage=None, settings=None, group=None):
+def league_phase_pairings(players, pots, per_pot):
+    """[(round, home, away)] for a league phase drawn from pots (P3 W3a,
+    research catalogue 3.3, the shape UEFA plays from 2024).
+
+    The field is dealt into `pots` by seed, best first, and everybody meets
+    `per_pot` opponents from every pot, their own included, about half of them
+    at home. Inside a pot the opponents are the next seeds round a circle;
+    between two pots seed i meets seeds i to i + per_pot - 1 of the other, so
+    nobody can meet anybody twice. A match goes in the first round where
+    neither side already plays.
+    """
+    n = len(players)
+    if pots < 2 or n % pots:
+        raise BracketError('league_phase_pots',
+                           '%d entrants cannot be dealt into %d equal pots.' % (n, pots))
+    size = n // pots
+    if per_pot < 1 or per_pot > size - 1 or (per_pot % 2 and size % 2):
+        raise BracketError('league_phase_per_pot',
+                           'A pot of %d cannot give everybody %d opponents.' % (size, per_pot))
+    pot = [players[p * size:(p + 1) * size] for p in range(pots)]
+
+    pairs = []
+    seen = set()
+
+    def add(home, away):
+        key = frozenset((id(home), id(away)))
+        if key not in seen:
+            seen.add(key)
+            pairs.append((home, away))
+
+    for p in range(pots):
+        for a in range(p + 1, pots):
+            for i in range(size):
+                for k in range(per_pot):
+                    j = (i + k) % size
+                    if (k + p + a) % 2 == 0:
+                        add(pot[p][i], pot[a][j])
+                    else:
+                        add(pot[a][j], pot[p][i])
+        for i in range(size):
+            # The next seeds round the circle: home to the ones after, away
+            # to the ones before, so each side is home exactly half the time.
+            for d in range(1, per_pot // 2 + 1):
+                add(pot[p][i], pot[p][(i + d) % size])
+        if per_pot % 2:
+            for i in range(size // 2):
+                a, b = pot[p][i], pot[p][i + size // 2]
+                add(a, b) if i % 2 == 0 else add(b, a)
+
+    busy = {}
+    out = []
+    for home, away in pairs:
+        r = 1
+        while id(home) in busy.get(r, ()) or id(away) in busy.get(r, ()):
+            r += 1
+        busy.setdefault(r, set()).update((id(home), id(away)))
+        out.append((r, home, away))
+    out.sort(key=lambda row: row[0])
+    return out
+
+
+def _generate_round_robin(tournament, ordered, stage=None, settings=None, group=None,
+                          pairings=None):
     from ..models import TieFixture
 
     settings = settings or {}
     seats = _seats_for(tournament)
     legs = int(settings.get('legs') or 1)
-    pairings = round_robin_pairings(list(ordered), legs, settings.get('pairing') or 'circle')
+    if pairings is None:
+        pairings = round_robin_pairings(list(ordered), legs, settings.get('pairing') or 'circle')
     rounds_total = max((r for r, _a, _b in pairings), default=0)
 
     match_no = {}

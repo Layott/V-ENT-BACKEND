@@ -66,7 +66,8 @@ def _threshold(raw):
 # whatever a group or a Swiss stage feeds (P3 W1). Played to one winner, a
 # knockout decides the tournament and feeds nothing.
 QUALIFIER_FEEDS = ('single_elimination', 'double_elimination', 'round_robin', 'league',
-                   'swiss', 'stepladder', 'page_playoff', 'gsl', 'bracket_groups')
+                   'swiss', 'stepladder', 'page_playoff', 'gsl', 'bracket_groups',
+                   'league_phase')
 
 
 def feeds_into(format_key, settings=None):
@@ -337,6 +338,12 @@ def clean(format_key, raw):
         out['pairing'] = str(raw.get('pairing') or 'circle').strip().lower()
         if out['pairing'] not in PAIRINGS:
             raise SettingsError('UNKNOWN_CHOICE', 'pairing')
+    if key == 'league_phase':
+        # The pots the field is dealt into by seed, and how many opponents
+        # everybody meets from each (P3 W3a). Played once, never home and away.
+        out['pots'] = _int(raw.get('pots'), 'pots', 2, 8, 4)
+        out['per_pot'] = _int(raw.get('per_pot'), 'per_pot', 1, 6, 2)
+        out['legs'] = 1
     if key == 'bracket_groups':
         # Each group a knockout of its own (P3 W1). The default is the GSL
         # shape: double elimination, two through, groups of four.

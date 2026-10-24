@@ -458,4 +458,7 @@ class OddNumberOfSidesTests(TestCase):
             if fmt.advancement in ('table', 'points', 'swiss'):
                 if fmt.max_participants and fmt.max_participants < 5:
                     continue
+                # A league phase starts at eight (four pots of two at least).
+                if fmt.min_participants > 5:
+                    continue
                 self.assertIsNone(fmt.count_problem(5), key)
