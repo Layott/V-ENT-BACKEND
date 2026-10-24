@@ -1,0 +1,7 @@
+[Unit]
+Description=V-ENT organisers' own addresses: certificates and nginx blocks (P8c)
+After=network-online.target nginx.service vent-api.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /srv/vent/backend/deploy/custom-domains.sh

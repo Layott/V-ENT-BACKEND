@@ -15,6 +15,11 @@ domain."
   GET        frame/<kind>/<ref>/       who may frame it (public; the frontend
                                        middleware writes it into the header)
   POST       view/                     one view on a site (public; the frame)
+  GET  POST  <kind>/<ref>/domains/     a record's own addresses (P8c); add one (Premium)
+  POST       <kind>/<ref>/domains/<h>/check/   look for the CNAME now
+  DELETE     <kind>/<ref>/domains/<h>/         remove it
+  GET        tls-ask/?domain=          200 only for an active address (certificate tool)
+  GET        host/?host=               the record behind an active address (middleware)
 
 Identity from the session token on every door (R64); a site is always looked
 up as `owner=viewer`, so another person's host answers 404, never theirs
@@ -22,6 +27,7 @@ up as `owner=viewer`, so another person's host answers 404, never theirs
 """
 from datetime import timedelta
 
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.db.models import F, Sum
 from django.utils import timezone
@@ -29,12 +35,12 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from vent_auth import inputs
+from vent_auth import inputs, premium
 from vent_auth.actors import actor_from_request
 from vent_auth.throttle import limited
 
-from . import hosts, records, verify
-from .models import EmbedLock, EmbedView, Site
+from . import domains, hosts, records, verify
+from .models import CustomDomain, EmbedLock, EmbedView, Site
 
 #: Sites one person may hold, and sites one record may be locked to. The
 #: second also bounds the length of the header every frame carries.
@@ -59,6 +65,16 @@ _MESSAGES = {
     'SITE_LOCKS_LIMIT': 'One record can be locked to ten sites at most.',
     'SITE_NOT_MANAGER': 'Only the people who run this can choose where it is shown.',
     'SITE_RECORD_NOT_FOUND': 'Not found.',
+    'CUSTOM_DOMAIN_NOT_PROVEN': 'Prove the website that owns this name by DNS first.',
+    'CUSTOM_DOMAIN_TAKEN': 'That address is already in use.',
+    'CUSTOM_DOMAIN_NOT_PREMIUM': 'Your own address is part of Premium.',
+    'CUSTOM_DOMAIN_BAD_HOST': 'That is not an address we can use. Type the name, like tournaments.theirsite.com.',
+    'CUSTOM_DOMAIN_NOT_YOURS': "That address is not one of this record's.",
+    'CUSTOM_DOMAIN_LIMIT': 'One record can have three addresses at most.',
+    'CUSTOM_DOMAIN_NOT_FOUND': 'Not found.',
+    'CUSTOM_DOMAIN_CNAME_MISSING': 'No CNAME record was found for that address yet. It can take a while to appear.',
+    'CUSTOM_DOMAIN_CNAME_WRONG': 'The CNAME record points somewhere else. It must point at %s.' % domains.TARGET,
+    'CUSTOM_DOMAIN_UNREACHABLE': 'The address did not answer. Try again in a minute.',
 }
 
 
@@ -282,3 +298,146 @@ def count_view(request):
         row = EmbedView.objects.get(host=host, day=day, **here)
     EmbedView.objects.filter(pk=row.pk).update(views=F('views') + 1)
     return _ok({'counted': True})
+
+
+def _domain_row(domain):
+    return {
+        'hostname': domain.hostname,
+        'state': domain.state,
+        'site': domain.site.host,
+        'checked_at': domain.checked_at,
+        'last_code': domain.last_code,
+    }
+
+
+def _domains_payload(kind, record):
+    rows = (CustomDomain.objects.filter(**records.target(kind, record))
+            .select_related('site').order_by('hostname'))
+    return {
+        'kind': kind,
+        'slug': record.slug,
+        'premium': premium.has_premium(record),
+        'target': domains.TARGET,
+        'most': domains.MOST_DOMAINS,
+        'domains': [_domain_row(d) for d in rows],
+    }
+
+
+def _own_domain(kind, record, hostname):
+    """The domain with this name on this record, else None (a name that
+    belongs to another record answers the same as one nobody added)."""
+    try:
+        name = hosts.normalize(hostname)
+    except hosts.BadHost:
+        return None
+    return (CustomDomain.objects.filter(hostname=name, **records.target(kind, record))
+            .select_related('site').first())
+
+
+@api_view(['GET', 'POST'])
+def record_domains(request, kind, ref):
+    viewer, record, err = _managed(request, kind, ref)
+    if err:
+        return err
+    if request.method == 'GET':
+        return _ok(_domains_payload(kind, record))
+
+    if not premium.has_premium(record):
+        return _err('CUSTOM_DOMAIN_NOT_PREMIUM', status.HTTP_402_PAYMENT_REQUIRED)
+    raw = inputs.read_text(request.data, 'hostname', max_length=300, required=True)
+    try:
+        name = hosts.normalize(raw)
+    except hosts.BadHost:
+        return _err('CUSTOM_DOMAIN_BAD_HOST')
+    here = records.target(kind, record)
+    held = CustomDomain.objects.filter(hostname=name).first()
+    if held is not None:
+        if CustomDomain.objects.filter(pk=held.pk, **here).exists():
+            return _ok(_domains_payload(kind, record), 'You have already added this address.')
+        return _err('CUSTOM_DOMAIN_TAKEN', status.HTTP_409_CONFLICT)
+    site = domains.covering_site(Site.objects.filter(owner=viewer), name)
+    if site is None:
+        return _err('CUSTOM_DOMAIN_NOT_PROVEN')
+    if CustomDomain.objects.filter(**here).count() >= domains.MOST_DOMAINS:
+        return _err('CUSTOM_DOMAIN_LIMIT')
+    try:
+        with transaction.atomic():
+            CustomDomain.objects.create(site=site, hostname=name, created_by=viewer, **here)
+    except IntegrityError:
+        # The same name added twice at once: the other request made the row.
+        return _err('CUSTOM_DOMAIN_TAKEN', status.HTTP_409_CONFLICT)
+    return _ok(_domains_payload(kind, record),
+               'Address added. Point it at V-ENT, then check it.', status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@limited('domain_check', 10)
+def check_domain(request, kind, ref, hostname):
+    viewer, record, err = _managed(request, kind, ref)
+    if err:
+        return err
+    domain = _own_domain(kind, record, hostname)
+    if domain is None:
+        return _err('CUSTOM_DOMAIN_NOT_YOURS', status.HTTP_404_NOT_FOUND)
+    domains.run_check(domain)
+    payload = _domains_payload(kind, record)
+    if domain.state == 'active':
+        return _ok(payload, 'Address is live.')
+    return _err(domain.last_code, data=payload)
+
+
+@api_view(['DELETE'])
+def remove_domain(request, kind, ref, hostname):
+    viewer, record, err = _managed(request, kind, ref)
+    if err:
+        return err
+    domain = _own_domain(kind, record, hostname)
+    if domain is None:
+        return _err('CUSTOM_DOMAIN_NOT_YOURS', status.HTTP_404_NOT_FOUND)
+    name = domain.hostname
+    domain.delete()
+    domains.forget(name)
+    return _ok(_domains_payload(kind, record), 'Address removed.')
+
+
+def _active_domain(raw):
+    """The active domain for a typed name, or None."""
+    try:
+        name = hosts.normalize(raw)
+    except hosts.BadHost:
+        return None
+    return CustomDomain.objects.filter(hostname=name, state='active').first()
+
+
+@api_view(['GET'])
+@limited('tls_ask', 600)
+def tls_ask(request):
+    """200 only for an active domain: what the certificate tool asks before issuing."""
+    if _active_domain(request.query_params.get('domain', '')) is None:
+        return _err('CUSTOM_DOMAIN_NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    return _ok({'issue': True})
+
+
+@api_view(['GET'])
+@limited('sites_host', 600)
+def host_record(request):
+    """The record behind an active custom address, for the frontend middleware."""
+    raw = request.query_params.get('host', '')
+    try:
+        name = hosts.normalize(raw)
+    except hosts.BadHost:
+        return _err('CUSTOM_DOMAIN_NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    key = domains.host_key(name)
+    found = cache.get(key)
+    if found is None:
+        found = False
+        domain = _active_domain(name)
+        if domain is not None:
+            kind = 'tournament' if domain.tournament_id else 'event'
+            record = domain.tournament or domain.event
+            if record is not None and not (kind == 'tournament' and record.is_draft):
+                found = {'kind': kind, 'slug': record.slug}
+        cache.set(key, found, domains.HOST_CACHE_SECONDS)
+    if not found:
+        return _err('CUSTOM_DOMAIN_NOT_FOUND', status.HTTP_404_NOT_FOUND)
+    return _ok(found)
