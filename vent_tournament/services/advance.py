@@ -98,8 +98,8 @@ def _award_reward_tickets(match):
         if match.status != 'completed' or match.winner_id is None:
             return
 
-        from vent_event.models import EventTournamentLink, Ticket
-        from vent_event.views_tickets import _new_code
+        from vent_event.models import EventTournamentLink
+        from .. import rewards
 
         link = EventTournamentLink.objects.select_related('event', 'reward_tier').filter(
             tournament_id=match.tournament_id).first()
@@ -119,19 +119,7 @@ def _award_reward_tickets(match):
 
         # Idempotent: cascade can run more than once for the same match, and two
         # tickets for one achievement is two people through one door.
-        already = Ticket.objects.filter(
-            event_id=link.event_id, user=holder, tier_id=link.reward_tier_id,
-            payment_reference='reward:%s' % match.pk).exists()
-        if already:
-            return
-
-        Ticket.objects.create(
-            event_id=link.event_id, tier_id=link.reward_tier_id, user=holder,
-            code=_new_code(), price_vc=0, price_ngn=0,
-            attendee_name=(holder.full_name or holder.username or '')[:120],
-            attendee_email=(holder.email or '')[:254],
-            payment_reference='reward:%s' % match.pk,
-        )
+        rewards.issue(link.event_id, link.reward_tier_id, holder, 'reward:%s' % match.pk)
     except Exception:
         logger.exception('could not award a reward ticket for match %s', match.pk)
 

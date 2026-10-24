@@ -1443,6 +1443,12 @@ class Progression(models.Model):
     ON_DECLINE = (('next', 'The next placement'), ('organiser', 'The organiser picks'))
     decline_hours = models.PositiveIntegerField(null=True, blank=True, default=48)
     on_decline = models.CharField(max_length=12, choices=ON_DECLINE, default='next')
+    # A ticket to the target's event for every qualifier it sends (P2d,
+    # design section 7). Only a tier of an event the target tournament is
+    # linked to; empty means qualifying earns a place and nothing else.
+    ticket_tier = models.ForeignKey(
+        'vent_event.TicketTier', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='feeds_awarding')
     # Places a declined qualifier left for the organiser to fill
     # ({place, group, index, declined_registration_id}), and what happened to
     # the places this feed sent ({kind, source_registration_id,
