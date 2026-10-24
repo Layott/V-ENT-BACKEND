@@ -244,6 +244,16 @@
     "first_seen": "2026-09-09",
     "since": "2026-09-09"
   },
+  "games shape": {
+    "count": 0,
+    "first_seen": "2026-10-24",
+    "since": "2026-10-24"
+  },
+  "games shape self-test": {
+    "count": 0,
+    "first_seen": "2026-10-24",
+    "since": "2026-10-24"
+  },
   "gateway text": {
     "count": 0,
     "first_seen": "2026-09-29",
@@ -473,6 +483,11 @@
     "count": 0,
     "first_seen": "2026-09-07",
     "since": "2026-09-07"
+  },
+  "quiet refresh": {
+    "count": 0,
+    "first_seen": "2026-10-24",
+    "since": "2026-10-24"
   },
   "raw enums": {
     "count": 0,
