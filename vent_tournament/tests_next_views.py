@@ -163,3 +163,51 @@ class RegistrationClosesWhenItSaysTests(TestCase):
         self.t.save(update_fields=['registration_closes_at'])
         self.assertEqual(next_actions.for_viewer(self.player, self.t), [])
         self.assertEqual(self.join().json()['code'], 'REGISTRATION_CLOSED')
+
+
+class TheDoorsSettleWhatTimeSettledTests(TestCase):
+    """A report past its confirmation window is final before either door answers."""
+
+    def reported_long_ago(self):
+        from . import options as tournament_options
+        from .models import MatchScore
+        from .tests_stage_engine import add_stage, draw, field
+
+        t, creator, _regs = field(4)
+        t.options = tournament_options.clean({'auto_confirm_minutes': 30})
+        t.save(update_fields=['options'])
+        stage = add_stage(t, 0, 'single_elimination')
+        draw(stage, creator)
+        m = stage.matches.filter(round_number=1, participant_2__isnull=False).first()
+        res = client_for(m.participant_1.user).post(
+            '/tournament/match/%s/report-score/' % m.pk,
+            {'score_p1': 2, 'score_p2': 0}, format='json')
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        MatchScore.objects.filter(match=m).update(submitted_at=timezone.now() - timedelta(minutes=90))
+        return t, creator, m
+
+    def test_the_opponent_is_not_asked_to_confirm_a_final_score(self):
+        t, _creator, m = self.reported_long_ago()
+        res = client_for(m.participant_2.user).get('/tournament/%s/next-actions/' % t.slug)
+        self.assertEqual(res.status_code, 200)
+        self.assertNotIn('confirm_score', [a['action'] for a in res.json()['data']['actions']])
+        m.refresh_from_db()
+        self.assertEqual((m.status, m.winner_id), ('completed', m.participant_1_id))
+
+    def test_the_organiser_is_not_shown_it_as_unconfirmed(self):
+        t, creator, m = self.reported_long_ago()
+        res = client_for(creator).get('/tournament/%s/actions-list/' % t.slug)
+        self.assertEqual(res.status_code, 200)
+        kinds = [(i['kind'], (i.get('match') or {}).get('id')) for i in res.json()['data']['items']]
+        self.assertNotIn(('unconfirmed', m.pk), kinds)
+        m.refresh_from_db()
+        self.assertEqual(m.status, 'completed')
+
+    def test_inside_the_window_it_is_still_asked(self):
+        t, _creator, m = self.reported_long_ago()
+        from .models import MatchScore
+        MatchScore.objects.filter(match=m).update(submitted_at=timezone.now() - timedelta(minutes=5))
+        res = client_for(m.participant_2.user).get('/tournament/%s/next-actions/' % t.slug)
+        self.assertIn('confirm_score', [a['action'] for a in res.json()['data']['actions']])
+        m.refresh_from_db()
+        self.assertEqual(m.status, 'pending_opponent_confirm')
