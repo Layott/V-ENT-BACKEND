@@ -349,6 +349,13 @@ def clean(format_key, raw):
         out['pairing'] = str(raw.get('pairing') or 'circle').strip().lower()
         if out['pairing'] not in PAIRINGS:
             raise SettingsError('UNKNOWN_CHOICE', 'pairing')
+    if key == 'challenge_ladder':
+        # How far up a challenge may reach, and whether the places are drawn
+        # as a ladder or a pyramid (P3 W3d).
+        out['reach'] = _int(raw.get('reach'), 'reach', 1, 10, 3)
+        out['shape'] = str(raw.get('shape') or 'ladder').strip().lower()
+        if out['shape'] not in ('ladder', 'pyramid'):
+            raise SettingsError('UNKNOWN_CHOICE', 'shape')
     if key == 'aggregate_2v2':
         out['tie_rule'] = str(raw.get('tie_rule') or 'goals').strip().lower()
         if out['tie_rule'] not in TIE_RULES:
