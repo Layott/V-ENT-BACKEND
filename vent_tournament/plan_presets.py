@@ -97,4 +97,43 @@ def ffa_bracket(entrants, lobby_size, through, maps=4, final_maps=None, game_tit
     return {'stages': out_stages, 'lines': lines, 'rounds': rounds}
 
 
-PRESETS = {'ffa_bracket': ffa_bracket}
+def split_league(entrants, legs, top, game_title=None):
+    """A split league: everybody plays one league, then its top `top` places
+    play on in a top league and the rest in a bottom league, each carrying the
+    points it won in the first. The top league sits above the bottom whatever
+    the points, which `progressions.placement_order` already gives.
+
+    Each league is a round robin, not a league: the format catalogue lets a
+    round robin feed another round robin, but a league feeds only knockouts,
+    so a league could not carry places into a league. Returns {stages, lines,
+    rounds} in the shape `ffa_bracket` returns them. `game_title` is taken so
+    every preset is called the same way; a league has no game settings.
+    """
+    # Every league needs three to play, so each side of the split does too.
+    entrants = _whole(entrants, 'entrants', 6, 5000)
+    legs = _whole(legs, 'legs', 1, 2, 2)
+    top = _whole(top, 'top', 3, entrants - 3)
+    # The first league sends everybody on, the top `top` up and the rest down.
+    out_stages = [
+        {'format': 'round_robin', 'kind': 'round', 'round': 1, 'advances': entrants,
+         'groups': 0, 'settings': {'legs': legs}},
+        {'format': 'round_robin', 'kind': 'top', 'round': 2, 'advances': 0, 'groups': 0,
+         'settings': {'legs': legs}},
+        {'format': 'round_robin', 'kind': 'bottom', 'round': 2, 'advances': 0, 'groups': 0,
+         'settings': {'legs': legs}},
+    ]
+    lines = [
+        {'source': 0, 'target': 1, 'group': None, 'place_from': 1, 'place_to': top,
+         'side': 'any', 'carry_points': True, 'fire': 'after_preview', 'order': 0},
+        {'source': 0, 'target': 2, 'group': None, 'place_from': top + 1,
+         'place_to': entrants, 'side': 'any', 'carry_points': True,
+         'fire': 'after_preview', 'order': 1},
+    ]
+    rounds = [{'entrants': entrants}, {'entrants': top}, {'entrants': entrants - top}]
+    return {'stages': out_stages, 'lines': lines, 'rounds': rounds}
+
+
+PRESETS = {'ffa_bracket': ffa_bracket, 'split_league': split_league}
+# The query parameters each preset reads, in the order its function takes them.
+PARAMS = {'ffa_bracket': ('entrants', 'lobby_size', 'through', 'maps', 'final_maps'),
+          'split_league': ('entrants', 'legs', 'top')}

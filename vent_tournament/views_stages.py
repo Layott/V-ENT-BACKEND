@@ -243,7 +243,7 @@ def tournament_stages(request, tournament_id):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def stage_preset(request, tournament_id):
-    """GET /tournament/<ref>/stages/preset/?kind=ffa_bracket&entrants=&lobby_size=&through=&maps=&final_maps=
+    """GET /tournament/<ref>/stages/preset/?kind=ffa_bracket|split_league&entrants=&lobby_size=&through=&maps=&final_maps=&legs=&top=
 
     A whole plan written by a function (P3 W1), for the planner to load as a
     draft. Nothing is stored, and it says nothing about the tournament but its
@@ -260,8 +260,7 @@ def stage_preset(request, tournament_id):
     game = getattr(tournament.tournament_game, 'game_title', '') if tournament.tournament_game_id else ''
     q = request.query_params
     try:
-        plan = build(q.get('entrants'), q.get('lobby_size'), q.get('through'),
-                     maps=q.get('maps'), final_maps=q.get('final_maps'), game_title=game)
+        plan = build(**{name: q.get(name) for name in plan_presets.PARAMS[kind]}, game_title=game)
     except plan_presets.PresetError as exc:
         return _err('That preset cannot be built with these numbers.', exc.code, field=exc.field)
     return _ok(plan, 'Preset')
