@@ -278,6 +278,42 @@ def apply(match, decision, *, recorded_by=None, forfeit_reason=''):
     return match
 
 
+def confirm_report(match, submission, *, confirmed_by=None, automatic=False):
+    """Confirm a reported score: the one path the opponent's agreement and the
+    auto-approval timer (`auto_confirm_minutes`, P4b) both take.
+
+    The report is checked by `decide` like any result (a ResultError goes to
+    the caller), written with `apply`, and its submission marked confirmed. An
+    automatic confirmation has no `confirmed_by` and says so in the bracket's
+    history. Returns the locked match and the Decision.
+    """
+    from django.db import transaction
+    from django.utils import timezone
+
+    decision = decide(
+        match, submission.score_p1, submission.score_p2,
+        penalties_p1=submission.penalties_p1,
+        penalties_p2=submission.penalties_p2, games=submission.games)
+    with transaction.atomic():
+        locked = type(match).objects.select_for_update().get(pk=match.pk)
+        # Saving to 'completed' fires the post_save signal -> auto-advance cascade.
+        apply(locked, decision)
+
+        submission.confirmed = True
+        submission.confirmed_by = confirmed_by
+        submission.confirmed_at = timezone.now()
+        submission.save(update_fields=['confirmed', 'confirmed_by', 'confirmed_at'])
+        if automatic:
+            from . import options as tournament_options
+            from .models import BracketEdit
+            minutes = tournament_options.clean(locked.tournament.options)['auto_confirm_minutes']
+            BracketEdit.objects.create(
+                tournament=locked.tournament, stage=locked.stage if locked.stage_id else None,
+                user=None, kind='auto_confirm',
+                detail={'match': locked.id, 'submission': submission.id, 'minutes': minutes})
+    return locked, decision
+
+
 def _refresh_final_places(tournament):
     """A result changed after the tournament ended (inbox 521): the final
     places follow it. They were written when it finished and nothing wrote

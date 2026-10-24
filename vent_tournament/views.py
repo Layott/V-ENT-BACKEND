@@ -2900,6 +2900,7 @@ def get_tournament_brackets(request, tournament_id):
             qs = tournament.bracket_matches.all()
 
         stage_engine.sweep_no_shows(tournament)
+        stage_engine.sweep_auto_confirms(tournament)
         from vent_auth.actors import actor_from_request
         from .access import may_record_results
         viewer = None

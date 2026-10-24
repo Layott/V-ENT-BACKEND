@@ -1141,8 +1141,11 @@ def swiss_finished(stage):
     return len(_swiss_active(stage, _swiss_standings(stage))) < 2
 
 
-def next_swiss_round(stage):
-    """Pair and create the next round, when the current one is complete."""
+def next_swiss_round(stage, skip_withdrawn=False):
+    """Pair and create the next round, when the current one is complete.
+
+    `skip_withdrawn` leaves out entrants who withdrew (a round paired again
+    after somebody dropped out, P4b)."""
     from .models import TournamentRegistration
     from .services import bracket
 
@@ -1152,8 +1155,10 @@ def next_swiss_round(stage):
         return None
     rows = _swiss_standings(stage)
     active = _swiss_active(stage, rows)
-    regs = {r.id: r for r in TournamentRegistration.objects.filter(
-        id__in=[r['registration_id'] for r in active])}
+    pool = TournamentRegistration.objects.filter(id__in=[r['registration_id'] for r in active])
+    if skip_withdrawn:
+        pool = pool.exclude(status='withdrawn')
+    regs = {r.id: r for r in pool}
     players = [regs[r['registration_id']] for r in active if r['registration_id'] in regs]
     # McMahon pairs on starting score plus wins; an ordinary Swiss on the record.
     record = ({r['registration_id']: (r['wins'] + r['mcmahon_start'], 0) for r in rows}
@@ -1349,6 +1354,48 @@ def sweep_no_shows(tournament=None, now=None):
     if tournament is not None:
         qs = qs.filter(tournament=tournament)
     return sum(1 for m in qs.select_related('participant_1', 'participant_2') if settle_no_show(m, now))
+
+
+def settle_auto_confirm(match, now=None):
+    """Confirm a reported score nobody contested within the organiser's window
+    (`auto_confirm_minutes`, P4b). It goes through `results.confirm_report`, the
+    function the opponent's agreement calls. A disputed match is never touched:
+    its status is no longer pending. A report that cannot stand is left for the
+    organiser. True when the match was confirmed."""
+    from . import options as tournament_options, results
+    from .models import BracketMatch, MatchScore
+
+    now = now or timezone.now()
+    if match.status != 'pending_opponent_confirm':
+        return False
+    minutes = tournament_options.clean(match.tournament.options)['auto_confirm_minutes']
+    if not minutes:
+        return False
+    with transaction.atomic():
+        locked = BracketMatch.objects.select_for_update().select_related(
+            'tournament', 'participant_1', 'participant_2').get(pk=match.pk)
+        if locked.status != 'pending_opponent_confirm':
+            return False
+        submission = (MatchScore.objects
+                      .filter(match=locked, confirmed=False, superseded_by__isnull=True)
+                      .order_by('-submitted_at').first())
+        if submission is None or submission.submitted_at + timedelta(minutes=minutes) > now:
+            return False
+        try:
+            results.confirm_report(locked, submission, automatic=True)
+        except results.ResultError:
+            return False
+    return True
+
+
+def sweep_auto_confirms(tournament=None, now=None):
+    from .models import BracketMatch
+
+    now = now or timezone.now()
+    qs = BracketMatch.objects.filter(status='pending_opponent_confirm')
+    if tournament is not None:
+        qs = qs.filter(tournament=tournament)
+    return sum(1 for m in qs.select_related('tournament') if settle_auto_confirm(m, now))
 
 
 # ---------------------------------------------------------------------------

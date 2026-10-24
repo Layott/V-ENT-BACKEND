@@ -4,6 +4,9 @@
     POST /tournament/<ref>/stages/<sid>/undraw/           undo a stage's draw
     POST /tournament/<ref>/stages/<sid>/reopen/           open a closed stage again
     POST /tournament/<ref>/stages/<sid>/reformat/         a different format, drawn again
+    POST /tournament/<ref>/stages/<sid>/groups/<g>/reopen/        one finished group opens again
+    POST /tournament/<ref>/stages/<sid>/rounds/<n>/delete/        the last Swiss round goes
+    POST /tournament/<ref>/stages/<sid>/rounds/<n>/regenerate/    paired again without who withdrew
     POST /tournament/<ref>/bracket/swap/                  two entrants trade places
     POST /tournament/<ref>/bracket/replace/               somebody takes an entrant's place
     POST /tournament/<ref>/matches/<mid>/reopen/          take a result back off a match
@@ -15,6 +18,10 @@ is (adopt, reformat, a match's rules) is 'structure'; who sits where (undo a
 draw, reopen a stage, swap, replace, the record of changes) is 'place'; taking a
 result back off a match is 'report'. The organiser and an admin hold all three. The rules themselves live in `bracket_edit.py`; this file reads the
 request, asks, and answers with a code the screen translates.
+
+Every door that undoes played results also takes `preview` (body or query):
+it answers what would be undone, `matches_undone`, `results_cleared` and
+`entrants_moved`, and changes nothing (P4b).
 """
 from django.db import transaction
 from rest_framework import status
@@ -48,7 +55,14 @@ STATUS = {
     'NOTHING_TO_REOPEN': status.HTTP_409_CONFLICT,
     'PREVIOUS_STAGE_NOT_FINISHED': status.HTTP_409_CONFLICT,
     'STAGE_ALREADY_DRAWN': status.HTTP_409_CONFLICT,
+    'GROUP_NOT_FINISHED': status.HTTP_409_CONFLICT,
+    'ROUND_HAS_RESULTS': status.HTTP_409_CONFLICT,
+    'NOT_THE_LAST_ROUND': status.HTTP_409_CONFLICT,
+    'NOTHING_TO_REGENERATE': status.HTTP_409_CONFLICT,
+    'FIRST_ROUND': status.HTTP_409_CONFLICT,
     'STAGE_NOT_FOUND': status.HTTP_404_NOT_FOUND,
+    'GROUP_NOT_FOUND': status.HTTP_404_NOT_FOUND,
+    'ROUND_NOT_FOUND': status.HTTP_404_NOT_FOUND,
     'NOT_ENOUGH_ENTRANTS': status.HTTP_422_UNPROCESSABLE_ENTITY,
     'TOO_MANY_ENTRANTS': status.HTTP_422_UNPROCESSABLE_ENTITY,
 }
@@ -68,6 +82,11 @@ def _run(fn):
             return fn(), None
     except bracket_edit.EditError as exc:
         return None, _refused(exc)
+
+
+def _preview_asked(request):
+    return (inputs.read_bool(request.data, 'preview')
+            or inputs.read_bool(request.query_params, 'preview'))
 
 
 def _match(tournament, match_id):
@@ -108,9 +127,13 @@ def undraw(request, tournament_id, stage_id):
     if err:
         return err
     discard = inputs.read_bool(request.data, 'discard_results')
-    summary, err = _run(lambda: bracket_edit.undraw(stage, user, discard_results=discard))
+    preview = _preview_asked(request)
+    summary, err = _run(lambda: bracket_edit.undraw(
+        stage, user, discard_results=discard, preview=preview))
     if err:
         return err
+    if preview:
+        return _ok(summary, 'Preview.')
     stage.refresh_from_db()
     return _ok({'stage': _row(stage), **summary}, 'Draw undone.')
 
@@ -123,9 +146,12 @@ def reopen_stage(request, tournament_id, stage_id):
     stage, err = _stage(tournament, stage_id)
     if err:
         return err
-    _done, err = _run(lambda: bracket_edit.unadvance(stage, user))
+    preview = _preview_asked(request)
+    done, err = _run(lambda: bracket_edit.unadvance(stage, user, preview=preview))
     if err:
         return err
+    if preview:
+        return _ok(done, 'Preview.')
     stage.refresh_from_db()
     return _ok({'stage': _row(stage)}, 'Stage open again.')
 
@@ -151,6 +177,7 @@ def reformat(request, tournament_id, stage_id):
     manual = request.data.get('manual_order')
     if manual is not None and not isinstance(manual, list):
         return _err('Send the order as a list.', 'VALIDATION_FAILED', field='manual_order')
+    preview = _preview_asked(request)
     strategy = inputs.read_text(request.data, 'seed_strategy', max_length=30) or 'registration'
     if strategy == 'seed_field':
         strategy = 'ranked'
@@ -158,9 +185,12 @@ def reformat(request, tournament_id, stage_id):
         stage, user, fmt_key=fmt_key, settings=settings, groups=groups, advances=advances,
         seed_strategy=strategy, manual_order=manual,
         discard_results=inputs.read_bool(request.data, 'discard_results'),
-        draw=inputs.read_bool(request.data, 'draw', default=True)))
+        draw=inputs.read_bool(request.data, 'draw', default=True),
+        preview=preview))
     if err:
         return err
+    if preview:
+        return _ok(summary, 'Preview.')
     stage.refresh_from_db()
     return _ok({'stage': _row(stage), 'draw': summary['draw']}, 'Format changed.')
 
@@ -207,12 +237,16 @@ def reopen_match(request, tournament_id, match_id):
     if err:
         return err
 
+    preview = _preview_asked(request)
+
     def go():
         locked = BracketMatch.objects.select_for_update().get(pk=match.pk)
-        return bracket_edit.reopen(locked, user)
+        return bracket_edit.reopen(locked, user, preview=preview)
     reopened, err = _run(go)
     if err:
         return err
+    if preview:
+        return _ok(reopened, 'Preview.')
     from .match_shape import match_row
     return _ok({'match': match_row(reopened)}, 'Result taken off.')
 
@@ -236,6 +270,57 @@ def match_rules(request, tournament_id, match_id):
     if err:
         return err
     return _ok(summary, 'Match rules changed.')
+
+
+@api_view(['POST'])
+def reopen_group(request, tournament_id, stage_id, group):
+    tournament, user, err = _guarded(request, tournament_id, 'place')
+    if err:
+        return err
+    stage, err = _stage(tournament, stage_id)
+    if err:
+        return err
+    discard = inputs.read_bool(request.data, 'discard_results')
+    preview = _preview_asked(request)
+    summary, err = _run(lambda: bracket_edit.reopen_group(
+        stage, group, user, discard_results=discard, preview=preview))
+    if err:
+        return err
+    if preview:
+        return _ok(summary, 'Preview.')
+    stage.refresh_from_db()
+    return _ok({'stage': _row(stage), **summary}, 'Group open again.')
+
+
+@api_view(['POST'])
+def delete_round(request, tournament_id, stage_id, round_number):
+    tournament, user, err = _guarded(request, tournament_id, 'place')
+    if err:
+        return err
+    stage, err = _stage(tournament, stage_id)
+    if err:
+        return err
+    preview = _preview_asked(request)
+    summary, err = _run(lambda: bracket_edit.delete_round(stage, round_number, user, preview=preview))
+    if err:
+        return err
+    return _ok(summary, 'Preview.' if preview else 'Round deleted.')
+
+
+@api_view(['POST'])
+def regenerate_round(request, tournament_id, stage_id, round_number):
+    tournament, user, err = _guarded(request, tournament_id, 'place')
+    if err:
+        return err
+    stage, err = _stage(tournament, stage_id)
+    if err:
+        return err
+    preview = _preview_asked(request)
+    summary, err = _run(lambda: bracket_edit.regenerate_round(
+        stage, round_number, user, preview=preview))
+    if err:
+        return err
+    return _ok(summary, 'Preview.' if preview else 'Round paired again.')
 
 
 @api_view(['GET'])
