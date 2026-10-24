@@ -121,8 +121,21 @@ def check(target_stage, source_stage, user, place_from, place_to, group=None):
         raise FeedError('FEED_CYCLE', 'source_tournament')
 
 
+def ticket_tiers(tournament):
+    """The tiers a feed into `tournament` may hand its qualifiers: those of the
+    events it is linked to (P2d)."""
+    from vent_event.models import TicketTier
+    return (TicketTier.objects.filter(event__tournament_links__tournament=tournament)
+            .select_related('event').order_by('event_id', 'id'))
+
+
+def _check_tier(target, tier):
+    if tier is not None and not ticket_tiers(target).filter(pk=tier.pk).exists():
+        raise FeedError('FEED_TICKET_NOT_THIS_EVENT', 'ticket_tier')
+
+
 def create(target_stage, source_stage, user, place_from, place_to, group=None, side='any',
-           fire='after_preview', decline_hours=48, on_decline='next'):
+           fire='after_preview', decline_hours=48, on_decline='next', ticket_tier=None):
     from . import progressions
     from .models import Progression
     check(target_stage, source_stage, user, place_from, place_to, group)
@@ -134,11 +147,12 @@ def create(target_stage, source_stage, user, place_from, place_to, group=None, s
         raise FeedError('FEED_ON_DECLINE', 'on_decline')
     if decline_hours is not None and not (1 <= int(decline_hours) <= 720):
         raise FeedError('FEED_DECLINE_HOURS', 'decline_hours')
+    _check_tier(target_stage.tournament, ticket_tier)
     last = target_stage.incoming.order_by('-order').values_list('order', flat=True).first()
     return Progression.objects.create(
         source=source_stage, target=target_stage, group=group, place_from=place_from,
         place_to=place_to, side=side, fire=fire, order=(last or 0) + 1,
-        decline_hours=decline_hours, on_decline=on_decline)
+        decline_hours=decline_hours, on_decline=on_decline, ticket_tier=ticket_tier)
 
 
 # ---------------------------------------------------------------------------
@@ -287,6 +301,7 @@ def qualify(line, rows):
                 reg.qualified_via, reg.source_place, reg.decline_until = line, place, until
                 reg.save(update_fields=['qualified_via', 'source_place', 'decline_until'])
             _tell(reg, line, place, until)
+            _reward(line, reg)
             out.append(dict(row, registration_id=reg.id, reused=reused))
             continue
         source_reg = TournamentRegistration.objects.select_related('user', 'team').get(
@@ -302,9 +317,26 @@ def qualify(line, rows):
             reg.qualified_via, reg.source_place, reg.decline_until = line, place, until
             reg.save(update_fields=['qualified_via', 'source_place', 'decline_until'])
         _tell(reg, line, place, until)
+        _reward(line, reg)
         out.append(dict(row, registration_id=reg.id, source_registration_id=source_reg.id,
                         reused=reused))
     return out
+
+
+def _reference(line, registration):
+    return 'qualified:%s:%s' % (line.pk, registration.pk)
+
+
+def _reward(line, registration):
+    """The ticket the feed hands its qualifiers (P2d), through the one way a
+    reward ticket is made. A team entry gets none: there is no single person
+    to hand it to, the same answer as the round reward."""
+    from . import rewards
+    if line.ticket_tier_id:
+        tier = line.ticket_tier
+        rewards.issue(tier.event_id, tier.id,
+                      registration.user if registration.user_id else None,
+                      _reference(line, registration))
 
 
 def unqualify(line):
@@ -317,6 +349,8 @@ def unqualify(line):
             pk=row.get('registration_id'), tournament_id=line.target.tournament_id).first()
         if reg is None:
             continue
+        from . import rewards
+        rewards.withdraw(_reference(line, reg))
         if row.get('reused'):
             reg.qualified_via, reg.source_place, reg.decline_until = None, None, None
             reg.save(update_fields=['qualified_via', 'source_place', 'decline_until'])
@@ -451,6 +485,9 @@ def decline(registration, user):
     row = line.sent[index]
     registration.status = 'declined'
     registration.save(update_fields=['status'])
+    # A place turned down gives back the ticket it earned, if it is unused.
+    from . import rewards
+    rewards.withdraw(_reference(line, registration))
     _record(line, 'declined', row, registration)
     _hand_on(line, index, registration, user, line.on_decline)
     line.save(update_fields=['sent', 'waiting', 'history'])
@@ -634,6 +671,8 @@ def rows(tournament):
                 'group': line.group, 'place_from': line.place_from, 'place_to': line.place_to,
                 'side': line.side, 'fire': line.fire, 'decline_hours': line.decline_hours,
                 'on_decline': line.on_decline, 'fired_at': line.fired_at,
+                'ticket_tier': ({'id': line.ticket_tier_id, 'name': line.ticket_tier.name}
+                                if line.ticket_tier_id else None),
                 'sent_count': len(line.sent or []),
                 # Who it sent and where they stand (names and places, the facts
                 # a standings table shows), and declined places waiting for
@@ -650,4 +689,7 @@ def rows(tournament):
     incoming = base.filter(target__tournament=tournament).exclude(source__tournament=tournament)
     outgoing = base.filter(source__tournament=tournament).exclude(target__tournament=tournament)
     return {'incoming': [row(l) for l in incoming.order_by('order', 'id')],
-            'outgoing': [row(l) for l in outgoing.order_by('order', 'id')]}
+            'outgoing': [row(l) for l in outgoing.order_by('order', 'id')],
+            # What a new feed into this tournament may hand its qualifiers.
+            'ticket_tiers': [{'id': t.id, 'name': t.name, 'event': t.event.name}
+                             for t in ticket_tiers(tournament)]}

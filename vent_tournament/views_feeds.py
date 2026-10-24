@@ -75,11 +75,25 @@ def _create(request, tournament):
                 side=inputs.read_choice(body, 'side', progressions.SIDES, default='any'),
                 fire=inputs.read_choice(body, 'fire', progressions.FIRES, default='after_preview'),
                 decline_hours=inputs.read_int(body, 'decline_hours', default=48, minimum=1, maximum=720),
-                on_decline=inputs.read_choice(body, 'on_decline', feeds.ON_DECLINE, default='next'))
+                on_decline=inputs.read_choice(body, 'on_decline', feeds.ON_DECLINE, default='next'),
+                ticket_tier=_tier(body))
     except feeds.FeedError as exc:
         return _feed_err(exc)
     row = next(r for r in feeds.rows(tournament)['incoming'] if r['id'] == line.id)
     return _ok({'feed': row}, 'Feed made', status.HTTP_201_CREATED)
+
+
+def _tier(body):
+    """The ticket tier a feed hands its qualifiers (P2d), or None. An id that
+    names no tier is refused by feeds.create like a tier of another event."""
+    from vent_event.models import TicketTier
+    tier_id = inputs.read_int(body, 'ticket_tier', minimum=1)
+    if not tier_id:
+        return None
+    tier = TicketTier.objects.filter(pk=tier_id).first()
+    if tier is None:
+        raise feeds.FeedError('FEED_TICKET_NOT_THIS_EVENT', 'ticket_tier')
+    return tier
 
 
 def _create_from_circuit(request, tournament, target_stage, user):
