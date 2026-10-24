@@ -363,6 +363,11 @@ def clean(format_key, raw):
         out['rounds'] = _int(raw.get('rounds'), 'rounds', 0, 15, 0)
         out['win_target'] = _int(raw.get('win_target'), 'win_target', 0, 10, 0)
         out['loss_limit'] = _int(raw.get('loss_limit'), 'loss_limit', 0, 10, 0)
+        # McMahon (P3 W3d, research 4.6): the field split by seed into this
+        # many bands, the top band starting on 0, the next on -1 and so on,
+        # and every round paired on starting score plus wins, so games are
+        # even from round one. 0 is an ordinary Swiss.
+        out['mcmahon_bands'] = _int(raw.get('mcmahon_bands'), 'mcmahon_bands', 0, 10, 0)
         # How rounds after the first are paired (P3 W1): monrad is what V-ENT
         # has always drawn, dutch is FIDE's, valve the Counter-Strike Major's.
         out['pairing'] = str(raw.get('pairing') or 'monrad').strip().lower()
