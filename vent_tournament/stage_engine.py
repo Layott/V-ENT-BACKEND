@@ -276,7 +276,7 @@ def draw(stage, user, seed_strategy='registration', manual_order=None, early=Fal
 
     BracketGeneration.objects.create(
         tournament=tournament, generated_by=user,
-        seed_strategy=seed_strategy if seed_strategy in ('random', 'ranked', 'manual_order', 'registration') else 'random',
+        seed_strategy=seed_strategy if seed_strategy in ('random', 'ranked', 'rating', 'manual_order', 'registration') else 'random',
         seed_payload={'registration_ids': stage.entrants, 'stage_id': stage.id},
         match_count=summary['matches_created'], rounds_count=summary['rounds_count'],
         notes='stage=%s format=%s' % (stage.order, key),
