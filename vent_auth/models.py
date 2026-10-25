@@ -3016,3 +3016,41 @@ class ForeignCharge(models.Model):
 
     def __str__(self):
         return '%s %s %s' % (self.reference, self.amount, self.currency)
+
+
+class ConnectedKey(models.Model):
+    """An organiser's own key to a paid service (inbox 551, CEO 25 October 2026).
+
+    "let create this in a way where they have to connect their own API keys to
+    use this features." Reading battle royale results from screenshots calls a
+    paid model; the organiser brings the key and pays for it, and V-ENT holds no
+    key of its own. The key is encrypted at rest (R63) and never sent back:
+    screens see the provider and the last four characters only (R55).
+
+    Held by a person, or by an organisation they own, so an organisation's
+    tournaments read with the organisation's key whoever created them.
+    """
+    PROVIDERS = (('gemini', 'Google Gemini'),)
+
+    user = models.ForeignKey(Users, on_delete=models.CASCADE, null=True, blank=True,
+                             related_name='connected_keys')
+    organization = models.ForeignKey('Organization', on_delete=models.CASCADE, null=True,
+                                     blank=True, related_name='connected_keys')
+    provider = models.CharField(max_length=20, choices=PROVIDERS)
+    secret = models.TextField()
+    last4 = models.CharField(max_length=4)
+    added_by = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='connected_keys_added')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'provider'], name='one_key_per_user_provider',
+                                    condition=models.Q(organization__isnull=True)),
+            models.UniqueConstraint(fields=['organization', 'provider'], name='one_key_per_org_provider',
+                                    condition=models.Q(organization__isnull=False)),
+        ]
+
+    def __str__(self):
+        return '%s key ...%s' % (self.provider, self.last4)

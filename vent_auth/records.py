@@ -152,6 +152,7 @@ SENSITIVE = {
     'vent_auth.withdrawalrequest': {'account_number': 'a bank account number'},
     'vent_auth.admintotp': {'secret': 'a two-factor secret'},
     'vent_auth.usertotp': {'secret': 'a two-factor secret'},
+    'vent_auth.connectedkey': {'secret': "an organiser's own API key, encrypted (inbox 551)"},
     'vent_auth.savedcard': {'authorization_code': 'a saved card authorisation'},
     'vent_auth.teaminvite': {'token': 'an invitation link token'},
     'vent_auth.payoutaddress': {'confirm_code': 'the code that confirms a payout address'},
@@ -232,6 +233,7 @@ NOT_SENSITIVE = {
     'vent_event.eventgame.catalogue_key': 'which of the fifty catalogue games it is',
     'vent_sites.site.token': 'the value an organiser publishes in public DNS or on their home page',
     'vent_sites.site.last_code': 'why the last check of a site failed',
+    'vent_sites.customdomain.last_code': 'why the last check of an own address failed (P8c)',
 }
 
 SECRET_WORDS = re.compile(
