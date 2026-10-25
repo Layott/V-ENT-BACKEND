@@ -526,6 +526,17 @@ CATCHERS = [
      'the served h1 catcher still catches the empty fallback',
      FRONTEND, ['node', 'scripts/check-served-h1.mjs', '--self-test'], True),
 
+    # 25 October 2026, the apple-design walk (inbox 542): the home page hero
+    # asked for "ClashGrotesk-Semi-Bold" while the face is ClashGrotesk-Semibold,
+    # so its 112px headline drew in the system font; the admin charts named
+    # Inter, which this site never loads. Twice, so a catcher.
+    ('font families',
+     'every font a stylesheet names has a face behind it',
+     FRONTEND, ['node', 'scripts/check-font-families.mjs'], True),
+    ('font families self-test',
+     'the font family catcher still finds a name with no face',
+     FRONTEND, ['node', 'scripts/check-font-families.mjs', '--self-test'], True),
+
     ('stale coming soon',
      'no coming-soon copy in front of something that is built',
      FRONTEND, ['node', 'scripts/check-stale-comingsoon.mjs'], True),
