@@ -23,3 +23,4 @@ openpyxl==3.1.5
 python-docx==1.2.0
 reportlab==5.0.1
 pywebpush==2.0.3
+anthropic==1.17.0

@@ -1,7 +1,7 @@
 """Connected keys: an organiser's own key to a paid service (inbox 551).
 
     GET    /auth/connected-keys/                    the viewer's keys and their organisations'
-    POST   /auth/connected-keys/                    {provider, key, organization?} connect or replace
+    POST   /auth/connected-keys/                    {provider, key, model?, organization?} connect or replace
     DELETE /auth/connected-keys/<provider>/         ?organization=<slug> for an organisation's
 
 The key itself never leaves the server once sent: the answer carries the
@@ -13,6 +13,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from . import ai_providers
 from . import connected_keys as ck
 from . import inputs
 from .actors import actor_from_request
@@ -47,11 +48,18 @@ def _org(user, slug):
     return org, None
 
 
+# Any provider now (inbox 555), so the sentence names the one chosen. The code
+# is what the screen translates; {provider} and {hint} travel in `data`.
 REFUSALS = {
     'KEY_PROVIDER_UNKNOWN': ('That service is not one V-ENT can use.', status.HTTP_400_BAD_REQUEST),
-    'KEY_SHAPE_WRONG': ('That does not look like a Gemini API key. It starts with AIza.', status.HTTP_400_BAD_REQUEST),
-    'KEY_REJECTED': ('Google did not accept that key. Check it in Google AI Studio.', status.HTTP_400_BAD_REQUEST),
-    'KEY_CHECK_UNAVAILABLE': ('Google could not be reached to check the key. Try again.', status.HTTP_503_SERVICE_UNAVAILABLE),
+    'KEY_SHAPE_WRONG': ('That does not look like a {provider} key. {hint}.', status.HTTP_400_BAD_REQUEST),
+    'KEY_WRONG_PROVIDER': ('That key is for {guessed}, not {provider}. Choose {guessed} instead.',
+                           status.HTTP_400_BAD_REQUEST),
+    'MODEL_NAME_WRONG': ('That is not a model name. Leave it empty to use the usual one.',
+                         status.HTTP_400_BAD_REQUEST),
+    'KEY_REJECTED': ('{provider} did not accept that key. Check it and try again.', status.HTTP_400_BAD_REQUEST),
+    'KEY_CHECK_UNAVAILABLE': ('{provider} could not be reached to check the key. Try again.',
+                              status.HTTP_503_SERVICE_UNAVAILABLE),
 }
 
 
@@ -67,10 +75,11 @@ def connected_keys(request):
         rows = list(ConnectedKey.objects.filter(user=user, organization__isnull=True)) + \
             list(ConnectedKey.objects.filter(organization__in=orgs).select_related('organization'))
         return _ok({'keys': [ck.as_row(r) for r in rows],
-                    'providers': [{'key': k, 'label': v} for k, v in ck.PROVIDERS.items()]})
+                    'providers': ai_providers.public_list()})
 
     provider = inputs.read_choice(request.data, 'provider', list(ck.PROVIDERS), required=True)
     key = inputs.read_text(request.data, 'key', max_length=200, required=True)
+    model = inputs.read_text(request.data, 'model', max_length=80)
     org = None
     slug = inputs.read_text(request.data, 'organization', max_length=160)
     if slug:
@@ -78,13 +87,19 @@ def connected_keys(request):
         if err:
             return err
     try:
-        ck.check_shape(provider, key)
+        ck.check_shape(provider, key, model)
         ck.verify_with_provider(provider, key)
     except ck.ConnectedKeyError as exc:
         message, code_status = REFUSALS[exc.code]
-        return _err(message, exc.code, code_status, field='key')
-    row = ck.store(provider=provider, key=key, user=None if org else user, organization=org,
-                   added_by=user)
+        spec = ai_providers.PROVIDERS.get(provider, {})
+        words = {'provider': spec.get('label', provider), 'hint': exc.extra.get('hint', ''),
+                 'guessed': exc.extra.get('guessed_label', '')}
+        body = _err(message.format(**words), exc.code, code_status,
+                    field='model' if exc.code == 'MODEL_NAME_WRONG' else 'key')
+        body.data['data'] = {**words, 'guessed_key': exc.extra.get('guessed', '')}
+        return body
+    row = ck.store(provider=provider, key=key, model=model, user=None if org else user,
+                   organization=org, added_by=user)
     return _ok({'key': ck.as_row(row)}, 'Key connected.', status.HTTP_201_CREATED)
 
 

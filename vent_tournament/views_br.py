@@ -110,6 +110,8 @@ def _payload(tournament, stage, viewer):
     data['is_last_stage'] = stage_engine.next_stage(stage) is None
     data['tournament_finished'] = tournament.completed_at is not None
     data['ocr'] = {'available': br_ocr.available(tournament),
+                   # Which AI reads, so the console can say whose key is used.
+                   'provider': br_ocr.engine_name(tournament) or None,
                    'max_images': br_ocr.MAX_IMAGES,
                    'max_mb': br_ocr.MAX_BYTES // (1024 * 1024)}
     if may_run:
@@ -436,7 +438,7 @@ def ocr_upload(request, tournament_id, map_id):
     if br_map.lobby.stage.status == 'complete':
         return _err('This stage is finished.', 'STAGE_CLOSED', status.HTTP_409_CONFLICT)
     if not br_ocr.available(tournament):
-        return _err('Reading screenshots uses your own Gemini key. Connect it in Settings, or type the results in.',
+        return _err('Reading screenshots uses your own AI key. Connect one in Settings, or type the results in.',
                     'OCR_KEY_REQUIRED', status.HTTP_409_CONFLICT)
     cap = br_ocr.daily_cap()
     if br_ocr.used_today(user) >= cap:
