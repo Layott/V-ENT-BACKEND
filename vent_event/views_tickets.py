@@ -933,10 +933,15 @@ def check_in_ticket(request, code):
     ticket.save(update_fields=['status', 'checked_in_at', 'checked_in_by',
                                'checked_in_gate'])
 
+    # The shops holding an order of this person hear that they are here, and
+    # the door sees who it just let in (inbox 553).
+    from . import shop as _shop
+    _shop.tell_stalls_here(ticket)
     return _ok({'ticket': serialize_ticket(ticket),
                 'holder': _holder(ticket),
                 'attendee_name': ticket.attendee_name,
-                'gate': gate},
+                'gate': gate,
+                'story': _shop.ticket_story(ticket)},
                '%s checked in.' % _holder(ticket))
 
 

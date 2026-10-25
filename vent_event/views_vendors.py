@@ -74,6 +74,14 @@ def serialize_product(request, p, vendor=None):
         # What the buyer has to choose, and whether it can be posted.
         'variants': p.variants or [],
         'can_deliver': p.can_deliver,
+        # A sale price worked out on the server (inbox 550). `price_vc` stays
+        # the full price so a strike-through has something to strike.
+        'category': p.category or None,
+        'discount': ({'kind': p.discount_kind, 'value': float(p.discount_value)}
+                     if p.discount_kind and p.discount_value else None),
+        'sale_price_ngn': float(p.sale_price),
+        'sale_price_vc': _ngn_to_coins(p.sale_price),
+        'low_stock': bool(p.low_stock_at) and p.stock <= p.low_stock_at,
         # Which stall sells it. The storefront draws a "see everything from
         # this stall" link off `vendor_slug`, and neither this nor `vendor_id`
         # was in the payload - so that link read `vendor=undefined` and opened
@@ -104,6 +112,17 @@ def serialize_vendor(request, v, include_products=False):
         'fee_flat_ngn': float(_fee_rule()[1]),
         'owner': v.owner.username if v.owner else None,
         'product_count': v.products.filter(is_active=True).count(),
+        # The event's own shop or a stall, what the buyer is promised about
+        # refunds, and where and when orders are handed over (inbox 550).
+        'kind': v.kind,
+        'refund_policy': v.refund_policy,
+        'pickup': {
+            'location': v.pickup_location or None,
+            'opens_at': v.pickup_opens_at,
+            'closes_at': v.pickup_closes_at,
+        },
+        'categories': sorted({c for c in v.products.filter(is_active=True)
+                              .values_list('category', flat=True) if c}),
     }
     if include_products:
         data['products'] = [
@@ -316,6 +335,11 @@ def create_product(request, vendor_id):
     if why:
         return _error(why, 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
 
+    from . import shop as _shop
+    extras, problem = _shop.read_product_extras(request.data)
+    if problem:
+        return _error(problem[1], problem[0], status.HTTP_400_BAD_REQUEST)
+
     refused = uploads.files_refusal(request, 'image')
     if refused:
         return refused
@@ -326,8 +350,11 @@ def create_product(request, vendor_id):
         price=price,
         stock=stock,
         variants=variants,
-        can_deliver=_truthy(request.data.get('can_deliver')),
+        # The event's own shop hands everything over at the venue (spec).
+        can_deliver=(vendor.kind != Vendor.KIND_ORGANISER
+                     and _truthy(request.data.get('can_deliver'))),
         image=request.FILES.get('image'),
+        **extras,
     )
     return Response(
         {'status': 'success', 'data': {'product': serialize_product(request, product)},
@@ -404,17 +431,18 @@ def contact_vendor(request, vendor_id):
 # ---------------------------------------------------------------------------
 
 def price_basket(vendor, priced, own_stall=False):
-    """`priced` is `[(product, qty, unit_vc, variant), ...]`. Returns a dict
+    """`priced` is `[(product, qty, unit_vc, variant, unit_ngn), ...]`, the
+    naira being what one unit is charged at after any discount or code. Returns a dict
     with the naira, the fee split by the stall's choice, and the coin totals
     a wallet actually moves. A stallholder taking their own stock pays nothing
     and owes no fee: a shirt off the table is a shirt off the table."""
     from decimal import Decimal
     from . import ledger as _ledger
     pct, flat = _ledger.platform_fee()
-    items_vc = sum(unit_vc * qty for _, qty, unit_vc, _ in priced)
-    items_ngn = sum((_ledger._ngn(p.price) * qty for p, qty, _, _ in priced), Decimal('0'))
+    items_vc = sum(unit_vc * qty for _, qty, unit_vc, _, _ in priced)
+    items_ngn = sum((_ledger._ngn(ngn) * qty for _, qty, _, _, ngn in priced), Decimal('0'))
     fee_ngn = (Decimal('0') if own_stall
-               else sum((_ledger.fee_for(p.price, qty, pct, flat) for p, qty, _, _ in priced),
+               else sum((_ledger.fee_for(ngn, qty, pct, flat) for _, qty, _, _, ngn in priced),
                         Decimal('0')))
     bearer = getattr(vendor, 'fee_bearer', 'vendor') or 'vendor'
     buyer_fee_ngn, seller_fee_ngn, buyer_fee_vc = _ledger.split_fee(
@@ -471,9 +499,48 @@ def quote_order(request, vendor_id):
         if product is None:
             return _error('One of those products is no longer available.',
                           'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-        priced.append((product, qty, _ngn_to_coins(product.price), str(raw.get('variant') or '')))
+        priced.append([product, qty, None, str(raw.get('variant') or ''), None])
+    promo, refusal = _shop_promo(vendor, request.data, sum(row[1] for row in priced))
+    if refusal:
+        return _error(refusal[1], refusal[0], status.HTTP_400_BAD_REQUEST)
+    priced = _apply_prices(priced, promo)
     own_stall = bool(vendor.owner_id) and vendor.owner_id == user.user_id
-    return _ok(_basket_payload(price_basket(vendor, priced, own_stall)), 'Quoted.')
+    quote = _basket_payload(price_basket(vendor, priced, own_stall))
+    quote['promo'] = ({'code': promo.code, 'kind': promo.kind, 'value': float(promo.value)}
+                      if promo else None)
+    quote['discount_ngn'] = float(_discount_ngn(priced))
+    return _ok(quote, 'Quoted.')
+
+
+def _shop_promo(vendor, data, quantity):
+    """The shop code in the request, resolved, or (None, None) when there is
+    none. A code that does not work is refused rather than silently dropped:
+    a buyer who typed one expects the price it promised."""
+    from . import promos as _promos
+    code = str(data.get('promo_code') or '').strip()
+    if not code:
+        return None, None
+    promo, why = _promos.resolve_shop(vendor, code, quantity)
+    if promo is None:
+        return None, (why, 'That code does not work here.')
+    return promo, None
+
+
+def _apply_prices(priced, promo):
+    """Fill each line's unit naira and coins from the one pricing rule."""
+    from . import shop as _shop
+    out = []
+    for product, qty, _, variant, _ in priced:
+        unit = _shop.unit_ngn(product, promo)
+        out.append((product, qty, _ngn_to_coins(unit), variant, unit))
+    return out
+
+
+def _discount_ngn(priced):
+    """What discounts and the code took off the full price, in naira."""
+    from decimal import Decimal
+    return sum(((Decimal(p.price or 0) - ngn) * qty for p, qty, _, _, ngn in priced),
+               Decimal('0')).quantize(Decimal('0.01'))
 
 
 # ---------------------------------------------------------------------------
@@ -567,8 +634,15 @@ def create_order(request, vendor_id):
                     _refuse('%s does not come in %s.' % (product.name, variant),
                                   'VARIANT_UNKNOWN', status.HTTP_400_BAD_REQUEST)
 
-                unit_vc = _ngn_to_coins(product.price)
-                priced.append((product, qty, unit_vc, variant))
+                priced.append([product, qty, None, variant, None])
+            promo, refusal = _shop_promo(vendor, request.data, sum(row[1] for row in priced))
+            if refusal:
+                _refuse(refusal[1], refusal[0], status.HTTP_400_BAD_REQUEST)
+            priced = _apply_prices(priced, promo)
+            if (vendor.kind == Vendor.KIND_ORGANISER
+                    and request.data.get('fulfilment') == 'deliver'):
+                _refuse('Orders from %s are collected at the venue.' % vendor.name,
+                        'PICKUP_ONLY', status.HTTP_409_CONFLICT)
 
             wallet = UserWallet.objects.select_for_update().filter(user=user).first()
             if wallet is None:
@@ -673,7 +747,7 @@ def create_order(request, vendor_id):
                     _refuse('A delivery needs a name, a phone number and an '
                                   'address.', 'DELIVERY_DETAILS_REQUIRED',
                                   status.HTTP_400_BAD_REQUEST, {'missing': missing})
-                undeliverable = [p.name for p, _, _, _ in priced if not p.can_deliver]
+                undeliverable = [p.name for p, _, _, _, _ in priced if not p.can_deliver]
                 if undeliverable:
                     # A plate of hot food cannot be posted, and finding that out
                     # after paying is worse than being told now.
@@ -691,8 +765,12 @@ def create_order(request, vendor_id):
                 delivery_phone=str(delivery.get('phone') or '')[:40] if fulfilment == 'deliver' else '',
                 delivery_address=str(delivery.get('address') or '') if fulfilment == 'deliver' else '',
                 delivery_note=str(delivery.get('note') or '')[:200] if fulfilment == 'deliver' else '',
+                promo=promo, discount_ngn=_discount_ngn(priced),
             )
-            for product, qty, unit_vc, variant in priced:
+            if promo is not None:
+                from . import promos as _promos
+                _promos.redeem(promo, sum(row[1] for row in priced))
+            for product, qty, unit_vc, variant, _ in priced:
                 VendorOrderItem.objects.create(order=order, product=product,
                                                quantity=qty, unit_vc=unit_vc,
                                                variant=variant)
@@ -705,6 +783,8 @@ def create_order(request, vendor_id):
         # debit really does leave the money where it was.
         return refusal.response
 
+    from . import shop as _shop
+    _shop.alert_low_stock([p for p, _, _, _, _ in priced])
     try:
         from vent_auth.views_notifications import create_notification
         create_notification(
@@ -753,8 +833,22 @@ def serialize_order(request, order):
         'vendor_paid_vc': order.vendor_paid_vc,
         'created_at': order.created_at,
         'collected_at': order.collected_at,
-        'vendor': {'id': order.vendor_id, 'name': order.vendor.name, 'booth': order.vendor.booth or None},
+        'vendor': {'id': order.vendor_id, 'name': order.vendor.name, 'booth': order.vendor.booth or None,
+                   'slug': order.vendor.slug, 'kind': order.vendor.kind},
         'buyer': order.buyer.username,
+        # Where and when to collect, what the code took off, and whether the
+        # buyer may still cancel under the shop's refund policy (inbox 550).
+        'fulfilment': order.fulfilment,
+        'pickup': {
+            'location': order.vendor.pickup_location or order.vendor.booth or None,
+            'opens_at': order.vendor.pickup_opens_at,
+            'closes_at': order.vendor.pickup_closes_at,
+        },
+        'promo_code': order.promo.code if order.promo_id else None,
+        'discount_ngn': float(order.discount_ngn),
+        'refund_policy': order.vendor.refund_policy,
+        'can_cancel': _cancel_refusal(order) is None,
+        'cancel_refusal': (_cancel_refusal(order) or (None,))[0],
         'items': [
             {
                 'product_id': i.product_id,
@@ -838,9 +932,14 @@ def collect_order(request, code):
     order = VendorOrder.objects.select_related('vendor', 'vendor__event').filter(code=code.upper()).first()
     if order is None:
         return _error('No order with that code.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
-    if order.vendor.owner_id != user.user_id and not may_run_event(user, order.vendor.event):
-        return _error('Only the stall owner can mark an order collected.',
+    from . import shop as _shop
+    if (_shop.stall_role(user, order.vendor) is None
+            and not may_run_event(user, order.vendor.event)):
+        return _error('Only the people running the stall can mark an order collected.',
                       'FORBIDDEN', status.HTTP_403_FORBIDDEN)
+    closed = _shop.pickup_refusal(order.vendor)
+    if closed and order.status not in ('collected', 'cancelled'):
+        return _error(closed[1], closed[0], status.HTTP_409_CONFLICT)
     if order.status == 'collected':
         return _error('That order was already collected.', 'ALREADY_COLLECTED', status.HTTP_409_CONFLICT)
     if order.status == 'cancelled':
@@ -851,3 +950,45 @@ def collect_order(request, code):
     order.save(update_fields=['status', 'collected_at'])
 
     return _ok({'order': serialize_order(request, order)}, f'Order {order.code} collected.')
+
+
+def _cancel_refusal(order):
+    from . import shop as _shop
+    return _shop.refund_refusal(order)
+
+
+# ---------------------------------------------------------------------------
+# POST /event/vendor/order/<code>/cancel/  - the buyer cancels within the policy
+# ---------------------------------------------------------------------------
+
+@api_view(['POST'])
+def cancel_my_order(request, code):
+    """The buyer cancels their own order and is refunded, when the shop's
+    refund policy allows it (inbox 554: the organiser or the vendor decides).
+    The stall's own cancel is unchanged; this is the buyer's door."""
+    user, auth_error = _authenticate(request)
+    if auth_error:
+        return auth_error
+    from .views_vendor_shop import _refund_cancelled
+    from . import shop as _shop
+    with transaction.atomic():
+        order = (VendorOrder.objects.select_for_update().select_related('vendor', 'vendor__event')
+                 .filter(code=str(code).upper(), buyer=user).first())
+        if order is None:
+            return _error('No order of yours with that code.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
+        why = _shop.refund_refusal(order)
+        if why:
+            return _error(why[1], why[0], status.HTTP_409_CONFLICT)
+        stall = Vendor.objects.select_for_update().get(pk=order.vendor_id)
+        refused = _refund_cancelled(order, stall)
+        if refused is not None:
+            transaction.set_rollback(True)
+            return refused
+        order.status = 'cancelled'
+        order.save(update_fields=['status'])
+    for person in _shop._people(order.vendor):
+        _shop._notify(person, 'Order %s cancelled' % order.code,
+                      'The buyer cancelled and was refunded %s VC.' % order.total_vc,
+                      {'vendor_id': order.vendor_id, 'order_code': order.code, 'kind': 'buyer_cancelled'})
+    return _ok({'order': serialize_order(request, order)}, 'Order %s cancelled and refunded.' % order.code)
+

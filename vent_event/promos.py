@@ -34,7 +34,8 @@ def resolve(event, code, tier=None, quantity=1):
     code = str(code or '').strip()
     if not code or len(code) > 40:
         return None, UNKNOWN
-    promo = EventPromo.objects.filter(event=event, code__iexact=code).first()
+    promo = EventPromo.objects.filter(event=event, code__iexact=code,
+                                      scope=EventPromo.SCOPE_TICKETS).first()
     if promo is None:
         return None, UNKNOWN
     if promo.tier_id and tier is not None and promo.tier_id != tier.id:
@@ -62,9 +63,34 @@ def honour(event, code, tier=None):
     code = str(code or '').strip()
     if not code:
         return None
-    promo = EventPromo.objects.filter(event=event, code__iexact=code).first()
+    promo = EventPromo.objects.filter(event=event, code__iexact=code,
+                                      scope=EventPromo.SCOPE_TICKETS).first()
     if promo is None:
         return None
     if promo.tier_id and tier is not None and promo.tier_id != tier.id:
         return None
     return promo
+
+WRONG_SHOP = 'PROMO_WRONG_SHOP'
+
+
+def resolve_shop(vendor, code, quantity=1):
+    """A shop code on this stall's event, for `quantity` items (inbox 550).
+
+    Only `scope='shop'` codes; a ticket code typed at a stall is unknown here,
+    exactly as a shop code is unknown at the ticket checkout. A code made for
+    one stall works only there. Returns `(promo, None)` or `(None, reason)`.
+    """
+    code = str(code or '').strip()
+    if not code or len(code) > 40:
+        return None, UNKNOWN
+    promo = EventPromo.objects.filter(event_id=vendor.event_id, code__iexact=code,
+                                      scope=EventPromo.SCOPE_SHOP).first()
+    if promo is None:
+        return None, UNKNOWN
+    if promo.vendor_id and promo.vendor_id != vendor.id:
+        return None, WRONG_SHOP
+    usable, why = promo.is_usable(quantity=max(1, int(quantity or 1)))
+    if not usable:
+        return None, why
+    return promo, None
