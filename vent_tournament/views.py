@@ -21,7 +21,7 @@ from rest_framework.permissions import AllowAny
 from django.db import transaction as db_transaction
 from .money import CURRENCIES, from_coins, rates, to_coins
 from . import options as tournament_options
-from . import ladder, match_shape
+from . import ladder, match_shape, stage_settings
 from . import next_actions
 from . import tournament_input as tin
 from django.contrib.contenttypes.models import ContentType
@@ -1824,7 +1824,9 @@ def view_tournament(request, tournament_id):
                  "format_label": bracket_label(st.format), "status": st.status,
                  # Which shape a custom bracket was drawn from (P3 W2):
                  # "Compass draw" rather than "Custom bracket".
-                 "preset": (st.settings or {}).get('preset') or None}
+                 "preset": (st.settings or {}).get('preset') or None,
+                 # What the explainer needs: scored by time, a tie rule, McMahon.
+                 "settings": stage_settings.public_rules(st.settings)}
                 for st in tournament.stages.all()
             ],
             "start_date_and_time": tournament.start_date_and_time,
@@ -2922,7 +2924,9 @@ def get_tournament_brackets(request, tournament_id):
                 'stage_id': chosen.id if chosen else None,
                 'stages': [{'id': s.id, 'order': s.order, 'label': s.label,
                             'format': s.format, 'status': s.status,
-                            'drawn': s.drawn_at is not None} for s in stages_here],
+                            'drawn': s.drawn_at is not None,
+                            'settings': stage_settings.public_rules(s.settings)}
+                           for s in stages_here],
                 'rounds': match_shape.rounds_of(matches, private_for=private_for),
                 'standings': (stage_engine.standings(chosen) if chosen
                               else stage_engine.tournament_standings(tournament)),

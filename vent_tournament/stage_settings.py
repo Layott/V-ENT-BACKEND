@@ -283,6 +283,21 @@ def _clean_custom(raw):
     return {'preset': '', 'schema_text': text, 'schema': schema}
 
 
+# The few stage settings that change how a stage is EXPLAINED to a reader: a
+# battle royale scored by time, a tie settled by sub-match wins or a crew
+# battle, a Swiss started on McMahon bands. Sent on every stage row of the
+# public payloads so the page can pick the right explainer (review of the
+# preset explainers, 25 October 2026); the rest of the settings stay on the
+# organiser's doors.
+PUBLIC_RULES = ('score_by', 'tie_rule', 'mcmahon_bands')
+
+
+def public_rules(settings):
+    """The explainer-relevant settings of a stage, and nothing else."""
+    settings = settings if isinstance(settings, dict) else {}
+    return {key: settings[key] for key in PUBLIC_RULES if key in settings}
+
+
 def is_table(format_key):
     fmt = formats.get(format_key)
     return bool(fmt and fmt.advancement in ('table', 'swiss'))
