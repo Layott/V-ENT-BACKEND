@@ -2556,6 +2556,23 @@
   },
   {
    "generated": true,
+   "name": "POST tournament/match/<int:match_id>/place/ as B",
+   "route": "tournament/match/<int:match_id>/place/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/tournament/match/{id}/place/"
+   },
+   "id": "1",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
    "name": "POST tournament/match/<int:match_id>/confirm-score/ as B",
    "route": "tournament/match/<int:match_id>/confirm-score/",
    "attempt": {

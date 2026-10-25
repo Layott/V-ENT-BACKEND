@@ -904,6 +904,11 @@ class BracketMatch(models.Model):
     # anybody to walk into a tournament match.
     room_code = models.CharField(max_length=64, blank=True, default='')
     room_password = models.CharField(max_length=64, blank=True, default='')
+    # Where it is played and the slot it belongs to (P4b, design section 12):
+    # "PC 3", "Table 2"; "Wave A". Staff set both from the console, and
+    # stations.py refuses a station or a person due at two matches at once.
+    station = models.CharField(max_length=40, blank=True, default='')
+    wave = models.CharField(max_length=40, blank=True, default='')
     # Per-match check-in. Somebody who has not checked in by the deadline loses
     # by forfeit when their opponent did; the deadline is fixed when the match
     # becomes playable, from the stage's check-in minutes.

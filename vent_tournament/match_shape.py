@@ -149,6 +149,10 @@ def match_row(m, *, private=False):
         'forfeit_reason': m.forfeit_reason,
         'scheduled_at': m.scheduled_at,
         'completed_at': m.completed_at,
+        # Where and in which slot (P4b): public, because a player needs to
+        # find the machine and a spectator the table.
+        'station': m.station,
+        'wave': m.wave,
         'check_in': {
             'deadline': m.check_in_deadline,
             'p1_at': m.checked_in_p1_at,
