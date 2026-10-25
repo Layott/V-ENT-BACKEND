@@ -824,6 +824,20 @@ CATCHERS = [
      'every endpoint has a screen that can reach it, or a written reason',
      ROOT, [sys.executable, os.path.join(BACKEND, 'tools', 'endpoint-callers.py')], False),
 
+    # Inbox 539 (CEO, 24 October 2026): a fix that passes the token on one
+    # fetch of a draft and leaves the next caller bare is not a fix. The
+    # guarded reads come from the backend views themselves, so a new guarded
+    # read or a new caller of an old one is held from the day it is written.
+    ('draft reads',
+     'a read that hides a draft is always fetched with the token',
+     ROOT, [sys.executable, os.path.join(BACKEND, 'tools', 'check-draft-reads.py')], True),
+    ('draft reads self-test',
+     'the draft read catcher still finds a bare fetch and the real guarded reads',
+     ROOT, [sys.executable, os.path.join(BACKEND, 'tools', 'check-draft-reads.py'), '--self-test'], True),
+    ('hand-built auth headers',
+     'every Bearer header built by the helpers, not by hand',
+     ROOT, [sys.executable, os.path.join(BACKEND, 'tools', 'check-draft-reads.py'), '--headers'], False),
+
     # The ledger reads a number off each line above, and on 8 September it was
     # reading the wrong one: 311 stylesheets scanned instead of 145 tap targets
     # broken. A checker that is not in this table is a checker nobody runs, so

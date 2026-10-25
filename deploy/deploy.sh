@@ -83,6 +83,14 @@ cd "$FRONTEND"
 git pull --ff-only
 pnpm install --frozen-lockfile
 
+# Next keeps every fetch it made in .next/cache/fetch-cache, across builds. A
+# build that finds an entry past its revalidate time serves the OLD answer into
+# the pages it prerenders and only then refreshes the entry. 25 October 2026:
+# the sitemap built at 17:04 named 175 profiles from a stale entry while the
+# API had 178, and the search check failed on the three who joined that day.
+# The build reads the API fresh instead; the runtime refills the cache.
+rm -rf .next/cache/fetch-cache
+
 # The page somebody already has open asks for the chunk names of the build it
 # was served by. `pnpm build` writes new fingerprinted names and removes the old
 # ones, and nginx serves that directory off disk, so the moment a deploy lands

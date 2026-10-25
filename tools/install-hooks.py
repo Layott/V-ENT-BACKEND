@@ -65,15 +65,36 @@ else
   # A frontend commit is judged as itself: the tree being committed.
   VENT_FRONTEND="$top"; export VENT_FRONTEND
   # A frontend commit is judged with the backend on the same branch, when a
-  # worktree of it exists (feature/x beside feature/x), else the main checkout.
+  # worktree of it exists (feature/x beside feature/x), else origin/main.
   be=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$top/../V-ENT-BACKEND" worktree list --porcelain 2>/dev/null \
        | awk -v b="branch refs/heads/$branch" '/^worktree /{w=$2} $0==b{print w}')
-  # No backend branch of the same name: the backend on main, never whichever
-  # checkout last ran the installer. That fallback was a branch weeks old and
-  # failed a frontend commit on two catchers its own tree passed (16 Oct).
+  # No backend branch of the same name: the backend exactly as origin/main has
+  # it, in a worktree this hook owns (V-ENT-BACKEND-hookmain), fetched and
+  # moved to origin/main before every run. Looking for "the worktree with main
+  # checked out" found none on 24 Oct (every main checkout was detached or on
+  # a feature branch), fell to a checkout frozen on 17 Oct, and refused an
+  # English-only commit on two catchers main defers (inbox 539). Before that
+  # the fallback was whichever checkout last ran the installer (16 Oct).
   if [ -z "$be" ] || [ ! -f "$be/tools/check-all.py" ]; then
-    be=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$top/../V-ENT-BACKEND" worktree list --porcelain 2>/dev/null \
-         | awk '/^worktree /{w=$2} $0=="branch refs/heads/main"{print w}')
+    root=$(cd "$top/.." && pwd)
+    pin="$root/V-ENT-BACKEND-hookmain"
+    g() { env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git "$@"; }
+    g -C "$root/V-ENT-BACKEND" fetch -q origin main 2>/dev/null \
+      || echo "(no fetch: judged with the last origin/main this machine saw)"
+    if [ ! -d "$pin" ]; then
+      g -C "$root/V-ENT-BACKEND" worktree add -q --detach "$pin" origin/main >/dev/null 2>&1
+    else
+      # The last run's ledger write is the only change this worktree ever
+      # carries; the ceilings that count are origin/main's.
+      g -C "$pin" checkout -q -- tools/debt-ledger.json 2>/dev/null
+      g -C "$pin" checkout -q --detach origin/main 2>/dev/null \
+        || echo "(the pinned backend has local changes and was NOT moved: $pin)"
+    fi
+    # check-all loads the Django settings, which read the backend .env.
+    if [ -d "$pin" ] && [ ! -f "$pin/.env" ] && [ -f "$root/V-ENT-BACKEND/.env" ]; then
+      cp "$root/V-ENT-BACKEND/.env" "$pin/.env"
+    fi
+    be="$pin"
   fi
   if [ -n "$be" ] && [ -f "$be/tools/check-all.py" ]; then checker="$be/tools/check-all.py"; else checker="%s"; fi
   echo "judged with the backend at $(dirname "$(dirname "$checker")")"
