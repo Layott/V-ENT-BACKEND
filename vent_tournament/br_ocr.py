@@ -26,12 +26,11 @@ Rules this file keeps (owner rules, September 2026):
     call is made.
   * R70: uploads are sniffed, capped in size and count, renamed, and stored
     where nothing is served or executed.
-  * R55: the key is read from the environment on the server and never leaves
-    it. With no key the door says so and typing results still works.
+  * R55: the organiser's own key, from any AI service they connected (inbox
+    551, 555), is decrypted on the server and sent only to its own provider.
+    With no key the door says so and typing results still works.
 """
-import base64
 import difflib
-import json
 import logging
 import os
 import re
@@ -47,7 +46,6 @@ logger = logging.getLogger(__name__)
 MAX_IMAGES = 6
 MAX_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = ('image/png', 'image/jpeg', 'image/webp')
-MODEL = 'gemini-2.5-flash'
 TIMEOUT_SECONDS = 90
 
 HIGH = 0.85
@@ -61,7 +59,8 @@ PROMPT = (
     'player in it with the in-game name exactly as written and that '
     "player's kills. Include damage and assists only where the screen shows "
     'them. If the same squad appears on more than one image, list it once. '
-    'Answer with JSON only.'
+    'Answer with JSON only, in exactly this shape: '
+    '{"placements": [{"placement": 1, "players": [{"name": "...", "kills": 0}]}]}'
 )
 
 RESPONSE_SCHEMA = {
@@ -108,24 +107,28 @@ class OcrError(ValueError):
 # ---------------------------------------------------------------------------
 
 def engine_name(tournament=None):
-    """'gemini' when the tournament's organiser has connected a Gemini key;
-    'local_test' only on a DEBUG machine that asked for it (so the flow can be
-    walked without a paid key); else ''.
+    """The AI service the tournament's organiser connected a key for ('gemini',
+    'openai', 'anthropic', 'openrouter' ...); 'local_test' only on a DEBUG
+    machine that asked for it (so the flow can be walked without a paid key);
+    else ''.
 
     The organiser brings the key (inbox 551, CEO 25 October 2026: "they have to
-    connect their own API keys"). There is no platform key any more: the
-    GEMINI_API_KEY setting that used to switch this on for everybody is gone.
+    connect their own API keys"), from any AI they use (inbox 555). There is no
+    platform key: the GEMINI_API_KEY setting that used to switch this on for
+    everybody is gone.
     """
-    if tournament is not None and gemini_key(tournament):
-        return 'gemini'
+    chosen = connected(tournament) if tournament is not None else None
+    if chosen is not None:
+        return chosen.provider
     if settings.DEBUG and os.environ.get('BR_OCR_ENGINE') == 'local_test':
         return 'local_test'
     return ''
 
 
-def gemini_key(tournament):
-    from vent_auth.connected_keys import key_for_tournament
-    return key_for_tournament(tournament, 'gemini')
+def connected(tournament):
+    """The key the tournament reads with (provider, key, model), or None."""
+    from vent_auth.connected_keys import chosen_for_tournament
+    return chosen_for_tournament(tournament)
 
 
 def available(tournament=None):
@@ -230,12 +233,10 @@ def run(job_id):
         images = [(img.file.open('rb').read(), img.content_type) for img in job.images.all()]
         tournament = job.map.lobby.stage.tournament
         engine = job.engine or engine_name(tournament)
-        if engine == 'gemini':
-            raw = read_with_gemini(images, gemini_key(tournament))
-        elif engine == 'local_test':
+        if engine == 'local_test':
             raw = read_for_local_test(job.map)
         else:
-            raise OcrError('OCR_KEY_REQUIRED')
+            raw = read_with_key(images, connected(tournament))
         placements = clean_read(raw)
         job.rows = match_rows(job.map, placements)
         job.status = 'ready'
@@ -252,38 +253,18 @@ def run(job_id):
     return job
 
 
-def read_with_gemini(images, key):
-    import requests
+def read_with_key(images, chosen):
+    """Ask the organiser's connected AI to read the screenshots. The prompt is
+    the constant PROMPT and nothing else; only the images travel with it."""
+    from vent_auth import ai_providers
 
-    if not key:
+    if chosen is None or not chosen.key:
         raise OcrError('OCR_KEY_REQUIRED')
-    parts = [{'text': PROMPT}]
-    for data, kind in images:
-        parts.append({'inline_data': {'mime_type': kind,
-                                      'data': base64.b64encode(data).decode('ascii')}})
-    body = {
-        'contents': [{'role': 'user', 'parts': parts}],
-        'generationConfig': {'response_mime_type': 'application/json',
-                             'response_schema': RESPONSE_SCHEMA,
-                             'temperature': 0},
-    }
     try:
-        resp = requests.post(
-            'https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent' % MODEL,
-            headers={'x-goog-api-key': key, 'Content-Type': 'application/json'},
-            data=json.dumps(body), timeout=TIMEOUT_SECONDS)
-    except requests.RequestException:
-        raise OcrError('OCR_UNREACHABLE')
-    if resp.status_code == 429:
-        raise OcrError('OCR_BUSY')
-    if resp.status_code != 200:
-        logger.warning('gemini answered %s', resp.status_code)
-        raise OcrError('OCR_FAILED')
-    try:
-        text = resp.json()['candidates'][0]['content']['parts'][0]['text']
-        return json.loads(text)
-    except (KeyError, IndexError, ValueError, TypeError):
-        raise OcrError('OCR_UNREADABLE')
+        return ai_providers.read_json(chosen.provider, chosen.key, chosen.model, images,
+                                      PROMPT, gemini_schema=RESPONSE_SCHEMA)
+    except ai_providers.ReadError as exc:
+        raise OcrError(exc.code)
 
 
 def read_for_local_test(br_map):

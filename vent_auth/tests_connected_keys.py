@@ -57,7 +57,7 @@ class ConnectTests(TestCase):
 
     def test_a_key_of_the_wrong_shape_never_reaches_google(self):
         with mock.patch('requests.get') as called:
-            res = self.c.post('/auth/connected-keys/', {'provider': 'gemini', 'key': 'sk-123'}, format='json')
+            res = self.c.post('/auth/connected-keys/', {'provider': 'gemini', 'key': 'not-a-key'}, format='json')
         self.assertEqual(res.json()['code'], 'KEY_SHAPE_WRONG')
         called.assert_not_called()
 

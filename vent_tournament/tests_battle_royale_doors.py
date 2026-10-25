@@ -345,5 +345,5 @@ class ReadingScreenshotsTests(DoorsBase):
 
     def test_the_prompt_is_a_constant(self):
         import inspect
-        source = inspect.getsource(br_ocr.read_with_gemini)
-        self.assertIn("parts = [{'text': PROMPT}]", source)
+        source = inspect.getsource(br_ocr.read_with_key)
+        self.assertIn('PROMPT, gemini_schema=RESPONSE_SCHEMA', source)

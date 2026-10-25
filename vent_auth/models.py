@@ -3030,7 +3030,11 @@ class ConnectedKey(models.Model):
     Held by a person, or by an organisation they own, so an organisation's
     tournaments read with the organisation's key whoever created them.
     """
-    PROVIDERS = (('gemini', 'Google Gemini'),)
+    # Every AI service an organiser may bring a key for (inbox 555: "any api
+    # key from any ai"). The list lives in ai_providers; this mirrors it.
+    PROVIDERS = (('gemini', 'Google Gemini'), ('openai', 'OpenAI'), ('anthropic', 'Anthropic Claude'),
+                 ('openrouter', 'OpenRouter (any model)'), ('mistral', 'Mistral'), ('groq', 'Groq'),
+                 ('xai', 'xAI Grok'))
 
     user = models.ForeignKey(Users, on_delete=models.CASCADE, null=True, blank=True,
                              related_name='connected_keys')
@@ -3039,6 +3043,9 @@ class ConnectedKey(models.Model):
     provider = models.CharField(max_length=20, choices=PROVIDERS)
     secret = models.TextField()
     last4 = models.CharField(max_length=4)
+    # The model this key reads with, when the organiser names one; blank uses
+    # the provider's default (ai_providers.PROVIDERS[...]['default_model']).
+    model = models.CharField(max_length=80, blank=True, default='')
     added_by = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True,
                                  related_name='connected_keys_added')
     created_at = models.DateTimeField(auto_now_add=True)
