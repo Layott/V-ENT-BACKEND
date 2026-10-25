@@ -217,11 +217,13 @@ class ReadingScreenshotsTests(DoorsBase):
         return client_for(who).post(self.base + 'matches/%s/read/' % self.m1.id,
                                     {'images': files}, format='multipart')
 
-    def test_without_a_key_the_door_says_so(self):
-        with mock.patch.dict(os.environ, {'GEMINI_API_KEY': '', 'BR_OCR_ENGINE': ''}):
+    def test_without_the_organisers_key_the_door_says_so(self):
+        # A platform key no longer switches it on for everybody (inbox 551):
+        # with GEMINI_API_KEY set and no key connected, the door still refuses.
+        with mock.patch.dict(os.environ, {'GEMINI_API_KEY': 'AIza' + 'x' * 35, 'BR_OCR_ENGINE': ''}):
             resp = self.upload(self.org)
-        self.assertEqual(resp.status_code, 503)
-        self.assertEqual(resp.json()['code'], 'OCR_NOT_CONFIGURED')
+        self.assertEqual(resp.status_code, 409)
+        self.assertEqual(resp.json()['code'], 'OCR_KEY_REQUIRED')
 
     @override_settings(DEBUG=True, BR_OCR_SYNC=True)
     def test_read_review_commit_and_learn(self):

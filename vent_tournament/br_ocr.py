@@ -107,18 +107,29 @@ class OcrError(ValueError):
 # Which reader
 # ---------------------------------------------------------------------------
 
-def engine_name():
-    """'gemini' when a key is set; 'local_test' only on a DEBUG machine that
-    asked for it (so the flow can be walked without a paid key); else ''."""
-    if os.environ.get('GEMINI_API_KEY', '').strip():
+def engine_name(tournament=None):
+    """'gemini' when the tournament's organiser has connected a Gemini key;
+    'local_test' only on a DEBUG machine that asked for it (so the flow can be
+    walked without a paid key); else ''.
+
+    The organiser brings the key (inbox 551, CEO 25 October 2026: "they have to
+    connect their own API keys"). There is no platform key any more: the
+    GEMINI_API_KEY setting that used to switch this on for everybody is gone.
+    """
+    if tournament is not None and gemini_key(tournament):
         return 'gemini'
     if settings.DEBUG and os.environ.get('BR_OCR_ENGINE') == 'local_test':
         return 'local_test'
     return ''
 
 
-def available():
-    return bool(engine_name())
+def gemini_key(tournament):
+    from vent_auth.connected_keys import key_for_tournament
+    return key_for_tournament(tournament, 'gemini')
+
+
+def available(tournament=None):
+    return bool(engine_name(tournament))
 
 
 def daily_cap():
@@ -179,7 +190,8 @@ def create_job(br_map, user, uploads):
     from django.core.files.base import ContentFile
     from .models import BROcrImage, BROcrJob
 
-    job = BROcrJob.objects.create(map=br_map, created_by=user, engine=engine_name())
+    job = BROcrJob.objects.create(map=br_map, created_by=user,
+                                  engine=engine_name(br_map.lobby.stage.tournament))
     for order, (data, kind) in enumerate(uploads):
         image = BROcrImage(job=job, content_type=kind, size=len(data), order=order)
         image.file.save('upload', ContentFile(data), save=False)
@@ -216,13 +228,14 @@ def run(job_id):
     job.save(update_fields=['status'])
     try:
         images = [(img.file.open('rb').read(), img.content_type) for img in job.images.all()]
-        engine = job.engine or engine_name()
+        tournament = job.map.lobby.stage.tournament
+        engine = job.engine or engine_name(tournament)
         if engine == 'gemini':
-            raw = read_with_gemini(images)
+            raw = read_with_gemini(images, gemini_key(tournament))
         elif engine == 'local_test':
             raw = read_for_local_test(job.map)
         else:
-            raise OcrError('OCR_NOT_CONFIGURED')
+            raise OcrError('OCR_KEY_REQUIRED')
         placements = clean_read(raw)
         job.rows = match_rows(job.map, placements)
         job.status = 'ready'
@@ -239,12 +252,11 @@ def run(job_id):
     return job
 
 
-def read_with_gemini(images):
+def read_with_gemini(images, key):
     import requests
 
-    key = os.environ.get('GEMINI_API_KEY', '').strip()
     if not key:
-        raise OcrError('OCR_NOT_CONFIGURED')
+        raise OcrError('OCR_KEY_REQUIRED')
     parts = [{'text': PROMPT}]
     for data, kind in images:
         parts.append({'inline_data': {'mime_type': kind,

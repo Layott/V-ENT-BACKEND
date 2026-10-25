@@ -37,7 +37,7 @@ STATUS_FOR = {
     'STAGE_NOT_FINISHED': status.HTTP_409_CONFLICT,
     'ALREADY_FINISHED': status.HTTP_409_CONFLICT,
     'RESULTS_ALREADY_RECORDED': status.HTTP_409_CONFLICT,
-    'OCR_NOT_CONFIGURED': status.HTTP_503_SERVICE_UNAVAILABLE,
+    'OCR_KEY_REQUIRED': status.HTTP_409_CONFLICT,
     'OCR_DAILY_LIMIT': status.HTTP_429_TOO_MANY_REQUESTS,
     'NOT_READY': status.HTTP_409_CONFLICT,
     'ALREADY_COMMITTED': status.HTTP_409_CONFLICT,
@@ -109,7 +109,7 @@ def _payload(tournament, stage, viewer):
         and (not br_engine.has_results(stage) or may_override(viewer, 'cancel_tournament')))
     data['is_last_stage'] = stage_engine.next_stage(stage) is None
     data['tournament_finished'] = tournament.completed_at is not None
-    data['ocr'] = {'available': br_ocr.available(),
+    data['ocr'] = {'available': br_ocr.available(tournament),
                    'max_images': br_ocr.MAX_IMAGES,
                    'max_mb': br_ocr.MAX_BYTES // (1024 * 1024)}
     if may_run:
@@ -435,9 +435,9 @@ def ocr_upload(request, tournament_id, map_id):
         return err
     if br_map.lobby.stage.status == 'complete':
         return _err('This stage is finished.', 'STAGE_CLOSED', status.HTTP_409_CONFLICT)
-    if not br_ocr.available():
-        return _err('Reading screenshots is not switched on. Type the results in.',
-                    'OCR_NOT_CONFIGURED', status.HTTP_503_SERVICE_UNAVAILABLE)
+    if not br_ocr.available(tournament):
+        return _err('Reading screenshots uses your own Gemini key. Connect it in Settings, or type the results in.',
+                    'OCR_KEY_REQUIRED', status.HTTP_409_CONFLICT)
     cap = br_ocr.daily_cap()
     if br_ocr.used_today(user) >= cap:
         return _err('That is today\'s limit of screenshot reads.', 'OCR_DAILY_LIMIT',

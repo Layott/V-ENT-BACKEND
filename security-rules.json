@@ -223,6 +223,11 @@
       "rule": "R68",
       "path": "vent_tournament/views_registration_draft.py",
       "reason": "not an open form: every door starts with actor_from_request and refuses anybody not signed in; a registration draft saves the choices of an account already signed in (inbox 436), it creates no account and sends no mail"
+    },
+    {
+      "rule": "R75",
+      "path": "vent_auth/views_connected_keys.py",
+      "reason": "no paid model is called here: the only request is Google's free models list (GET /v1beta/models?pageSize=1) to check that an organiser's own key works before it is kept, behind @limited('connected_keys', 20) per caller. The paid reads are in vent_tournament/br_ocr.py, use the organiser's own key and keep the per-person daily cap ocr.reads_per_person_per_day (inbox 551, 25 Oct 2026)"
     }
   ],
   "auth": {

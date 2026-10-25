@@ -10,6 +10,7 @@ from .views_rankings import games_list
 from . import views_wallets_shared
 from . import views_invitations
 from . import views_admin_orgs
+from . import views_connected_keys
 from . import views_admin_admins
 from . import views_admin_finance
 from . import views_admin_moderation
@@ -375,4 +376,7 @@ urlpatterns = [
     # so neither of these takes a session.
     path("waitlist/claim/<str:token>/", waitlist_claim_preview, name="waitlist_claim_preview"),
     path("waitlist/claim/", waitlist_claim, name="waitlist_claim"),
+    # An organiser's own keys to paid services (inbox 551).
+    path("connected-keys/", views_connected_keys.connected_keys, name="connected_keys"),
+    path("connected-keys/<str:provider>/", views_connected_keys.disconnect_key, name="disconnect_key"),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

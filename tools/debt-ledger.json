@@ -159,6 +159,16 @@
     "first_seen": "2026-10-17",
     "since": "2026-10-17"
   },
+  "draft reads": {
+    "count": 0,
+    "first_seen": "2026-10-25",
+    "since": "2026-10-25"
+  },
+  "draft reads self-test": {
+    "count": 0,
+    "first_seen": "2026-10-25",
+    "since": "2026-10-25"
+  },
   "duplicate checkers": {
     "count": 0,
     "first_seen": "2026-09-12",
@@ -214,6 +224,16 @@
     "first_seen": "2026-09-12",
     "since": "2026-09-12"
   },
+  "font families": {
+    "count": 0,
+    "first_seen": "2026-10-25",
+    "since": "2026-10-25"
+  },
+  "font families self-test": {
+    "count": 0,
+    "first_seen": "2026-10-25",
+    "since": "2026-10-25"
+  },
   "forgiving search": {
     "count": 0,
     "first_seen": "2026-09-30",
@@ -268,6 +288,11 @@
     "count": 0,
     "first_seen": "2026-09-12",
     "since": "2026-09-12"
+  },
+  "hand-built auth headers": {
+    "count": 0,
+    "first_seen": "2026-10-25",
+    "since": "2026-10-25"
   },
   "history lines": {
     "count": 0,

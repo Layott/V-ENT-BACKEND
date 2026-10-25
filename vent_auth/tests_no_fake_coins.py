@@ -74,8 +74,9 @@ class SeederWritesNoCoinsOutsideDevelopmentTests(TestCase):
     def test_seed_on_a_production_box_leaves_every_wallet_empty(self):
         # The seeder makes nothing without games. This passed only when an
         # earlier test in the same process had left games behind.
+        # get_or_create: a data migration now seeds some of these titles itself.
         for title in ('Free Fire', 'EA FC 24', 'Call of Duty: Mobile', 'PUBG Mobile'):
-            Games.objects.create(game_title=title)
+            Games.objects.get_or_create(game_title=title)
         call_command('seed_demo', stdout=StringIO())
         demo = UserWallet.objects.filter(user__username__startswith='demo_')
         self.assertTrue(demo.exists())
