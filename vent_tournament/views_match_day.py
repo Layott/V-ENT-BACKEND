@@ -11,6 +11,9 @@ organiser's word against a player's. Now:
     organiser, because ejecting both is a decision, not a timer.
   * **The room**: the host side (the stage says which) or staff posts the code
     and password. Only the two sides and staff ever see it.
+  * **The place** (P4b): staff name the station and the wave, and neither a
+    new time nor a new station may put a person or a station in two matches at
+    once unless the organiser says to keep it (stations.py).
 """
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -21,7 +24,7 @@ from rest_framework.response import Response
 
 from vent_auth.actors import actor_from_request
 
-from . import match_shape, stage_engine, stage_settings
+from . import match_shape, stage_engine, stage_settings, stations
 from .access import may_record_results
 from .models import BracketMatch
 from vent_auth import inputs
@@ -36,6 +39,13 @@ def _err(message, code, http_status=status.HTTP_400_BAD_REQUEST, field=None):
     if field:
         body['field'] = field
     return Response(body, status=http_status)
+
+
+def _clash(found):
+    """The refusal for a clash, carrying what it clashes with."""
+    return Response({'status': 'error', 'data': {'clashes': found},
+                     'message': 'That puts a person or a station in two matches at once.',
+                     'code': 'MATCH_CLASH'}, status=status.HTTP_409_CONFLICT)
 
 
 def _match(match_id):
@@ -67,9 +77,12 @@ def check_in(request, match_id):
 def set_time(request, match_id):
     """POST /tournament/match/<id>/time/ - staff move one match.
 
-    Body: {"scheduled_at": ISO instant}. The automatic time (the break after
-    the players' last matches) only ever fills an empty time, so a time set
-    here stays. The check-in window moves with it, and both sides are told.
+    Body: {"scheduled_at": ISO instant, "allow_clash": bool}. The automatic
+    time (the break after the players' last matches) only ever fills an empty
+    time, so a time set here stays. The check-in window moves with it, and both
+    sides are told. A time that puts a person in two matches at once, here or
+    in a tournament joined by a feed, is refused with MATCH_CLASH unless
+    allow_clash says to keep it.
     """
     user, err = actor_from_request(request)
     if err:
@@ -84,6 +97,9 @@ def set_time(request, match_id):
     when = parse_datetime(raw) if raw else None
     if when is None or when.tzinfo is None:
         return _err('Say when the match starts.', 'MATCH_TIME_INVALID', field='scheduled_at')
+    found = stations.clashes(match, when=when)
+    if found and not inputs.read_bool(request.data, 'allow_clash'):
+        return _clash(found)
 
     with transaction.atomic():
         locked = BracketMatch.objects.select_for_update().get(pk=match.pk)
@@ -106,7 +122,45 @@ def set_time(request, match_id):
                               'scheduled_at': match.scheduled_at.isoformat()})
     except Exception:                                           # noqa: BLE001
         pass
-    return _ok({'match': match_shape.match_row(match, private=True)}, 'Match moved.')
+    return _ok({'match': match_shape.match_row(match, private=True), 'clashes': found},
+               'Match moved.')
+
+
+@api_view(['POST'])
+def set_place(request, match_id):
+    """POST /tournament/match/<id>/place/ - staff name the station and the wave.
+
+    Body: {"station": text, "wave": text, "allow_clash": bool}, each label at
+    most 40 characters; a key left out is left alone and a blank one clears it.
+    A station already holding another open match inside the break is refused
+    with MATCH_CLASH unless allow_clash says to keep it; so is a person due
+    elsewhere, which only a match with a time can show.
+    """
+    user, err = actor_from_request(request)
+    if err:
+        return err
+    match = _match(match_id)
+    if not may_record_results(user, match.tournament):
+        return _err('Only the people running this tournament can place a match.',
+                    'FORBIDDEN', status.HTTP_403_FORBIDDEN)
+    if match.status not in ('scheduled', 'in_progress'):
+        return _err('This match is not open.', 'MATCH_NOT_OPEN', status.HTTP_409_CONFLICT)
+    # A key sent blank clears the label, so presence decides, not emptiness.
+    station = (inputs.read_text(request.data, 'station', max_length=40)
+               if 'station' in request.data else match.station)
+    wave = (inputs.read_text(request.data, 'wave', max_length=40)
+            if 'wave' in request.data else match.wave)
+    found = stations.clashes(match, station=station)
+    if found and not inputs.read_bool(request.data, 'allow_clash'):
+        return _clash(found)
+
+    with transaction.atomic():
+        locked = BracketMatch.objects.select_for_update().get(pk=match.pk)
+        locked.station, locked.wave = station, wave
+        locked.save(update_fields=['station', 'wave'])
+    match.refresh_from_db()
+    return _ok({'match': match_shape.match_row(match, private=True), 'clashes': found},
+               'Match placed.')
 
 
 @api_view(['POST'])
