@@ -101,11 +101,15 @@ def _my_stall(user, ref):
     Ownership is checked HERE rather than by the caller, so no endpoint in this
     file can forget it. Every one of them changes something.
     """
-    qs = Vendor.objects.select_related('event').filter(owner=user)
-    found = qs.filter(slug=str(ref)).first()
-    if found is None and str(ref).isdigit():
-        found = qs.filter(id=int(ref)).first()
-    return found
+    from . import shop as _shop
+    return _shop.stall_by_ref(user, ref, roles=('owner',))
+
+
+def _stall_i_work(user, ref):
+    """A stall this person owns or staffs (inbox 553), for the doors staff may
+    use: the orders, and marking them ready or collected."""
+    from . import shop as _shop
+    return _shop.stall_by_ref(user, ref, roles=('owner', 'staff'))
 
 
 def _product_row(request, p):
@@ -122,10 +126,17 @@ def _product_row(request, p):
         'is_active': p.is_active,
         'variants': p.variants or [],
         'can_deliver': p.can_deliver,
+        'category': p.category or None,
+        'discount_kind': p.discount_kind or None,
+        'discount_value': float(p.discount_value),
+        'sale_price_ngn': float(p.sale_price),
+        'sale_price_vc': int(_ngn_to_coins(p.sale_price)),
+        'low_stock_at': p.low_stock_at,
+        'low_stock': bool(p.low_stock_at) and p.stock <= p.low_stock_at,
     }
 
 
-def _order_row(request, o):
+def _order_row(request, o, here=None):
     return {
         'id': o.id,
         'code': o.code,
@@ -141,6 +152,11 @@ def _order_row(request, o):
         'fulfilment': o.fulfilment,
         'buyer': o.buyer.username if o.buyer_id else '',
         'buyer_name': (o.buyer.full_name or o.buyer.username) if o.buyer_id else '',
+        # Whether the buyer is checked in at the event right now (inbox 553),
+        # worked out once per list by the caller and passed in as a set.
+        'buyer_here': bool(here is not None and o.buyer_id in here),
+        'promo_code': o.promo.code if o.promo_id else None,
+        'discount_ngn': float(o.discount_ngn),
         'items': [
             {
                 'id': i.id,
@@ -179,9 +195,15 @@ def my_stalls(request):
     if auth_error:
         return auth_error
 
+    from django.db.models import Q
+    from . import shop as _shop
     rows = []
-    for v in Vendor.objects.select_related('event').filter(owner=user):
+    mine = (Vendor.objects.select_related('event')
+            .filter(Q(owner=user) | Q(staff__user=user)).distinct())
+    for v in mine:
         rows.append({
+            'role': _shop.stall_role(user, v),
+            'kind': v.kind,
             'id': v.id,
             'slug': v.slug,
             'name': v.name,
@@ -244,6 +266,37 @@ def my_stall_detail(request, vendor_id):
                               'NOT_APPROVED', status.HTTP_409_CONFLICT)
             stall.status = wanted
             fields.append('status')
+        if 'refund_policy' in request.data:
+            wanted = inputs.read_text(request.data, 'refund_policy', max_length=20)
+            if wanted not in dict(Vendor.REFUND_CHOICES):
+                return _error('Refunds are none, until the event starts, or until collected.',
+                              'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+            stall.refund_policy = wanted
+            fields.append('refund_policy')
+        if 'pickup_location' in request.data:
+            stall.pickup_location = inputs.read_text(request.data, 'pickup_location', max_length=160)
+            fields.append('pickup_location')
+        if 'pickup_opens_at' in request.data or 'pickup_closes_at' in request.data:
+            from . import shop as _shop
+            def _when(key, current):
+                # Absent keeps what is saved; an empty value clears it, which
+                # is what emptying the field on the form means.
+                if key not in request.data:
+                    return current
+                if not str(request.data.get(key) or '').strip():
+                    return None
+                return inputs.read_datetime(request.data, key)
+            try:
+                opens = _when('pickup_opens_at', stall.pickup_opens_at)
+                closes = _when('pickup_closes_at', stall.pickup_closes_at)
+            except (TypeError, ValueError):
+                return _error('That is not a date and time.', 'VALIDATION_ERROR',
+                              status.HTTP_400_BAD_REQUEST)
+            why = _shop.window_refusal(stall, opens, closes)
+            if why:
+                return _error(why[1], why[0], status.HTTP_400_BAD_REQUEST)
+            stall.pickup_opens_at, stall.pickup_closes_at = opens, closes
+            fields += ['pickup_opens_at', 'pickup_closes_at']
         refused = uploads.files_refusal(request, ('logo', 'banner'))
         if refused:
             return refused
@@ -267,6 +320,14 @@ def my_stall_detail(request, vendor_id):
             'fee_pct': _fee_rule()[0],
             'fee_flat_ngn': float(_fee_rule()[1]),
             **_stall_money(stall),
+            'kind': stall.kind,
+            'refund_policy': stall.refund_policy,
+            'pickup_location': stall.pickup_location or None,
+            'pickup_opens_at': stall.pickup_opens_at,
+            'pickup_closes_at': stall.pickup_closes_at,
+            'staff': [{'username': m.user.username,
+                       'name': m.user.full_name or m.user.username}
+                      for m in stall.staff.select_related('user')],
         },
         'products': [_product_row(request, p) for p in stall.products.all()],
     }, 'Your stall.')
@@ -346,6 +407,19 @@ def my_product(request, vendor_id, product_id):
         if why:
             return _error(why, 'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
         fields.append('variants')
+    from . import shop as _shop
+    extras, problem = _shop.read_product_extras(request.data)
+    if problem:
+        return _error(problem[1], problem[0], status.HTTP_400_BAD_REQUEST)
+    for key, value in extras.items():
+        setattr(product, key, value)
+        fields.append(key)
+    if stall.kind == Vendor.KIND_ORGANISER and product.can_deliver:
+        product.can_deliver = False
+        fields.append('can_deliver')
+    if product.low_stock_alerted_at and product.stock > product.low_stock_at:
+        product.low_stock_alerted_at = None
+        fields.append('low_stock_alerted_at')
     refused = uploads.files_refusal(request, 'image')
     if refused:
         return refused
@@ -365,18 +439,30 @@ def my_stall_orders(request, vendor_id):
     if auth_error:
         return auth_error
 
-    stall = _my_stall(user, vendor_id)
+    stall = _stall_i_work(user, vendor_id)
     if stall is None:
         return _error('That is not one of your stalls.', 'NOT_FOUND',
                       status.HTTP_404_NOT_FOUND)
 
     wanted = inputs.read_text(request.GET, 'status', max_length=20)
-    orders = stall.orders.select_related('buyer').prefetch_related('items__product')
+    orders = stall.orders.select_related('buyer', 'promo').prefetch_related('items__product')
     if wanted:
         orders = orders.filter(status=wanted)
 
-    rows = [_order_row(request, o) for o in orders[:PAGE_SIZE]]
+    from . import shop as _shop
+    page = list(orders[:PAGE_SIZE])
+    here = _shop.buyers_here(stall.event_id, {o.buyer_id for o in page if o.buyer_id})
+    rows = [_order_row(request, o, here) for o in page]
+    owner = _shop.stall_role(user, stall) == 'owner'
+    if not owner:
+        # Staff hand orders over; what the stall earns stays the owner's
+        # (inbox 553), in the payload as well as on the screen.
+        for row in rows:
+            for key in ('fee_ngn', 'fee_bearer', 'buyer_fee_vc', 'vendor_ngn', 'vendor_paid_vc',
+                        'discount_ngn'):
+                row.pop(key, None)
     return _ok({
+        'role': 'owner' if owner else 'staff',
         'orders': rows,
         'count': len(rows),
         # The stallholder's own summary, so the screen does not have to count
@@ -387,7 +473,7 @@ def my_stall_orders(request, vendor_id):
         # The money, in naira, over every order that was not cancelled: what
         # the items came to, what the platform took, what the stall kept, the
         # whole coins paid into the wallet so far, and what waits under a coin.
-        **_stall_money(stall),
+        **(_stall_money(stall) if owner else {}),
     }, 'Orders on your stall.')
 
 
@@ -422,7 +508,7 @@ def my_order_status(request, vendor_id, code):
     if auth_error:
         return auth_error
 
-    stall = _my_stall(user, vendor_id)
+    stall = _stall_i_work(user, vendor_id)
     if stall is None:
         return _error('That is not one of your stalls.', 'NOT_FOUND',
                       status.HTTP_404_NOT_FOUND)
@@ -431,6 +517,14 @@ def my_order_status(request, vendor_id, code):
     if wanted not in NEXT_STATUS:
         return _error('That is not something an order can become.',
                       'VALIDATION_ERROR', status.HTTP_400_BAD_REQUEST)
+    from . import shop as _shop
+    if wanted == 'cancelled' and _shop.stall_role(user, stall) != 'owner':
+        return _error('Only the owner can cancel an order, because cancelling refunds it.',
+                      'OWNER_ONLY', status.HTTP_403_FORBIDDEN)
+    if wanted == 'collected':
+        closed = _shop.pickup_refusal(stall)
+        if closed:
+            return _error(closed[1], closed[0], status.HTTP_409_CONFLICT)
 
     with transaction.atomic():
         order = VendorOrder.objects.select_for_update().filter(
@@ -480,3 +574,55 @@ def my_order_status(request, vendor_id, code):
         order.save(update_fields=fields)
 
     return _ok({'order': _order_row(request, order)}, 'Order updated.')
+
+
+# ---------------------------------------------------------------------------
+# The people running a stall with its owner (inbox 553)
+# ---------------------------------------------------------------------------
+
+@api_view(['GET', 'POST'])
+def my_stall_staff(request, vendor_id):
+    """GET the staff of my stall; POST a username to add them."""
+    user, auth_error = _authenticate(request)
+    if auth_error:
+        return auth_error
+    stall = _my_stall(user, vendor_id)
+    if stall is None:
+        return _error('That is not one of your stalls.', 'NOT_FOUND',
+                      status.HTTP_404_NOT_FOUND)
+    from vent_auth.models import Users
+    from .models import VendorStaff
+    if request.method == 'POST':
+        name = inputs.read_text(request.data, 'username', max_length=128).lstrip('@')
+        person = Users.objects.filter(username__iexact=name).first() if name else None
+        if person is None:
+            return _error('Nobody has that username.', 'USER_NOT_FOUND',
+                          status.HTTP_404_NOT_FOUND)
+        if stall.owner_id == person.user_id:
+            return _error('That is the owner of the stall.', 'ALREADY_OWNER',
+                          status.HTTP_409_CONFLICT)
+        VendorStaff.objects.get_or_create(vendor=stall, user=person,
+                                          defaults={'added_by': user})
+    rows = [{'username': m.user.username, 'name': m.user.full_name or m.user.username,
+             'added_at': m.created_at}
+            for m in stall.staff.select_related('user')]
+    return _ok({'staff': rows, 'count': len(rows)},
+               'Added.' if request.method == 'POST' else 'The people running this stall.')
+
+
+@api_view(['DELETE'])
+def my_stall_staff_member(request, vendor_id, username):
+    """Remove somebody from my stall's staff."""
+    user, auth_error = _authenticate(request)
+    if auth_error:
+        return auth_error
+    stall = _my_stall(user, vendor_id)
+    if stall is None:
+        return _error('That is not one of your stalls.', 'NOT_FOUND',
+                      status.HTTP_404_NOT_FOUND)
+    removed, _ = stall.staff.filter(user__username__iexact=str(username).lstrip('@')).delete()
+    if not removed:
+        return _error('That person is not on this stall.', 'NOT_FOUND',
+                      status.HTTP_404_NOT_FOUND)
+    return _ok({'removed': True}, 'Removed.')
+

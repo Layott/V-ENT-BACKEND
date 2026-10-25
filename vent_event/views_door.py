@@ -194,6 +194,9 @@ def ticket_lookup(request, code):
             'wrong_day': bool(tier_day and tier_day != today),
             'admissible': (ticket.status == 'valid'
                            and not (tier_day and tier_day != today)),
+            # Who this is, for the door (inbox 553): how they got the ticket,
+            # its tier, the tournaments they play in here, what they bought.
+            'story': _story(ticket),
         },
         'Ticket found.',
     )
@@ -517,3 +520,7 @@ def seal_key(request):
     from . import ticket_seal
     return Response({'status': 'success', 'message': 'Seal key',
                      'data': {'key': ticket_seal.public_jwk(), 'prefix': ticket_seal.PREFIX}})
+
+def _story(ticket):
+    from . import shop as _shop
+    return _shop.ticket_story(ticket)

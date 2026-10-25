@@ -8739,6 +8739,111 @@
     ],
     "reason": "the record named first is public, so whether it exists is no secret"
    }
+  },
+  {
+   "generated": true,
+   "name": "GET event/my-stalls/<str:vendor_id>/staff/ as B",
+   "route": "event/my-stalls/<str:vendor_id>/staff/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/my-stalls/{id}/staff/"
+   },
+   "id": "walk_vendor_bisi-at-walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/my-stalls/<str:vendor_id>/staff/ as B",
+   "route": "event/my-stalls/<str:vendor_id>/staff/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/my-stalls/{id}/staff/",
+    "body": {
+     "username": "walk_buyer_ada"
+    }
+   },
+   "id": "walk_vendor_bisi-at-walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "DELETE event/my-stalls/<str:vendor_id>/staff/<str:username>/ as B",
+   "route": "event/my-stalls/<str:vendor_id>/staff/<str:username>/",
+   "attempt": {
+    "as": "b",
+    "method": "DELETE",
+    "path": "/event/my-stalls/walk_vendor_bisi-at-walk-con-5e6c/staff/{id}/"
+   },
+   "id": "walk_organiser",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "GET event/<str:event_id>/shop/ as B",
+   "route": "event/<str:event_id>/shop/",
+   "attempt": {
+    "as": "b",
+    "method": "GET",
+    "path": "/event/{id}/shop/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/<str:event_id>/shop/ as B",
+   "route": "event/<str:event_id>/shop/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/{id}/shop/"
+   },
+   "id": "walk-con-5e6c",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "the record named first is public, so whether it exists is no secret"
+   }
+  },
+  {
+   "generated": true,
+   "name": "POST event/vendor/order/<str:code>/cancel/ as B",
+   "route": "event/vendor/order/<str:code>/cancel/",
+   "attempt": {
+    "as": "b",
+    "method": "POST",
+    "path": "/event/vendor/order/{id}/cancel/"
+   },
+   "id": "R88MISSING",
+   "r88": {
+    "skip": [
+     "existence"
+    ],
+    "reason": "only the buyer's own orders are looked up, so another person's code answers the same 404 as a missing one"
+   }
   }
  ]
 }

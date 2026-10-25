@@ -52,6 +52,9 @@ FEATURES = {
     # CEO, 30 September 2026 (inbox 391, 397): the studio's designed overlays,
     # transitions and elements downloaded as pictures and videos.
     'overlay_downloads': 'Overlays, transitions and elements downloaded as pictures and videos',
+    # CEO, 25 October 2026 (inbox 550): a shop of the event's own, from the
+    # features PDF, "As a premium organizer".
+    'event_shop': "A shop of the event's own, collected at the venue",
 }
 
 

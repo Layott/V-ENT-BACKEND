@@ -39,13 +39,15 @@ from .views_tickets import (
 )
 from .views_vendor_shop import (
     my_stalls, my_stall_detail, my_product, my_stall_orders,
-    my_order_status,
+    my_order_status, my_stall_staff, my_stall_staff_member,
 )
+from .views_event_shop import event_shop
 from .views_vendor_slots import event_slots, event_slot_detail, buy_slot
 from .views_slot_pictures import slot_pictures, slot_picture_detail, slot_pictures_order, venue_layout
 from .views_vendors import (
     event_vendors, vendor_detail, create_vendor, create_product,
     create_order, my_vendor_orders, vendor_orders, collect_order, contact_vendor, quote_order,
+    cancel_my_order,
 )
 from .views_promos import (
     event_referrals, event_referral_detail, event_promos, event_promo_detail,
@@ -86,6 +88,8 @@ urlpatterns = [
     path("<str:event_id>/venue-layout/", venue_layout, name="venue_layout"),
     path("<str:event_id>/slots/<int:slot_id>/", event_slot_detail, name="event_slot_detail"),
     path("<str:event_id>/vendors/", event_vendors, name="event_vendors"),
+    # The event's own shop (inbox 550).
+    path("<str:event_id>/shop/", event_shop, name="event_shop"),
     path("<str:event_id>/vendors/create/", create_vendor, name="create_vendor"),
     path("<str:event_id>/vendor/<str:vendor_id>/", vendor_detail, name="vendor_detail"),
     path("vendor/<str:vendor_id>/products/", create_product, name="create_vendor_product"),
@@ -94,6 +98,8 @@ urlpatterns = [
     path("vendor/<str:vendor_id>/quote/", quote_order, name="quote_vendor_order"),
     path("vendor/<str:vendor_id>/orders/", vendor_orders, name="vendor_orders"),
     path("vendor/order/<str:code>/collect/", collect_order, name="collect_vendor_order"),
+    # The buyer cancels within the shop's refund policy (inbox 554).
+    path("vendor/order/<str:code>/cancel/", cancel_my_order, name="cancel_my_vendor_order"),
     path("vendor-orders/", my_vendor_orders, name="my_vendor_orders"),
     # The organiser's side: every stall at the event and the yes or no on
     # each. "Approve each stall before it opens" had no door until now.
@@ -118,6 +124,10 @@ urlpatterns = [
          name="my_order_status"),
     path("my-stalls/<str:vendor_id>/products/<int:product_id>/", my_product,
          name="my_product"),
+    # The people running a stall with its owner (inbox 553).
+    path("my-stalls/<str:vendor_id>/staff/", my_stall_staff, name="my_stall_staff"),
+    path("my-stalls/<str:vendor_id>/staff/<str:username>/", my_stall_staff_member,
+         name="my_stall_staff_member"),
 
     # Ticketing
     path("my-tickets/", my_tickets, name="my_tickets"),

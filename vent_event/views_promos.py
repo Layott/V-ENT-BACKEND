@@ -16,7 +16,7 @@ from rest_framework.response import Response
 from vent_auth.actors import actor_from_request, may_override
 from vent_auth.models import Organization, OrgMember, Users
 
-from .models import Event, EventManager, EventPromo, EventReferral, TicketTier
+from .models import Event, EventManager, EventPromo, EventReferral, TicketTier, Vendor
 from .permissions import may_run_event
 from vent_auth import inputs
 
@@ -154,6 +154,10 @@ def _promo_row(p):
         'starts_at': p.starts_at,
         'ends_at': p.ends_at,
         'is_active': p.is_active,
+        # Tickets or the shop (inbox 550); a shop code may name one stall.
+        'scope': p.scope,
+        'vendor': p.vendor.slug if p.vendor_id else None,
+        'vendor_name': p.vendor.name if p.vendor_id else None,
     }
 
 
@@ -332,7 +336,7 @@ def event_promos(request, event_id):
         return err
 
     if request.method == 'GET':
-        rows = event.promos.select_related('referral')
+        rows = event.promos.select_related('referral', 'vendor')
         return _ok({'results': [_promo_row(p) for p in rows], 'count': rows.count()})
 
     code = (request.data.get('code') or '').strip()
@@ -370,9 +374,24 @@ def event_promos(request, event_id):
         return _err('That ticket tier is not on this event.', 'TIER_NOT_FOUND',
                     status.HTTP_404_NOT_FOUND)
 
+    # A shop code (inbox 550) is spent at a stall rather than on tickets, so a
+    # tier means nothing to it; it may name one stall of this event.
+    scope = inputs.read_text(request.data, 'scope', max_length=10) or EventPromo.SCOPE_TICKETS
+    if scope not in (EventPromo.SCOPE_TICKETS, EventPromo.SCOPE_SHOP):
+        return _err('A promo is for tickets or for the shop.', 'VALIDATION_FAILED')
+    vendor = None
+    if scope == EventPromo.SCOPE_SHOP:
+        tier_id = None
+        vendor_ref = inputs.read_text(request.data, 'vendor', max_length=160)
+        if vendor_ref:
+            vendor = Vendor.objects.filter(event=event, slug=vendor_ref).first()
+            if vendor is None:
+                return _err('That shop is not at this event.', 'VENDOR_NOT_FOUND',
+                            status.HTTP_404_NOT_FOUND)
+
     promo = EventPromo.objects.create(
         event=event, code=code, kind=kind, value=value,
-        referral_id=referral_id, tier_id=tier_id,
+        referral_id=referral_id, tier_id=tier_id, scope=scope, vendor=vendor,
         max_tickets=max(max_tickets, 0),
         starts_at=request.data.get('starts_at') or None,
         ends_at=request.data.get('ends_at') or None,

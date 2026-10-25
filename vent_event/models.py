@@ -679,6 +679,17 @@ class EventPromo(models.Model):
 
     max_tickets = models.PositiveIntegerField(default=0)  # 0 = no limit
     used_tickets = models.PositiveIntegerField(default=0)
+    # What the code is spent on. One promo model for the event (the plan for
+    # inbox 550): a ticket code and a shop code are the same object with a
+    # different scope, and each checkout reads only its own. For a shop code
+    # `max_tickets` / `used_tickets` count items rather than tickets.
+    SCOPE_TICKETS = 'tickets'
+    SCOPE_SHOP = 'shop'
+    SCOPE_CHOICES = [(SCOPE_TICKETS, 'Tickets'), (SCOPE_SHOP, 'Shop')]
+    scope = models.CharField(max_length=10, choices=SCOPE_CHOICES, default=SCOPE_TICKETS)
+    # A shop code for one stall; blank means every shop at the event.
+    vendor = models.ForeignKey('Vendor', on_delete=models.CASCADE, null=True, blank=True,
+                               related_name='promos')
     starts_at = models.DateTimeField(null=True, blank=True)
     ends_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
@@ -1155,6 +1166,34 @@ class Vendor(models.Model):
     # at once, and the rest waits for the next order. Never lost.
     carry_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
+    # The event's own shop (inbox 550, CEO 25 October 2026): a Premium
+    # organiser selling merchandise at their event. The same Vendor, the same
+    # storefront, checkout and order code as any stall; `kind` is what tells
+    # them apart, so nothing that shows a stall has to learn a second model.
+    KIND_STALL = 'stall'
+    KIND_ORGANISER = 'organiser'
+    KIND_CHOICES = [(KIND_STALL, 'A stall at the event'),
+                    (KIND_ORGANISER, "The event's own shop")]
+    kind = models.CharField(max_length=12, choices=KIND_CHOICES, default=KIND_STALL)
+
+    # Refunds are the shop's decision (inbox 554: "They should be able to
+    # decide them or the vendor"). None keeps what every stall did before:
+    # the buyer cannot cancel, the stall still can and refunds in full.
+    REFUND_NONE = 'none'
+    REFUND_UNTIL_START = 'until_event_start'
+    REFUND_UNTIL_COLLECTED = 'until_collected'
+    REFUND_CHOICES = [(REFUND_NONE, 'No refunds'),
+                      (REFUND_UNTIL_START, 'Until the event starts'),
+                      (REFUND_UNTIL_COLLECTED, 'Until the order is collected')]
+    refund_policy = models.CharField(max_length=20, choices=REFUND_CHOICES, default=REFUND_NONE)
+
+    # Where and when orders are handed over. Blank and open means no window,
+    # which is how a stall worked until now; the organiser's shop sets one,
+    # because the spec says the goods are collected at the venue on the day.
+    pickup_location = models.CharField(max_length=160, blank=True, default='')
+    pickup_opens_at = models.DateTimeField(null=True, blank=True)
+    pickup_closes_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ['name']
 
@@ -1211,11 +1250,64 @@ class VendorProduct(models.Model):
     # offers delivery on everything will be asked to post one.
     can_deliver = models.BooleanField(default=False)
 
+    # Merchandise, Equipment, Accessories in the spec; free text so a shop can
+    # name its own, and the storefront filters by whatever it finds.
+    category = models.CharField(max_length=40, blank=True, default='')
+
+    # A sale price, worked out on the server from these two (R73): what the
+    # buyer is charged never comes from the request.
+    DISCOUNT_PERCENT = 'percent'
+    DISCOUNT_AMOUNT = 'amount'
+    DISCOUNT_CHOICES = [('', 'No discount'), (DISCOUNT_PERCENT, 'Percent off'),
+                        (DISCOUNT_AMOUNT, 'Naira off')]
+    discount_kind = models.CharField(max_length=10, choices=DISCOUNT_CHOICES, blank=True, default='')
+    discount_value = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    # Tell the shop when this runs low. 0 is never. `low_stock_alerted_at`
+    # stops the same alert arriving with every order below the line, and a
+    # restock above it clears it so the next dip is told again.
+    low_stock_at = models.PositiveIntegerField(default=0)
+    low_stock_alerted_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ['name']
 
+    @property
+    def sale_price(self):
+        """The naira price after this product's own discount, never below 0."""
+        from decimal import Decimal
+        price = Decimal(self.price or 0)
+        value = Decimal(self.discount_value or 0)
+        if self.discount_kind == self.DISCOUNT_PERCENT and value > 0:
+            price = price - price * min(value, Decimal(100)) / Decimal(100)
+        elif self.discount_kind == self.DISCOUNT_AMOUNT and value > 0:
+            price = price - value
+        return max(price, Decimal(0)).quantize(Decimal('0.01'))
+
     def __str__(self):
         return f"{self.name} · {self.vendor.name}"
+
+
+class VendorStaff(models.Model):
+    """Somebody the stall owner lets run the stall with them (inbox 553: "the
+    person in charge of the store and those accounts manning it"). They see
+    the orders, mark them ready and collected, and are told when a buyer is
+    at the event; the money, the products and the settings stay the owner's.
+    """
+
+    id = models.AutoField(primary_key=True)
+    vendor = models.ForeignKey(Vendor, on_delete=models.CASCADE, related_name='staff')
+    user = models.ForeignKey('vent_auth.Users', on_delete=models.CASCADE, related_name='stall_staff_roles')
+    added_by = models.ForeignKey('vent_auth.Users', on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='stall_staff_added')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('vendor', 'user')
+        ordering = ['user__username']
+
+    def __str__(self):
+        return f"{self.user_id} on {self.vendor_id}"
 
 
 class VendorOrder(models.Model):
@@ -1282,6 +1374,12 @@ class VendorOrder(models.Model):
     sent_at = models.DateTimeField(null=True, blank=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
     tracking = models.CharField(max_length=80, blank=True, default='')
+
+    # The shop code the buyer used, and the naira it took off, stamped at the
+    # sale so a code edited later never rewrites what somebody paid.
+    promo = models.ForeignKey('EventPromo', on_delete=models.SET_NULL, null=True, blank=True,
+                              related_name='vendor_orders')
+    discount_ngn = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
     class Meta:
         ordering = ['-created_at']
