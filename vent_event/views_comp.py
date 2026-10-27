@@ -36,6 +36,7 @@ from rest_framework.response import Response
 
 from vent_auth.models import Users
 
+from . import availability
 from .models import Event, EventManager, Ticket, TicketTier
 from vent_auth import inputs
 
@@ -148,6 +149,10 @@ def comp_tickets(request, event_id):
     skipped = []
 
     with transaction.atomic():
+        # The event row first, then the type, as buy_ticket does: the room
+        # is counted across every type, so locking only this one would let a
+        # sale of another type take the same last place at the same moment.
+        Event.objects.select_for_update().filter(pk=event.pk).first()
         locked = TicketTier.objects.select_for_update().get(pk=tier.pk)
 
         # Somebody who already holds a ticket of this type is not sent another.
@@ -162,7 +167,11 @@ def comp_tickets(request, event_id):
         wanted = [a for a in addresses if a not in already]
         skipped = [a for a in addresses if a in already]
 
-        left = max(locked.quantity - locked.sold, 0)
+        # The same answer every checkout gets: the type's own stock, the
+        # venue's capacity (the lower wins) and everything held back. This
+        # read the type's stock alone, so comps could fill a venue past its
+        # capacity whenever the types added up to more than it (inbox 564).
+        left = availability.available(locked)
         if len(wanted) > left:
             return _error(
                 'There are %d of that type left, and you asked for %d.'
