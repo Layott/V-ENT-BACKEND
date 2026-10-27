@@ -48,6 +48,31 @@ def in_flight_on_tier(tier, now=None):
     return int(total or 0)
 
 
+def in_flight_on_event(event, day=None, now=None):
+    """Seats being paid for at the gateway, on every type, against the room.
+
+    `in_flight_on_tier` held them against their own type only. That is enough
+    while the types add up to no more than the capacity, because then the
+    types run out first. When they add up to more (the wizard has said "more
+    tickets than places" since 27 October 2026), the room is the ceiling that
+    binds, and a guest on a second type was sent to pay for the same last
+    places as a guest already at the gateway on the first (inbox 564).
+
+    `day` narrows it the way `sold_on_event` does: a type with no day is a
+    full pass and is in the room on every day.
+    """
+    from django.utils import timezone
+    from .models import AbandonedCheckout
+    now = now or timezone.now()
+    since = now - timezone.timedelta(minutes=IN_FLIGHT_MINUTES)
+    rows = AbandonedCheckout.objects.filter(
+        event=event, tier__isnull=False,
+        converted_at__isnull=True, started_at__gte=since)
+    if day is not None:
+        rows = rows.filter(models.Q(tier__day=day) | models.Q(tier__day__isnull=True))
+    return int(rows.aggregate(n=Sum('quantity'))['n'] or 0)
+
+
 def held_on_tier(tier):
     """Tickets on this type that are reserved and not yet issued."""
     from .models import TicketHold
@@ -157,7 +182,8 @@ def event_room(event, day=None):
     if getattr(event, 'capacity_mode', 'per_day') != 'per_day':
         day = None
 
-    used = sold_on_event(event, day) + held_on_event(event)
+    used = (sold_on_event(event, day) + held_on_event(event)
+            + in_flight_on_event(event, day))
     return max(int(event.capacity) - used, 0)
 
 

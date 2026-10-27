@@ -629,6 +629,13 @@ CATCHERS = [
      'every purchase that can refuse for want of coins offers a card instead',
      ROOT, ["python", "tools/check-card-path.py"], True),
 
+    # A ticket is a place in a finite room, and three doors have made one
+    # without asking the room: no door at all (28 August), the paid guest
+    # checkout at the gateway (12 September), comps (27 October, inbox 564).
+    ('ticket doors',
+     'every function that makes a ticket asks vent_event/availability.py first',
+     ROOT, ["python", "tools/check-ticket-doors.py"], True),
+
     # Owner rules R55 to R61 (17 September 2026): secrets, the admin key, RLS,
     # ownership, rate limits, billing caps, parameterised queries. One global
     # checker, configured per repo in security-rules.json; `--ledger` fails
