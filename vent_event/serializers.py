@@ -224,6 +224,19 @@ def _person(request, user):
     return shared(request, user)
 
 
+def _may_edit(request, event):
+    """True when the signed-in viewer may edit this event. Never raises."""
+    header = request.headers.get('Authorization') if request is not None else None
+    if not header or not header.startswith('Bearer '):
+        return False
+    from vent_auth.actors import actor_from_request, may_override
+    from .permissions import runs_event_itself
+    user, err = actor_from_request(request)
+    if err is not None or user is None:
+        return False
+    return bool(runs_event_itself(user, event) or may_override(user, 'manage_events'))
+
+
 def serialize_event_detail(request, event):
     """Full shape for the view-event page (Overview / Tickets / Schedule tabs)."""
     data = serialize_event_card(request, event)
@@ -245,6 +258,11 @@ def serialize_event_detail(request, event):
         # `_person` is where that shape lives. Adding a field there is adding it
         # everywhere a person is named, which is the whole point of it.
         'organizer': _person(request, creator) if creator else None,
+        # Whether this viewer may edit the event, by the same rule edit_event
+        # enforces (runs_event_itself, or an admin holding manage_events). The
+        # edit screen drew its whole form for door staff and strangers and
+        # refused only on save (Apple review P063-8); it now asks first.
+        'can_edit': _may_edit(request, event),
         # How many one email may hold. The buyer's form needs it so it can cap
         # the quantity there rather than refusing after they have filled in a
         # form, and the edit screen needs it to draw its own switch.
