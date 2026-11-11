@@ -180,8 +180,8 @@ ROLE_PERMISSIONS = {
 # explicit so a console can say "this role does nothing until that feature is
 # built" rather than quietly showing somebody an empty screen.
 ROLES_AWAITING_THEIR_FEATURE = {
-    'marketplace_admin': 'the marketplace (Phase 4)',
-    'wager_admin': 'the wager system (Phase 6)',
+    'marketplace_admin': 'the marketplace opens to the public',
+    'wager_admin': 'the wager system is built',
 }
 
 

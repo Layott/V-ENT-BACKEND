@@ -392,3 +392,34 @@ class SoftDeleteTests(RecordsBase):
                         {'reason': 'x'})
         self.assertEqual(res.status_code, 409)
         self.assertEqual(res.json()['code'], 'PAID_ENTRANTS')
+
+class RecordNamesTests(SimpleTestCase):
+    """The records console names kinds and groups in plain English (Apple
+    review S14, inbox 569): Django's default plural listed "Matchs", "Gamess",
+    "Br lobbys" and "O auth access tokens", grouped under "Vent_Sites"."""
+
+    def name(self, label, plural=True):
+        return records.kind_name(apps.get_model(label), plural=plural)
+
+    def test_default_plurals_are_english(self):
+        self.assertEqual(self.name('vent_tournament.Match'), 'Matches')
+        self.assertEqual(self.name('vent_auth.Games'), 'Games')
+        self.assertEqual(self.name('vent_auth.ThreadReply'), 'Thread replies')
+        self.assertEqual(self.name('vent_auth.PayoutAddress'), 'Payout addresses')
+        self.assertEqual(self.name('vent_tournament.BRNameAlias'), 'Battle royale name aliases')
+
+    def test_short_forms_are_spelled_out(self):
+        self.assertEqual(self.name('vent_tournament.BRLobby'), 'Battle royale lobbies')
+        self.assertEqual(self.name('vent_partners.OAuthAccessToken'), 'OAuth access tokens')
+
+    def test_one_record_is_singular(self):
+        self.assertEqual(self.name('vent_auth.Games', plural=False), 'Game')
+        self.assertEqual(self.name('vent_tournament.Match', plural=False), 'Match')
+        self.assertEqual(self.name('vent_tournament.LeagueRules', plural=False), 'League rules')
+
+    def test_groups_have_names(self):
+        self.assertEqual(records.group_name(apps.get_app_config('vent_sites')), 'Event websites')
+        for config in apps.get_app_configs():
+            if config.label.startswith('vent_'):
+                self.assertNotIn('_', records.group_name(config), config.label)
+

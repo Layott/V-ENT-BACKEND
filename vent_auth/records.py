@@ -66,6 +66,73 @@ EXCLUDED_APPS = {
     'authtoken': 'The REST library tokens: credentials, and unused by the site.',
 }
 
+# ---------------------------------------------------------------------------
+# What each kind and group is called on screen (Apple review S14, inbox 569)
+# ---------------------------------------------------------------------------
+# Django names a model from its class: BracketMatch is "bracket match" and its
+# plural is that plus an s, so the console listed "Matchs", "Gamess",
+# "Br lobbys" and "O auth access tokens", and grouped them under the app's
+# label ("Vent_Sites"). The console is read by the owner, not by an engineer.
+
+APP_NAMES = {
+    'vent_auth': 'Accounts, money and community',
+    'vent_tournament': 'Tournaments',
+    'vent_event': 'Events and tickets',
+    'vent_team': 'Teams',
+    'vent_circuits': 'Circuits and leagues',
+    'vent_sites': 'Event websites',
+    'vent_partners': 'Partners',
+    'vent_anime': 'Anime',
+    'vent_marketplace': 'Marketplace',
+}
+
+_WORDS = (
+    (re.compile(r'^br '), 'battle royale '),
+    (re.compile(r'^o auth '), 'OAuth '),
+    (re.compile(r'\bapi\b'), 'API'),
+    (re.compile(r'\bocr\b'), 'OCR'),
+)
+_UNCOUNTED = ('progress', 'settings', 'stats', 'rules', 'interests')
+
+
+def _plain(text):
+    for pattern, word in _WORDS:
+        text = pattern.sub(word, text)
+    return text[:1].upper() + text[1:]
+
+
+def kind_name(model, plural=True):
+    """A kind's name in plain English, plural for lists and singular for one
+    record. An explicit verbose_name_plural is kept as written."""
+    one = str(model._meta.verbose_name)
+    many = str(model._meta.verbose_name_plural)
+    explicit = many != one + 's'
+    if not plural:
+        if one.endswith(_UNCOUNTED + ('alias',)) or not one.endswith('s') or one.endswith('ss'):
+            return _plain(one)
+        return _plain(one[:-1])
+    if explicit:
+        return _plain(many)
+    if one.endswith(_UNCOUNTED) or (one.endswith('s') and not one.endswith(('ss', 'alias'))):
+        return _plain(one)
+    if one.endswith(('ss', 'ch', 'sh', 'x', 'z')) or one.endswith('alias'):
+        return _plain(one + 'es')
+    if one.endswith('y') and one[-2:-1] not in 'aeiou':
+        return _plain(one[:-1] + 'ies')
+    return _plain(one + 's')
+
+
+def group_name(app_config):
+    """An app's name for the records console."""
+    name = APP_NAMES.get(app_config.label)
+    if name:
+        return name
+    raw = str(app_config.verbose_name)
+    if raw.lower() == app_config.label.lower():
+        raw = app_config.label.replace('vent_', '').replace('_', ' ')
+    return _plain(raw)
+
+
 EXCLUDED_MODELS = {
     'vent_auth.recordbin': 'The bin itself: it has its own screen, and its rows hold whole deleted records.',
     'vent_auth.recordversion': 'The edit history itself: shown on each record, and reverted from there.',
@@ -464,7 +531,7 @@ def detail(obj, limit=10):
             continue
         linked.append({
             'model': key_of(related),
-            'name': str(related._meta.verbose_name_plural),
+            'name': kind_name(related),
             'field': rel.field.name if hasattr(rel, 'field') else accessor,
             'count': count,
             'items': [row(i) for i in items],
