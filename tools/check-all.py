@@ -463,6 +463,15 @@ CATCHERS = [
      'the button face catcher still fails without the rule',
      FRONTEND, ['node', 'scripts/check-button-face.mjs', '--self-test'], True),
 
+    # Found on the Apple review walk (inbox 587): the ticket checkout's close
+    # was an icon with no name, and 34 other icon-only buttons the same.
+    ('icon buttons',
+     'every button that is only an icon has a name',
+     FRONTEND, ['node', 'scripts/check-icon-buttons.mjs'], True),
+    ('icon buttons self-test',
+     'the icon button catcher still finds an unnamed icon',
+     FRONTEND, ['node', 'scripts/check-icon-buttons.mjs', '--self-test'], True),
+
     # Inbox 433, 12 October 2026, the third time: usePathname() answers
     # "/fr/home" on the page /home, so a menu found no current page and the
     # console guard matched no section in French or Portuguese.
