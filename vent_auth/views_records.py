@@ -82,10 +82,10 @@ def admin_records(request):
     groups = {}
     for model in records.listed_models():
         app = model._meta.app_config
-        groups.setdefault(app.label, {'app': app.label, 'name': str(app.verbose_name), 'models': []})
+        groups.setdefault(app.label, {'app': app.label, 'name': records.group_name(app), 'models': []})
         groups[app.label]['models'].append({
             'key': records.key_of(model),
-            'name': str(model._meta.verbose_name_plural),
+            'name': records.kind_name(model),
             'count': model._base_manager.count(),
             'money': records.is_money(model),
             'searchable': bool(records.search_fields(model)),
@@ -114,7 +114,7 @@ def admin_records_search(request):
         rows = [records.row(o) for o in hits]
         if rows:
             out.append({'model': records.key_of(model),
-                        'name': str(model._meta.verbose_name_plural), 'rows': rows})
+                        'name': records.kind_name(model), 'rows': rows})
     return _ok({'results': out, 'q': q})
 
 
@@ -139,7 +139,7 @@ def admin_records_list(request, key):
     items = qs[(page - 1) * PAGE: page * PAGE]
     return _ok({
         'model': records.key_of(model),
-        'name': str(model._meta.verbose_name_plural),
+        'name': records.kind_name(model),
         'money': records.is_money(model),
         'rows': [records.row(o) for o in items],
         'count': total,
@@ -174,7 +174,7 @@ def admin_record(request, key, pk):
                                             object_pk=str(obj.pk))[:50]
     out.update({
         'model': records.key_of(model),
-        'name': str(model._meta.verbose_name),
+        'name': records.kind_name(model, plural=False),
         'pk': str(obj.pk),
         'label': records.label_of(obj),
         'money': records.is_money(model),

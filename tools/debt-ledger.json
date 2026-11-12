@@ -54,6 +54,16 @@
     "first_seen": "2026-09-10",
     "since": "2026-09-10"
   },
+  "button face": {
+    "count": 0,
+    "first_seen": "2026-11-11",
+    "since": "2026-11-11"
+  },
+  "button face self-test": {
+    "count": 0,
+    "first_seen": "2026-11-11",
+    "since": "2026-11-11"
+  },
   "card path": {
     "count": 0,
     "first_seen": "2026-09-14",
@@ -309,6 +319,16 @@
     "first_seen": "2026-09-12",
     "since": "2026-09-12"
   },
+  "icon buttons": {
+    "count": 0,
+    "first_seen": "2026-11-12",
+    "since": "2026-11-12"
+  },
+  "icon buttons self-test": {
+    "count": 0,
+    "first_seen": "2026-11-12",
+    "since": "2026-11-12"
+  },
   "inert controls": {
     "count": 0,
     "first_seen": "2026-09-12",
@@ -563,6 +583,16 @@
     "count": 0,
     "first_seen": "2026-10-12",
     "since": "2026-10-12"
+  },
+  "scrim close": {
+    "count": 0,
+    "first_seen": "2026-11-11",
+    "since": "2026-11-11"
+  },
+  "scrim close self-test": {
+    "count": 0,
+    "first_seen": "2026-11-11",
+    "since": "2026-11-11"
   },
   "search self-test": {
     "count": 0,

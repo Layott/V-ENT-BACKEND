@@ -73,6 +73,21 @@ class EditEventTests(TestCase):
     def url(self):
         return '/event/edit-event/%s/' % self.event.event_id
 
+    # ------------------------------------------- may this viewer edit it?
+    # Apple review P063-8: the edit screen drew its form for anybody and only
+    # the save refused. The event detail now says, by the same rule.
+    def detail(self, **auth):
+        return self.client.get('/event/view-event/%s/' % self.event.event_id, **auth).json()['data']['event']
+
+    def test_the_detail_says_the_organiser_may_edit(self):
+        self.assertIs(self.detail(**self.owner_auth)['can_edit'], True)
+
+    def test_the_detail_says_a_stranger_may_not_edit(self):
+        self.assertIs(self.detail(**self.stranger_auth)['can_edit'], False)
+
+    def test_the_detail_says_a_signed_out_reader_may_not_edit(self):
+        self.assertIs(self.detail()['can_edit'], False)
+
     # ------------------------------------------------------------- the owner
     def test_the_organizer_can_correct_their_own_event(self):
         response = self.client.put(
