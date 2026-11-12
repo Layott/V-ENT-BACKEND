@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 SESSION_TIMEOUT_MINUTES = 120
 PAGE_SIZE = 12
 VALID_EVENT_TYPES = {'physical', 'virtual', 'hybrid'}
+VALID_EVENT_CATEGORIES = {'esports', 'anime', 'concert', 'convention', 'other'}
 
 
 # ---------------------------------------------------------------------------
@@ -294,8 +295,11 @@ def create_event(request):
                 end_time=end_date.time() if end_date else None,
                 reg_start_date=timezone.now(),
                 reg_end_date=start_date,
-                location=location,
-                event_link=virtual_link,
+                # Only what this kind of event uses (inbox 588): a venue typed
+                # before switching to Virtual is not stored as the place to go,
+                # and a physical event does not keep a stray stream link.
+                location=location if event_type != 'virtual' else None,
+                event_link=virtual_link if event_type != 'physical' else None,
                 capacity=capacity,
                 capacity_mode=capacity_mode,
                 min_age=_min_age_from(data.get('min_age', 0)),
@@ -428,7 +432,7 @@ def get_all_events(request):
 
     base = (
         Event.objects.filter(is_active=True, is_listed=True)
-        .select_related('game', 'creator')
+        .select_related('game', 'series', 'creator')
         .prefetch_related('ticket_tiers')
         .annotate(has_public_run_sheet=Exists(
             RunSheet.objects.filter(event_id=OuterRef('pk'),
@@ -509,7 +513,7 @@ def view_event(request, event_id):
         event_id, entity_type='event', id_field='event_id', model=Event,
         queryset=(
             Event.objects
-            .select_related('game', 'creator')
+            .select_related('game', 'series', 'creator')
             .prefetch_related('ticket_tiers', 'sponsors', 'sponsors__links', 'social_links', 'vendor_invites')
             # A cancelled event (is_active off) keeps answering: people
             # hold tickets to it and the page is where they find out. A
@@ -663,6 +667,23 @@ def edit_event(request, event_id):
                               'BAD_COORDINATE', status.HTTP_400_BAD_REQUEST)
             setattr(event, field, raw)
             updated.append(field)
+    # The kind of event and its category are a fixed list, the same one the
+    # creation wizard offers. Free text here let an edit store a type the
+    # rest of the site cannot read (inbox 588).
+    if data.get('event_type') is not None:
+        kind = str(data.get('event_type')).strip().lower()
+        if kind not in VALID_EVENT_TYPES:
+            return _error('Event type must be one of: physical, virtual, hybrid.',
+                          'INVALID_EVENT_TYPE', status.HTTP_400_BAD_REQUEST)
+        data = data.copy() if hasattr(data, 'copy') else dict(data)
+        data['event_type'] = kind
+    if data.get('category') not in (None, ''):
+        cat = str(data.get('category')).strip().lower()
+        # An older event may hold a category typed before this was a list;
+        # sending it back unchanged is not a new value and is not refused.
+        if cat not in VALID_EVENT_CATEGORIES and data.get('category') != event.category:
+            return _error('That is not one of the event categories.',
+                          'INVALID_CATEGORY', status.HTTP_400_BAD_REQUEST)
     for field in text_fields:
         value = data.get(field)
         if value is not None:
@@ -686,6 +707,43 @@ def edit_event(request, event_id):
                               status.HTTP_400_BAD_REQUEST)
             event.game = game
         updated.append('game')
+
+    # The edition of that game, for an annual title. Settable in the wizard and
+    # then frozen until 12 November 2026 (inbox 588). An edition of another
+    # game is refused, and changing the game drops an edition that no longer
+    # belongs to it rather than keeping a pair that cannot both be true.
+    from vent_auth.models import GameSeries
+    if 'series' in data or 'series_id' in data:
+        raw = data.get('series', data.get('series_id'))
+        if raw in (None, '', 'null'):
+            event.series = None
+        else:
+            series = (GameSeries.objects.filter(series_id=raw, game=event.game).first()
+                      if str(raw).isdigit() and event.game is not None else None)
+            if series is None:
+                return _error('That edition is not one of this game.',
+                              'SERIES_NOT_OF_GAME', status.HTTP_400_BAD_REQUEST)
+            event.series = series
+        updated.append('series')
+    elif 'game' in data and event.series_id and event.series.game_id != event.game_id:
+        event.series = None
+        updated.append('series')
+
+    # The event's own links (X, Instagram, YouTube ...), set in the wizard and
+    # never again until now (inbox 588). Present means set; an empty address
+    # takes that one off. Checked here, written after the save below.
+    social_links = None
+    if 'social_links' in data:
+        social_links = {}
+        for platform, url in _as_dict(data.get('social_links')).items():
+            platform = str(platform).strip().lower()[:50]
+            url = str(url or '').strip()
+            if not platform:
+                continue
+            if url and not url.lower().startswith(('https://', 'http://')):
+                return _error('A link has to start with https://.',
+                              'INVALID_LINK', status.HTTP_400_BAD_REQUEST)
+            social_links[platform] = url
 
     # The registration window. Present-means-set, empty-means-clear, because
     # taking a closing date off again is a real thing an organiser does and is
@@ -818,6 +876,19 @@ def edit_event(request, event_id):
         return _error('The event cannot end before it starts.',
                       'END_BEFORE_START', status.HTTP_400_BAD_REQUEST)
 
+    # Where it happens, by the same rule Publish holds: a venue for anything
+    # people turn up to, a link for anything they watch. Asked only when this
+    # edit touches one of the three, so an older event that already breaks
+    # the rule can still be renamed (inbox 588).
+    if {'event_type', 'location', 'event_link'} & set(updated):
+        kind = (event.event_type or '').lower()
+        if kind in ('physical', 'hybrid') and not (event.location or '').strip():
+            return _error('Location is required for physical and hybrid events.',
+                          'LOCATION_REQUIRED', status.HTTP_400_BAD_REQUEST)
+        if kind in ('virtual', 'hybrid') and not (event.event_link or '').strip():
+            return _error('Virtual link is required for virtual and hybrid events.',
+                          'LINK_REQUIRED', status.HTTP_400_BAD_REQUEST)
+
     if 'is_active' in data:
         event.is_active = str(data.get('is_active')).lower() in ('1', 'true', 'yes')
         updated.append('is_active')
@@ -839,13 +910,19 @@ def edit_event(request, event_id):
         event.banner = request.FILES['banner']
         updated.append('banner')
 
-    if not updated:
+    if not updated and social_links is None:
         return _error('Nothing to change.', 'NO_FIELDS_TO_UPDATE',
                       status.HTTP_400_BAD_REQUEST)
 
     # save() adds `slug` itself when the name changed, so a rename keeps every
     # link ever shared instead of silently dropping the new slug.
     event.save(update_fields=updated + ['last_updated'])
+    if social_links is not None:
+        for platform, url in social_links.items():
+            SocialLink.objects.filter(event=event, platform=platform).delete()
+            if url:
+                SocialLink.objects.create(event=event, platform=platform, url=url)
+        updated.append('social_links')
 
     if acting_as_admin:
         # An organiser who finds their venue changed deserves to be able to find
