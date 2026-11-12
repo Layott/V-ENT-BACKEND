@@ -61,7 +61,9 @@ def event_shop(request, event_id):
         from rest_framework.response import Response
         return Response(body, status=status.HTTP_402_PAYMENT_REQUIRED)
 
-    name = inputs.read_text(request.data, 'name', max_length=120) or ('%s shop' % event.name)[:120]
+    # One word for a seller at an event, "stall" (CEO, 12 November 2026, inbox
+    # 594-3). A stall already named the old way keeps the name its owner has.
+    name = inputs.read_text(request.data, 'name', max_length=120) or ('%s stall' % event.name)[:120]
     shop = Vendor.objects.create(
         event=event, owner=user, name=name, kind=Vendor.KIND_ORGANISER,
         # The organiser approves their own shop; it trades at once.

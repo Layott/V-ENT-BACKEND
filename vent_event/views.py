@@ -762,9 +762,12 @@ def edit_event(request, event_id):
             setattr(event, field, parsed)
         updated.append(field)
 
+    # Editable after creation (CEO, 12 November 2026, inbox 591). An empty
+    # value is naira, never a blank code: the walk of 12 November sent "" from
+    # a picker and the server stored it, so the event had no currency at all.
     if 'currency' in data:
-        raw = (data.get('currency') or '').strip().upper()
-        if raw and len(raw) > 3:
+        raw = (data.get('currency') or '').strip().upper() or 'NGN'
+        if len(raw) != 3 or not raw.isalpha():
             return _error('A currency is three letters.', 'INVALID_CURRENCY',
                           status.HTTP_400_BAD_REQUEST)
         event.currency = raw
@@ -778,6 +781,13 @@ def edit_event(request, event_id):
         raw = data.get('self_check_in')
         event.self_check_in = raw in (True, 'true', 'True', 1, '1', 'yes')
         updated.append('self_check_in')
+
+    # Whether polls keep taking answers after the event ends: the owners' and
+    # editors' call (inbox 590). A boolean for the same reason as above.
+    if 'polls_after_end' in data:
+        raw = data.get('polls_after_end')
+        event.polls_after_end = raw in (True, 'true', 'True', 1, '1', 'yes')
+        updated.append('polls_after_end')
 
     if 'self_check_in_opens_minutes' in data:
         raw = data.get('self_check_in_opens_minutes')
