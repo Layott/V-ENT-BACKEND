@@ -152,6 +152,13 @@ class Event(models.Model):
     # actually turned up, and attendance is the number they act on.
     self_check_in_opens_minutes = models.PositiveIntegerField(default=120)
 
+    # Whether its polls keep taking answers once the event has ended. The
+    # event's owners and editors decide, not the platform (CEO, 12 November
+    # 2026, inbox 590: "this should be left to the owners or editors of the
+    # event to decide"). On by default, which is how every poll behaved before
+    # the setting existed; a poll's own close and deadline still apply.
+    polls_after_end = models.BooleanField(default=True)
+
     # The event's own website (inbox 360). CEO, 29 September 2026: "allow
     # people be able to like create their own event pages that looks like a
     # site". The same event, drawn at /events/<slug>/site without V-ENT's app
@@ -1898,12 +1905,28 @@ class EventPoll(models.Model):
         return True
 
     def closed(self):
-        """Open, and not past its own deadline."""
+        """Open, not past its own deadline, and the event still taking answers."""
+        return self.closed_reason() is not None
+
+    def closed_reason(self):
+        """Why this poll takes no answers, or None while it does.
+
+        'closed' when its organiser closed it, 'deadline' when its own closing
+        time has passed, 'event_ended' when the event is over and the people
+        who run it chose not to take answers after the end (inbox 590). One
+        answer read by the vote endpoint and by the page, so the screen says a
+        poll is closed before anybody presses anything.
+        """
         if not self.is_open:
-            return True
+            return 'closed'
         if self.closes_at and timezone.now() > self.closes_at:
-            return True
-        return False
+            return 'deadline'
+        event = self.event
+        if not event.polls_after_end:
+            ends = event.ends_at()
+            if ends is not None and timezone.now() > ends:
+                return 'event_ended'
+        return None
 
     def __str__(self):
         return self.question

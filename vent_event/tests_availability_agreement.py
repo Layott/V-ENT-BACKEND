@@ -261,6 +261,8 @@ class EverythingSetAtCreationCanBeChangedTests(TestCase):
             'is_active', 'is_listed',
             # the 18+ switch (inbox 305, 29 September 2026)
             'min_age',
+            # polls after the event ends, the organisers' call (inbox 590)
+            'polls_after_end',
         }
 
         deliberately_fixed = {

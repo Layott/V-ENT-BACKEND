@@ -144,7 +144,8 @@ def serialize_poll(poll, *, ticket=None, is_organiser=False):
     vote, mine = _my_answer(poll, ticket)
     answered = vote is not None
 
-    closed = poll.closed()
+    closed_reason = poll.closed_reason()
+    closed = closed_reason is not None
     # The organiser is running the thing and needs the numbers to run it. A
     # closed poll has nothing left to influence. Everybody else sees the count
     # once they have answered, or if the organiser chose to show it.
@@ -171,6 +172,9 @@ def serialize_poll(poll, *, ticket=None, is_organiser=False):
         'options': [{'id': o.id, 'text': o.text, 'position': o.position, 'game': o.game_id}
                     for o in options],
         'is_open': not closed,
+        # Why it is closed, so the page can say so: 'closed', 'deadline' or
+        # 'event_ended' (inbox 590), or None while it takes answers.
+        'closed_reason': closed_reason,
         'closes_at': poll.closes_at,
         'show_results_before_voting': poll.show_results_before_voting,
         'results_visible': may_see,
@@ -477,7 +481,12 @@ def vote(request, event_id, poll_id):
     if poll is None:
         return _error('Poll not found.', 'NOT_FOUND', status.HTTP_404_NOT_FOUND)
 
-    if poll.closed():
+    reason = poll.closed_reason()
+    if reason == 'event_ended':
+        return _error('This event has ended and its organisers have stopped '
+                      'taking answers.', 'POLL_EVENT_ENDED',
+                      status.HTTP_409_CONFLICT)
+    if reason is not None:
         return _error('This poll has closed.', 'POLL_CLOSED',
                       status.HTTP_409_CONFLICT)
 

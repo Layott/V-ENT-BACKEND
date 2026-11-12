@@ -156,6 +156,7 @@ def serialize_event_card(request, event):
         'min_age': event.min_age,
         'self_check_in': event.self_check_in,
         'self_check_in_opens_minutes': event.self_check_in_opens_minutes,
+        'polls_after_end': event.polls_after_end,
         'entry_fee': str(event.entry_fee) if event.entry_fee is not None else '0',
         'capacity': event.capacity,
         'is_listed': event.is_listed,

@@ -463,6 +463,15 @@ CATCHERS = [
      'the button face catcher still fails without the rule',
      FRONTEND, ['node', 'scripts/check-button-face.mjs', '--self-test'], True),
 
+    # CEO, 12 November 2026 (inbox 594-30): one naira sign. Amounts carry the
+    # naira sign in front; "5,000 NGN" and "N5,000" had both shipped.
+    ('naira sign',
+     'every amount is written with the naira sign',
+     FRONTEND, ['node', 'scripts/check-naira.mjs'], True),
+    ('naira sign self-test',
+     'the naira catcher still catches NGN and bare N amounts',
+     FRONTEND, ['node', 'scripts/check-naira.mjs', '--self-test'], True),
+
     # Found on the Apple review walk (inbox 587): the ticket checkout's close
     # was an icon with no name, and 34 other icon-only buttons the same.
     ('icon buttons',
