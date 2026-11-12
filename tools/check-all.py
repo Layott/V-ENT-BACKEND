@@ -909,6 +909,17 @@ CATCHERS = [
     ('stale gates',
      'a gate box unticked while its own check already passes',
      ROOT, [sys.executable, os.path.join(BACKEND, 'tools', 'check-stale-gates.py')], False),
+    # A tool that rewrites every line ending (sed -i on a CRLF file, twice:
+    # 11 and 12 November 2026) turns a one-line edit into the whole file.
+    ('line endings',
+     'a staged file does not have every line ending flipped',
+     BACKEND, [sys.executable, 'tools/check-line-endings.py', BACKEND], True),
+    ('line endings (frontend)',
+     'a staged frontend file does not have every line ending flipped',
+     FRONTEND, [sys.executable, os.path.join(BACKEND, 'tools', 'check-line-endings.py'), FRONTEND], True),
+    ('line endings self-test',
+     'the line ending catcher catches a flip and leaves real edits alone',
+     BACKEND, [sys.executable, 'tools/check-line-endings.py', '--self-test'], True),
 ]
 
 

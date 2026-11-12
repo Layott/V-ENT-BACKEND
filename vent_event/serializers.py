@@ -113,6 +113,12 @@ def _banner(request, event):
 def serialize_event_card(request, event):
     """Compact shape for listing cards. Emits both `id` and `event_id`."""
     tiers = list(event.ticket_tiers.all())
+    # Where it happens, by kind (inbox 588): an online event has no venue to
+    # show and an in-person one no stream link, whatever is still stored from
+    # before the organiser changed the kind. Unknown kinds keep both.
+    kind = (event.event_type or '').lower()
+    in_person = kind != 'virtual'
+    online = kind != 'physical'
     return {
         'id': event.event_id,
         'event_id': event.event_id,
@@ -128,23 +134,23 @@ def serialize_event_card(request, event):
         'category': event.category,
         'start_date': event.start_date,
         'end_date': event.end_date,
-        'location': event.location,
+        'location': event.location if in_person else None,
         # Getting there. `location` is a line somebody typed, which is enough to
         # print on a ticket and not enough to travel to.
-        'venue_name': event.venue_name,
-        'map_link': event.map_link,
+        'venue_name': event.venue_name if in_person else '',
+        'map_link': event.map_link if in_person else '',
         # A search, not a pin, and named so nobody mistakes it for one. An
         # organiser who drops a real pin gets `map_link` above; everybody else
         # gets the address handed to a map rather than nothing at all. Kept
         # separate because a search for "The Dome, Lagos" can land on the wrong
         # Dome, and a page that presented that as the venue would be lying.
-        'map_search_url': map_search_url(event),
+        'map_search_url': map_search_url(event) if in_person else None,
         # The pin, for the map drawn on the page. Null where the organiser has
         # not given one, and the page says so rather than centring on nowhere.
-        'latitude': float(event.latitude) if event.latitude is not None else None,
-        'longitude': float(event.longitude) if event.longitude is not None else None,
-        'directions': event.directions,
-        'virtual_link': event.event_link,
+        'latitude': float(event.latitude) if in_person and event.latitude is not None else None,
+        'longitude': float(event.longitude) if in_person and event.longitude is not None else None,
+        'directions': event.directions if in_person else '',
+        'virtual_link': event.event_link if online else None,
         # 18 when the organiser marked it 18+; 0 is everyone. On the card as
         # well as the page, so a list never describes a different event.
         'min_age': event.min_age,
@@ -166,6 +172,9 @@ def serialize_event_card(request, event):
         'attendees_count': sum((t.sold or 0) for t in tiers),
         'interaction_count': event.interaction_count,
         'game': event.game.game_title if event.game else None,
+        # The edition, named the way a tournament names it (one model per thing).
+        'series_id': event.series_id,
+        'series_name': event.series.name if event.series_id else None,
         # The public list only. A type behind an access code or an
         # influencer's link is a presale; listing it here, on every card and
         # the detail page, told anybody reading the JSON its name and price
