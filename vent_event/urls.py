@@ -14,6 +14,7 @@ from . import views_sponsors
 from . import views_holds
 from . import views_announce
 from . import views_together
+from . import views_location_history
 from . import views_vendor_review
 from . import views_metrics
 from . import views_track
@@ -277,7 +278,14 @@ urlpatterns = [
          name="export_event_metrics"),
     # Going together: attendance, the area people leave from, meet-up pings
     # (inbox 305). Rules in together.py.
-    path("admin/location-history/", views_together.location_history, name="location_history"),
+    # The admin location-history doors (305b, 305c, 596): search, one
+    # person's whole history, and who has looked.
+    path("admin/location-history/", views_location_history.location_history,
+         name="location_history"),
+    path("admin/location-history/person/<str:username>/", views_location_history.person_history,
+         name="location_history_person"),
+    path("admin/location-history/log/", views_location_history.lookup_log,
+         name="location_history_log"),
     path("<str:event_id>/together/", views_together.together_state, name="together_state"),
     path("<str:event_id>/together/me/", views_together.together_me, name="together_me"),
     path("<str:event_id>/together/approve/", views_together.together_approve, name="together_approve"),

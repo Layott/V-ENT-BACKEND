@@ -55,10 +55,12 @@ def _get_reader():
 def client_ip(request):
     """The caller's real address.
 
-    nginx sits in front in production and appends the client to
-    X-Forwarded-For, so REMOTE_ADDR is always the proxy. Only the first entry in
-    that header is meaningful; the rest can be forged by the client. In
-    development there is no proxy, so REMOTE_ADDR is used directly.
+    nginx sits in front in production, so REMOTE_ADDR is always the proxy, and
+    it sets X-Forwarded-For to the caller's own address (or, for the Next
+    server, a chain starting with the person it is acting for), so the first
+    entry is the person and cannot be chosen by them ($vent_forwarded_for in
+    deploy/nginx-limits.conf, inbox 597). In development there is no proxy, so
+    REMOTE_ADDR is used directly.
     """
     if not settings.DEBUG:
         forwarded = request.META.get('HTTP_X_FORWARDED_FOR', '')

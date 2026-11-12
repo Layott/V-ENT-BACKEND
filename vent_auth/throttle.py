@@ -32,9 +32,13 @@ logger = logging.getLogger(__name__)
 def client_ip(request):
     """The caller's address, trusting the first hop of X-Forwarded-For.
 
-    nginx sets it in front of this, and that is the only proxy in the path. The
-    first entry is the client; anything after it is the chain, and anything a
-    client puts there itself would be appended, not prepended.
+    nginx sets the header in front of this, and since 12 November 2026 (inbox
+    597) it sets it to the caller's own address, never to a chain the caller
+    began: only the box itself (the Next server forwarding a sign-in) may hand
+    on a chain, whose first entry is then the person signing in. Before that,
+    nginx appended to whatever the caller sent, so a visitor could choose the
+    first entry and with it the address their sign-in limit was counted on.
+    See $vent_forwarded_for in deploy/nginx-limits.conf.
     """
     forwarded = request.META.get('HTTP_X_FORWARDED_FOR', '')
     if forwarded:
