@@ -10,7 +10,8 @@ reader's language.
   DELETE /event/<ref>/together/approve/         take that back
   POST   /event/<ref>/together/ping/            ask somebody to meet up
   POST   /event/<ref>/together/ping/<id>/answer/  accept or decline
-  GET    /event/admin/location-history/         admins with view_location_history
+
+The admin location-history doors live in views_location_history.py.
 """
 from django.db import IntegrityError, transaction
 from django.db.models import Q
@@ -19,8 +20,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from vent_auth.decorators import ROLE_PERMISSIONS, admin_role_required
-from vent_auth.models import AdminAction, Users
+from vent_auth.models import Users
 
 from . import together
 from .models import DepartureApproval, DepartureRecord, EventPing, EventPresence
@@ -280,37 +280,3 @@ def together_ping_answer(request, event_id, ping_id):
                             link='/events/%s?tab=together' % event.slug,
                             metadata={'code': 'PING_ACCEPTED', 'event': event.slug})
     return _ok(_ping_row(ping, viewer), 'Answered.')
-
-
-@api_view(['GET'])
-@admin_role_required(ROLE_PERMISSIONS['view_location_history'])
-def location_history(request):
-    """Where people said they were leaving from, for a stated reason.
-
-    Search by event (slug) and/or by person (username); at least one. The
-    reason is required and every search is written to AdminAction, whether it
-    finds anything or not (305c).
-    """
-    reason = inputs.read_text(request.query_params, 'reason', max_length=500)
-    event_ref = inputs.read_text(request.query_params, 'event', max_length=200)
-    person = inputs.read_text(request.query_params, 'person', max_length=129).lstrip('@')
-    if len(reason) < 5:
-        return _err('Say why you are looking, for example the report number.', 'REASON_REQUIRED')
-    if not event_ref and not person:
-        return _err('Search by an event, a person, or both.', 'SEARCH_TERM_REQUIRED')
-    rows = DepartureRecord.objects.select_related('event', 'user')
-    if event_ref:
-        event = event_by_ref(event_ref)
-        rows = rows.filter(event=event) if event else rows.none()
-    if person:
-        rows = rows.filter(user__username__iexact=person)
-    rows = list(rows[:500])
-    AdminAction.objects.create(
-        admin=request.admin_user, action_type='search_location_history',
-        target_model='DepartureRecord', target_id=(person or event_ref)[:100], reason=reason[:1000],
-        metadata={'event': event_ref, 'person': person, 'results': len(rows)})
-    return _ok({'results': [{
-        'event': {'name': r.event.name, 'slug': r.event.slug},
-        'person': _person(r.user),
-        'area': r.area, 'visibility': r.visibility, 'set_at': r.set_at,
-    } for r in rows]}, 'Location history')

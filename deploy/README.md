@@ -6,6 +6,9 @@ rebuilt from scratch without copying snippets out of a document.
 | File | Goes to |
 |---|---|
 | `nginx-vent.conf` | `/etc/nginx/sites-available/vent` (symlink into `sites-enabled/`) |
+| `nginx-limits.conf` | `/etc/nginx/conf.d/vent-limits.conf` (rate zones, and `$vent_forwarded_for`, the only X-Forwarded-For the app is handed) |
+| `nginx-cloudflare.conf` | `/etc/nginx/conf.d/vent-cloudflare.conf`, written by `cloudflare-ips.sh --install`; the copy here is `--print` output for review |
+| `cloudflare-ips.sh` | run from the checkout: `sudo deploy/cloudflare-ips.sh --install` (and monthly from cron); refuses a list that looks wrong |
 | `systemd/vent-api.service` | `/etc/systemd/system/vent-api.service` |
 | `systemd/vent-web@.service` | `/etc/systemd/system/vent-web@.service`, then `systemctl enable --now vent-web@3000 vent-web@3001` |
 | `backup.sh` | `/srv/vent/deploy/backup.sh`, cron `0 3 * * *` |
