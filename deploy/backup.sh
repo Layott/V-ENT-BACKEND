@@ -46,8 +46,14 @@ ENV_FILE=${BACKUP_ENV_FILE:-/srv/vent/backend/.env}
 # dump taken by hand on 7 September held 159 tables and 83 INSERT statements.
 # Set well below that so a quiet week does not trip it, and well above zero so a
 # schema-only or truncated dump does.
-MIN_TABLES=100
-MIN_INSERTS=20
+#
+# Overridable from the crontab line, for one case only: a NEW box whose database
+# is still nearly empty. On 14 November 2026 InterServer deleted the server, and
+# the rebuild starts from migrations alone, which may hold fewer than 20 tables
+# with rows. Lower BACKUP_MIN_INSERTS on the crontab line for the first weeks,
+# then take it off again (see tasks/vps/REBUILD-2026-11-14.md).
+MIN_TABLES=${BACKUP_MIN_TABLES:-100}
+MIN_INSERTS=${BACKUP_MIN_INSERTS:-20}
 
 # Where a failure gets sent. Read from .env as BACKUP_ALERT_EMAIL so it can be
 # changed without touching this file; there is deliberately no default address
