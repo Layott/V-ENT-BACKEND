@@ -1,0 +1,43 @@
+# deploy/crontab.vent - the vent user's crontab on the V-ENT server, kept in git.
+#
+#   Install (as vent):  crontab /srv/vent/backend/deploy/crontab.vent
+#   Compare:            crontab -l | diff - /srv/vent/backend/deploy/crontab.vent
+#
+# On 14 November 2026 InterServer deleted the server and its crontab with it. The
+# lines below had lived only on that box, each added the day its feature shipped.
+# tools/check-crontab.py (in check-all) fails when a command written to run on a
+# schedule has no line here, so a new one cannot ship without it.
+#
+# Times are the server's clock (Africa/Lagos, set when the box is built). Every job
+# writes to its own log under /srv/vent/logs (rotated by deploy/logrotate-vent).
+# MAILTO is empty on purpose: backup.sh and vent-offsite-backup.sh mail
+# BACKUP_ALERT_EMAIL themselves, and cron's own mail would go nowhere useful.
+SHELL=/bin/bash
+MAILTO=""
+
+# ---------------------------------------------------------------- backups
+# The dump and media archive, checked by contents.
+0 3 * * * bash /srv/vent/backend/deploy/backup.sh >> /srv/vent/logs/backup.log 2>&1
+# The copy off the box, to the Backblaze bucket, checked by size.
+45 3 * * * bash /srv/vent/backend/deploy/vent-offsite-backup.sh >> /srv/vent/logs/offsite.log 2>&1
+# Dead man's switch: mails if no fresh dump exists, whatever the 03:00 run said.
+0 11 * * * bash /srv/vent/backend/deploy/backup.sh --check-freshness >> /srv/vent/logs/backup.log 2>&1
+
+# ------------------------------------------------------------ every minute
+* * * * * cd /srv/vent/backend && ./venv/bin/python manage.py settle_no_shows >> /srv/vent/logs/settle_no_shows.log 2>&1
+* * * * * cd /srv/vent/backend && ./venv/bin/python manage.py studio_run >> /srv/vent/logs/studio.log 2>&1
+
+# ------------------------------------------------------ every few minutes
+*/5 * * * * cd /srv/vent/backend && ./venv/bin/python manage.py send_due_reminders >> /srv/vent/logs/reminders.log 2>&1
+*/10 * * * * cd /srv/vent/backend && ./venv/bin/python manage.py make_due_editions >> /srv/vent/logs/editions.log 2>&1
+*/15 * * * * cd /srv/vent/backend && ./venv/bin/python manage.py settle_pending_topups >> /srv/vent/logs/topups.log 2>&1
+*/15 * * * * cd /srv/vent/backend && ./venv/bin/python manage.py pay_due_prizes >> /srv/vent/logs/prizes.log 2>&1
+
+# ------------------------------------------------------------------ hourly
+# Safe to run as often as you like: a period already charged is never charged twice.
+5 * * * * cd /srv/vent/backend && ./venv/bin/python manage.py run_renewals >> /srv/vent/logs/renewals.log 2>&1
+
+# ----------------------------------------------------------------- nightly
+0 4 * * * cd /srv/vent/backend && ./venv/bin/python manage.py refresh_rates >> /srv/vent/logs/rates.log 2>&1
+15 4 * * * cd /srv/vent/backend && ./venv/bin/python manage.py purge_record_bin >> /srv/vent/logs/record_bin.log 2>&1
+30 4 * * * cd /srv/vent/backend && ./venv/bin/python manage.py expire_premium >> /srv/vent/logs/premium.log 2>&1

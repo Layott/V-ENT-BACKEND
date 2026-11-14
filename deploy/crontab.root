@@ -1,0 +1,14 @@
+# deploy/crontab.root - root's crontab on the V-ENT server, kept in git for the same
+# reason as deploy/crontab.vent: the old box's was lost with it on 14 November 2026.
+#
+#   Install (as root):  crontab /srv/vent/backend/deploy/crontab.root
+#
+# Only what needs root lives here. The custom domain certificates are a systemd
+# timer (deploy/systemd/vent-custom-domains.timer), not cron.
+SHELL=/bin/bash
+MAILTO=""
+
+# Cloudflare's address ranges, refreshed monthly, once the orange cloud is on
+# (tasks/vps/CLOUDFLARE-DNS.md). Refuses a list that looks wrong and restores
+# the old file if nginx -t fails.
+20 5 1 * * /srv/vent/backend/deploy/cloudflare-ips.sh --install >> /var/log/vent-cloudflare-ips.log 2>&1

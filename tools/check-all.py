@@ -823,6 +823,22 @@ CATCHERS = [
     ('deploy restore',
      'a failed frontend build puts back the files the live servers read',
      BACKEND, [shutil.which('bash') or 'bash', 'tools/test-deploy-restore.sh', 'deploy/deploy.sh'], True),
+    # InterServer deleted the server on 14 November 2026 and every backup on it,
+    # because every backup was on that disk. The off-site copy must refuse loudly
+    # when it is not set up and must check what landed in the bucket; this runs
+    # it against a stand-in rclone both ways.
+    ('offsite backup',
+     'the nightly copy off the box refuses when unconfigured and checks the bucket',
+     BACKEND, [shutil.which('bash') or 'bash', 'tools/test-offsite-backup.sh', 'deploy/vent-offsite-backup.sh'], True),
+    # The same day showed the crontab and the mail relay script had only ever
+    # lived on that box. Every command written to run on a schedule must have
+    # its line in deploy/crontab.vent, or a rebuilt box silently runs nothing.
+    ('crontab',
+     'every scheduled command has its line in deploy/crontab.vent',
+     BACKEND, [sys.executable, 'tools/check-crontab.py'], True),
+    ('crontab self-test',
+     'the crontab catcher still catches a missing line and leaves one-off commands alone',
+     BACKEND, [sys.executable, 'tools/check-crontab.py', '--self-test'], True),
     # A screen showing the username where every other screen shows the full
     # name: twice on 17 October 2026 (the happenings ticker, the feeds panel).
     # Debt: the ledger holds the count of entrant_name reads, a new one blocks.

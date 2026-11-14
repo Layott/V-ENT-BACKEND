@@ -1,0 +1,16 @@
+# deploy/logrotate-vent - rotation for every log the cron jobs in deploy/crontab.vent
+# write. Two jobs run every minute, so without this /srv/vent/logs grows until the
+# disk fills.
+#
+#   Install: sudo cp /srv/vent/backend/deploy/logrotate-vent /etc/logrotate.d/vent
+#   Check:   sudo logrotate -d /etc/logrotate.d/vent
+/srv/vent/logs/*.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su vent vent
+}

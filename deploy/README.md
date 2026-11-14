@@ -11,7 +11,12 @@ rebuilt from scratch without copying snippets out of a document.
 | `cloudflare-ips.sh` | run from the checkout: `sudo deploy/cloudflare-ips.sh --install` (and monthly from cron); refuses a list that looks wrong |
 | `systemd/vent-api.service` | `/etc/systemd/system/vent-api.service` |
 | `systemd/vent-web@.service` | `/etc/systemd/system/vent-web@.service`, then `systemctl enable --now vent-web@3000 vent-web@3001` |
-| `backup.sh` | `/srv/vent/deploy/backup.sh`, cron `0 3 * * *` |
+| `backup.sh` | run in place from `/srv/vent/backend/deploy/`, cron `0 3 * * *` (see `crontab.vent`); `BACKUP_MIN_INSERTS` on the cron line lowers the floor while a new box's database is still nearly empty |
+| `vent-offsite-backup.sh` | cron `45 3 * * *`: copies the dumps, media and private folders to the Backblaze bucket and checks the copy by size; refuses loudly until `rclone config` and `/srv/vent/offsite.conf` exist |
+| `crontab.vent` | the vent user's whole crontab: `crontab /srv/vent/backend/deploy/crontab.vent`; `tools/check-crontab.py` fails when a scheduled command has no line here |
+| `crontab.root` | root's crontab (the monthly Cloudflare range refresh): `sudo crontab /srv/vent/backend/deploy/crontab.root` |
+| `logrotate-vent` | `/etc/logrotate.d/vent`, rotates `/srv/vent/logs/*.log` |
+| `mail-relay.sh` | `sudo deploy/mail-relay.sh gmail --test <address>`: points Postfix at Gmail user SMTP as info@v-ent.co, with the sender rewrite in the same change; credential in `/etc/vent/mail-relay/gmail.cred` |
 | `deploy.sh` | `/srv/vent/deploy/deploy.sh` is a SYMLINK to `backend/deploy/deploy.sh`; run by hand after merging to `main` |
 | `verify-live.sh` | run by `deploy.sh` after the roll; fails if an instance is not serving this build |
 
@@ -22,6 +27,9 @@ cannot get it back. The units that exist are `vent-api`, `vent-web@3000` and
 `vent-web@3001`.
 
 Full build order, sizing and the mail decision: `V-ENT/tasks/vps/INTERSERVER-SETUP.md`.
+Rebuilding from nothing (the old box was deleted by InterServer on 14 November 2026):
+`V-ENT/tasks/vps/REBUILD-2026-11-14.md`. Three files above (`mail-relay.sh` and both crontabs)
+had lived only on that box and were rewritten into git the same day.
 
 ## The one thing not to get wrong
 
